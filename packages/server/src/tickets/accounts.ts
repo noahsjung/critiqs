@@ -1,0 +1,478 @@
+import { TRACKERS, type TicketsConfig, type TrackerAccountView, type TrackerId } from "@critiqs/core";
+import { decryptToken, encryptToken, trackerTokenBinding, validEncryptionKey } from "../ai/secrets.ts";
+import { fail } from "../errors.ts";
+import { normalizeEmail } from "../signin.ts";
+import { currentReviewer, requireUser } from "../operations.ts";
+import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
+import type { SignInTokens, TrackerAdapter, TrackerIdentity, TrackerToken } from "./trackers/index.ts";
+import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken } from "./trackers/linear.ts";
+
+// Each person's own tracker accounts ("Your trackers"), one per person and
+// tracker. Only that person sees or changes them. Tokens are verified with the
+// tracker, then stored only encrypted, bound to the person and tracker; no
+// view ever carries one. Connecting needs the operator's encryption key, the
+// same one that protects AI provider keys.
+
+/** What a deployment's operator set up for tickets. Never sent to browsers whole. */
+export interface TicketsDeployment {
+  /** Encrypts tracker tokens; without it, no tracker can be connected and tickets aren't offered. */
+  encryptionKey: string | null;
+  /** The operator's Linear OAuth app; without it, people paste a Linear API key instead of signing in. */
+  linear: LinearApp | null;
+  /** Linear's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
+  linearApiUrl: string;
+  linearAppUrl: string;
+}
+
+/**
+ * Reads the operator's settings: `CRITIQS_AI_ENCRYPTION_KEY`,
+ * `CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` (both, or
+ * neither), and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`.
+ */
+export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>): TicketsDeployment {
+  const clientId = env.CRITIQS_LINEAR_CLIENT_ID?.trim();
+  const clientSecret = env.CRITIQS_LINEAR_CLIENT_SECRET?.trim();
+  return {
+    encryptionKey: validEncryptionKey(env.CRITIQS_AI_ENCRYPTION_KEY) ? env.CRITIQS_AI_ENCRYPTION_KEY! : null,
+    linear: clientId && clientSecret ? { clientId, clientSecret } : null,
+    linearApiUrl: env.CRITIQS_LINEAR_API_URL?.trim() || LINEAR_API_URL,
+    linearAppUrl: env.CRITIQS_LINEAR_APP_URL?.trim() || LINEAR_APP_URL,
+  };
+}
+
+/** The trackers people can connect so far. */
+export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
+
+/** What `/critiqs/config` reports: the trackers offered and how each connects; null, so tickets aren't offered, without an encryption key. */
+export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
+  if (deployment.encryptionKey === null) return null;
+  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })) };
+}
+
+/** The adapter that talks to a tracker, at the deployment's addresses. */
+export function trackerAdapter(tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): Pick<TrackerAdapter, "verify"> {
+  if (tracker !== "linear") fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
+  return linearAdapter({ fetch: fetchFn, baseUrl: deployment.linearApiUrl });
+}
+
+export function trackerLabel(tracker: TrackerId): string {
+  return TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
+}
+
+function ticketStore(store: Store): NonNullable<Store["tickets"]> {
+  if (store.tickets === undefined) fail("unavailable", "This Critiqs backend doesn't keep tracker accounts.");
+  return store.tickets;
+}
+
+function requireKey(deployment: TicketsDeployment): string {
+  if (deployment.encryptionKey === null) {
+    fail("unavailable", "This deployment can't store tracker accounts yet. Its operator must set an encryption key (CRITIQS_AI_ENCRYPTION_KEY) first.");
+  }
+  return deployment.encryptionKey;
+}
+
+function requireOffered(tracker: TrackerId) {
+  if (!OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
+}
+
+/** An account as Your trackers shows it: never a token. */
+export function trackerAccountView(record: TrackerAccountRecord): TrackerAccountView {
+  return {
+    tracker: record.tracker,
+    method: record.method,
+    accountName: record.accountName,
+    site: record.site?.name ?? null,
+    connectedAt: record.connectedAt,
+    attribution: record.attribution,
+  };
+}
+
+/** The signed-in person's tracker accounts, in the order trackers are offered. */
+export async function listTrackerAccounts(store: Store, identity: Identity | null): Promise<TrackerAccountView[]> {
+  const { user } = await currentReviewer(store, identity);
+  if (user === null) return [];
+  const records = await ticketStore(store).accounts.list(user._id);
+  const order = (tracker: TrackerId) => TRACKERS.findIndex((entry) => entry.id === tracker);
+  return records.sort((a, b) => order(a.tracker) - order(b.tracker)).map(trackerAccountView);
+}
+
+/** The signed-in person who is connecting a tracker, before their token is verified or encrypted; refused when tokens can't be stored. */
+export async function requireTrackerPerson(store: Store, identity: Identity | null, deployment: TicketsDeployment, args: { tracker: TrackerId }): Promise<{ userId: string }> {
+  ticketStore(store);
+  requireKey(deployment);
+  requireOffered(args.tracker);
+  return { userId: (await requireUser(store, identity))._id };
+}
+
+/** A verified account with its tokens already encrypted for its person (`trackerTokenBinding`). */
+export interface SealedAccount {
+  tracker: TrackerId;
+  method: "oauth" | "token";
+  identity: TrackerIdentity;
+  access: StoredToken;
+  refresh: StoredToken | null;
+  expiresAt: number | null;
+}
+
+/**
+ * Stores a person's account, replacing any they had for that tracker: one per
+ * person and tracker. Their attribution default carries over. One transaction.
+ */
+export async function saveTrackerAccount(store: Store, userId: string, account: SealedAccount, now: number): Promise<TrackerAccountView> {
+  const accounts = ticketStore(store).accounts;
+  const fields = {
+    method: account.method,
+    accountId: account.identity.accountId,
+    accountName: account.identity.accountName,
+    access: account.access,
+    connectedAt: now,
+    updatedAt: now,
+  };
+  const existing = await accounts.find(userId, account.tracker);
+  if (existing !== null) {
+    await accounts.patch(existing._id, { ...fields, site: account.identity.site, refresh: account.refresh, expiresAt: account.expiresAt, refreshLease: null });
+    return trackerAccountView((await accounts.find(userId, account.tracker))!);
+  }
+  const record = {
+    userId,
+    tracker: account.tracker,
+    ...fields,
+    attribution: true,
+    ...(account.identity.site === null ? {} : { site: account.identity.site }),
+    ...(account.refresh === null ? {} : { refresh: account.refresh }),
+    ...(account.expiresAt === null ? {} : { expiresAt: account.expiresAt }),
+  };
+  const id = await accounts.insert(record);
+  return trackerAccountView({ _id: id, ...record });
+}
+
+export type SignedInSave = { status: "saved" } | { status: "other-email" };
+
+/**
+ * Stores the account of a finished sign-in for the person who started it, but
+ * only when the tracker account's email is their Critiqs email (compared as
+ * sign-in compares addresses). The window that finishes a sign-in can't prove
+ * it belongs to the person who started it, so a sign-in finished by someone
+ * else, into another tracker account, stores nothing. One transaction.
+ */
+export async function saveSignedInAccount(store: Store, args: { userId: string; account: SealedAccount }, now: number): Promise<SignedInSave> {
+  const user = await store.users.get(args.userId);
+  const critiqs = user?.email == null ? null : normalizeEmail(user.email);
+  const tracker = args.account.identity.email === null ? null : normalizeEmail(args.account.identity.email);
+  if (critiqs === null || tracker !== critiqs) return { status: "other-email" };
+  await saveTrackerAccount(store, args.userId, args.account, now);
+  return { status: "saved" };
+}
+
+/** Stores the signed-in person's own account, sealed for them in an earlier step; refused for anyone else. */
+export async function saveOwnTrackerAccount(store: Store, identity: Identity | null, args: { userId: string; account: SealedAccount }, now: number): Promise<TrackerAccountView> {
+  const user = await requireUser(store, identity);
+  if (user._id !== args.userId) fail("forbidden", "Connect your tracker again.");
+  return await saveTrackerAccount(store, user._id, args.account, now);
+}
+
+/** Removes the signed-in person's account for a tracker and its tokens. Tickets they linked keep their links. */
+export async function disconnectTracker(store: Store, identity: Identity | null, args: { tracker: TrackerId }): Promise<void> {
+  const accounts = ticketStore(store).accounts;
+  const user = await requireUser(store, identity);
+  const existing = await accounts.find(user._id, args.tracker);
+  if (existing !== null) await accounts.delete(existing._id);
+}
+
+/** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */
+export async function setTrackerAttribution(store: Store, identity: Identity | null, args: { tracker: TrackerId; attribution: boolean }, now: number): Promise<TrackerAccountView> {
+  const accounts = ticketStore(store).accounts;
+  const user = await requireUser(store, identity);
+  const existing = await accounts.find(user._id, args.tracker);
+  if (existing === null) fail("not-found", `Connect ${trackerLabel(args.tracker)} first.`);
+  await accounts.patch(existing._id, { attribution: args.attribution, updatedAt: now });
+  return trackerAccountView({ ...existing, attribution: args.attribution, updatedAt: now });
+}
+
+const MAX_TOKEN_LENGTH = 500;
+
+/** A pasted token, trimmed, or why it can't be one. */
+export function parsePastedToken(raw: string): string {
+  const token = raw.trim();
+  if (token === "") fail("invalid", "Paste your API key.");
+  if (token.length > MAX_TOKEN_LENGTH || /\s/.test(token)) fail("invalid", "That doesn't look like an API key. Copy the key again and paste only the key.");
+  return token;
+}
+
+/** The steps of connecting with a pasted token; each is its own transaction. */
+export interface ConnectSteps {
+  requirePerson(): Promise<{ userId: string }>;
+  save(userId: string, account: SealedAccount): Promise<TrackerAccountView>;
+}
+
+/**
+ * Connects a tracker with a personal token the person pasted: checks they may,
+ * asks the tracker whose token it is, and stores it encrypted for them.
+ */
+export async function connectTrackerWithToken(
+  steps: ConnectSteps,
+  deployment: TicketsDeployment,
+  args: { tracker: TrackerId; token: string },
+  fetchFn: typeof fetch = fetch,
+): Promise<TrackerAccountView> {
+  const value = parsePastedToken(args.token);
+  const { userId } = await steps.requirePerson();
+  const identity = await trackerAdapter(args.tracker, deployment, fetchFn).verify({ method: "token", value });
+  const access = await encryptToken(requireKey(deployment), trackerTokenBinding(args.tracker, userId), value);
+  return await steps.save(userId, { tracker: args.tracker, method: "token", identity, access, refresh: null, expiresAt: null });
+}
+
+/** Encrypts a sign-in's tokens, verified as `identity`, for their person. */
+export async function sealSignIn(deployment: TicketsDeployment, tracker: TrackerId, userId: string, identity: TrackerIdentity, tokens: SignInTokens): Promise<SealedAccount> {
+  const key = requireKey(deployment);
+  const binding = trackerTokenBinding(tracker, userId);
+  return {
+    tracker,
+    method: "oauth",
+    identity,
+    access: await encryptToken(key, binding, tokens.access),
+    refresh: tokens.refresh === null ? null : await encryptToken(key, binding, tokens.refresh),
+    expiresAt: tokens.expiresAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tracker sign-in (OAuth): started by the person, finished in a window that
+// the tracker sends back to the backend.
+
+/** How long a started sign-in waits for the tracker to send the person back. */
+export const SIGN_IN_MINUTES = 10;
+
+/**
+ * Starts a sign-in for the signed-in person. `state` and `verifier` are fresh
+ * random secrets; `bindingHash` is the hash of a third, which only the
+ * interface that started the sign-in receives. Refused when the tracker has no
+ * sign-in here.
+ */
+export async function startTrackerSignIn(
+  store: Store,
+  identity: Identity | null,
+  deployment: TicketsDeployment,
+  args: { tracker: TrackerId; state: string; verifier: string; bindingHash: string },
+  now: number,
+): Promise<void> {
+  const tickets = ticketStore(store);
+  requireKey(deployment);
+  requireOffered(args.tracker);
+  if (args.tracker !== "linear" || deployment.linear === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
+  const user = await requireUser(store, identity);
+  await tickets.signIns.insert({
+    state: args.state,
+    userId: user._id,
+    tracker: args.tracker,
+    verifier: args.verifier,
+    bindingHash: args.bindingHash,
+    expiresAt: now + SIGN_IN_MINUTES * 60 * 1000,
+  });
+}
+
+export type OpenedSignIn = { status: "opened"; verifier: string } | { status: "expired" } | { status: "used" } | { status: "other-browser" };
+
+/**
+ * Opens a started sign-in's window, once, when it brings the secret only the
+ * interface that started it was given (`bindingHash`, hashed). Without it, as
+ * from a forwarded link, nothing changes.
+ */
+export async function openTrackerSignIn(store: Store, args: { tracker: TrackerId; state: string; bindingHash: string }, now: number): Promise<OpenedSignIn> {
+  const signIns = ticketStore(store).signIns;
+  const signIn = await signIns.findByState(args.state);
+  if (signIn === null || signIn.tracker !== args.tracker) return { status: "expired" };
+  if (signIn.expiresAt <= now) {
+    await signIns.delete(signIn._id);
+    return { status: "expired" };
+  }
+  if (signIn.bindingHash === undefined || signIn.bindingHash !== args.bindingHash) return { status: "other-browser" };
+  if (signIn.openedAt !== undefined) return { status: "used" };
+  await signIns.patch(signIn._id, { openedAt: now });
+  return { status: "opened", verifier: signIn.verifier ?? "" };
+}
+
+export type ClaimedSignIn = { status: "claimed"; userId: string; verifier: string } | { status: "expired" } | { status: "other-browser" };
+
+/**
+ * Ends a sign-in when the tracker sends the person back, whatever the outcome:
+ * each state is used once, and only by the browser whose window opened it,
+ * which holds the same secret in a cookie.
+ */
+export async function claimTrackerSignIn(store: Store, args: { tracker: TrackerId; state: string; bindingHash: string }, now: number): Promise<ClaimedSignIn> {
+  const signIns = ticketStore(store).signIns;
+  const signIn = await signIns.findByState(args.state);
+  if (signIn === null || signIn.tracker !== args.tracker) return { status: "expired" };
+  if (signIn.openedAt === undefined || signIn.bindingHash === undefined || signIn.bindingHash !== args.bindingHash) return { status: "other-browser" };
+  await signIns.delete(signIn._id);
+  if (signIn.expiresAt <= now) return { status: "expired" };
+  return { status: "claimed", userId: signIn.userId, verifier: signIn.verifier ?? "" };
+}
+
+// ---------------------------------------------------------------------------
+// Access tokens, refreshed when a sign-in's has expired. Linear rotates
+// refresh tokens, so two refreshes at once would end the connection: one runs
+// at a time per person and tracker, under a short lease.
+
+/** How early before it expires an access token is refreshed. */
+export const REFRESH_MARGIN_MS = 5 * 60 * 1000;
+/** How long one refresh may hold the lease before another may take over. */
+export const REFRESH_LEASE_MS = 30 * 1000;
+/**
+ * How long before its lease ends a refresh's request to the tracker is called
+ * off, leaving time to encrypt and save the new tokens while the lease holds.
+ */
+export const REFRESH_SAVE_MS = 10 * 1000;
+
+export type RefreshClaim =
+  | { status: "missing" }
+  /** The access token is good as it is. */
+  | { status: "ready"; method: "oauth" | "token"; access: StoredToken }
+  /** Another refresh is running; ask again shortly. */
+  | { status: "busy" }
+  /** This caller holds the lease until `until`, and refreshes the connection made at `connectedAt` with this token. */
+  | { status: "claimed"; refresh: StoredToken; until: number; connectedAt: number }
+  /** The access token expired and there's no refresh token. */
+  | { status: "ended" };
+
+/** Reads a person's account for a tracker and, when its access token is due, takes the refresh lease under `leaseId`. One transaction. */
+export async function claimTokenRefresh(store: Store, args: { userId: string; tracker: TrackerId; leaseId: string }, now: number): Promise<RefreshClaim> {
+  const accounts = ticketStore(store).accounts;
+  const account = await accounts.find(args.userId, args.tracker);
+  if (account === null) return { status: "missing" };
+  if (account.expiresAt === undefined || account.expiresAt > now + REFRESH_MARGIN_MS) return { status: "ready", method: account.method, access: account.access };
+  if (account.refreshLease !== undefined && account.refreshLease.until > now && account.refreshLease.id !== args.leaseId) return { status: "busy" };
+  if (account.refresh === undefined) return { status: "ended" };
+  const until = now + REFRESH_LEASE_MS;
+  await accounts.patch(account._id, { refreshLease: { id: args.leaseId, until } });
+  return { status: "claimed", refresh: account.refresh, until, connectedAt: account.connectedAt };
+}
+
+/** A person's account for a tracker as it is now: which connection, and its access token. */
+export interface CurrentConnection {
+  connectedAt: number;
+  method: "oauth" | "token";
+  access: StoredToken;
+  expiresAt: number | null;
+}
+
+export type RefreshFinish =
+  | { status: "saved" }
+  /** `leaseId` no longer held the lease: the account as it is now, or null when it's gone. */
+  | { status: "rejected"; current: CurrentConnection | null };
+
+/**
+ * Stores refreshed tokens, already encrypted, and releases the lease; with
+ * `tokens` null, only releases it. Nothing changes when `leaseId` no longer
+ * holds the lease: the person disconnected or reconnected meanwhile, or
+ * another caller took the lease over; the account as it is now comes back
+ * instead. One transaction.
+ */
+export async function finishTokenRefresh(
+  store: Store,
+  args: { userId: string; tracker: TrackerId; leaseId: string; tokens: { access: StoredToken; refresh: StoredToken | null; expiresAt: number | null } | null },
+  now: number,
+): Promise<RefreshFinish> {
+  const accounts = ticketStore(store).accounts;
+  const account = await accounts.find(args.userId, args.tracker);
+  if (account === null) return { status: "rejected", current: null };
+  if (account.refreshLease?.id !== args.leaseId) {
+    return { status: "rejected", current: { connectedAt: account.connectedAt, method: account.method, access: account.access, expiresAt: account.expiresAt ?? null } };
+  }
+  if (args.tokens === null) {
+    await accounts.patch(account._id, { refreshLease: null });
+    return { status: "saved" };
+  }
+  // A refresh that returns no new refresh token keeps the old one.
+  await accounts.patch(account._id, {
+    access: args.tokens.access,
+    ...(args.tokens.refresh === null ? {} : { refresh: args.tokens.refresh }),
+    expiresAt: args.tokens.expiresAt,
+    refreshLease: null,
+    updatedAt: now,
+  });
+  return { status: "saved" };
+}
+
+/** The steps of reading an access token; each store step is its own transaction. */
+export interface AccessSteps {
+  claim(leaseId: string): Promise<RefreshClaim>;
+  finish(leaseId: string, tokens: { access: StoredToken; refresh: StoredToken | null; expiresAt: number | null } | null): Promise<RefreshFinish>;
+  sleep(ms: number): Promise<void>;
+  now(): number;
+  leaseId(): string;
+  fetch?: typeof fetch;
+}
+
+const BUSY_WAIT_MS = 500;
+
+/** A person's working token for a tracker, refreshed first when it has expired; while another refresh runs, waits for it. */
+export async function trackerAccessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId }): Promise<TrackerToken> {
+  const key = requireKey(deployment);
+  const binding = trackerTokenBinding(args.tracker, args.userId);
+  const label = trackerLabel(args.tracker);
+  const unreadable = (): never => fail("invalid", `Critiqs can no longer read your ${label} connection. Connect ${label} again in Your trackers.`);
+  const leaseId = steps.leaseId();
+  // Waits at most a lease's length for another refresh, then takes over.
+  for (let waited = 0; ; waited += BUSY_WAIT_MS) {
+    const claim = await steps.claim(leaseId);
+    switch (claim.status) {
+      case "missing":
+        fail("not-found", `Connect ${label} in Your trackers first.`);
+      case "ended":
+        fail("invalid", `Your ${label} sign-in has ended. Connect ${label} again in Your trackers.`);
+      case "ready": {
+        const value = await decryptToken(key, binding, claim.access);
+        return { method: claim.method, value: value ?? unreadable() };
+      }
+      case "busy":
+        if (waited >= REFRESH_LEASE_MS) fail("unavailable", `Critiqs couldn't refresh your ${label} sign-in. Try again in a moment.`);
+        await steps.sleep(BUSY_WAIT_MS);
+        continue;
+      case "claimed": {
+        const refreshToken = await decryptToken(key, binding, claim.refresh);
+        const app = deployment.linear;
+        if (refreshToken === null || app === null) {
+          await steps.finish(leaseId, null);
+          return unreadable();
+        }
+        // The request ends, with time left to save, before the lease does:
+        // after it, another caller may take over and spend the same refresh
+        // token. Past that cutoff, it never starts.
+        const cutoff = claim.until - REFRESH_SAVE_MS;
+        if (steps.now() >= cutoff) {
+          await steps.finish(leaseId, null);
+          fail("unavailable", `Critiqs couldn't refresh your ${label} sign-in. Try again in a moment.`);
+        }
+        const call = new AbortController();
+        const timer = setTimeout(() => call.abort(), cutoff - steps.now());
+        let tokens: SignInTokens;
+        try {
+          tokens = await refreshLinearToken({ fetch: steps.fetch ?? fetch, baseUrl: deployment.linearApiUrl }, app, refreshToken, steps.now(), call.signal);
+        } catch (error) {
+          await steps.finish(leaseId, null);
+          if (call.signal.aborted) fail("unavailable", `${label} took too long to refresh your sign-in. Try again in a moment.`);
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
+        const saved = await steps.finish(leaseId, {
+          access: await encryptToken(key, binding, tokens.access),
+          refresh: tokens.refresh === null ? null : await encryptToken(key, binding, tokens.refresh),
+          expiresAt: tokens.expiresAt,
+        });
+        if (saved.status === "saved") return { method: "oauth", value: tokens.access };
+        // Not saved, so never returned: the account as it is now decides.
+        const current = saved.current;
+        if (current === null) fail("not-found", `Connect ${label} in Your trackers first.`);
+        if (current.connectedAt !== claim.connectedAt) fail("not-found", `Your ${label} connection changed while Critiqs was using it. Try again.`);
+        if (current.expiresAt !== null && current.expiresAt <= steps.now() + REFRESH_MARGIN_MS) {
+          fail("unavailable", `Critiqs couldn't refresh your ${label} sign-in. Try again in a moment.`);
+        }
+        // Another caller refreshed this connection and saved first.
+        const value = await decryptToken(key, binding, current.access);
+        return { method: current.method, value: value ?? unreadable() };
+      }
+    }
+  }
+}

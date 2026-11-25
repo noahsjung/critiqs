@@ -237,6 +237,13 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
         await client.action(api.billing.loadPrices, {});
       },
     },
+    tickets: {
+      useTrackerAccounts: (enabled) => useQueryState(api.trackers.mine, enabled ? {} : "skip"),
+      connectTrackerWithToken: (tracker, token) => client.action(api.trackers.connectWithToken, { tracker, token }),
+      startTrackerSignIn: (tracker) => client.action(api.trackers.startSignIn, { tracker }),
+      disconnectTracker: (tracker) => change(mutation(api.trackers.disconnect, { tracker })),
+      setTrackerAttribution: (tracker, attribution) => change(mutation(api.trackers.setAttribution, { tracker, attribution })),
+    },
   };
 }
 

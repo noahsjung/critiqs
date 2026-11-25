@@ -36,6 +36,9 @@ import type {
   TargetLocation,
   ThreadDetail,
   ThreadSummary,
+  TrackerAccountView,
+  TrackerId,
+  TrackerSignInStart,
 } from "@critiqs/core";
 import { PageLayerError } from "@critiqs/core";
 import { createContext, type ReactNode, useContext } from "react";
@@ -233,6 +236,12 @@ export interface CritiqsTransport {
    * nothing more is needed; while one is in progress, another is refused.
    */
   billing?: BillingTransport;
+  /**
+   * Tickets' backend, on backends that store tickets (Convex). The interface
+   * offers Your trackers only when this is present and the backend's
+   * configuration reports `tickets`.
+   */
+  tickets?: TicketTransport;
 }
 
 /** An organization's plan and payment: members see it, admins change it; see `CritiqsTransport.billing`. */
@@ -256,6 +265,23 @@ export interface BillingTransport {
   openPortal(args: { organizationId: string; returnUrl: string }): Promise<{ url: string }>;
   /** Asks the backend to read plan prices when status has none yet; status updates when they arrive. */
   loadPrices(): Promise<void>;
+}
+
+/** Each person's own tracker accounts (Your trackers). Tokens go to the backend once and never come back. */
+export interface TicketTransport {
+  /** The signed-in person's tracker accounts; skipped while `enabled` is false. */
+  useTrackerAccounts(enabled: boolean): QueryState<TrackerAccountView[]>;
+  /** Connects a tracker with a personal token the person pasted, after the tracker confirms whose it is. */
+  connectTrackerWithToken(tracker: TrackerId, token: string): Promise<TrackerAccountView>;
+  /**
+   * Starts the tracker's sign-in; returns where the sign-in window posts the
+   * state and binding secret, which only this caller gets. The account appears
+   * in `useTrackerAccounts` once it finishes.
+   */
+  startTrackerSignIn(tracker: TrackerId): Promise<TrackerSignInStart>;
+  disconnectTracker(tracker: TrackerId): Promise<void>;
+  /** Whether the person's new tickets in the tracker say they came from Critiqs, by default. */
+  setTrackerAttribution(tracker: TrackerId, on: boolean): Promise<void>;
 }
 
 /** A page copy's layout as frozen, with its uploaded file. */

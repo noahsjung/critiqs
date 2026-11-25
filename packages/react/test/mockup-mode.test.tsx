@@ -1142,7 +1142,7 @@ test("the Project panel opens the documentation, which explains every part of Cr
   const escape = () => act(async () => void search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   await escape();
   expect(search.value).toBe("");
-  expect(titles()).toHaveLength(16);
+  expect(titles()).toHaveLength(17);
   await escape();
   expect(shadow.querySelector('aside[aria-label="Critiqs documentation"]')).toBeNull();
   await click(button(shadow, "Project"));

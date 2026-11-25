@@ -47,7 +47,7 @@ test("the toolbar centers beside an open sidebar and follows the window as it re
     root = createRoot(host);
     const props = {
       mode: "comment" as const, onMode: () => undefined, sidebarOpen: true, onToggleSidebar: () => undefined, unreadCount: 0, reviewer: null,
-      onSignIn: () => undefined, onSignOut: () => undefined, onRename: () => undefined, onYourAi: null,
+      onSignIn: () => undefined, onSignOut: () => undefined, onRename: () => undefined, onYourAi: null, onYourTrackers: null,
       onOrganization: null, onBilling: null, onNotifications: null,
       mockupAvailable: true, needsSetup: false, onSetup: () => undefined, avoid: null,
     };

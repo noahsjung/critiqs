@@ -10,8 +10,9 @@ showing that link wherever the thread appears. Behavior is summarized in
 Status words: **Agreed** means the owner asked for it; **Proposed** means it
 still needs agreement; **built** means it is in this repository with local
 tests. **Built:** the core ticket types, ticket text filled from a thread
-without AI, encrypted tracker tokens, and ticket storage on Convex with shared
-backend tests. People can't connect a tracker or see tickets yet.
+without AI, encrypted tracker tokens, ticket storage on Convex with shared
+backend tests, and **Your trackers** on Convex for Linear, through Linear's
+sign-in or a pasted API key. People can't create, link, or see tickets yet.
 
 ## Outcomes
 
@@ -69,6 +70,19 @@ backend, never inside the prototype's page, as Critiqs sign-in does today.
 Only that person sees or changes their connections. Disconnecting removes the
 stored token; tickets already linked keep their links and their last known
 status.
+
+Signing in connects a tracker account only when it uses the same email address
+as the person's Critiqs account; letter case doesn't matter. Critiqs can't
+tell who finishes a sign-in in that window, so without this rule someone could
+start a sign-in on their own Critiqs account and get another person to finish
+it, connecting that person's tracker account to theirs. When the addresses
+differ, nothing is saved, and the window says to sign in to the tracker with
+the Critiqs account's email address or to connect with an API key instead.
+Where sign-in is set up, Your trackers also offers **Use an API key instead**,
+and offers it again when the prototype's page doesn't allow the sign-in
+window (its content security policy blocks the form that opens it).
+A pasted API key needs no such check: the person pastes it into Critiqs while
+signed in to their own account.
 
 What this settles:
 

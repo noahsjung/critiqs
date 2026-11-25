@@ -842,7 +842,8 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .unique();
           return row === null ? null : withoutCreationTime(row);
         },
-        insert: async (signIn) => await writer().insert("trackerSignIns", { ...signIn, userId: signIn.userId as Id<"users"> }),
+        insert: async (signIn) => await writer().insert("trackerSignIns", defined({ ...signIn, userId: signIn.userId as Id<"users"> })),
+        patch: async (id, changes) => await writer().patch(ticketTableId("trackerSignIns", id), defined(changes)),
         delete: async (id) => await writer().delete(ticketTableId("trackerSignIns", id)),
       },
     },

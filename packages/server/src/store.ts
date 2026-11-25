@@ -570,6 +570,8 @@ export interface TrackerAccountRecord {
   attribution: boolean;
   connectedAt: number;
   updatedAt: number;
+  /** A token refresh in progress, so only one runs at a time: trackers that rotate refresh tokens accept each only once. */
+  refreshLease?: { id: string; until: number };
 }
 
 /**
@@ -622,6 +624,16 @@ export interface TrackerSignInRecord {
   userId: string;
   tracker: TrackerId;
   expiresAt: number;
+  /** The PKCE code verifier sent with the code, so a stolen code alone is useless. */
+  verifier?: string;
+  /**
+   * Hash of a secret given only to the interface that started the sign-in. Its
+   * window brings the secret to open the sign-in, and keeps it in a cookie to
+   * finish it; a forwarded link has neither.
+   */
+  bindingHash?: string;
+  /** When the starting interface's window opened the sign-in; it opens once. */
+  openedAt?: number;
 }
 
 export interface FileInfo {
@@ -692,7 +704,7 @@ export type PreferenceChanges = Partial<Pick<PreferenceRecord, "mentionEmails" |
 export type ReadStateChanges = Partial<Pick<ReadStateRecord, "lastReadAt" | "manualUnread">>;
 /** Changes to a tracker account; `null` clears an optional field. */
 export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" | "accountId" | "accountName" | "access" | "attribution" | "connectedAt" | "updatedAt">> & {
-  [K in "site" | "refresh" | "expiresAt"]?: TrackerAccountRecord[K] | null;
+  [K in "site" | "refresh" | "expiresAt" | "refreshLease"]?: TrackerAccountRecord[K] | null;
 };
 /** Changes to a ticket link; `null` clears an optional field. */
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
@@ -1000,6 +1012,7 @@ export interface Store {
     signIns: {
       findByState(state: string): Promise<TrackerSignInRecord | null>;
       insert(signIn: New<TrackerSignInRecord>): Promise<string>;
+      patch(id: string, changes: Partial<Pick<TrackerSignInRecord, "openedAt">>): Promise<void>;
       delete(id: string): Promise<void>;
     };
   };

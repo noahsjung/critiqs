@@ -280,7 +280,12 @@ random characters, such as from `openssl rand -base64 32`) so owners can save
 keys, and optionally `CRITIQS_AI_PROVIDER`, `CRITIQS_AI_MODEL`, and
 `CRITIQS_AI_API_KEY` for a provider every project uses by default.
 `CRITIQS_AI_ALLOWED_ENDPOINTS` lists custom endpoint addresses owners may
-enter. After upgrading an existing deployment, run
+enter. The same encryption key lets each person connect their own Linear
+account in **Your trackers…**, in the avatar menu, with a Linear API key; with
+`CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` from your own
+Linear OAuth app, whose callback is
+`https://<deployment>.convex.site/trackers/linear/callback`, they sign in to
+Linear instead. After upgrading an existing deployment, run
 `npx convex run tags:backfill` once so earlier comments gain their hashtags,
 and `npx convex run projects:shortenLongNames` once so project names from
 before the 200-character limit are shortened to fit it.

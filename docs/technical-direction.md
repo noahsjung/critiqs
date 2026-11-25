@@ -2280,8 +2280,12 @@ using their own tracker accounts. Behavior and order of work are in
 [tickets](tickets.md).
 
 **Built:** the ticket types and ticket text in `@critiqs/core`, the optional
-`tickets` part of `Store` on Convex with its contract tests, and tracker token
-encryption, as the storage and token items below describe.
+`tickets` part of `Store` on Convex with its contract tests, tracker token
+encryption, and Your trackers for Linear on Convex: Linear's adapter checks
+whose token it is, Linear sign-in (OAuth with PKCE) runs in a window served by
+the backend, refreshes run one at a time, and `/critiqs/config` reports
+`tickets`. The storage, token, sign-in, and compatibility items below describe
+them.
 
 **Proposed:** the technical choices.
 
@@ -2306,7 +2310,19 @@ encryption, as the storage and token items below describe.
   refresh token on each use, so refreshes for one person and tracker run one at
   a time.
 - **Sign-in to trackers.** OAuth pages served by the backend open in a window,
-  as Critiqs sign-in does. Critiqs Cloud registers one Linear app, one
+  as Critiqs sign-in does. Only the interface that starts a sign-in gets its
+  one-time binding secret, and it posts the secret into the window, never in
+  an address. The backend then keeps it in a cookie for that sign-in alone and
+  finishes the sign-in only in that browser, so a forwarded link can't save
+  someone else's tracker account under the person who started. That still
+  doesn't prove who finishes: Critiqs keeps no session in the window, and
+  anything the component holds can be copied, so a site could start a sign-in
+  on its own Critiqs account and lead a visitor through the tracker's consent.
+  So a sign-in is saved only when the tracker account's email equals the
+  starting Critiqs account's verified email, compared as Critiqs sign-in
+  compares addresses (trimmed and lowercased). Otherwise its tokens are
+  dropped, and the window names the tracker account used, never the Critiqs
+  account's address. Pasted tokens need no such check. Critiqs Cloud registers one Linear app, one
   Atlassian app, and one GitHub App. On GitHub, creating and searching use the
   app's user access token, so the issue is the person's and they reach only
   repositories both they and the app can. Self-hosted operators may register
@@ -2330,6 +2346,14 @@ encryption, as the storage and token items below describe.
   which trackers it offers and whether each uses sign-in or a pasted token.
   The component shows ticket features only then, through an optional
   `tickets` part of its transport, as Mockup mode does with `mockups`.
+
+Settings for tickets on a Convex deployment (built: Linear):
+
+| Setting (Convex deployment) | Purpose |
+| --- | --- |
+| `CRITIQS_AI_ENCRYPTION_KEY` | Encrypts tracker tokens too, under its own derived key. Without it, `/critiqs/config` reports no `tickets` and Your trackers isn't offered |
+| `CRITIQS_LINEAR_CLIENT_ID`, `CRITIQS_LINEAR_CLIENT_SECRET` | The operator's Linear OAuth app, both or neither. Its callback address is `<deployment site>/trackers/linear/callback`. Without them, people paste a Linear API key |
+| `CRITIQS_LINEAR_API_URL`, `CRITIQS_LINEAR_APP_URL` | Tests only: Linear's API and sign-in addresses, pointed at a local stand-in. Never set them on a real deployment |
 
 ## Shareable links
 

@@ -35,6 +35,7 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     threadMadeWith: false,
     threadMentions: false,
     reviewLinks: false,
+    tickets: null,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -100,6 +101,7 @@ test("a server in the host app answers at its path, with its own sign-in", async
     threadMadeWith: false,
     threadMentions: false,
     reviewLinks: false,
+    tickets: null,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });
@@ -195,4 +197,19 @@ test("links Share to thread pages only where the backend reports them and the we
   expect(await website({ threadPages: true })).toBeUndefined();
   expect(await website({ website: "https://critiqs.example" })).toBeUndefined();
   for (const odd of ["javascript:alert(1)", "not a url", 42, "ftp://critiqs.example"]) expect(await website({ threadPages: true, website: odd })).toBeUndefined();
+});
+
+test("offers Your trackers only for the trackers the backend reports, and how each connects", async () => {
+  const config = (tickets: unknown) =>
+    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, tickets })) as unknown as typeof fetch;
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "oauth" }] }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "oauth" }],
+  });
+  // A tracker or sign-in this version doesn't know is left out; with none left, tickets aren't offered.
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "asana", signIn: "oauth" }, { id: "linear", signIn: "token" }] }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "token" }],
+  });
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "magic" }] }))).tickets).toBeNull();
+  expect((await resolveDeployment("https://team.convex.cloud", config(undefined))).tickets).toBeNull();
+  expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).tickets).toBeNull();
 });

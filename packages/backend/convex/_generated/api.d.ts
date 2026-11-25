@@ -27,6 +27,7 @@ import type * as lib_origins from "../lib/origins.js";
 import type * as lib_pages from "../lib/pages.js";
 import type * as lib_r2 from "../lib/r2.js";
 import type * as lib_store from "../lib/store.js";
+import type * as lib_tickets from "../lib/tickets.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as mockups from "../mockups.js";
@@ -47,6 +48,8 @@ import type * as signIn from "../signIn.js";
 import type * as tags from "../tags.js";
 import type * as threads from "../threads.js";
 import type * as uploads from "../uploads.js";
+import type * as trackerHttp from "../trackerHttp.js";
+import type * as trackers from "../trackers.js";
 import type * as users from "../users.js";
 
 import type {
@@ -75,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "lib/pages": typeof lib_pages;
   "lib/r2": typeof lib_r2;
   "lib/store": typeof lib_store;
+  "lib/tickets": typeof lib_tickets;
   "lib/tokens": typeof lib_tokens;
   "lib/validators": typeof lib_validators;
   mockups: typeof mockups;
@@ -95,6 +99,8 @@ declare const fullApi: ApiFromModules<{
   tags: typeof tags;
   threads: typeof threads;
   uploads: typeof uploads;
+  trackerHttp: typeof trackerHttp;
+  trackers: typeof trackers;
   users: typeof users;
 }>;
 

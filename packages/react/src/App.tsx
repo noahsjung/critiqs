@@ -44,6 +44,7 @@ import { TagsAiDialog } from "./ui/TagsAiDialog.tsx";
 import { OrganizationDialog } from "./ui/OrganizationDialog.tsx";
 import { YourAiDialog } from "./ui/YourAiDialog.tsx";
 import { type Awaiting, BillingDialog, type OpenBilling, OpenBillingContext, parseBillingReturn, removeBillingReturn } from "./ui/BillingDialog.tsx";
+import { YourTrackersDialog } from "./ui/YourTrackersDialog.tsx";
 import { FilterButton, groupMembers, ThreadList } from "./ui/ThreadList.tsx";
 import { type ReplyState, type RevealState, ThreadView } from "./ui/ThreadView.tsx";
 import { ThreadWindow } from "./ui/ThreadWindow.tsx";
@@ -257,6 +258,7 @@ function PanelApp({
   const [renaming, setRenaming] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [yourAiOpen, setYourAiOpen] = useState(false);
+  const [yourTrackersOpen, setYourTrackersOpen] = useState(false);
   const [organizationOpen, setOrganizationOpen] = useState(false);
   const [billing, setBilling] = useState<{ organizationId: string | null; awaiting: Awaiting } | null>(null);
   const [tagsDialog, setTagsDialog] = useState<"groups" | "ai" | null>(null);
@@ -324,6 +326,9 @@ function PanelApp({
   const inMockup = mode === "mockup" && mockupsAvailable;
   // Your AI is offered where the backend keeps each person's own AI settings.
   const openYourAi = signedIn && deployment.personalAi === true ? () => setYourAiOpen(true) : null;
+  // Your trackers is offered where the backend stores tickets and offers a tracker.
+  const trackersOffered = transport.tickets !== undefined && deployment.tickets != null ? deployment.tickets : null;
+  const openYourTrackers = signedIn && trackersOffered !== null ? () => setYourTrackersOpen(true) : null;
   const organizationMembers = deployment.organizationMembers === true;
   const openOrganization = signedIn && organizationMembers ? () => setOrganizationOpen(true) : null;
   const billingOffered = signedIn && deployment.billing === true && transport.billing !== undefined;
@@ -399,6 +404,7 @@ function PanelApp({
     setRenaming(false);
     setNotificationsOpen(false);
     setYourAiOpen(false);
+    setYourTrackersOpen(false);
     setOrganizationOpen(false);
     setBilling(null);
     setTagsDialog(null);
@@ -1383,6 +1389,7 @@ function PanelApp({
         onSignOut={signOut}
         onRename={() => setRenaming(true)}
         onYourAi={openYourAi}
+        onYourTrackers={openYourTrackers}
         onOrganization={openOrganization}
         onBilling={openBilling === null ? null : () => openBilling.open()}
         onNotifications={signedIn && projectQuery.status === "ready" ? () => setNotificationsOpen(true) : null}
@@ -1425,6 +1432,9 @@ function PanelApp({
         />
       )}
       {yourAiOpen && openYourAi !== null && <YourAiDialog onClose={() => setYourAiOpen(false)} notify={notify} modelLists={deployment.modelLists === true} />}
+      {yourTrackersOpen && openYourTrackers !== null && trackersOffered !== null && (
+        <YourTrackersDialog offered={trackersOffered} onClose={() => setYourTrackersOpen(false)} notify={notify} />
+      )}
       {signedIn && tagsDialog !== null && isOwner && projectId !== null && (
         <TagsAiDialog
           projectId={projectId}

@@ -18,7 +18,10 @@ import {
   readBody,
   resendMailer,
   signInCodeMessage,
+  ticketsConfig,
 } from "@critiqs/server";
+import type { TicketsConfig } from "@critiqs/core";
+import { ticketsDeployment } from "./lib/tickets";
 import {
   codePage,
   consentPage,
@@ -35,6 +38,7 @@ import { linkSecret } from "./lib/links";
 import { developerEmailSetup } from "./onboarding";
 import { threadPageWebsite } from "./notifications";
 import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadSnapshot } from "./captureHttp";
+import { linearCallback, linearStart, linearStartLink } from "./trackerHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
@@ -53,6 +57,12 @@ function aiHealth() {
   return { managed: config.managed !== null, defaultProvider: config.defaultProvider?.provider ?? null, keysStorable: config.encryptionKey !== null };
 }
 
+/** The trackers this deployment offers, when it can store their tokens. */
+function tickets(): { tickets?: TicketsConfig } {
+  const config = ticketsConfig(ticketsDeployment());
+  return config === null ? {} : { tickets: config };
+}
+
 const http = httpRouter();
 
 // Captures remain protected for both native Convex storage and private R2.
@@ -64,6 +74,10 @@ http.route({ path: "/mockup/upload", method: "POST", handler: uploadSnapshot });
 for (const path of ["/capture", "/capture/upload", "/mockup/snapshot", "/mockup/upload"]) {
   http.route({ path, method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CAPTURE_CORS })) });
 }
+// Tracker sign-in's window: on to Linear, and back (see trackerHttp.ts).
+http.route({ path: "/trackers/linear/start", method: "POST", handler: linearStart });
+http.route({ path: "/trackers/linear/start", method: "GET", handler: linearStartLink });
+http.route({ path: "/trackers/linear/callback", method: "GET", handler: linearCallback });
 
 // Review links: routes only the review proxy calls, with its shared secret (reviewHttp.ts).
 http.route({ path: "/internal/review/v1/resolve", method: "POST", handler: resolveReviewHost });
@@ -139,6 +153,8 @@ http.route({
       // `revoke`, `open`, `renew`, `adopt`, `recordOpened`), absent without one. `live`: links to a prototype's address
       // can be served (a reputation provider is set up); `builds`: shared builds (`reviewBuilds:begin`, `publish`, `list`,
       // `remove`, and `critiqs share`); `allowCritiqs`: published egress.
+      // `tickets`: each person's tracker accounts (`trackers:*`, `/trackers/linear/*`) and the trackers offered,
+      // with how each connects. Absent until the operator sets CRITIQS_AI_ENCRYPTION_KEY, which encrypts tracker tokens.
       {
         signInUrl: signInUrl(),
         protocol: 5,
@@ -170,6 +186,7 @@ http.route({
         threadMadeWith: true,
         threadMentions: true,
         ...(reviewLinksCapability() === null ? {} : { reviewLinks: reviewLinksCapability() }),
+        ...tickets(),
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),

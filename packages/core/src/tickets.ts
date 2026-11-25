@@ -85,6 +85,17 @@ export interface TicketsConfig {
   trackers: { id: TrackerId; signIn: "oauth" | "token" }[];
 }
 
+/**
+ * A tracker sign-in the signed-in person just started, for the interface that
+ * started it only. Its window posts `state` and `binding` to `url`; `binding`
+ * never goes in an address, so a forwarded link can't open the sign-in.
+ */
+export interface TrackerSignInStart {
+  url: string;
+  state: string;
+  binding: string;
+}
+
 export interface TicketTextOptions {
   /** Who is creating the ticket, for "Created from Critiqs by …"; null when they turned attribution off. */
   attribution: { name: string } | null;

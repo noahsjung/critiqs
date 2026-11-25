@@ -1,5 +1,32 @@
 import { expect, test } from "bun:test";
+import { decryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
+import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
+import {
+  claimTokenRefresh,
+  claimTrackerSignIn,
+  connectTrackerWithToken,
+  disconnectTracker,
+  finishTokenRefresh,
+  listTrackerAccounts,
+  openTrackerSignIn,
+  REFRESH_LEASE_MS,
+  REFRESH_MARGIN_MS,
+  REFRESH_SAVE_MS,
+  type RefreshClaim,
+  requireTrackerPerson,
+  saveOwnTrackerAccount,
+  saveSignedInAccount,
+  saveTrackerAccount,
+  sealSignIn,
+  setTrackerAttribution,
+  SIGN_IN_MINUTES,
+  startTrackerSignIn,
+  type TicketsDeployment,
+  ticketsConfig,
+  ticketsDeploymentFromEnv,
+  trackerAccessToken,
+} from "../src/tickets/accounts.ts";
 import type { Identity, Store, TicketLinkRecord, TrackerAccountRecord } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 
@@ -305,5 +332,381 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
         linkedAt: 3_000,
       },
     ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Your trackers: the rules over this storage.
+
+  const KEY = "operator-encryption-key-".padEnd(48, "x");
+  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+  const withSignIn: TicketsDeployment = { ...withKey, linear: { clientId: "client", clientSecret: "secret" } };
+
+  /** A stand-in for Linear's API: its viewer, from the token sent; and its token endpoint, answering `refreshes` in turn. */
+  function linearStub(refreshes: { access_token: string; refresh_token?: string; expires_in?: number }[] = []) {
+    const sent: { url: string; authorization: string | null; body: string }[] = [];
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const authorization = new Headers(init?.headers).get("Authorization");
+      sent.push({ url, authorization, body: String(init?.body ?? "") });
+      if (url.endsWith("/oauth/token")) {
+        const next = refreshes.shift();
+        return next === undefined ? Response.json({ error: "invalid_grant" }, { status: 400 }) : Response.json(next);
+      }
+      if (authorization === "lin_api_bad") return Response.json({ errors: [{ message: "Authentication required", extensions: { code: "AUTHENTICATION_ERROR" } }] }, { status: 400 });
+      const who = authorization === "lin_api_other" ? { id: "user-2", name: "Dana Other" } : { id: "user-1", name: "Dana Smith" };
+      return Response.json({ data: { viewer: who, organization: { id: "org-1", name: "Acme" } } });
+    }) as typeof fetch;
+    return { fetchFn, sent };
+  }
+
+  /** Connects with a pasted token as `who`, each step its own transaction, as the Convex action runs it. */
+  function connect(backend: ContractBackend, who: Identity, token: string, deployment = withKey, fetchFn = linearStub().fetchFn) {
+    return connectTrackerWithToken(
+      {
+        requirePerson: () => backend.run((store) => requireTrackerPerson(store, who, deployment, { tracker: "linear" })),
+        save: (userId, sealed) => backend.run((store) => saveOwnTrackerAccount(store, who, { userId, account: sealed }, 5_000)),
+      },
+      deployment,
+      { tracker: "linear", token },
+      fetchFn,
+    );
+  }
+
+  async function refusal(promise: Promise<unknown>) {
+    try {
+      await promise;
+    } catch (error) {
+      if (error instanceof CritiqsError) return error;
+      throw error;
+    }
+    throw new Error("expected a refusal");
+  }
+
+  test(`${name}: connecting with a pasted token verifies it with Linear and stores it only encrypted, for that person`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const linear = linearStub();
+    const view = await connect(backend, dana, "  lin_api_good ", withKey, linear.fetchFn);
+    expect(view).toEqual({ tracker: "linear", method: "token", accountName: "Dana Smith", site: "Acme", connectedAt: 5_000, attribution: true });
+    expect(linear.sent.map((request) => request.authorization)).toEqual(["lin_api_good"]);
+    const stored = (await backend.run((store) => tickets(store).accounts.find(danaId, "linear")))!;
+    expect(JSON.stringify(stored)).not.toContain("lin_api_good");
+    expect(await decryptToken(KEY, trackerTokenBinding("linear", danaId), stored.access)).toBe("lin_api_good");
+    expect(stored).toMatchObject({ accountId: "user-1", site: { id: "org-1", name: "Acme" } });
+    expect(stored.refresh).toBeUndefined();
+    // Only the person sees it, and never a token.
+    expect(await backend.run((store) => listTrackerAccounts(store, dana))).toEqual([view]);
+    expect(await backend.run((store) => listTrackerAccounts(store, lee))).toEqual([]);
+    expect(JSON.stringify(await backend.run((store) => listTrackerAccounts(store, dana)))).not.toMatch(/ciphertext|lin_api/);
+  });
+
+  test(`${name}: connecting again replaces the account: one per person and tracker, keeping the attribution choice`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    await connect(backend, dana, "lin_api_good");
+    await backend.run((store) => setTrackerAttribution(store, dana, { tracker: "linear", attribution: false }, 6_000));
+    const view = await connect(backend, dana, "lin_api_other");
+    expect(view).toMatchObject({ accountName: "Dana Other", attribution: false });
+    const all = await backend.run((store) => tickets(store).accounts.list(danaId));
+    expect(all).toHaveLength(1);
+    expect(await decryptToken(KEY, trackerTokenBinding("linear", danaId), all[0]!.access)).toBe("lin_api_other");
+  });
+
+  test(`${name}: a token Linear refuses, an empty paste, or a deployment without an encryption key stores nothing`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    expect((await refusal(connect(backend, dana, "lin_api_bad"))).message).toBe("Linear didn't accept this API key. Check that you copied all of it, or create a new one.");
+    expect((await refusal(connect(backend, dana, "   "))).message).toBe("Paste your API key.");
+    const noKey = { ...withKey, encryptionKey: null };
+    const linear = linearStub();
+    const missing = await refusal(connect(backend, dana, "lin_api_good", noKey, linear.fetchFn));
+    expect(missing.message).toBe("This deployment can't store tracker accounts yet. Its operator must set an encryption key (CRITIQS_AI_ENCRYPTION_KEY) first.");
+    // Refused before the token is sent anywhere.
+    expect(linear.sent).toEqual([]);
+    expect(await backend.run((store) => tickets(store).accounts.list(danaId))).toEqual([]);
+    expect((await refusal(backend.run((store) => requireTrackerPerson(store, dana, withKey, { tracker: "jira" })))).message).toBe("Critiqs can't connect Jira yet.");
+    expect((await refusal(backend.run((store) => requireTrackerPerson(store, null, withKey, { tracker: "linear" })))).code).toBe("unauthenticated");
+  });
+
+  test(`${name}: a sign-in's account is saved only when its email is the Critiqs account's, in any letter case`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const save = async (email: string | null) => {
+      const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email, site: null }, { access: "a", refresh: "r", expiresAt: 9_000_000 });
+      return await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed }, 1_000));
+    };
+    // Another Linear account, or one that shares no email: nothing is stored.
+    expect(await save("someone@example.com")).toEqual({ status: "other-email" });
+    expect(await save(null)).toEqual({ status: "other-email" });
+    expect(await backend.run((store) => tickets(store).accounts.list(danaId))).toEqual([]);
+    // Dana's own address (dana@example.com), as sign-in compares addresses.
+    expect(await save(" Dana@Example.COM ")).toEqual({ status: "saved" });
+    expect(await backend.run((store) => listTrackerAccounts(store, dana))).toEqual([expect.objectContaining({ tracker: "linear", method: "oauth", accountName: "Dana" })]);
+  });
+
+  test(`${name}: an account sealed for one person can't be saved as another's`, async () => {
+    const backend = fresh();
+    const { danaId, leeId } = await setup(backend);
+    const sealed = await sealSignIn(withKey, "linear", danaId, { accountId: "u", accountName: "Dana", email: null, site: null }, { access: "a", refresh: null, expiresAt: null });
+    expect((await refusal(backend.run((store) => saveOwnTrackerAccount(store, lee, { userId: danaId, account: sealed }, 1)))).code).toBe("forbidden");
+    expect(await backend.run((store) => tickets(store).accounts.list(leeId))).toEqual([]);
+  });
+
+  test(`${name}: disconnecting removes only that person's account; attribution needs an account`, async () => {
+    const backend = fresh();
+    const { danaId, leeId } = await setup(backend);
+    await connect(backend, dana, "lin_api_good");
+    await connect(backend, lee, "lin_api_good");
+    expect(await backend.run((store) => setTrackerAttribution(store, dana, { tracker: "linear", attribution: false }, 7_000))).toMatchObject({ attribution: false });
+    await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    expect(await backend.run((store) => tickets(store).accounts.find(danaId, "linear"))).toBeNull();
+    expect(await backend.run((store) => tickets(store).accounts.find(leeId, "linear"))).not.toBeNull();
+    // Disconnecting twice changes nothing.
+    await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    expect((await refusal(backend.run((store) => setTrackerAttribution(store, dana, { tracker: "linear", attribution: true }, 8_000)))).message).toBe("Connect Linear first.");
+  });
+
+  test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
+    expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
+    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }] });
+    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }] });
+    expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id" }).linear).toBeNull();
+    expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id", CRITIQS_LINEAR_CLIENT_SECRET: "s" })).toEqual({
+      encryptionKey: KEY,
+      linear: { clientId: "id", clientSecret: "s" },
+      linearApiUrl: "https://api.linear.app",
+      linearAppUrl: "https://linear.app",
+    });
+  });
+
+  test(`${name}: a tracker sign-in opens once, only with the starting interface's secret, finishes only in that browser, and expires`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    // Each sign-in's binding secret, hashed, is `secret-<state>`; only the interface that started it has it.
+    const start = (state: string, at = 1_000) =>
+      backend.run((store) => startTrackerSignIn(store, dana, withSignIn, { tracker: "linear", state, verifier: `v-${state}`, bindingHash: `secret-${state}` }, at));
+    expect(
+      (await refusal(backend.run((store) => startTrackerSignIn(store, dana, withKey, { tracker: "linear", state: "s0", verifier: "v", bindingHash: "b" }, 1)))).message,
+    ).toBe("Linear sign-in isn't set up on this deployment. Paste an API key instead.");
+    await start("s1");
+    const open = (state: string, bindingHash: string, at = 2_000) => backend.run((store) => openTrackerSignIn(store, { tracker: "linear", state, bindingHash }, at));
+    const claim = (state: string, bindingHash: string, at = 3_000) => backend.run((store) => claimTrackerSignIn(store, { tracker: "linear", state, bindingHash }, at));
+    // A window without the secret, as from a forwarded link, opens nothing, and can't finish it.
+    expect(await open("s1", "")).toEqual({ status: "other-browser" });
+    expect(await open("s1", "secret-other")).toEqual({ status: "other-browser" });
+    expect(await claim("s1", "secret-s1")).toEqual({ status: "other-browser" });
+    expect(await open("s1", "secret-s1")).toEqual({ status: "opened", verifier: "v-s1" });
+    expect(await open("s1", "secret-s1")).toEqual({ status: "used" });
+    expect(await open("unknown", "secret-s1")).toEqual({ status: "expired" });
+    expect(await claim("s1", "secret-other")).toEqual({ status: "other-browser" });
+    expect(await claim("s1", "secret-s1")).toEqual({ status: "claimed", userId: danaId, verifier: "v-s1" });
+    // Used once.
+    expect(await claim("s1", "secret-s1")).toEqual({ status: "expired" });
+    // Expired before it was opened, or before the person came back.
+    await start("s2");
+    expect(await open("s2", "secret-s2", 1_000 + SIGN_IN_MINUTES * 60_000)).toEqual({ status: "expired" });
+    await start("s3");
+    await open("s3", "secret-s3");
+    expect(await claim("s3", "secret-s3", 1_000 + SIGN_IN_MINUTES * 60_000 + 1)).toEqual({ status: "expired" });
+    expect(await backend.run((store) => tickets(store).signIns.findByState("s3"))).toBeNull();
+  });
+
+  test(`${name}: an expired sign-in token is refreshed once at a time, and the rotated tokens are stored encrypted`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const binding = trackerTokenBinding("linear", danaId);
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 10_000_000 });
+    await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));
+    let clock = 1_000;
+    const linear = linearStub([{ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3_600 }]);
+    let leases = 0;
+    const steps = (fetchFn = linear.fetchFn) => ({
+      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId }, clock)),
+      finish: (leaseId: string, tokens: Parameters<typeof finishTokenRefresh>[1]["tokens"]) =>
+        backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId, tokens }, clock)),
+      sleep: async (ms: number) => void (clock += ms),
+      now: () => clock,
+      leaseId: () => `lease-${++leases}`,
+      fetch: fetchFn,
+    });
+    const token = () => trackerAccessToken(steps(), withSignIn, { userId: danaId, tracker: "linear" });
+
+    // Well before it expires, the stored token is used as it is.
+    expect(await token()).toEqual({ method: "oauth", value: "old-access" });
+    expect(linear.sent).toEqual([]);
+    // Within the margin, it is refreshed, and the rotated refresh token replaces the old one.
+    clock = 10_000_000 - REFRESH_MARGIN_MS + 1;
+    expect(await token()).toEqual({ method: "oauth", value: "new-access" });
+    expect(Object.fromEntries(new URLSearchParams(linear.sent[0]!.body))).toMatchObject({ grant_type: "refresh_token", refresh_token: "old-refresh" });
+    const stored = (await backend.run((store) => tickets(store).accounts.find(danaId, "linear")))!;
+    expect(await decryptToken(KEY, binding, stored.refresh!)).toBe("new-refresh");
+    expect(stored.expiresAt).toBe(clock + 3_600_000);
+    expect(stored.refreshLease).toBeUndefined();
+    expect(await token()).toEqual({ method: "oauth", value: "new-access" });
+    expect(linear.sent).toHaveLength(1);
+
+    // While another refresh holds the lease, a second caller waits for it instead of spending the refresh token again.
+    clock = stored.expiresAt!;
+    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId: "other" }, clock))).toMatchObject({ status: "claimed" });
+    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId: "mine" }, clock))).toEqual({ status: "busy" });
+    // The other finishes; the waiting caller then gets its fresh token without refreshing.
+    const fresher = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: clock + 3_600_000 });
+    expect(await backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId: "other", tokens: fresher }, clock))).toEqual({ status: "saved" });
+    expect(await token()).toEqual({ method: "oauth", value: "other-access" });
+    expect(linear.sent).toHaveLength(1);
+    // A lease that was taken over can't store its tokens; it gets the account as it is now.
+    expect(await backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId: "other", tokens: fresher }, clock))).toMatchObject({
+      status: "rejected",
+      current: { connectedAt: 1_000, method: "oauth", expiresAt: clock + 3_600_000 },
+    });
+  });
+
+  /**
+   * An account whose sign-in token is due, and the steps of reading its token
+   * at `clock`, as the Convex action runs them; `during` runs while Linear is
+   * answering the refresh, and `claim` may change what the claim says.
+   */
+  async function dueAccount(backend: ContractBackend, options: { during?: () => Promise<void>; claim?: (claim: RefreshClaim) => RefreshClaim; fetch?: typeof fetch } = {}) {
+    const { danaId } = await setup(backend);
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 1_000 });
+    await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));
+    const state = { clock: 2_000 };
+    const fetchFn =
+      options.fetch ??
+      ((async () => {
+        await options.during?.();
+        return Response.json({ access_token: "my-access", refresh_token: "my-refresh", expires_in: 3_600 });
+      }) as unknown as typeof fetch);
+    const steps = {
+      claim: async (leaseId: string) => {
+        const claim = await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId }, state.clock));
+        return options.claim ? options.claim(claim) : claim;
+      },
+      finish: (leaseId: string, tokens: Parameters<typeof finishTokenRefresh>[1]["tokens"]) =>
+        backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId, tokens }, state.clock)),
+      sleep: async (ms: number) => void (state.clock += ms),
+      now: () => state.clock,
+      leaseId: () => "mine",
+      fetch: fetchFn,
+    };
+    return { danaId, state, token: () => trackerAccessToken(steps, withSignIn, { userId: danaId, tracker: "linear" }) };
+  }
+
+  test(`${name}: a refresh whose save is refused never returns its own tokens: disconnected, or connected again, meanwhile`, async () => {
+    const disconnected = fresh();
+    const gone = await dueAccount(disconnected, { during: () => disconnected.run((store) => disconnectTracker(store, dana, { tracker: "linear" })) });
+    const refusedGone = await refusal(gone.token());
+    expect([refusedGone.code, refusedGone.message]).toEqual(["not-found", "Connect Linear in Your trackers first."]);
+    expect(await disconnected.run((store) => tickets(store).accounts.find(gone.danaId, "linear"))).toBeNull();
+
+    const replaced = fresh();
+    let replacedId = "";
+    const again = await dueAccount(replaced, {
+      during: async () => {
+        const fresher = await sealSignIn(withSignIn, "linear", replacedId, { accountId: "user-2", accountName: "Dana Other", email: null, site: null }, { access: "reconnected", refresh: "r", expiresAt: 99_000_000 });
+        await replaced.run((store) => saveTrackerAccount(store, replacedId, fresher, 3_000));
+      },
+    });
+    replacedId = again.danaId;
+    const refusedAgain = await refusal(again.token());
+    expect([refusedAgain.code, refusedAgain.message]).toEqual(["not-found", "Your Linear connection changed while Critiqs was using it. Try again."]);
+    // The new connection's tokens stand.
+    const stored = (await replaced.run((store) => tickets(store).accounts.find(again.danaId, "linear")))!;
+    expect(await decryptToken(KEY, trackerTokenBinding("linear", again.danaId), stored.access)).toBe("reconnected");
+  });
+
+  test(`${name}: a refresh whose lease another caller took over returns that caller's newer token, or none`, async () => {
+    // The other caller refreshed and saved first: its token is the one to use.
+    const refreshed = fresh();
+    let refreshedId = "";
+    const taken = await dueAccount(refreshed, {
+      during: async () => {
+        taken.state.clock += REFRESH_LEASE_MS;
+        const at = taken.state.clock;
+        expect(await refreshed.run((store) => claimTokenRefresh(store, { userId: refreshedId, tracker: "linear", leaseId: "other" }, at))).toMatchObject({ status: "claimed" });
+        const tokens = await sealSignIn(withSignIn, "linear", refreshedId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: at + 3_600_000 });
+        await refreshed.run((store) => finishTokenRefresh(store, { userId: refreshedId, tracker: "linear", leaseId: "other", tokens }, at));
+      },
+    });
+    refreshedId = taken.danaId;
+    expect(await taken.token()).toEqual({ method: "oauth", value: "other-access" });
+
+    // The other caller still holds the lease: nothing newer to return yet.
+    const busy = fresh();
+    let busyId = "";
+    const holding = await dueAccount(busy, {
+      during: async () => {
+        holding.state.clock += REFRESH_LEASE_MS;
+        await busy.run((store) => claimTokenRefresh(store, { userId: busyId, tracker: "linear", leaseId: "other" }, holding.state.clock));
+      },
+    });
+    busyId = holding.danaId;
+    const refusedBusy = await refusal(holding.token());
+    expect([refusedBusy.code, refusedBusy.message]).toEqual(["unavailable", "Critiqs couldn't refresh your Linear sign-in. Try again in a moment."]);
+  });
+
+  test(`${name}: a token request still running near the lease's end is abandoned, and the lease released`, async () => {
+    const backend = fresh();
+    let signal: AbortSignal | undefined;
+    const due = await dueAccount(backend, {
+      // The lease has only a moment left beyond the time saving takes.
+      claim: (claim) => (claim.status === "claimed" ? { ...claim, until: due.state.clock + REFRESH_SAVE_MS + 30 } : claim),
+      // Linear never answers, until the request is called off.
+      fetch: ((_: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          signal = init?.signal ?? undefined;
+          signal?.addEventListener("abort", () => reject(signal!.reason));
+        })) as unknown as typeof fetch,
+    });
+    const started = performance.now();
+    const refused = await refusal(due.token());
+    expect([refused.code, refused.message]).toEqual(["unavailable", "Linear took too long to refresh your sign-in. Try again in a moment."]);
+    expect(signal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect((await backend.run((store) => tickets(store).accounts.find(due.danaId, "linear")))!.refreshLease).toBeUndefined();
+  });
+
+  test(`${name}: a refresh never starts at or past its lease's cutoff: Linear isn't asked, and the lease is released`, async () => {
+    for (const left of [REFRESH_SAVE_MS, REFRESH_SAVE_MS - 1]) {
+      const backend = fresh();
+      let sent = 0;
+      const due = await dueAccount(backend, {
+        // The lease ends `left` from now: at the cutoff, then just past it.
+        claim: (claim) => (claim.status === "claimed" ? { ...claim, until: due.state.clock + left } : claim),
+        fetch: (async () => {
+          sent += 1;
+          return Response.json({ access_token: "my-access", refresh_token: "my-refresh", expires_in: 3_600 });
+        }) as unknown as typeof fetch,
+      });
+      const refused = await refusal(due.token());
+      expect([refused.code, refused.message]).toEqual(["unavailable", "Critiqs couldn't refresh your Linear sign-in. Try again in a moment."]);
+      expect(sent).toBe(0);
+      const stored = (await backend.run((store) => tickets(store).accounts.find(due.danaId, "linear")))!;
+      expect(stored.refreshLease).toBeUndefined();
+      expect(await decryptToken(KEY, trackerTokenBinding("linear", due.danaId), stored.refresh!)).toBe("old-refresh");
+    }
+  });
+
+  test(`${name}: a refused refresh releases the lease and says to connect again; a pasted token never expires`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old", refresh: "spent", expiresAt: 1 });
+    await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1));
+    const steps = {
+      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId }, 10)),
+      finish: (leaseId: string, tokens: null) => backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId, tokens }, 10)),
+      sleep: async () => {},
+      now: () => 10,
+      leaseId: () => "lease",
+      fetch: linearStub([]).fetchFn,
+    };
+    const refused = await refusal(trackerAccessToken(steps, withSignIn, { userId: danaId, tracker: "linear" }));
+    expect(refused.message).toBe("Your Linear sign-in has ended. Connect Linear again in Your trackers.");
+    expect((await backend.run((store) => tickets(store).accounts.find(danaId, "linear")))!.refreshLease).toBeUndefined();
+
+    await connect(backend, dana, "lin_api_good");
+    expect(await trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear" })).toEqual({ method: "token", value: "lin_api_good" });
+    await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    expect((await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear" }))).message).toBe("Connect Linear in Your trackers first.");
   });
 }

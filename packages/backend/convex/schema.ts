@@ -606,6 +606,8 @@ export default defineSchema({
     attribution: v.boolean(),
     connectedAt: v.number(),
     updatedAt: v.number(),
+    /** A token refresh in progress, so only one runs at a time. */
+    refreshLease: v.optional(v.object({ id: v.string(), until: v.number() })),
   }).index("by_user_tracker", ["userId", "tracker"]),
 
   /** A ticket linked to a thread. A pending link, saved before the tracker is called, has empty `externalId`, `key`, and `url`. */
@@ -648,7 +650,15 @@ export default defineSchema({
     userId: v.id("users"),
     tracker: trackerValidator,
     expiresAt: v.number(),
-  }).index("by_state", ["state"]),
+    /** The PKCE code verifier, sent only to the tracker with the code. */
+    verifier: v.optional(v.string()),
+    /** Hash of a secret only the starting interface gets; its window brings it to open the sign-in, and its cookie to finish it. */
+    bindingHash: v.optional(v.string()),
+    /** When the starting interface's window opened the sign-in; it opens once. */
+    openedAt: v.optional(v.number()),
+  })
+    .index("by_state", ["state"])
+    .index("by_expiry", ["expiresAt"]),
 
   /** Critiqs AI credits held while a request's model answers, per payer's counter scope. */
   creditHolds: defineTable({ scope: v.string(), credits: v.number(), expiresAt: v.number() }).index("by_scope_expiry", ["scope", "expiresAt"]),

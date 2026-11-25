@@ -1,0 +1,335 @@
+import { TRACKERS, type TicketsConfig, type TrackerAccountView, type TrackerId, type TrackerSignInStart } from "@critiqs/core";
+import { useEffect, useRef, useState } from "react";
+import { errorMessage, type TicketTransport, useTransport } from "../transport.ts";
+import { Dialog } from "./common.tsx";
+import { DialogHeader, NavRow, SettingRow, Switch, usePageFocus } from "./ds.tsx";
+
+/** Where people create a personal token, for trackers Critiqs connects so far. */
+const TOKEN_PAGES: Partial<Record<TrackerId, string>> = {
+  linear: "https://linear.app/settings/account/security",
+};
+
+const label = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
+
+const SIGN_IN_WINDOW = "critiqs-tracker-sign-in";
+/** How long after posting the sign-in form a page's refusal of it (`form-action`) is still taken for that form's. */
+const BLOCKED_WATCH_MS = 5_000;
+
+/**
+ * Sends the sign-in window to the backend's start by posting the state and
+ * binding secret: never in an address, so a forwarded or logged link can't
+ * open the sign-in in another browser.
+ */
+/** Whether a reported address is on `origin`; browsers may report a refused address as its origin only. */
+function sameOrigin(reported: string, origin: string): boolean {
+  try {
+    return new URL(reported).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
+function postToWindow(start: TrackerSignInStart, parent: HTMLElement) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = start.url;
+  form.target = SIGN_IN_WINDOW;
+  form.hidden = true;
+  for (const [name, value] of [
+    ["state", start.state],
+    ["binding", start.binding],
+  ] as const) {
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = name;
+    field.value = value;
+    form.append(field);
+  }
+  parent.append(form);
+  try {
+    form.submit();
+  } finally {
+    form.remove();
+  }
+}
+
+/**
+ * The signed-in person's own tracker accounts: each tracker the backend
+ * offers, connected through the tracker's sign-in in a window served by the
+ * backend, or with a personal token pasted here, which is also offered where
+ * the tracker has sign-in. Each change saves at once.
+ * Only offered on backends whose transport has `tickets`.
+ */
+export function YourTrackersDialog({ offered, onClose, notify }: { offered: TicketsConfig; onClose: () => void; notify: (message: string) => void }) {
+  const tickets = useTransport().tickets!;
+  const state = tickets.useTrackerAccounts(true);
+  const [page, setPage] = useState<{ kind: "main" } | { kind: "token"; tracker: TrackerId }>({ kind: "main" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // A sign-in window opened for this tracker; the account appears when it finishes.
+  const [waiting, setWaiting] = useState<TrackerId | null>(null);
+  const [confirming, setConfirming] = useState<TrackerId | null>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  usePageFocus(mainRef, page.kind);
+  // Stops watching for the page refusing the sign-in form; called when the dialog closes.
+  const stopWatching = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopWatching.current?.(), []);
+
+  const accounts = state.status === "ready" ? state.data : [];
+  const connectedNow = waiting !== null && accounts.some((account) => account.tracker === waiting);
+  useEffect(() => {
+    if (!connectedNow) return;
+    notify(`${label(waiting!)} connected`);
+    setWaiting(null);
+  }, [connectedNow]);
+
+  /** Runs one change at a time; false when it failed, with its reason shown. */
+  const attempt = async (work: () => Promise<unknown>): Promise<boolean> => {
+    if (busy) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+      return true;
+    } catch (failure) {
+      setError(errorMessage(failure));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signIn = (tracker: TrackerId) => {
+    // Opened at once, from the click, so the browser allows it; the address follows.
+    const popup = window.open("", SIGN_IN_WINDOW, "popup,width=520,height=720");
+    if (popup === null) {
+      setError("Your browser blocked the sign-in window. Allow pop-ups for this site and try again.");
+      return;
+    }
+    void attempt(async () => {
+      try {
+        const start = await tickets.startTrackerSignIn(tracker);
+        watchBlocked(tracker, popup, start.url);
+        postToWindow(start, mainRef.current ?? document.body);
+        setWaiting(tracker);
+      } catch (failure) {
+        popup.close();
+        throw failure;
+      }
+    });
+  };
+
+  /**
+   * A page whose content security policy doesn't let forms post to the
+   * backend (`form-action`) blocks the sign-in; the browser says so with an
+   * event, shortly after the post. The window then stays blank, so it closes.
+   * Only an enforced refusal of a post to the sign-in's own address counts: a
+   * report-only policy lets the post through, and another form's refusal is
+   * someone else's.
+   */
+  const watchBlocked = (tracker: TrackerId, popup: Window, url: string) => {
+    stopWatching.current?.();
+    const target = new URL(url).origin;
+    const onViolation = (event: SecurityPolicyViolationEvent) => {
+      if (event.effectiveDirective !== "form-action" || event.disposition !== "enforce" || !sameOrigin(event.blockedURI, target)) return;
+      stop();
+      popup.close();
+      setWaiting(null);
+      setError(`This page doesn't allow the ${label(tracker)} sign-in window. Use an API key instead.`);
+    };
+    const timer = setTimeout(() => stop(), BLOCKED_WATCH_MS);
+    const stop = () => {
+      clearTimeout(timer);
+      document.removeEventListener("securitypolicyviolation", onViolation);
+      stopWatching.current = null;
+    };
+    document.addEventListener("securitypolicyviolation", onViolation);
+    stopWatching.current = stop;
+  };
+
+  const go = (next: typeof page) => {
+    setError(null);
+    setConfirming(null);
+    setPage(next);
+  };
+
+  if (page.kind === "token") {
+    return (
+      <Dialog label="Your trackers" onClose={onClose}>
+        <TokenPage
+          tracker={page.tracker}
+          tickets={tickets}
+          onBack={() => go({ kind: "main" })}
+          onConnected={(account) => {
+            notify(`${label(account.tracker)} connected`);
+            go({ kind: "main" });
+          }}
+        />
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog label="Your trackers" onClose={onClose}>
+      <div ref={mainRef} className="ds-page">
+        <DialogHeader title="Your trackers" onClose={onClose} />
+        {state.status === "error" && <p className="error">{state.message}</p>}
+        {state.status === "loading" && <p className="note">Loading…</p>}
+        {error !== null && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        {waiting !== null && (
+          <p className="note" role="status">
+            Finish connecting in the {label(waiting)} window.
+          </p>
+        )}
+        {state.status === "ready" &&
+          offered.trackers.map(({ id, signIn: method }) => {
+            const account = accounts.find((entry) => entry.tracker === id);
+            return (
+              <div key={id} className="ds-group" role="group" aria-label={label(id)}>
+                <h4 className="ds-group-label">{label(id)}</h4>
+                {account === undefined ? (
+                  <>
+                    <NavRow label={`Connect ${label(id)}`} disabled={busy} onClick={() => (method === "oauth" ? signIn(id) : go({ kind: "token", tracker: id }))} />
+                    {method === "oauth" && (
+                      <div className="row">
+                        <button type="button" className="link-btn" disabled={busy} onClick={() => go({ kind: "token", tracker: id })}>
+                          Use an API key instead
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <Connected
+                    account={account}
+                    busy={busy}
+                    confirming={confirming === id}
+                    onConfirm={(on) => setConfirming(on ? id : null)}
+                    onAttribution={(on) =>
+                      void attempt(() => tickets.setTrackerAttribution(id, on)).then((ok) => ok && notify(on ? "New tickets say they came from Critiqs" : "New tickets won't say they came from Critiqs"))
+                    }
+                    onDisconnect={() =>
+                      void attempt(() => tickets.disconnectTracker(id)).then((ok) => {
+                        if (!ok) return;
+                        setConfirming(null);
+                        notify(`${label(id)} disconnected`);
+                        // The rows that held focus are gone; the dialog keeps it.
+                        mainRef.current?.closest<HTMLElement>('[role="dialog"]')?.focus();
+                      })
+                    }
+                  />
+                )}
+              </div>
+            );
+          })}
+      </div>
+    </Dialog>
+  );
+}
+
+function Connected({
+  account,
+  busy,
+  confirming,
+  onConfirm,
+  onAttribution,
+  onDisconnect,
+}: {
+  account: TrackerAccountView;
+  busy: boolean;
+  confirming: boolean;
+  onConfirm: (on: boolean) => void;
+  onAttribution: (on: boolean) => void;
+  onDisconnect: () => void;
+}) {
+  const keepButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirming) keepButton.current?.focus();
+  }, [confirming]);
+  const name = label(account.tracker);
+  return (
+    <>
+      <div className="ds-row">
+        <span className="ds-row-label stacked">
+          <span className="ellipsis">{account.accountName}</span>
+          {account.site !== null && <span className="note ellipsis">{account.site}</span>}
+        </span>
+      </div>
+      <SettingRow label="Created from Critiqs">{(labelId) => <Switch checked={account.attribution} labelledBy={labelId} disabled={busy} onChange={onAttribution} />}</SettingRow>
+      {confirming ? (
+        <div className="warning stacked" role="alert">
+          <span>Disconnect {name}? Tickets already linked keep their links.</span>
+          <div className="row end">
+            <button ref={keepButton} type="button" className="btn small" disabled={busy} onClick={() => onConfirm(false)}>
+              Keep {name}
+            </button>
+            <button type="button" className="btn small danger solid" disabled={busy} onClick={onDisconnect}>
+              {busy ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <NavRow label="Disconnect" onClick={() => onConfirm(true)} />
+      )}
+    </>
+  );
+}
+
+/** Connecting with a pasted personal token: where the backend has no sign-in for the tracker, or instead of it. */
+function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: TrackerId; tickets: TicketTransport; onBack: () => void; onConnected: (account: TrackerAccountView) => void }) {
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  usePageFocus(pageRef, tracker, { initial: true });
+  const name = label(tracker);
+  const submit = async () => {
+    if (busy || token.trim() === "") return;
+    setBusy(true);
+    setError(null);
+    try {
+      onConnected(await tickets.connectTrackerWithToken(tracker, token));
+    } catch (failure) {
+      setError(errorMessage(failure));
+      setBusy(false);
+    }
+  };
+  return (
+    <div ref={pageRef}>
+      <form
+        className="ds-page"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <DialogHeader title={`Connect ${name}`} onBack={onBack} />
+        <p className="note">Create a personal API key in {name}'s settings, then paste it here.</p>
+        <label className="stacked">
+          <span className="field-label">API key</span>
+          <input className="field" type="password" autoComplete="off" value={token} placeholder="Paste the key" onChange={(event) => setToken(event.target.value)} />
+        </label>
+        {error !== null && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="ds-actions between">
+          {TOKEN_PAGES[tracker] !== undefined ? (
+            <a className="link-btn" href={TOKEN_PAGES[tracker]} target="_blank" rel="noreferrer noopener">
+              Open {name} settings
+            </a>
+          ) : (
+            <span />
+          )}
+          <button type="submit" className="btn primary" disabled={busy || token.trim() === ""}>
+            {busy ? "Connecting…" : "Connect"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

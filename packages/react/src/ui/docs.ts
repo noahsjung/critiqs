@@ -21,6 +21,7 @@ export const DOCS: DocTopic[] = [
       "Click Sign in on the toolbar and sign in with a verified email in the window that opens. If nothing opens, allow pop-ups for this site.",
       "Everyone in the project sees your display name, never your email. Change it from your avatar menu: Change display name….",
       "Your AI…, in your avatar menu where the Critiqs backend offers it, connects your own AI; see Critiqs AI.",
+      "Your trackers…, in your avatar menu where the Critiqs backend offers it, connects your own Linear account; see Your trackers.",
       "Sign out from your avatar menu.",
     ],
   },
@@ -162,6 +163,19 @@ export const DOCS: DocTopic[] = [
       "Changes save at once. When a request needs Your AI first, it says so and offers Set up your AI, which opens Your AI.",
       "Keys are stored encrypted and never shown again; only their last four characters are.",
       "Without AI, commenting, replies, mentions, and tags work as usual.",
+    ],
+  },
+  {
+    id: "trackers",
+    title: "Your trackers",
+    summary: "Connects your own account in your team's tracker, so tickets made from comments are created as you. Linear is the first tracker.",
+    steps: [
+      "Open it from your avatar menu: Your trackers…. It appears where the Critiqs backend offers tickets.",
+      "Connect Linear opens Linear's sign-in in a window; allow Critiqs there. If nothing opens, allow pop-ups for this site.",
+      "Where the deployment has no Linear sign-in, Connect Linear asks for a personal API key instead: Open Linear settings, create a key, and paste it.",
+      "Created from Critiqs: whether your new tickets say they came from Critiqs, with a link to the comment. It is on until you turn it off.",
+      "Disconnect removes your account and its key from Critiqs. Tickets already linked keep their links.",
+      "Only you see or change your connections. Keys are stored encrypted and never shown again.",
     ],
   },
   {

@@ -407,7 +407,7 @@ export const endSession = internalMutation({
   },
 });
 
-/** Removes abandoned attempts and expired sessions (scheduled in crons.ts). */
+/** Removes abandoned attempts, expired sessions, and tracker sign-ins nobody finished (scheduled in crons.ts). */
 export const cleanUp = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -436,8 +436,11 @@ export const cleanUp = internalMutation({
     }
     const replaced = await ctx.db.query("replacedRefreshTokens").withIndex("by_expiry", (q) => q.lt("expiresAt", now)).take(CLEANUP_BATCH);
     for (const token of replaced) await ctx.db.delete(token._id);
+    // Tracker sign-ins nobody finished.
+    const trackerSignIns = await ctx.db.query("trackerSignIns").withIndex("by_expiry", (q) => q.lt("expiresAt", now)).take(CLEANUP_BATCH);
+    for (const signIn of trackerSignIns) await ctx.db.delete(signIn._id);
     // Keep going in further transactions until the backlog is gone.
-    if (unlisted || [attempts, sessions, limits, devices, replaced].some((batch) => batch.length === CLEANUP_BATCH)) {
+    if (unlisted || [attempts, sessions, limits, devices, replaced, trackerSignIns].some((batch) => batch.length === CLEANUP_BATCH)) {
       await ctx.scheduler.runAfter(0, internal.signIn.cleanUp, {});
     }
   },

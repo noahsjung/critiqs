@@ -26,10 +26,13 @@ import type {
   SearchScope,
   ThreadDetail,
   ThreadSummary,
+  TrackerAccountView,
+  TrackerId,
+  TrackerSignInStart,
 } from "@critiqs/core";
 import { type ReactNode, useState } from "react";
 import { loadExport } from "../src/export-pages.ts";
-import type { BillingTransport, CritiqsTransport, InviteAnswer, MockupReply, MockupTransport, PagedList, QueryState } from "../src/transport.ts";
+import type { BillingTransport, CritiqsTransport, InviteAnswer, MockupReply, MockupTransport, PagedList, QueryState, TicketTransport } from "../src/transport.ts";
 import type { MockupListScope } from "@critiqs/core";
 
 /** Data a fake backend serves; `undefined` means still loading. Tests may change it between renders. */
@@ -98,8 +101,19 @@ export interface FakeBackend {
   organizationChange?: (name: string, args: unknown) => Promise<unknown>;
   /** A backend that takes payment; none by default, as on every backend but Critiqs Cloud. */
   billing?: FakeBilling;
+  /** A backend that stores tickets, with the reviewer's tracker accounts; none by default, as on the embedded server. */
+  trackers?: FakeTrackers;
   /** Changes the interface asked for, by name, for assertions. */
   calls?: { name: string; args: unknown }[];
+}
+
+/** The reviewer's tracker accounts a fake backend keeps; `undefined` means still loading. */
+export interface FakeTrackers {
+  accounts: TrackerAccountView[] | undefined;
+  /** Answers a pasted token; by default it connects as Dana Smith in Acme. */
+  connect?: (tracker: TrackerId, token: string) => Promise<TrackerAccountView>;
+  /** The started sign-in; by default one on the backend. */
+  signIn?: () => Promise<TrackerSignInStart>;
 }
 
 /** An in-memory transport, so interface tests need no backend client. */
@@ -252,6 +266,35 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     useAiChoice: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.aiChoice)),
     ...(backend.billing === undefined ? {} : { billing: fakeBilling(backend.billing, (name, args) => backend.calls?.push({ name, args })) }),
     ...(backend.mockups === undefined ? {} : { mockups: fakeMockups(backend.mockups, (name, args) => backend.calls?.push({ name, args })) }),
+    ...(backend.trackers === undefined ? {} : { tickets: fakeTickets(backend.trackers, (name, args) => backend.calls?.push({ name, args })) }),
+  };
+}
+
+/** Your trackers' backend over a fake's accounts; changes apply to `trackers.accounts`, shown after the next render. */
+function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknown) => void): TicketTransport {
+  const replace = (account: TrackerAccountView) => (trackers.accounts = [...(trackers.accounts ?? []).filter((each) => each.tracker !== account.tracker), account]);
+  return {
+    useTrackerAccounts: (enabled) => (enabled && trackers.accounts !== undefined ? { status: "ready", data: trackers.accounts } : { status: "loading" }),
+    connectTrackerWithToken: async (tracker, token) => {
+      record("connectTrackerWithToken", { tracker, token });
+      const account = trackers.connect
+        ? await trackers.connect(tracker, token)
+        : { tracker, method: "token" as const, accountName: "Dana Smith", site: "Acme", connectedAt: 1, attribution: true };
+      replace(account);
+      return account;
+    },
+    startTrackerSignIn: async (tracker) => {
+      record("startTrackerSignIn", { tracker });
+      return (await trackers.signIn?.()) ?? { url: `https://backend.convex.site/trackers/${tracker}/start`, state: "s1", binding: "secret-1" };
+    },
+    disconnectTracker: async (tracker) => {
+      record("disconnectTracker", { tracker });
+      trackers.accounts = (trackers.accounts ?? []).filter((each) => each.tracker !== tracker);
+    },
+    setTrackerAttribution: async (tracker, on) => {
+      record("setTrackerAttribution", { tracker, on });
+      trackers.accounts = (trackers.accounts ?? []).map((each) => (each.tracker === tracker ? { ...each, attribution: on } : each));
+    },
   };
 }
 
