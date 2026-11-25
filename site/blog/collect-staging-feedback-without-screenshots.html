@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to collect feedback on a staging site without screenshots · Critiqs blog</title>
+  <meta name="description" content="Replace cropped screenshots and scattered Slack threads with on-page staging reviews that capture the element, view state, and build automatically.">
+  <link rel="canonical" href="https://critiqs.app/blog/collect-staging-feedback-without-screenshots">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="application/rss+xml" title="Critiqs blog" href="/blog/feed.xml">
+  <meta property="article:published_time" content="2026-11-24">
+  <meta property="article:tag" content="staging-review">
+  <meta property="article:tag" content="workflow">
+  <meta property="article:tag" content="client-feedback">
+  <meta property="article:tag" content="visual-feedback">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/blog/collect-staging-feedback-without-screenshots">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="How to collect feedback on a staging site without screenshots · Critiqs blog">
+  <meta property="og:description" content="Replace cropped screenshots and scattered Slack threads with on-page staging reviews that capture the element, view state, and build automatically.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="How to collect feedback on a staging site without screenshots · Critiqs blog">
+  <meta name="twitter:description" content="Replace cropped screenshots and scattered Slack threads with on-page staging reviews that capture the element, view state, and build automatically.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "How to collect feedback on a staging site without screenshots",
+  "description": "Replace cropped screenshots and scattered Slack threads with on-page staging reviews that capture the element, view state, and build automatically.",
+  "url": "https://critiqs.app/blog/collect-staging-feedback-without-screenshots",
+  "mainEntityOfPage": "https://critiqs.app/blog/collect-staging-feedback-without-screenshots",
+  "datePublished": "2026-11-24",
+  "dateModified": "2026-11-24",
+  "keywords": [
+    "staging-review",
+    "workflow",
+    "client-feedback",
+    "visual-feedback"
+  ],
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://critiqs.app/blog"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "How to collect feedback on a staging site without screenshots",
+      "item": "https://critiqs.app/blog/collect-staging-feedback-without-screenshots"
+    }
+  ]
+}
+</script>
+</head>
+<body class="post-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog" aria-current="true">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog" aria-current="true">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <main id="main" class="post">
+    <div class="wrap">
+      <article class="prose">
+        <header class="post-header">
+          <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/blog">Blog</a></li><li>staging-review</li></ol></nav>
+          <h1 class="heading-3">How to collect feedback on a staging site without screenshots</h1>
+          <p class="post-meta body-6"><time datetime="2026-11-24">November 24, 2026</time><span aria-hidden="true">·</span><span>6 min read</span></p>
+        </header>
+<p>To collect feedback on a staging site without screenshots, put a commenting layer directly on your staging build so reviewers click the exact element they mean and leave a thread in place. The tool captures the screen, page, viewport, and build automatically, removing the back-and-forth questions about which customer, tab, or deployment a cropped screenshot came from.</p>
+<p>Most teams still review staging builds by taking screenshots, pasting them into Slack or Teams, and writing paragraphs to explain where the bug sits. That process wastes engineering time on reconstruction and leaves half the feedback buried in chat history, emails, and spreadsheets. Here is how to replace it with an on-page review workflow that works for product managers, designers, QA, and clients.</p>
+<h2 id="why-screenshot-based-staging-reviews-break-down">Why screenshot-based staging reviews break down<a class="anchor" href="#why-screenshot-based-staging-reviews-break-down"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>A cropped screenshot removes the exact details a developer needs to act on it. When someone posts an image in <code>#product-review</code> saying &quot;the department label looks wrong here,&quot; three follow-up messages almost always follow:</p>
+<ul>
+<li>Which customer or test account were you signed in as?</li>
+<li>Which tab or modal was open?</li>
+<li>Was this on staging, a pull request preview, or yesterday&#39;s build?</li>
+</ul>
+<p>By the time everyone answers, another thread has started in email, a QA tester has logged row 41 in a spreadsheet, and a stakeholder has sent a direct message during a demo. Even worse, a screenshot goes stale the moment a developer pushes a fix. Nobody knows whether the comment in chat still applies to the current staging build or was resolved two deploys ago.</p>
+<h2 id="how-to-set-up-an-on-page-staging-review-workflow">How to set up an on-page staging review workflow<a class="anchor" href="#how-to-set-up-an-on-page-staging-review-workflow"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Replacing screenshots takes four concrete decisions before you send out the next staging link.</p>
+<h3 id="1-decide-how-reviewers-reach-staging">1. Decide how reviewers reach staging<a class="anchor" href="#1-decide-how-reviewers-reach-staging"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Keep staging behind your normal access boundary (VPN, basic auth, preview protection, or staging login) and avoid adding extra friction on top of it. Non-developers should not need Git, Node.js, a Jira seat, or a browser extension just to leave a comment on a button.</p>
+<p>With <a href="/docs/install">Critiqs</a>, reviewers open the staging URL in any browser and sign in with their email address and a one-time code. Their first sign-in creates their account, and there is nothing to install. Because the company already controls who can reach the staging site, you do not have to maintain a second invitation list inside the feedback tool.</p>
+<h3 id="2-turn-comments-on-for-staging-and-off-for-production">2. Turn comments on for staging and off for production<a class="anchor" href="#2-turn-comments-on-for-staging-and-off-for-production"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Never ship a review widget to real customers by accident. Tie activation to your deployment environment rather than <code>NODE_ENV</code>, because staging and preview builds usually run in production mode for realistic bundle and performance testing.</p>
+<p>In a React app using Critiqs, running <code>npx critiqs-react init</code> wires <code>&lt;Critiqs /&gt;</code> to a public environment variable (<code>VITE_CRITIQS_PROJECT_ID</code> in Vite or <code>NEXT_PUBLIC_CRITIQS_PROJECT_ID</code> in Next.js) with the <code>requireProjectId</code> prop:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Critiqs</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;critiqs-react&quot;</span>;
+
+<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Critiqs</span>
+	<span class="hljs-attr">projectId</span>=<span class="hljs-string">{import.meta.env.VITE_CRITIQS_PROJECT_ID}</span>
+	<span class="hljs-attr">requireProjectId</span>
+/&gt;</span></span></code></pre></div>
+<p>Set that variable in your staging, preview, and QA build settings, and leave it unset in production. Without a project ID, Critiqs renders nothing into the page and contacts no backend.</p>
+<h3 id="3-capture-view-state-not-only-urls">3. Capture view state, not only URLs<a class="anchor" href="#3-capture-view-state-not-only-urls"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>On a static marketing site, the URL tells you what the reviewer saw. On a modern web app, <code>/customers/harbor-logistics</code> might contain an Overview tab, a Team tab, a Billing tab, and three modal dialogs.</p>
+<p>If your feedback tool only records the URL, reviewers still end up typing &quot;go to the Team tab and open Edit Seat Limit&quot; into every comment. In Critiqs, you can pass optional <code>version</code>, <code>getContext</code>, and <code>restoreContext</code> props to <code>&lt;Critiqs /&gt;</code>. Every thread then stores the logical screen, active tab or dialog, record key, and build revision alongside its automatic DOM capture. Clicking a thread in the sidebar later asks your app to reopen that exact view and scrolls to the pinned element.</p>
+<p>If a comment is about sensitive test data on screen, mark that container with <code>data-critiqs-mask</code> so captures cover it automatically.</p>
+<h3 id="4-keep-one-feedback-list-across-environments">4. Keep one feedback list across environments<a class="anchor" href="#4-keep-one-feedback-list-across-environments"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Staging is rarely the only place people test a release. A designer checks a pull request preview on Tuesday, a QA engineer tests staging on Wednesday, and a product manager checks a QA build on Thursday.</p>
+<p>If each URL creates a separate bucket of comments, feedback splits again. Pointing staging, pull request previews, and QA at the same <a href="/docs/projects">Critiqs project ID</a> merges every thread into one sidebar list, tagged with the build where it was left. Mention and reply emails open one configured review address so links never point a teammate at a dead <code>localhost</code> port.</p>
+<h2 id="ground-rules-that-keep-a-staging-review-focused">Ground rules that keep a staging review focused<a class="anchor" href="#ground-rules-that-keep-a-staging-review-focused"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Tools remove capture friction, but clear review rules keep the thread list useful:</p>
+<ol>
+<li><strong>Name what is in scope.</strong> Tell reviewers before they open the link whether you want copy, layout, and bug checks or only functional sign-off.</li>
+<li><strong>Use one channel.</strong> Put every note on the page itself. If someone drops a staging bug in Slack, ask them to pin it on the build (or pin it once and link the thread) so status stays accurate.</li>
+<li><strong>Tag threads for triage.</strong> In Critiqs, reviewers can apply project tags (Bug, UX copy change, Design change request, User feedback) or write hashtags like <code>#wording</code> inline. Triage can then filter by tag or tag group.</li>
+<li><strong>Show visual tweaks instead of writing paragraphs.</strong> When a layout or wording comment is hard to explain in text, reviewers in <a href="/docs/mockup-mode">Mockup mode</a> can describe the tweak to Critiqs AI on a frozen copy of the page and attach the versioned result straight to the feedback.</li>
+<li><strong>Resolve only when verified on a build.</strong> Keep thread statuses simple: Open while work is pending, Resolved once the fix is checked on the updated build. Personal unread state stays separate from shared status so reading a comment never hides it from the rest of the team.</li>
+</ol>
+<h2 id="turning-staging-threads-into-fixes">Turning staging threads into fixes<a class="anchor" href="#turning-staging-threads-into-fixes"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Once the review round wraps up, developers should not have to copy comments one by one into another document.</p>
+<p>In Critiqs, you have two direct paths into implementation:</p>
+<ul>
+<li><strong>Export selected threads.</strong> Pick the open threads for a task and export them as readable Markdown (for a pull request or issue description) or structured JSON, keeping every reply and context detail intact.</li>
+<li><strong>Hand threads to a coding agent.</strong> Connect Claude Code, Codex, or Cursor to the <a href="/docs/mcp">Critiqs MCP server</a> with <code>npx critiqs-react mcp</code>. The agent reads open threads, fetches captures, implements the fixes, and replies in the thread marked &quot;via coding agent&quot; so the original reviewer gets an email and can verify the next build.</li>
+</ul>
+<h2 id="frequently-asked-questions">Frequently asked questions<a class="anchor" href="#frequently-asked-questions"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<h3 id="what-happens-if-the-ui-changes-after-someone-leaves-a-staging-comment">What happens if the UI changes after someone leaves a staging comment?<a class="anchor" href="#what-happens-if-the-ui-changes-after-someone-leaves-a-staging-comment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>If Critiqs can still locate the element in the updated build, the pin follows it. If the element moved behind another tab or was removed in a redesign, the thread stays visible in the sidebar with its original capture, view context, and build version so nothing is lost.</p>
+<h3 id="do-clients-need-a-developer-account-or-password-to-review-a-staging-site">Do clients need a developer account or password to review a staging site?<a class="anchor" href="#do-clients-need-a-developer-account-or-password-to-review-a-staging-site"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>No. With Critiqs, clients open the staging URL you share, click the toolbar, and sign in with their email address and a one-time code. They do not need GitHub access, a tracker account, a password, or a browser extension.</p>
+<h3 id="does-collecting-feedback-on-staging-work-for-non-react-websites">Does collecting feedback on staging work for non-React websites?<a class="anchor" href="#does-collecting-feedback-on-staging-work-for-non-react-websites"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>The workflow principles (on-page pins, environment gating, one central channel, and tag-based triage) apply to any website. Critiqs itself is built specifically for React 18 and 19 apps. If your staging site runs on WordPress, Webflow, or another stack, tools like Pastel, BugHerd, or Marker.io cover non-React sites. See our <a href="/blog/best-website-feedback-tools-2026">comparison of website feedback tools in 2026</a>.</p>
+<h3 id="how-much-does-on-page-staging-review-cost-to-start">How much does on-page staging review cost to start?<a class="anchor" href="#how-much-does-on-page-staging-review-cost-to-start"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Critiqs Cloud has a <a href="/#pricing">Free plan</a> covering 1 project, 5 monthly reviewers, 500 monthly comments, 200 AI credits, and 500 MB of captures. Teams that want feedback stored on their own infrastructure can self-host Critiqs for $0 under the MIT license.</p>
+      </article>
+      <aside class="post-cta" aria-labelledby="cta-title">
+        <h2 class="heading-5" id="cta-title">Add Critiqs to your next staging build</h2>
+        <p class="body-3">Free to start on Critiqs Cloud, or host it yourself under the MIT license.</p>
+        <a class="btn btn-primary button-md" href="/#install">Get started</a>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

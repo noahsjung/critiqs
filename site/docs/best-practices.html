@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Best practices for build reviews · Critiqs docs</title>
+  <meta name="description" content="Practical patterns for configuring projects, naming builds, tagging threads, using Mockup mode, and handing work to coding agents.">
+  <link rel="canonical" href="https://critiqs.app/docs/best-practices">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/best-practices.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/best-practices">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Best practices for build reviews · Critiqs docs">
+  <meta property="og:description" content="Practical patterns for configuring projects, naming builds, tagging threads, using Mockup mode, and handing work to coding agents.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Best practices for build reviews · Critiqs docs">
+  <meta name="twitter:description" content="Practical patterns for configuring projects, naming builds, tagging threads, using Mockup mode, and handing work to coding agents.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Best practices for build reviews",
+  "description": "Practical patterns for configuring projects, naming builds, tagging threads, using Mockup mode, and handing work to coding agents.",
+  "url": "https://critiqs.app/docs/best-practices",
+  "mainEntityOfPage": "https://critiqs.app/docs/best-practices",
+  "articleSection": "Guides",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Best practices for build reviews",
+      "item": "https://critiqs.app/docs/best-practices"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Best practices for build reviews</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices" aria-current="page">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Guides</li></ol></nav>
+            <h1 class="heading-3">Best practices for build reviews</h1>
+            <p class="doc-lede title-2">Practical patterns for configuring projects, naming builds, tagging threads, using Mockup mode, and handing work to coding agents.</p>
+          </header>
+<p>These patterns keep build reviews focused, prevent feedback from fragmenting across environments, and give developers and coding agents clean context.</p>
+<h2 id="1-use-one-project-id-across-staging-preview-and-qa">1. Use one project ID across staging, preview, and QA<a class="anchor" href="#1-use-one-project-id-across-staging-preview-and-qa"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Give every review environment for the same app the same Critiqs project ID. Staging, pull request previews, and QA builds then share one thread list instead of splitting comments by URL.</p>
+<ul>
+<li><p>Set the app&#39;s environment variable (<code>VITE_CRITIQS_PROJECT_ID</code> or <code>NEXT_PUBLIC_CRITIQS_PROJECT_ID</code>) to the same project ID in your staging, preview, and QA build settings.</p>
+</li>
+<li><p>Point the project&#39;s review address to your main staging build so mention and reply emails open a stable URL for everyone:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --review-url https://staging.example.com</code></pre></div>
+</li>
+<li><p>In a monorepo, keep one separate Critiqs project per app (for example <code>VITE_CRITIQS_PROJECT_ID_WEB</code> and <code>VITE_CRITIQS_PROJECT_ID_ADMIN</code>). Do not share one project ID across different apps.</p>
+</li>
+</ul>
+<h2 id="2-keep-production-clean-and-invite-clients-to-staging">2. Keep production clean and invite clients to staging<a class="anchor" href="#2-keep-production-clean-and-invite-clients-to-staging"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Use <code>requireProjectId</code> on <code>&lt;Critiqs /&gt;</code> (added automatically by <code>critiqs init</code> in Vite and Next.js apps) and leave the project ID environment variable unset in production builds:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Critiqs</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;critiqs-react&quot;</span>;
+
+<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Critiqs</span> <span class="hljs-attr">projectId</span>=<span class="hljs-string">{import.meta.env.VITE_CRITIQS_PROJECT_ID}</span> <span class="hljs-attr">requireProjectId</span> /&gt;</span></span></code></pre></div>
+<p>When the variable is unset, Critiqs renders nothing on the page and makes zero network requests.</p>
+<p>To run a client or stakeholder review, share your staging or preview URL. Reviewers need no browser extension, repository access, or organization invite: they open the link and sign in with an email code. Because anyone who can open a build with a project ID can see that project&#39;s feedback, guard access to your staging or preview environment itself.</p>
+<h2 id="3-name-builds-clearly-and-pass-view-context">3. Name builds clearly and pass view context<a class="anchor" href="#3-name-builds-clearly-and-pass-view-context"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Pass the <code>version</code> prop so every comment records the build or commit it came from, and pass <code>getContext</code> and <code>restoreContext</code> so clicking a thread brings back its tab, dialog, or record:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx">&lt;<span class="hljs-title class_">Critiqs</span>
+  projectId={<span class="hljs-keyword">import</span>.<span class="hljs-property">meta</span>.<span class="hljs-property">env</span>.<span class="hljs-property">VITE_CRITIQS_PROJECT_ID</span>}
+  requireProjectId
+  version={<span class="hljs-keyword">import</span>.<span class="hljs-property">meta</span>.<span class="hljs-property">env</span>.<span class="hljs-property">VITE_BUILD_VERSION</span>}
+  getContext={getContext}
+  restoreContext={restoreContext}
+/&gt;</code></pre></div>
+<p>Good <code>version</code> labels include a branch name plus short commit SHA (such as <code>pr-482-a1b2c3d</code>) or a staging build tag (<code>staging-2026.11.24</code>). Avoid generic labels like <code>dev</code> that hide whether feedback predates a fix.</p>
+<h2 id="4-use-tags-for-triage">4. Use <code>#tags</code> for triage<a class="anchor" href="#4-use-tags-for-triage"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Critiqs starts every project with four preset tags (<strong>Bug</strong>, <strong>UX copy change</strong>, <strong>Design change request</strong>, and <strong>User feedback</strong>) and turns any inline <code>#hashtag</code> (such as <code>#wording</code>, <code>#a11y</code>, or <code>#blocker</code>) into a filterable tag.</p>
+<ul>
+<li>Agree on two or three lightweight triage tags for your team (for example <code>#blocker</code>, <code>#copy</code>, <code>#polish</code>).</li>
+<li>Group related tags in <strong>Tags and AI</strong> so everyone can filter by one shared group (Critiqs includes <strong>Copy &amp; wording</strong> as a starter group and groups new tags automatically when AI is on).</li>
+<li>Click any posted tag on a thread to filter the list to matching threads.</li>
+</ul>
+<h2 id="5-comment-on-the-element-and-resolve-when-shipped">5. Comment on the element and resolve when shipped<a class="anchor" href="#5-comment-on-the-element-and-resolve-when-shipped"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Point at the specific element your feedback is about rather than leaving a general note on the outer container:</p>
+<ol>
+<li>Press <code>C</code> to enter Comment mode and click the exact button, label, or cell.</li>
+<li>On repeated items (such as table rows or customer cards), choose <strong>This component</strong> for feedback about one record or <strong>Matching components</strong> for feedback about the component across every record.</li>
+<li>Keep threads open while work is in progress. Have a developer or coding agent reply with what changed, then resolve the thread only after verifying the fix on a deployed build.</li>
+</ol>
+<p>If your staging build shows real or sensitive customer data, add <code>data-critiqs-mask</code> to a containing element so automatic captures and mockup copies cover that region. Put <code>data-critiqs-mask</code> on a wrapper rather than directly on a <code>&lt;canvas&gt;</code>, <code>&lt;video&gt;</code>, or <code>&lt;iframe&gt;</code>.</p>
+<h2 id="6-use-mockup-mode-for-visual-changes-only">6. Use Mockup mode for visual changes only<a class="anchor" href="#6-use-mockup-mode-for-visual-changes-only"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p><a href="/docs/mockup-mode">Mockup mode</a> (<code>M</code>) freezes a static HTML and CSS copy of the current page so reviewers can explore wording, spacing, colors, or layout ideas with Critiqs AI.</p>
+<ul>
+<li>Use Mockup mode for visual and copy tweaks where showing the result is faster than writing a paragraph.</li>
+<li>Do not expect Mockup mode to run interactive JavaScript flows, form submissions, or API calls; scripts do not run inside page copies.</li>
+<li>Link existing comments with <strong>+ Add existing comment</strong> so Critiqs AI addresses open review feedback in one visual proposal.</li>
+</ul>
+<h2 id="7-add-data-critiqs-id-for-reliable-pins-and-coding-agents">7. Add <code>data-critiqs-id</code> for reliable pins and coding agents<a class="anchor" href="#7-add-data-critiqs-id-for-reliable-pins-and-coding-agents"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>When you connect a coding agent through <a href="/docs/mcp">MCP</a>, Critiqs gives the agent each thread&#39;s <code>context.target.purposeId</code> and each mockup change&#39;s nearest <code>data-critiqs-id</code>. Adding stable <code>data-critiqs-id</code> attributes to key components helps in two ways:</p>
+<ol>
+<li>Pins survive DOM restructuring and styling changes across builds.</li>
+<li>Coding agents can jump straight to the right component by grepping for the <code>data-critiqs-id</code> value.</li>
+</ol>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx">&lt;div data-critiqs-record={<span class="hljs-string">`customer:<span class="hljs-subst">${customer.id}</span>`</span>}&gt;
+  <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">span</span> <span class="hljs-attr">data-critiqs-id</span>=<span class="hljs-string">&quot;customer.department&quot;</span>&gt;</span>{customer.department}<span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span></span>
+  <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">data-critiqs-id</span>=<span class="hljs-string">&quot;customer.upgrade-plan&quot;</span>&gt;</span>Upgrade plan<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span></span>
+&lt;/div&gt;</code></pre></div>
+<ul>
+<li>Use semantic names (<code>customer.department</code>, <code>billing.invoice-date</code>) rather than CSS class names or layout positions.</li>
+<li>Add <code>data-critiqs-record</code> on repeating containers so Critiqs distinguishes one record from another and never places a record-specific pin on the wrong item.</li>
+<li>Pair <code>data-critiqs-id</code> with the <a href="/docs/mcp">Critiqs MCP server</a> and <a href="/docs/agent-skill">agent skill</a> so agents read threads, fix components, and reply &quot;via coding agent&quot; without extra prompting.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/plans-and-limits"><span class="caption-4">Previous</span><span class="title-3">Plans and limits</span></a>
+          <a class="pager-link next" href="/docs/self-hosting"><span class="caption-4">Next</span><span class="title-3">Self-hosting on your own Convex</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#1-use-one-project-id-across-staging-preview-and-qa">1. Use one project ID across staging, preview, and QA</a></li>
+            <li class="toc-h2"><a href="#2-keep-production-clean-and-invite-clients-to-staging">2. Keep production clean and invite clients to staging</a></li>
+            <li class="toc-h2"><a href="#3-name-builds-clearly-and-pass-view-context">3. Name builds clearly and pass view context</a></li>
+            <li class="toc-h2"><a href="#4-use-tags-for-triage">4. Use #tags for triage</a></li>
+            <li class="toc-h2"><a href="#5-comment-on-the-element-and-resolve-when-shipped">5. Comment on the element and resolve when shipped</a></li>
+            <li class="toc-h2"><a href="#6-use-mockup-mode-for-visual-changes-only">6. Use Mockup mode for visual changes only</a></li>
+            <li class="toc-h2"><a href="#7-add-data-critiqs-id-for-reliable-pins-and-coding-agents">7. Add data-critiqs-id for reliable pins and coding agents</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/best-practices.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

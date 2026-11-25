@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A design QA checklist before release for web apps · Critiqs blog</title>
+  <meta name="description" content="Run a structured pre-release design QA pass on staging or pull request previews covering layout, copy, states, responsiveness, and actionable bug handoff.">
+  <link rel="canonical" href="https://critiqs.app/blog/design-qa-checklist-before-release">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="application/rss+xml" title="Critiqs blog" href="/blog/feed.xml">
+  <meta property="article:published_time" content="2026-11-24">
+  <meta property="article:tag" content="design-qa">
+  <meta property="article:tag" content="checklist">
+  <meta property="article:tag" content="staging-review">
+  <meta property="article:tag" content="qa">
+  <meta property="article:tag" content="visual-feedback">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/blog/design-qa-checklist-before-release">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="A design QA checklist before release for web apps · Critiqs blog">
+  <meta property="og:description" content="Run a structured pre-release design QA pass on staging or pull request previews covering layout, copy, states, responsiveness, and actionable bug handoff.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="A design QA checklist before release for web apps · Critiqs blog">
+  <meta name="twitter:description" content="Run a structured pre-release design QA pass on staging or pull request previews covering layout, copy, states, responsiveness, and actionable bug handoff.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "A design QA checklist before release for web apps",
+  "description": "Run a structured pre-release design QA pass on staging or pull request previews covering layout, copy, states, responsiveness, and actionable bug handoff.",
+  "url": "https://critiqs.app/blog/design-qa-checklist-before-release",
+  "mainEntityOfPage": "https://critiqs.app/blog/design-qa-checklist-before-release",
+  "datePublished": "2026-11-24",
+  "dateModified": "2026-11-24",
+  "keywords": [
+    "design-qa",
+    "checklist",
+    "staging-review",
+    "qa",
+    "visual-feedback"
+  ],
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://critiqs.app/blog"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "A design QA checklist before release for web apps",
+      "item": "https://critiqs.app/blog/design-qa-checklist-before-release"
+    }
+  ]
+}
+</script>
+</head>
+<body class="post-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog" aria-current="true">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog" aria-current="true">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <main id="main" class="post">
+    <div class="wrap">
+      <article class="prose">
+        <header class="post-header">
+          <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/blog">Blog</a></li><li>design-qa</li></ol></nav>
+          <h1 class="heading-3">A design QA checklist before release for web apps</h1>
+          <p class="post-meta body-6"><time datetime="2026-11-24">November 24, 2026</time><span aria-hidden="true">·</span><span>6 min read</span></p>
+        </header>
+<p>A pre-release design QA pass checks a live staging or pull request build against the intended design across six areas: layout and spacing, typography and copy, interactive states, responsive breakpoints, dynamic views, and basic accessibility. Pinning each finding directly to the affected element on the build lets engineers fix the entire list in one pass instead of deciphering screenshots in chat.</p>
+<p>Design QA is different from functional QA and user acceptance testing (UAT). Functional QA tests whether logic and APIs behave correctly, and UAT checks whether a workflow meets business requirements. Design QA checks whether the shipped interface actually matches the design system, reads clearly, and holds up under real data and varied screen widths.</p>
+<h2 id="before-you-start-the-pass">Before you start the pass<a class="anchor" href="#before-you-start-the-pass"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Spend two minutes verifying the test environment before logging a single issue:</p>
+<ul>
+<li><strong>Confirm the exact build.</strong> Check that you are looking at the right pull request preview or staging URL, not production or an older branch.</li>
+<li><strong>Test with realistic data and roles.</strong> Sign into representative accounts (for example, a brand-new user with empty tables, a power user with long names and dozens of rows, and a read-only role). Most visual bugs hide behind real data lengths.</li>
+<li><strong>Hard refresh once.</strong> Run a hard reload (<code>Cmd + Shift + R</code> or <code>Ctrl + Shift + R</code>) if you recently checked an earlier build so stale CSS does not cause false alarms.</li>
+<li><strong>Agree on one place for notes.</strong> Log every finding in one shared list on the build itself. Avoid splitting notes across Slack, Figma comments, and spreadsheets.</li>
+</ul>
+<h2 id="1-layout-alignment-and-spacing">1. Layout, alignment, and spacing<a class="anchor" href="#1-layout-alignment-and-spacing"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Compare the live build side by side with the design spec or design system tokens:</p>
+<ul>
+<li><strong>Grid and alignment.</strong> Check vertical and horizontal baselines across headers, form fields, table columns, and action buttons. Look for elements shifted by 2 to 4 pixels because of mismatched line heights or stray borders.</li>
+<li><strong>Padding and gaps.</strong> Verify consistent spacing inside cards, dialogs, menus, and toolbars. Check that dividers sit only where groups separate and do not double up against container borders.</li>
+<li><strong>Overflow and truncation.</strong> Test long names, long email addresses, and multi-digit numbers. Confirm whether text should wrap cleanly or truncate with an ellipsis, and make sure overflowing text never pushes buttons off screen.</li>
+<li><strong>Z-index and layering.</strong> Open dropdowns, tooltips, sticky headers, and modals together to confirm nothing clips behind a scroll container or floats over a dialog backdrop.</li>
+</ul>
+<h2 id="2-typography-icons-and-copy">2. Typography, icons, and copy<a class="anchor" href="#2-typography-icons-and-copy"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Read the interface as a first-time user rather than skimming familiar labels:</p>
+<ul>
+<li><strong>Type scale and weight.</strong> Confirm headings, body copy, captions, and button labels use the intended font family, size, weight, and line height. Check monospace styling on code, IDs, or numeric tables.</li>
+<li><strong>Contrast and color tokens.</strong> Verify primary text, muted secondary text, links, and status colors (accent, caution, danger, success) match the design system and remain legible against their backgrounds.</li>
+<li><strong>Icons and assets.</strong> Check that SVGs are crisp, aligned vertically with adjacent text, and sized consistently. Confirm no broken images or unstyled fallback icons appear.</li>
+<li><strong>Copy accuracy.</strong> Scan for leftover placeholder text, typos, inconsistent capitalization (sentence case vs title case), missing units on numbers (such as &quot;12 of 50 credits&quot; rather than &quot;12/50&quot;), and clear button verbs (&quot;Save key&quot; instead of vague &quot;Submit&quot;).</li>
+</ul>
+<h2 id="3-interactive-states">3. Interactive states<a class="anchor" href="#3-interactive-states"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Static screenshots look right while interactive states break. Click, hover, and trigger edge cases on every changed component:</p>
+<ul>
+<li><strong>Hover, active, and selected states.</strong> Confirm buttons, rows, tabs, and menu items show clear visual feedback on hover and clearly mark the currently active selection.</li>
+<li><strong>Loading states.</strong> Trigger slow actions (saving a form, switching pages, fetching search results). Check that spinners or skeletons hold layout space without jarring jumps, and that primary submit buttons disable while a request is in flight to stop double submissions.</li>
+<li><strong>Empty states.</strong> View every list, search result, and table with zero items and with active filters that return zero matches. Each empty state should explain why nothing appears and offer the next action (such as clearing filters).</li>
+<li><strong>Error and warning states.</strong> Submit invalid forms, trigger network errors if possible, and check inline field errors, banners, and toast notifications. Confirm errors appear near the relevant control and disappear once corrected.</li>
+<li><strong>Destructive confirmations.</strong> Verify delete or remove actions ask for confirmation in plain language and visually distinguish destructive buttons from ordinary actions.</li>
+</ul>
+<h2 id="4-responsive-breakpoints">4. Responsive breakpoints<a class="anchor" href="#4-responsive-breakpoints"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Do not assume a layout that works on a 1440 px monitor survives a laptop or phone:</p>
+<ul>
+<li><strong>Narrow desktop and tablet widths.</strong> Drag the browser window smoothly from 1440 px down to 768 px. Watch for cramped navigation bars, wrapping button groups, and awkward sidebars.</li>
+<li><strong>Mobile widths (375 px to 430 px).</strong> Check for unintended horizontal scrollbars, touch targets that are too small or packed too tightly, modals taller than the viewport, and fixed footers covering content.</li>
+<li><strong>Browser zoom.</strong> Test at 125% and 150% zoom to confirm text reflows cleanly without overlapping controls.</li>
+</ul>
+<h2 id="5-dynamic-views-tabs-and-modals">5. Dynamic views, tabs, and modals<a class="anchor" href="#5-dynamic-views-tabs-and-modals"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Web apps rarely stay on one flat screen. Walk through stateful transitions:</p>
+<ul>
+<li><strong>Tabs and multi-step flows.</strong> Switch between tabs and move forward and back through multi-step dialogs. Confirm state persists where expected and resets when a dialog closes.</li>
+<li><strong>Record switching.</strong> Open two different customer accounts or items on the same screen template to verify layout holds up across both sparse and dense records.</li>
+<li><strong>Scroll behavior.</strong> Test long pages and tall dialogs to ensure the outer page does not scroll behind an open modal and sticky headers stay aligned.</li>
+</ul>
+<h2 id="6-basic-accessibility-checks">6. Basic accessibility checks<a class="anchor" href="#6-basic-accessibility-checks"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Catch high-impact accessibility regressions before release without waiting for a full audit:</p>
+<ul>
+<li><strong>Keyboard navigation.</strong> Tab through every interactive element on the page. Confirm focus order matches the visual layout, focus rings are clearly visible, and you can open and close menus and dialogs using Enter, Space, and Escape without getting trapped.</li>
+<li><strong>Form labels and error announcements.</strong> Click every field label to confirm it focuses its input. Check that icon-only buttons have readable accessible names.</li>
+<li><strong>Motion and contrast.</strong> Confirm status is never communicated by color alone and animations stay subtle.</li>
+</ul>
+<h2 id="how-to-report-design-qa-findings-so-developers-fix-them-once">How to report design QA findings so developers fix them once<a class="anchor" href="#how-to-report-design-qa-findings-so-developers-fix-them-once"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Even a thorough checklist stalls if feedback arrives as vague messages in chat. Every design QA note should answer four things automatically: what element it is about, what screen and tab were open, what the reviewer saw, and what it should look like instead.</p>
+<p>On React staging and preview builds, <a href="/docs/install">Critiqs</a> captures the first three automatically: switch to Comment mode (press <code>C</code>), click the element, and tag the thread (<code>Design change request</code>, <code>UX copy change</code>, or <code>Bug</code>). Critiqs pins the comment to the element, saves a capture with the element outlined, and records the page, viewport, and view state (when wired with <code>getContext</code> and <code>restoreContext</code>) so developers can jump straight back to that tab or dialog.</p>
+<p>For the fourth part, showing what it should look like instead, open <a href="/docs/mockup-mode">Mockup mode</a> (press <code>M</code>). Describe the spacing, typography, color, or copy adjustment in plain words and let Critiqs AI edit a frozen HTML and CSS copy of the page. Save the version in the thread, check it against the live build with <strong>Hold to compare</strong>, and hand the thread to a developer or a coding agent over <a href="/docs/mcp">Critiqs MCP</a>.</p>
+<h2 id="frequently-asked-questions">Frequently asked questions<a class="anchor" href="#frequently-asked-questions"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<h3 id="when-should-a-team-run-design-qa-in-the-release-cycle">When should a team run design QA in the release cycle?<a class="anchor" href="#when-should-a-team-run-design-qa-in-the-release-cycle"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Run design QA on pull request previews before code merges for feature work, and run a final pass on staging before a major release. Catching spacing, state, and copy issues on a branch preview is much cheaper than opening follow-up tickets after code reaches staging or production.</p>
+<h3 id="who-should-run-the-design-qa-checklist">Who should run the design QA checklist?<a class="anchor" href="#who-should-run-the-design-qa-checklist"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Usually the designer who owns the feature pairs with a product manager or frontend engineer. Letting designers comment directly on the preview build in a browser removes the need for them to pull code locally or sit on a screen-share call while an engineer clicks through every state.</p>
+<h3 id="how-do-you-keep-design-qa-notes-from-getting-lost-across-builds">How do you keep design QA notes from getting lost across builds?<a class="anchor" href="#how-do-you-keep-design-qa-notes-from-getting-lost-across-builds"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Use a feedback tool that stores threads against a project rather than a single ephemeral URL. In Critiqs, giving your pull request preview, staging build, and QA environment the same <a href="/docs/projects">project ID</a> keeps every thread in one list, with its original capture and build version preserved even after elements move or change.</p>
+<h3 id="do-i-need-to-run-every-item-on-the-checklist-for-a-small-ui-change">Do I need to run every item on the checklist for a small UI change?<a class="anchor" href="#do-i-need-to-run-every-item-on-the-checklist-for-a-small-ui-change"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>No. For a small pull request, focus on the changed component, its interactive states (hover, loading, empty, error), its behavior at mobile and desktop widths, and keyboard navigation inside the changed area. Run the full checklist before larger feature launches or design-system updates.</p>
+      </article>
+      <aside class="post-cta" aria-labelledby="cta-title">
+        <h2 class="heading-5" id="cta-title">Add Critiqs to your next staging build</h2>
+        <p class="body-3">Free to start on Critiqs Cloud, or host it yourself under the MIT license.</p>
+        <a class="btn btn-primary button-md" href="/#install">Get started</a>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

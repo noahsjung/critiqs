@@ -1,0 +1,19 @@
+{
+  "name": "@critiqs/example-self-host",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The pilot served by its own Bun server, with Critiqs self-hosted inside it on SQLite.",
+  "type": "module",
+  "scripts": {
+    "build": "VITE_CRITIQS_BACKEND=/critiqs bun run --cwd ../pilot build",
+    "start": "bun server.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "true"
+  },
+  "dependencies": {
+    "critiqs-react": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  }
+}

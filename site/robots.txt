@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://critiqs.app/sitemap.xml

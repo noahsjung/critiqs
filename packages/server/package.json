@@ -1,0 +1,32 @@
+{
+  "name": "@critiqs/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Critiqs's server rules: who may do what, validation, and limits, shared by every backend (Convex, or SQLite in the host app's server).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sqlite": "./src/sqlite/index.ts",
+    "./http": "./src/http/index.ts",
+    "./contract": "./test/contract.ts",
+    "./ai-providers": "./src/ai/providers.ts",
+    "./contract-ai": "./test/contract-ai.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.88",
+    "@ai-sdk/gateway": "4.0.126",
+    "@ai-sdk/google": "4.0.105",
+    "@ai-sdk/openai": "4.0.102",
+    "@ai-sdk/openai-compatible": "3.0.78",
+    "@critiqs/core": "workspace:*",
+    "ai": "7.0.153",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  }
+}

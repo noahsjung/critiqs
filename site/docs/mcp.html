@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect a coding agent with MCP · Critiqs docs</title>
+  <meta name="description" content="Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.">
+  <link rel="canonical" href="https://critiqs.app/docs/mcp">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/mcp.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/mcp">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Connect a coding agent with MCP · Critiqs docs">
+  <meta property="og:description" content="Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Connect a coding agent with MCP · Critiqs docs">
+  <meta name="twitter:description" content="Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Connect a coding agent with MCP",
+  "description": "Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.",
+  "url": "https://critiqs.app/docs/mcp",
+  "mainEntityOfPage": "https://critiqs.app/docs/mcp",
+  "articleSection": "Agents",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Connect a coding agent with MCP",
+      "item": "https://critiqs.app/docs/mcp"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Connect a coding agent with MCP</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp" aria-current="page">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Agents</li></ol></nav>
+            <h1 class="heading-3">Connect a coding agent with MCP</h1>
+            <p class="doc-lede title-2">Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.</p>
+          </header>
+<p>Critiqs ships a stdio Model Context Protocol (MCP) server inside <code>critiqs-react</code>. Run it with <code>npx critiqs-react mcp</code> so your coding agent can list open threads, inspect captures, read mockups, and post replies marked &quot;via coding agent&quot;.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>The MCP feedback tools work with Critiqs Cloud and team-owned Convex deployments. Node.js 20 or later is required.</p>
+</div>
+<h2 id="add-the-mcp-server-to-your-client">Add the MCP server to your client<a class="anchor" href="#add-the-mcp-server-to-your-client"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Critiqs uses the standard stdio MCP transport with command <code>npx</code> and arguments <code>[&quot;critiqs-react&quot;, &quot;mcp&quot;]</code>.</p>
+<h3 id="claude-code">Claude Code<a class="anchor" href="#claude-code"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Add Critiqs to <code>.mcp.json</code> in your repository root:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;mcpServers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre></div>
+<h3 id="codex">Codex<a class="anchor" href="#codex"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Add Critiqs to <code>.codex/config.toml</code> in your repository (or your user-level Codex config):</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">toml</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs">[mcp_servers.critiqs]
+command = &quot;npx&quot;
+args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
+<h3 id="cursor">Cursor<a class="anchor" href="#cursor"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Add Critiqs to <code>.cursor/mcp.json</code> in your repository (or your global Cursor MCP settings):</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;mcpServers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre></div>
+<h3 id="vs-code-copilot-windsurf-and-other-mcp-clients">VS Code, Copilot, Windsurf, and other MCP clients<a class="anchor" href="#vs-code-copilot-windsurf-and-other-mcp-clients"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Use the generic stdio configuration for any client that reads an MCP JSON file:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;mcpServers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre></div>
+<p>VS Code and GitHub Copilot read <code>.vscode/mcp.json</code> in the repository, with the servers under <code>servers</code>:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;servers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;stdio&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre></div>
+<p>Windsurf reads <code>~/.codeium/windsurf/mcp_config.json</code>, with the same <code>mcpServers</code> block as above.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>If you deploy to your team&#39;s own Convex backend through MCP (<code>target: &quot;own-convex&quot;</code>), inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or your shell environment instead of writing a literal key into a repository config file. Never paste API keys or deploy keys into chat or tool arguments. Alternatively, run <code>npx critiqs-react init --own-convex</code> in a terminal and enter the key at its hidden prompt.</p>
+</div>
+<h2 id="sign-in-once-on-your-computer">Sign in once on your computer<a class="anchor" href="#sign-in-once-on-your-computer"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Reading feedback and replying require a saved sign-in on the computer running the MCP server. You sign in once and every future agent session on that computer reuses it.</p>
+<ol>
+<li><p>Run the sign-in command in a terminal:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-in</code></pre></div>
+<p>If you use a team-owned Convex deployment instead of Critiqs Cloud, pass <code>--backend https://&lt;deployment&gt;.convex.cloud</code>.</p>
+</li>
+<li><p>Open the printed approval address in a browser on this computer or any other device, enter the short setup code (such as <code>BCDF-GHJK</code>), sign in with your email, and choose <strong>Approve</strong>. The code expires after 10 minutes.</p>
+</li>
+<li><p>Alternatively, skip the terminal command and ask your agent to call <code>critiqs_sign_in</code> followed by <code>critiqs_sign_in_finish</code>. Give the approval in your browser, and never paste an email sign-in code into the chat.</p>
+</li>
+</ol>
+<p>Your session is stored in <code>sign-in.json</code>, readable only by your user account:</p>
+<ul>
+<li>macOS and Linux: <code>$XDG_CONFIG_HOME/critiqs/sign-in.json</code> (defaults to <code>~/.config/critiqs/sign-in.json</code>)</li>
+<li>Windows: <code>%APPDATA%\critiqs\sign-in.json</code></li>
+<li>Custom folder: set <code>CRITIQS_CONFIG_DIR</code></li>
+</ul>
+<p>The sign-in lasts until you run <code>npx critiqs-react sign-out</code> (or call <code>critiqs_sign_out</code>), 30 days without use, or 90 days total.</p>
+<h2 id="mcp-tools-reference">MCP tools reference<a class="anchor" href="#mcp-tools-reference"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>All 13 tools below are served by <code>npx critiqs-react mcp</code>. Pass <code>backend</code> only when your project runs on a deployment other than Critiqs Cloud.</p>
+<h3 id="reading-feedback-and-mockups">Reading feedback and mockups<a class="anchor" href="#reading-feedback-and-mockups"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Main inputs</th>
+<th>What it returns</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>critiqs_comments</code></td>
+<td><code>projectId</code> (required), <code>status</code> (<code>&quot;open&quot;</code>, <code>&quot;resolved&quot;</code>, <code>&quot;all&quot;</code>), <code>author</code>, <code>since</code>, <code>until</code>, <code>tag</code>, <code>screen</code>, <code>text</code>, <code>limit</code> (1 to 500, default 50), <code>backend</code></td>
+<td>Matching threads newest activity first, each with its full discussion (<code>authorId</code>, timestamps, <code>via</code>, <code>matches</code> when message filters ran), <code>truncated</code> flag, and full context (<code>screen</code>, <code>viewState</code>, <code>scope</code>, <code>target.purposeId</code> from <code>data-critiqs-id</code>, <code>recordKey</code>, page URL, viewport, demo persona, build revision, and <code>movedTo</code>).</td>
+</tr>
+<tr>
+<td><code>critiqs_thread</code></td>
+<td><code>thread</code> (required: thread ID or <code>?critiqs=...</code> link), <code>backend</code></td>
+<td>One thread&#39;s full discussion with each message&#39;s mentions, reactions, <code>mine</code>, and <code>linked</code> (when given a message link), plus who last resolved, reopened, or moved it, its screenshot status, and full context.</td>
+</tr>
+<tr>
+<td><code>critiqs_screenshot</code></td>
+<td><code>thread</code> (required), <code>file</code> (optional relative path), <code>backend</code></td>
+<td>The capture image with the commented element outlined, plus page URL, viewport size, marked coordinates, and capture timestamp. Images over 5 MB must be saved to disk with <code>file</code>.</td>
+</tr>
+<tr>
+<td><code>critiqs_mockups</code></td>
+<td><code>projectId</code> (required), <code>screen</code>, <code>text</code>, <code>limit</code> (1 to 100, default 50), <code>backend</code></td>
+<td>Project mockups most recently changed first, with each mockup&#39;s ID, title, source page (<code>url</code>, <code>screen</code>, <code>viewState</code>, <code>revision</code>, <code>persona</code>), version and thread counts, page copies (<code>id</code>, <code>width</code>), and mockup thread summaries.</td>
+</tr>
+<tr>
+<td><code>critiqs_mockup</code></td>
+<td><code>mockup</code> (required), <code>version</code> (default latest; <code>0</code> for original copies), <code>saveCopies</code> (optional relative folder), <code>backend</code></td>
+<td>Source page, page copies, version history, mockup threads (with Critiqs AI replies marked <code>via: &quot;ai&quot;</code>), linked feedback threads, and every ordered change (<code>css</code>, <code>text</code>, <code>attribute</code>, <code>insert</code>, <code>replace</code>, <code>remove</code>). Changes targeting a node include <code>original</code> (start tag, text, and nearest <code>data-critiqs-id</code> as <code>purposeId</code>), or <code>original: null</code> with <code>addedByChange: true</code> when an earlier change added that node; changes with no node have no <code>original</code> field. With <code>saveCopies</code>, writes <code>&lt;folder&gt;/&lt;mockupId&gt;/&lt;copyId&gt;.html</code> and <code>edits-v&lt;N&gt;.json</code>.</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="replying-in-threads">Replying in threads<a class="anchor" href="#replying-in-threads"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Main inputs</th>
+<th>What it returns</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>critiqs_reply</code></td>
+<td><code>thread</code> (required), <code>body</code> (required, up to 10,000 characters), <code>mention</code> (display names or author IDs), <code>revision</code> (commit or build label), <code>backend</code></td>
+<td>The new reply&#39;s <code>messageId</code>, <code>link</code>, <code>mentioned</code> recipients, and <code>via: &quot;agent&quot;</code>. Posted as <code>&lt;Your name&gt; · via coding agent</code>. Emails everyone else in the thread (unless they turned reply emails off) and sends mention emails to people in <code>mention</code>.</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="signing-in-and-out">Signing in and out<a class="anchor" href="#signing-in-and-out"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Main inputs</th>
+<th>What it returns</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>critiqs_sign_in</code></td>
+<td><code>signIn</code> (<code>&quot;auto&quot;</code>, <code>&quot;browser&quot;</code>, <code>&quot;remote&quot;</code>), <code>force</code>, <code>backend</code></td>
+<td>The approval URL and short setup code (or reports who is already signed in unless <code>force: true</code>).</td>
+</tr>
+<tr>
+<td><code>critiqs_sign_in_finish</code></td>
+<td><code>waitSeconds</code> (1 to 50, default 45)</td>
+<td>Waits for browser approval, saves the session on this computer, and returns the signed-in account and expiry date. Call again while it reports waiting.</td>
+</tr>
+<tr>
+<td><code>critiqs_sign_out</code></td>
+<td><code>backend</code></td>
+<td>Ends this computer&#39;s session with the sign-in service and deletes the saved entry.</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="project-setup-and-diagnostics">Project setup and diagnostics<a class="anchor" href="#project-setup-and-diagnostics"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Main inputs</th>
+<th>What it returns</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>critiqs_setup_start</code></td>
+<td><code>dir</code>, <code>target</code> (<code>&quot;cloud&quot;</code>, <code>&quot;own-convex&quot;</code>, or backend URL), <code>name</code>, <code>reviewUrl</code>, <code>signIn</code>, <code>entry</code>, <code>mount</code>, <code>newProject</code>, <code>envFile</code></td>
+<td>Plans component placement, deploys to your own Convex if requested, and returns the sign-in URL (and setup code for remote approval).</td>
+</tr>
+<tr>
+<td><code>critiqs_setup_finish</code></td>
+<td><code>waitSeconds</code> (1 to 50, default 45)</td>
+<td>Waits for sign-in, creates or reuses the project, writes the component and ID, and returns structured <code>stages</code> and <code>env</code> matching <code>critiqs init --json</code>.</td>
+</tr>
+<tr>
+<td><code>critiqs_write_project_id</code></td>
+<td><code>projectId</code> (required), <code>dir</code>, <code>dryRun</code>, <code>entry</code>, <code>mount</code>, <code>envFile</code></td>
+<td>Connects <code>&lt;Critiqs /&gt;</code> to an existing project without signing in.</td>
+</tr>
+<tr>
+<td><code>critiqs_doctor</code></td>
+<td><code>dir</code>, <code>envFile</code>, <code>backend</code></td>
+<td>Runs all setup checks and returns structured results matching <code>critiqs doctor --json</code>.</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="typical-agent-workflow">Typical agent workflow<a class="anchor" href="#typical-agent-workflow"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ol>
+<li><strong>List open feedback.</strong> Ask your agent to call <code>critiqs_comments</code> with your project ID (defaults to <code>status: &quot;open&quot;</code>). Filter by <code>tag</code>, <code>screen</code>, <code>author</code>, or <code>since</code> to focus on one area.</li>
+<li><strong>Inspect a thread.</strong> Have the agent call <code>critiqs_thread</code> for full discussion details and <code>critiqs_screenshot</code> to see the exact element outlined on screen.</li>
+<li><strong>Locate and fix the code.</strong> The agent uses <code>context.target.purposeId</code> (your element&#39;s <code>data-critiqs-id</code>), <code>context.screen</code>, <code>context.viewState</code>, and the capture to find the component, make the edit, and run tests. For visual proposals in Mockup mode, it calls <code>critiqs_mockups</code> and <code>critiqs_mockup</code> and implements the edits in your real React components rather than copying frozen HTML.</li>
+<li><strong>Reply in the thread.</strong> Once the fix is verified, the agent calls <code>critiqs_reply</code> with a short summary of what changed, the build or commit in <code>revision</code>, and optional <code>mention</code> recipients. Critiqs labels the reply &quot;via coding agent&quot;.</li>
+<li><strong>Resolve after review.</strong> Leave the thread open so a reviewer can confirm the change on the next staging or preview build and resolve it.</li>
+</ol>
+<h2 id="next-steps">Next steps<a class="anchor" href="#next-steps"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ul>
+<li>Install the <a href="/docs/agent-skill">Critiqs agent skill</a> so your agent follows this workflow automatically.</li>
+<li>See the <a href="/docs/cli">command line reference</a> for all CLI commands and flags.</li>
+<li>Hand off threads without MCP using <a href="/docs/export">export</a>.</li>
+<li>Check <a href="/docs/troubleshooting">troubleshooting</a> if sign-in or MCP tool calls fail.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/your-ai"><span class="caption-4">Previous</span><span class="title-3">Your AI and provider keys</span></a>
+          <a class="pager-link next" href="/docs/agent-skill"><span class="caption-4">Next</span><span class="title-3">Add the Critiqs agent skill</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#add-the-mcp-server-to-your-client">Add the MCP server to your client</a></li>
+            <li class="toc-h3"><a href="#claude-code">Claude Code</a></li>
+            <li class="toc-h3"><a href="#codex">Codex</a></li>
+            <li class="toc-h3"><a href="#cursor">Cursor</a></li>
+            <li class="toc-h3"><a href="#vs-code-copilot-windsurf-and-other-mcp-clients">VS Code, Copilot, Windsurf, and other MCP clients</a></li>
+            <li class="toc-h2"><a href="#sign-in-once-on-your-computer">Sign in once on your computer</a></li>
+            <li class="toc-h2"><a href="#mcp-tools-reference">MCP tools reference</a></li>
+            <li class="toc-h3"><a href="#reading-feedback-and-mockups">Reading feedback and mockups</a></li>
+            <li class="toc-h3"><a href="#replying-in-threads">Replying in threads</a></li>
+            <li class="toc-h3"><a href="#signing-in-and-out">Signing in and out</a></li>
+            <li class="toc-h3"><a href="#project-setup-and-diagnostics">Project setup and diagnostics</a></li>
+            <li class="toc-h2"><a href="#typical-agent-workflow">Typical agent workflow</a></li>
+            <li class="toc-h2"><a href="#next-steps">Next steps</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/mcp.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

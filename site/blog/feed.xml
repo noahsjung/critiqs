@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Critiqs blog</title>
+    <link>https://critiqs.app/blog</link>
+    <atom:link href="https://critiqs.app/blog/feed.xml" rel="self" type="application/rss+xml"/>
+    <description>Notes from the Critiqs team on reviewing builds, Mockup mode, and working with coding agents.</description>
+    <language>en</language>
+    <lastBuildDate>Tue, 24 Nov 2026 00:00:00 GMT</lastBuildDate>
+    <item>
+      <title>Best website feedback tools for product teams in 2026</title>
+      <link>https://critiqs.app/blog/best-website-feedback-tools-2026</link>
+      <guid isPermaLink="true">https://critiqs.app/blog/best-website-feedback-tools-2026</guid>
+      <pubDate>Tue, 24 Nov 2026 00:00:00 GMT</pubDate>
+      <description>Compare six website feedback tools in 2026, including Critiqs, Pastel, BugHerd, Marker.io, MarkUp.io, and Vercel Toolbar, with verified pricing and MCP support.</description>
+      <category>comparison</category>
+      <category>tools</category>
+      <category>visual-feedback</category>
+      <category>staging-review</category>
+      <category>bugherd</category>
+      <category>marker</category>
+    </item>
+    <item>
+      <title>How to collect feedback on a staging site without screenshots</title>
+      <link>https://critiqs.app/blog/collect-staging-feedback-without-screenshots</link>
+      <guid isPermaLink="true">https://critiqs.app/blog/collect-staging-feedback-without-screenshots</guid>
+      <pubDate>Tue, 24 Nov 2026 00:00:00 GMT</pubDate>
+      <description>Replace cropped screenshots and scattered Slack threads with on-page staging reviews that capture the element, view state, and build automatically.</description>
+      <category>staging-review</category>
+      <category>workflow</category>
+      <category>client-feedback</category>
+      <category>visual-feedback</category>
+    </item>
+    <item>
+      <title>Critiqs vs Pastel: which website feedback tool fits your team</title>
+      <link>https://critiqs.app/blog/critiqs-vs-pastel</link>
+      <guid isPermaLink="true">https://critiqs.app/blog/critiqs-vs-pastel</guid>
+      <pubDate>Tue, 24 Nov 2026 00:00:00 GMT</pubDate>
+      <description>Compare Critiqs and Pastel on setup, React state capture, AI mockups, MCP coding agents, self-hosting, and 2026 pricing to pick the right review tool.</description>
+      <category>comparison</category>
+      <category>pastel</category>
+      <category>staging-review</category>
+      <category>react</category>
+      <category>visual-feedback</category>
+    </item>
+    <item>
+      <title>A design QA checklist before release for web apps</title>
+      <link>https://critiqs.app/blog/design-qa-checklist-before-release</link>
+      <guid isPermaLink="true">https://critiqs.app/blog/design-qa-checklist-before-release</guid>
+      <pubDate>Tue, 24 Nov 2026 00:00:00 GMT</pubDate>
+      <description>Run a structured pre-release design QA pass on staging or pull request previews covering layout, copy, states, responsiveness, and actionable bug handoff.</description>
+      <category>design-qa</category>
+      <category>checklist</category>
+      <category>staging-review</category>
+      <category>qa</category>
+      <category>visual-feedback</category>
+    </item>
+    <item>
+      <title>How to review a pull request preview with non-developers</title>
+      <link>https://critiqs.app/blog/review-pull-request-previews-with-non-developers</link>
+      <guid isPermaLink="true">https://critiqs.app/blog/review-pull-request-previews-with-non-developers</guid>
+      <pubDate>Tue, 24 Nov 2026 00:00:00 GMT</pubDate>
+      <description>Let product managers, designers, QA, and clients review pull request previews in a browser without Git, local builds, or GitHub accounts.</description>
+      <category>pull-request-previews</category>
+      <category>staging-review</category>
+      <category>collaboration</category>
+      <category>react</category>
+    </item>
+    <item>
+      <title>How to give UI feedback to AI coding agents with MCP</title>
+      <link>https://critiqs.app/blog/ui-feedback-for-ai-coding-agents-mcp</link>
+      <guid isPermaLink="true">https://critiqs.app/blog/ui-feedback-for-ai-coding-agents-mcp</guid>
+      <pubDate>Tue, 24 Nov 2026 00:00:00 GMT</pubDate>
+      <description>Connect on-page visual feedback and AI mockups to Claude Code, Codex, and Cursor using the Model Context Protocol so agents fix UI bugs accurately.</description>
+      <category>mcp</category>
+      <category>ai-coding-agents</category>
+      <category>claude-code</category>
+      <category>cursor</category>
+      <category>codex</category>
+      <category>visual-feedback</category>
+    </item>
+  </channel>
+</rss>

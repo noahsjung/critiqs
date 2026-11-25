@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Introduction · Critiqs docs</title>
+  <meta name="description" content="Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.">
+  <link rel="canonical" href="https://critiqs.app/docs/introduction">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/introduction.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/introduction">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Introduction · Critiqs docs">
+  <meta property="og:description" content="Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Introduction · Critiqs docs">
+  <meta name="twitter:description" content="Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Introduction",
+  "description": "Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.",
+  "url": "https://critiqs.app/docs/introduction",
+  "mainEntityOfPage": "https://critiqs.app/docs/introduction",
+  "articleSection": "Get started",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Introduction",
+      "item": "https://critiqs.app/docs/introduction"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Introduction</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction" aria-current="page">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Get started</li></ol></nav>
+            <h1 class="heading-3">Introduction</h1>
+            <p class="doc-lede title-2">Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.</p>
+          </header>
+<p>Critiqs is a React component (<code>&lt;Critiqs /&gt;</code> from <code>critiqs-react</code>) that you add to your staging, preview, or QA builds. Product managers, designers, QA testers, and clients open your build in a browser, click any element on the page, and leave comments in threads.</p>
+<p>Every comment keeps a capture of the screen, the page address, the element it points to, and any tab or view state your app reports. Developers and coding agents get the full context without chasing screenshots in chat.</p>
+<h2 id="who-critiqs-is-for">Who Critiqs is for<a class="anchor" href="#who-critiqs-is-for"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Critiqs fits teams where non-engineers and engineers review builds together before release.</p>
+<ul>
+<li><strong>Reviewers:</strong> Product managers, designers, QA testers, stakeholders, and clients. They open the build link in a browser, sign in with a one-time email code, and comment without installing a browser extension or cloning a repository.</li>
+<li><strong>Developers and coding agents:</strong> Engineers read threads directly on the build or export selected threads as Markdown or JSON. Coding agents connect through the Critiqs MCP server (<code>npx critiqs-react mcp</code>) to read threads, inspect captures and mockups, and post replies marked &quot;via coding agent&quot;.</li>
+<li><strong>Project owners:</strong> Developers who add <code>&lt;Critiqs /&gt;</code> to the app, manage the project ID and review address, and configure tags, tag groups, and AI settings.</li>
+</ul>
+<h2 id="what-critiqs-adds-to-your-app">What Critiqs adds to your app<a class="anchor" href="#what-critiqs-adds-to-your-app"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>When <code>&lt;Critiqs /&gt;</code> is active on a build, it mounts inside its own shadow root above your app. Its styles, keyboard shortcuts, and React tree stay isolated from your code.</p>
+<p>The floating toolbar at the bottom of the screen gives reviewers three modes:</p>
+<ul>
+<li><strong>Browse mode:</strong> Use the app as usual. Open the side panel to see the <strong>Project</strong> panel, including open and unread thread counts, recent participants, email notification settings, and the project ID.</li>
+<li><strong>Comment mode:</strong> Click any element to start a thread. Open the side panel to browse, filter, search, or export threads. See <a href="/docs/comments">Comments</a> and <a href="/docs/threads">Threads</a>.</li>
+<li><strong>Mockup mode:</strong> Freeze the current page into an HTML and CSS copy and ask Critiqs AI to edit that copy so feedback includes a visual proposal. Your running app never changes. See <a href="/docs/mockup-mode">Mockup mode</a>.</li>
+</ul>
+<h2 id="how-a-review-flows">How a review flows<a class="anchor" href="#how-a-review-flows"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>A typical review cycle runs in five steps:</p>
+<ol>
+<li><strong>Deploy a build with Critiqs enabled.</strong> Add <code>&lt;Critiqs /&gt;</code> once in your app, set your project ID in staging, preview, and QA build settings, and leave it unset in production so customers never see Critiqs. See <a href="/docs/install">Install Critiqs</a> and <a href="/docs/projects">Projects and project IDs</a>.</li>
+<li><strong>Reviewers open the link and sign in.</strong> Reviewers click <strong>Sign in</strong> on the toolbar, enter their email address, and type the six-digit code Critiqs emails them. Their first sign-in creates an account and asks for a display name.</li>
+<li><strong>Reviewers pin comments or mock up changes.</strong> In <strong>Comment mode</strong>, reviewers click elements, write comments with <code>@mentions</code> and <code>#tags</code>, and post. In <strong>Mockup mode</strong>, they ask Critiqs AI to try wording, spacing, or layout changes on a frozen page copy.</li>
+<li><strong>People discuss and triage in threads.</strong> Mentioned reviewers and people in a thread receive notification emails with the capture, the discussion, and a link back to the build. Reviewers reply, react, filter by tag or screen, and resolve threads when addressed.</li>
+<li><strong>Developers or coding agents build the fixes.</strong> Developers open threads on the build or export a collection as Markdown or JSON. Coding agents read open threads and mockup diffs through the MCP server, apply changes in the codebase, and post a reply asking reviewers to verify the next build.</li>
+</ol>
+<h2 id="hosting-and-ai-choices">Hosting and AI choices<a class="anchor" href="#hosting-and-ai-choices"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>By default, Critiqs stores feedback and handles sign-in and email on Critiqs Cloud. Teams that must keep feedback on their own infrastructure can deploy Critiqs to their own Convex deployment instead. See <a href="/docs/backends">Backends</a>.</p>
+<p>AI is optional. Commenting, threads, mentions, tags, filters, basic search, and exports work without AI. When enabled, AI powers Mockup mode, plain-language search with cited insights, and automatic tag grouping, using either Critiqs AI credits or your own AI provider key. See <a href="/docs/ai-models-and-credits">AI models and credits</a> and <a href="/docs/your-ai">Your AI</a>.</p>
+<h2 id="next-steps">Next steps<a class="anchor" href="#next-steps"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ul>
+<li>Follow <a href="/docs/install">Install Critiqs</a> to add <code>&lt;Critiqs /&gt;</code> to your React app.</li>
+<li>Read <a href="/docs/projects">Projects and project IDs</a> to share one feedback list across staging, preview, and QA builds.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <span></span>
+          <a class="pager-link next" href="/docs/install"><span class="caption-4">Next</span><span class="title-3">Install Critiqs</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#who-critiqs-is-for">Who Critiqs is for</a></li>
+            <li class="toc-h2"><a href="#what-critiqs-adds-to-your-app">What Critiqs adds to your app</a></li>
+            <li class="toc-h2"><a href="#how-a-review-flows">How a review flows</a></li>
+            <li class="toc-h2"><a href="#hosting-and-ai-choices">Hosting and AI choices</a></li>
+            <li class="toc-h2"><a href="#next-steps">Next steps</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/introduction.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

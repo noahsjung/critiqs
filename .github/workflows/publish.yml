@@ -1,0 +1,55 @@
+name: Publish
+
+# Publishes the critiqs-react version recorded on main to the public npm
+# registry. Only a maintainer starts it, naming the version; it never runs on
+# pushes or pull requests. The `npm` environment requires a reviewer's
+# approval, and npm trusted publishing (OpenID Connect) replaces stored
+# tokens. See docs/releasing.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The critiqs-react version on main to publish, such as 0.3.0
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - name: Check this version may be published
+        run: bun scripts/publish.ts verify --version "$VERSION"
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run check:consumers
+      - name: Publish
+        working-directory: packages/react
+        # Trusted publishing adds provenance automatically when the source
+        # repository is public. Forcing it would reject this private source repo.
+        run: npm publish --access public

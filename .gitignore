@@ -1,0 +1,29 @@
+# Local credentials and development configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local notes, evidence, and editor state
+.local/
+.worktrees/
+.DS_Store
+.idea/
+.vscode/
+
+# Common dependency, build, and cache output
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Convex local deployment state
+.convex/
+
+# Temporary folders `critiqs init` deploys from
+.deploy-*/

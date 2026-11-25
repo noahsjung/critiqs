@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Organizations and roles · Critiqs docs</title>
+  <meta name="description" content="Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.">
+  <link rel="canonical" href="https://critiqs.app/docs/organizations">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/organizations.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/organizations">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Organizations and roles · Critiqs docs">
+  <meta property="og:description" content="Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Organizations and roles · Critiqs docs">
+  <meta name="twitter:description" content="Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Organizations and roles",
+  "description": "Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.",
+  "url": "https://critiqs.app/docs/organizations",
+  "mainEntityOfPage": "https://critiqs.app/docs/organizations",
+  "articleSection": "Teams and plans",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Organizations and roles",
+      "item": "https://critiqs.app/docs/organizations"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Organizations and roles</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations" aria-current="page">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Teams and plans</li></ol></nav>
+            <h1 class="heading-3">Organizations and roles</h1>
+            <p class="doc-lede title-2">Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.</p>
+          </header>
+<p>An organization owns Critiqs projects and holds their <a href="/docs/plans-and-limits">Critiqs Cloud plan</a>, shared usage limits, and billing.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Reviewers do not join your organization. Anyone who can reach your staging or preview build and signs in with an email code can view threads, comment, and use Mockup mode without an organization invite. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud.</p>
+</div>
+<h2 id="how-organizations-work">How organizations work<a class="anchor" href="#how-organizations-work"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>When you set up your first Critiqs project, Critiqs creates a home organization for you (named <code>&lt;Your name&gt;&#39;s organization</code>) and makes you its admin.</p>
+<ul>
+<li><strong>Multiple organizations:</strong> You can belong to more than one organization. When creating a new project in Project setup, choose which organization owns it (it defaults to your home organization).</li>
+<li><strong>Home organization and personal AI:</strong> When a project&#39;s AI usage rule is set to <strong>Each person pays</strong> (or when you save your own Critiqs AI choice in <a href="/docs/your-ai">Your AI</a>), your Critiqs AI credits count against your home organization&#39;s plan while you belong to it. If you do not belong to an eligible home organization, Critiqs falls back to your own usage account on the default plan.</li>
+<li><strong>Self-hosted deployments:</strong> Team-owned Convex deployments also use organizations and roles to manage who owns projects, while plans and billing stay off.</li>
+</ul>
+<h2 id="roles-and-permissions">Roles and permissions<a class="anchor" href="#roles-and-permissions"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Every person in an organization is either an <strong>Admin</strong> or a <strong>Member</strong>. A project&#39;s <strong>owners</strong> are all admins of its organization plus the member who created that project (while they remain in the organization).</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Admin</th>
+<th>Member</th>
+<th>Reviewer (outside org)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Comment, reply, react, mention, resolve threads, export, use Mockup mode</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes (on builds they can reach)</td>
+</tr>
+<tr>
+<td>Create projects in the organization</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Manage projects they created (review address, tags and groups, AI settings, plan usage)</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Manage every project in the organization</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>View organization name, plan, and member names and roles</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>No</td>
+</tr>
+<tr>
+<td>View members&#39; email addresses and pending invites</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Rename organization, invite people, withdraw invites, change roles, remove members</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Manage plan, billing, overage cap, and extra storage</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Receive alert emails when AI credits run out or hit the overage cap</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Leave the organization</td>
+<td>Yes (if another admin remains)</td>
+<td>Yes</td>
+<td>N/A</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="open-your-organization-settings">Open your organization settings<a class="anchor" href="#open-your-organization-settings"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ol>
+<li>Click your avatar in the Critiqs toolbar.</li>
+<li>Select <strong>Organization…</strong>.</li>
+<li>If you belong to more than one organization, choose one from the <strong>Organizations</strong> list. The current project&#39;s organization appears first.</li>
+</ol>
+<h2 id="rename-an-organization">Rename an organization<a class="anchor" href="#rename-an-organization"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Only admins can rename an organization.</p>
+<ol>
+<li>Open <strong>Organization…</strong> from your avatar menu.</li>
+<li>Click <strong>Name</strong>.</li>
+<li>Enter the new name (up to 80 characters) and click <strong>Save name</strong>.</li>
+</ol>
+<h2 id="invite-teammates">Invite teammates<a class="anchor" href="#invite-teammates"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Only admins can invite people to an organization.</p>
+<ol>
+<li>Open <strong>Organization…</strong> from your avatar menu.</li>
+<li>Under <strong>Members</strong>, click <strong>Invite by email</strong>.</li>
+<li>Enter the person&#39;s email address.</li>
+<li>Choose <strong>Member</strong> or <strong>Admin</strong> under <strong>Role</strong>.</li>
+<li>Click <strong>Send invite</strong>.</li>
+</ol>
+<p>When email is configured, Critiqs sends an invitation email (including a link to the current project&#39;s review address when it is not a local or private URL). The person joins the organization automatically the next time they sign in to Critiqs with that email address.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Pending invites appear under <strong>Invited</strong> for admins. Click <strong>Withdraw</strong> beside an email address to cancel an invite before it is accepted. An organization can send up to 50 invites per UTC day, and a single inbox can receive up to 5 invite emails per UTC day across organizations.</p>
+</div>
+<h2 id="change-a-members-role-or-remove-a-member">Change a member&#39;s role or remove a member<a class="anchor" href="#change-a-members-role-or-remove-a-member"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Only admins can change roles or remove other members.</p>
+<ol>
+<li>Open <strong>Organization…</strong> from your avatar menu.</li>
+<li>Click the member&#39;s row under <strong>Members</strong>.</li>
+<li>To change their role, pick <strong>Admin</strong> or <strong>Member</strong> in <strong>Role</strong>. The change saves immediately.</li>
+<li>To remove them, click <strong>Remove from organization</strong> and confirm.</li>
+</ol>
+<p>Rules to keep in mind:</p>
+<ul>
+<li><strong>At least one admin:</strong> You cannot demote or remove the last admin of an organization. Make another member an admin first.</li>
+<li><strong>Projects stay with the organization:</strong> If a member leaves or is removed, any projects they created remain in the organization and its admins continue managing them.</li>
+<li><strong>Leaving an organization:</strong> Members (and admins when another admin remains) can open <strong>Organization…</strong> and choose <strong>Leave organization</strong>. If you leave your home organization, your personal Critiqs AI usage falls back to your own usage account on the default plan until Critiqs creates a new home organization for you the next time you create a project.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/cli"><span class="caption-4">Previous</span><span class="title-3">Command line reference</span></a>
+          <a class="pager-link next" href="/docs/plans-and-limits"><span class="caption-4">Next</span><span class="title-3">Plans and limits</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#how-organizations-work">How organizations work</a></li>
+            <li class="toc-h2"><a href="#roles-and-permissions">Roles and permissions</a></li>
+            <li class="toc-h2"><a href="#open-your-organization-settings">Open your organization settings</a></li>
+            <li class="toc-h2"><a href="#rename-an-organization">Rename an organization</a></li>
+            <li class="toc-h2"><a href="#invite-teammates">Invite teammates</a></li>
+            <li class="toc-h2"><a href="#change-a-members-role-or-remove-a-member">Change a member's role or remove a member</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/organizations.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

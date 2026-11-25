@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Critiqs vs Pastel: which website feedback tool fits your team · Critiqs blog</title>
+  <meta name="description" content="Compare Critiqs and Pastel on setup, React state capture, AI mockups, MCP coding agents, self-hosting, and 2026 pricing to pick the right review tool.">
+  <link rel="canonical" href="https://critiqs.app/blog/critiqs-vs-pastel">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="application/rss+xml" title="Critiqs blog" href="/blog/feed.xml">
+  <meta property="article:published_time" content="2026-11-24">
+  <meta property="article:tag" content="comparison">
+  <meta property="article:tag" content="pastel">
+  <meta property="article:tag" content="staging-review">
+  <meta property="article:tag" content="react">
+  <meta property="article:tag" content="visual-feedback">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/blog/critiqs-vs-pastel">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Critiqs vs Pastel: which website feedback tool fits your team · Critiqs blog">
+  <meta property="og:description" content="Compare Critiqs and Pastel on setup, React state capture, AI mockups, MCP coding agents, self-hosting, and 2026 pricing to pick the right review tool.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Critiqs vs Pastel: which website feedback tool fits your team · Critiqs blog">
+  <meta name="twitter:description" content="Compare Critiqs and Pastel on setup, React state capture, AI mockups, MCP coding agents, self-hosting, and 2026 pricing to pick the right review tool.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Critiqs vs Pastel: which website feedback tool fits your team",
+  "description": "Compare Critiqs and Pastel on setup, React state capture, AI mockups, MCP coding agents, self-hosting, and 2026 pricing to pick the right review tool.",
+  "url": "https://critiqs.app/blog/critiqs-vs-pastel",
+  "mainEntityOfPage": "https://critiqs.app/blog/critiqs-vs-pastel",
+  "datePublished": "2026-11-24",
+  "dateModified": "2026-11-24",
+  "keywords": [
+    "comparison",
+    "pastel",
+    "staging-review",
+    "react",
+    "visual-feedback"
+  ],
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://critiqs.app/blog"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Critiqs vs Pastel: which website feedback tool fits your team",
+      "item": "https://critiqs.app/blog/critiqs-vs-pastel"
+    }
+  ]
+}
+</script>
+</head>
+<body class="post-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog" aria-current="true">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog" aria-current="true">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <main id="main" class="post">
+    <div class="wrap">
+      <article class="prose">
+        <header class="post-header">
+          <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/blog">Blog</a></li><li>comparison</li></ol></nav>
+          <h1 class="heading-3">Critiqs vs Pastel: which website feedback tool fits your team</h1>
+          <p class="post-meta body-6"><time datetime="2026-11-24">November 24, 2026</time><span aria-hidden="true">·</span><span>7 min read</span></p>
+        </header>
+<p>Pastel and Critiqs solve website review from two different starting points. Pastel proxies any live URL or uploaded file with comments layered on top and no code install, which fits agencies and non-React websites. Critiqs is a React component (<code>&lt;Critiqs /&gt;</code>) installed in your staging, preview, and QA builds, which lets it restore dynamic tabs and records, share one thread list across environments, run AI page mockups, and self-host under the MIT license.</p>
+<p>If you review marketing sites, WordPress builds, Webflow pages, PDFs, or client sites where you do not control the code, Pastel is the better fit. If you build a React 18 or 19 app and want feedback pinned inside real app states across staging and pull request previews, Critiqs is built for that workflow.</p>
+<h2 id="how-pastel-and-critiqs-work-under-the-hood">How Pastel and Critiqs work under the hood<a class="anchor" href="#how-pastel-and-critiqs-work-under-the-hood"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>The main difference between the two tools is where the feedback layer runs.</p>
+<p>Pastel uses a proxy canvas. You paste a website URL into Pastel, and Pastel displays the live site through its own review link with commenting controls on top. You can also upload HTML files, ZIP archives, images, PDFs, and videos. Because nothing is installed in the host site, you can review almost any URL immediately.</p>
+<p>Critiqs runs inside your React app. You install <code>critiqs-react</code> and render <code>&lt;Critiqs /&gt;</code> in your staging, preview, and QA builds. Living inside the running app lets Critiqs see the live DOM and talk to your app about which screen, tab, dialog, or customer record is active. The tradeoff is clear: Critiqs only supports React 18 and 19 apps (Vite, Next.js, Remix, and similar setups), and you must have access to the codebase.</p>
+<h2 id="setup-and-rollout">Setup and rollout<a class="anchor" href="#setup-and-rollout"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Pastel needs no code changes. Create a canvas in the Pastel dashboard, paste a URL, and share the link. On a login-protected site, a reviewer switches to Browse mode to sign in, then switches back to Comment mode.</p>
+<p>Critiqs installs with two commands:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npm install critiqs-react
+npx critiqs-react init</code></pre></div>
+<p>The <code>init</code> command adds <code>&lt;Critiqs /&gt;</code> to your app entry, opens sign-in, creates a project on Critiqs Cloud, and wires an environment variable with <code>requireProjectId</code>. In Vite and Next.js apps, leaving that variable unset in production means Critiqs renders nothing and contacts no server. See the <a href="/docs/install">install guide</a> for setup details.</p>
+<h2 id="who-can-comment">Who can comment<a class="anchor" href="#who-can-comment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Neither tool requires a browser extension or a password.</p>
+<p>In Pastel, guest reviewers are unlimited on every plan. Clients open the shared canvas link, enter their name and email on their first comment, and leave feedback with no account. Paid seats cover team users who create canvases, manage labels and assignments, write private team-only comments, and run integrations.</p>
+<p>In Critiqs, reviewers open your staging or preview URL in any browser and sign in with an email address and a one-time code. Anyone who can reach your staging build can join without a separate invite list. On Critiqs Cloud, plans count monthly reviewers per project (5 on Free, 25 on Plus, unlimited on Pro and self-hosted).</p>
+<h2 id="context-saved-with-each-comment">Context saved with each comment<a class="anchor" href="#context-saved-with-each-comment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Pastel saves a screenshot, page URL, browser details, and screen size with each comment. It includes a responsive tester with device presets, and clicking a comment restores its recorded width. If an element is deleted later, the comment stays in the sidebar with its original screenshot.</p>
+<p>Critiqs pins each comment to an element and saves a capture with that element outlined, plus the page, viewport, browser, and optional build version. Optional <code>getContext</code> and <code>restoreContext</code> callbacks let Critiqs save and reopen the exact tab, dialog, or customer record when someone picks a thread later. Reviewers can also scope a note to <strong>This component</strong> (one record) or <strong>Matching components</strong> (the same component across records). If an element disappears in a newer build, the thread remains in the sidebar with its original capture and context.</p>
+<h2 id="environments-and-shared-project-feedback">Environments and shared project feedback<a class="anchor" href="#environments-and-shared-project-feedback"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>In Pastel, feedback belongs to a canvas tied to a URL, and you add versions on that canvas to separate feedback rounds. That model works well when a client reviews one staging domain through version 1, version 2, and version 3.</p>
+<p>In Critiqs, feedback follows a project ID rather than a hostname. Give your staging build, pull request previews, and QA environment the same <a href="/docs/projects">project ID</a>, and every comment lands in one shared thread list tagged with the build it came from.</p>
+<h2 id="design-changes-and-ai-mockups">Design changes and AI mockups<a class="anchor" href="#design-changes-and-ai-mockups"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Pastel offers inline copy editing on a website canvas so reviewers can propose text changes directly on the page.</p>
+<p>Critiqs adds <a href="/docs/mockup-mode">Mockup mode</a>. Clicking <strong>Mockup</strong> freezes the current page into a static copy of its HTML and stylesheets (no scripts run, and the live app stays untouched). Reviewers describe wording, spacing, color, or layout edits in plain words, or attach existing comment threads for Critiqs AI to read. Critiqs AI updates the frozen copy and saves each change as a numbered version. Reviewers can restore any version or press <strong>Hold to compare</strong> (or hold <code>O</code>) to view the live page underneath.</p>
+<h2 id="coding-agent-handoff-and-mcp">Coding agent handoff and MCP<a class="anchor" href="#coding-agent-handoff-and-mcp"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Both tools support the Model Context Protocol (MCP) for coding agents such as Claude Code, Codex, and Cursor.</p>
+<p>Pastel offers a hosted MCP server (<code>https://api.usepastel.com/mcp</code>) and a CLI (<code>@usepastel/cli</code>). Agents can list canvases, read comments with element and screenshot guidance, reply, mark comments resolved, and upload local HTML files directly into a canvas.</p>
+<p>Critiqs ships an MCP server via <code>npx critiqs-react mcp</code> for Critiqs Cloud and self-hosted Convex deployments. Once signed in, an agent uses <code>critiqs_comments</code>, <code>critiqs_thread</code>, <code>critiqs_screenshot</code>, <code>critiqs_mockups</code>, <code>critiqs_mockup</code>, and <code>critiqs_reply</code>. Replies from an agent appear marked &quot;via coding agent&quot;, and <code>critiqs_mockup</code> hands the agent ordered CSS and HTML edits paired with the nearest <code>data-critiqs-id</code>. Teams can also export selected threads as Markdown or JSON. See the <a href="/docs/mcp">MCP guide</a>.</p>
+<h2 id="self-hosting-and-data-control">Self-hosting and data control<a class="anchor" href="#self-hosting-and-data-control"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Pastel is hosted cloud software. Its Enterprise plan adds a SOC 2 report, SAML SSO, and custom legal terms, with no self-hosted option.</p>
+<p>Critiqs is MIT-licensed. Teams that need feedback and captures on their own infrastructure can run <code>npx critiqs-react init --own-convex</code> to deploy on their own Convex backend with no usage limits. By default, that setup still uses Critiqs Cloud&#39;s sign-in service; follow the extra sign-in setup in the <a href="/docs/self-hosting">self-hosting guide</a> to run with no Critiqs service involved.</p>
+<h2 id="side-by-side-comparison-checked-november-24-2026">Side-by-side comparison (checked November 24, 2026)<a class="anchor" href="#side-by-side-comparison-checked-november-24-2026"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Pastel facts come from <a rel="noopener" href="https://usepastel.com/plans">usepastel.com/plans</a> and <a rel="noopener" href="https://usepastel.com/agents">usepastel.com/agents</a>. Critiqs prices come from <a href="/#pricing">critiqs.app/#pricing</a> (beta pricing active November 24, 2026).</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Critiqs</th>
+<th>Pastel</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Architecture</td>
+<td>React 18/19 component (<code>&lt;Critiqs /&gt;</code>)</td>
+<td>Proxied URL canvas or file upload</td>
+</tr>
+<tr>
+<td>Supported targets</td>
+<td>React 18 and 19 web apps</td>
+<td>Any URL, HTML/ZIP, images, PDFs, videos</td>
+</tr>
+<tr>
+<td>Reviewer sign-in</td>
+<td>Email plus one-time code</td>
+<td>Guest name and email, no account</td>
+</tr>
+<tr>
+<td>App state capture</td>
+<td>Optional <code>getContext</code> and <code>restoreContext</code></td>
+<td>URL, screenshot, browser, viewport</td>
+</tr>
+<tr>
+<td>Multi-environment list</td>
+<td>One project ID across staging, preview, QA</td>
+<td>One canvas per URL with version rounds</td>
+</tr>
+<tr>
+<td>Visual proposals</td>
+<td>AI Mockup mode (HTML/CSS copy, versions)</td>
+<td>Inline copy editing on canvas</td>
+</tr>
+<tr>
+<td>Coding agent MCP</td>
+<td><code>npx critiqs-react mcp</code>, Markdown/JSON export</td>
+<td><code>api.usepastel.com/mcp</code> and <code>@usepastel/cli</code></td>
+</tr>
+<tr>
+<td>PM integrations</td>
+<td>Export and MCP</td>
+<td>Trello, Asana, Jira, ClickUp, Monday, Zapier, webhooks (Team+)</td>
+</tr>
+<tr>
+<td>Self-hosting</td>
+<td>Free, MIT license, on your own Convex</td>
+<td>Hosted cloud only</td>
+</tr>
+<tr>
+<td>Free tier</td>
+<td>$0: 1 project, 5 reviewers/mo, 500 comments/mo</td>
+<td>$0: 1 user, 1 canvas, unlimited guests</td>
+</tr>
+<tr>
+<td>Mid tier</td>
+<td>Plus: $10/mo beta ($20 regular), 10 projects, 25 reviewers/mo</td>
+<td>Pro: $35/mo ($29/mo yearly), 2 users, 3 canvases</td>
+</tr>
+<tr>
+<td>Team tier</td>
+<td>Pro: $50/mo beta ($100 regular), unlimited projects/reviewers</td>
+<td>Team: $119/mo ($99/mo yearly), 5 users (+$24/user), unlimited canvases</td>
+</tr>
+<tr>
+<td>Enterprise</td>
+<td>Self-host free under MIT</td>
+<td>$450/mo yearly ($5,400/yr), 10+ users, SSO, SOC 2</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="when-pastel-is-the-better-choice">When Pastel is the better choice<a class="anchor" href="#when-pastel-is-the-better-choice"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Choose Pastel if you:</p>
+<ul>
+<li>Review non-React sites (Webflow, WordPress, Shopify, static marketing pages) or cannot edit the site&#39;s code.</li>
+<li>Review PDFs, images, and videos alongside websites in one tool.</li>
+<li>Run an agency process that needs pause-commenting toggles, review deadlines with reminders, private team-only notes, and direct Jira, Asana, Trello, ClickUp, or Monday.com sync.</li>
+</ul>
+<h2 id="when-critiqs-is-the-better-choice">When Critiqs is the better choice<a class="anchor" href="#when-critiqs-is-the-better-choice"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Choose Critiqs if you:</p>
+<ul>
+<li>Build a React 18 or 19 app with dynamic tabs, modals, and customer records.</li>
+<li>Want staging, pull request previews, and QA builds sharing one thread list under one project ID.</li>
+<li>Want reviewers to try layout and styling changes in AI Mockup mode and pass structured diffs to developers or coding agents.</li>
+<li>Need MIT-licensed self-hosting on your own infrastructure.</li>
+</ul>
+<h2 id="frequently-asked-questions">Frequently asked questions<a class="anchor" href="#frequently-asked-questions"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<h3 id="can-critiqs-review-a-website-without-installing-the-react-package">Can Critiqs review a website without installing the React package?<a class="anchor" href="#can-critiqs-review-a-website-without-installing-the-react-package"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>No. Critiqs requires installing <code>critiqs-react</code> and rendering <code>&lt;Critiqs /&gt;</code> in a React 18 or 19 build. It is not a URL proxy. For no-install reviews on any URL, Pastel is built for that job.</p>
+<h3 id="does-pastel-work-with-claude-code-and-cursor-too">Does Pastel work with Claude Code and Cursor too?<a class="anchor" href="#does-pastel-work-with-claude-code-and-cursor-too"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Yes. Pastel runs a hosted MCP server (<code>https://api.usepastel.com/mcp</code>) and a CLI (<code>@usepastel/cli</code>) for Claude, Claude Code, Codex, and Cursor. The main difference is the source context: Pastel reads proxied canvas comments, while Critiqs reads in-app React threads with view state, <code>data-critiqs-id</code> anchors, and Mockup mode diffs.</p>
+<h3 id="how-does-pricing-compare-for-a-five-person-team">How does pricing compare for a five-person team?<a class="anchor" href="#how-does-pricing-compare-for-a-five-person-team"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Five team users on Pastel require the Team plan at $119/month billed monthly ($99/month yearly), which includes unlimited canvases, unlimited guest reviewers, and PM integrations. On Critiqs Cloud, Plus covers 10 projects and 25 monthly reviewers per project for $10/month at beta pricing ($20/month regular), and MIT self-hosting is $0.</p>
+<h3 id="will-critiqs-appear-for-production-visitors">Will Critiqs appear for production visitors?<a class="anchor" href="#will-critiqs-appear-for-production-visitors"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Only where you set a project ID. In Vite and Next.js apps, <code>npx critiqs-react init</code> adds <code>requireProjectId</code>, so a production build with no project ID renders nothing and contacts no server.</p>
+      </article>
+      <aside class="post-cta" aria-labelledby="cta-title">
+        <h2 class="heading-5" id="cta-title">Add Critiqs to your next staging build</h2>
+        <p class="body-3">Free to start on Critiqs Cloud, or host it yourself under the MIT license.</p>
+        <a class="btn btn-primary button-md" href="/#install">Get started</a>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

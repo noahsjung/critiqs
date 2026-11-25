@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Projects and project IDs · Critiqs docs</title>
+  <meta name="description" content="Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.">
+  <link rel="canonical" href="https://critiqs.app/docs/projects">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/projects.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/projects">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Projects and project IDs · Critiqs docs">
+  <meta property="og:description" content="Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Projects and project IDs · Critiqs docs">
+  <meta name="twitter:description" content="Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Projects and project IDs",
+  "description": "Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.",
+  "url": "https://critiqs.app/docs/projects",
+  "mainEntityOfPage": "https://critiqs.app/docs/projects",
+  "articleSection": "Get started",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Projects and project IDs",
+      "item": "https://critiqs.app/docs/projects"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Projects and project IDs</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects" aria-current="page">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Get started</li></ol></nav>
+            <h1 class="heading-3">Projects and project IDs</h1>
+            <p class="doc-lede title-2">Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.</p>
+          </header>
+<p>A Critiqs project is the shared feedback space for one application. Its project ID connects every build of that app to the same list of threads, tags, and mockups.</p>
+<h2 id="share-one-project-id-across-staging-preview-and-qa">Share one project ID across staging, preview, and QA<a class="anchor" href="#share-one-project-id-across-staging-preview-and-qa"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Give your staging, pull request preview, and QA builds the same project ID. Every comment left on any of those builds lands in one list, along with the page address, screen, and prototype build version where it was left.</p>
+<p>A developer working locally can also use the same project ID in <code>.env.local</code> to see open threads while fixing them, and then verify the fix on staging without losing the discussion history.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Environment</th>
+<th>Setting</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Local development</td>
+<td><code>VITE_CRITIQS_PROJECT_ID=&lt;id&gt;</code> in <code>.env.local</code></td>
+<td>Reads and posts to the project locally</td>
+</tr>
+<tr>
+<td>Pull request previews</td>
+<td>Same <code>&lt;id&gt;</code> in preview build settings</td>
+<td>Feedback lands in the same list</td>
+</tr>
+<tr>
+<td>Staging and QA builds</td>
+<td>Same <code>&lt;id&gt;</code> in staging and QA build settings</td>
+<td>Feedback lands in the same list</td>
+</tr>
+<tr>
+<td>Separate review track</td>
+<td>A different project ID</td>
+<td>Keeps its own separate thread list</td>
+</tr>
+<tr>
+<td>Production for customers</td>
+<td>Variable left unset (with <code>requireProjectId</code>)</td>
+<td>No Critiqs UI or network requests</td>
+</tr>
+</tbody></table>
+</div>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Critiqs never identifies a project by its URL. The <code>projectId</code> prop determines which project a build connects to. Opening a preview link with the same project ID never changes the project&#39;s review address.</p>
+</div>
+<h3 id="build-time-versus-runtime-configuration">Build-time versus runtime configuration<a class="anchor" href="#build-time-versus-runtime-configuration"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Vite and Next.js replace <code>VITE_*</code> and <code>NEXT_PUBLIC_*</code> environment variables when the app builds. Changing a variable in your hosting provider requires a new build.</p>
+<p>Critiqs does not check <code>NODE_ENV</code>, so a production-mode build deployed to staging still shows Critiqs as long as the project ID variable is set. If your team builds one bundle and promotes the same files across staging and production, read the project ID from your own runtime configuration and pass it to <code>projectId</code>, keeping <code>requireProjectId</code>.</p>
+<h2 id="connect-an-existing-project">Connect an existing project<a class="anchor" href="#connect-an-existing-project"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>To connect another checkout or developer machine to an existing project without creating a new one:</p>
+<ol>
+<li>Open the app in <strong>Browse mode</strong>, open the side panel, and click <strong>Copy</strong> under <strong>Project ID</strong> (or copy it from <strong>Project setup</strong>).</li>
+<li>Run <code>init</code> with that project ID:</li>
+</ol>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init &lt;projectId&gt;</code></pre></div>
+<p>When <code>&lt;Critiqs /&gt;</code> reads an environment variable, <code>init &lt;projectId&gt;</code> writes the ID to <code>.env.local</code> without requiring sign-in.</p>
+<h2 id="one-project-per-app-in-a-monorepo">One project per app in a monorepo<a class="anchor" href="#one-project-per-app-in-a-monorepo"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>In an npm, pnpm, Yarn, or Bun workspace, give each app its own Critiqs project. Run <code>init</code> once per app with <code>--dir</code>:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --<span class="hljs-built_in">dir</span> apps/web
+npx critiqs-react init --<span class="hljs-built_in">dir</span> apps/admin</code></pre></div>
+<p>Init gives each workspace app its own environment variable name based on the app name, such as <code>VITE_CRITIQS_PROJECT_ID_WEB</code> and <code>NEXT_PUBLIC_CRITIQS_PROJECT_ID_ADMIN</code>. That prevents a shared workspace <code>.env</code> file or a single CI job from pointing multiple apps at the same project.</p>
+<p>If you run <code>npx critiqs-react init</code> at the workspace root, it lists the detected apps and prints the <code>--dir</code> command for each one without editing files. If a Vite app uses a custom <code>envDir</code> that <code>init</code> cannot resolve statically, pass <code>--project-env-file &lt;path&gt;</code> to both <code>init</code> and <code>doctor</code>.</p>
+<h2 id="set-the-review-address">Set the review address<a class="anchor" href="#set-the-review-address"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Every project has one <strong>Review address</strong> that mention and reply emails link to. Because a comment might be left on <code>localhost</code> or a short-lived pull request preview, Critiqs does not guess the email link from where the comment was posted.</p>
+<p>Organization admins and the person who created the project (while they remain a member of the organization) can set or change the review address. Set it from the command line, including any base path:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --review-url https://staging.example.com/app/</code></pre></div>
+<p>You can also set or update it in the app: open the <strong>Project</strong> panel in <strong>Browse mode</strong>, click <strong>Project setup</strong>, and click <strong>Add the address</strong> or <strong>Change</strong> under <strong>Review address</strong>. Changes apply to emails sent from that point forward.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>If the review address points to <code>localhost</code> or a private network address (such as a <code>.ts.net</code> address), Critiqs displays a warning because reviewers outside that machine or network cannot open email links.</p>
+</div>
+<h2 id="access-and-what-the-project-id-protects">Access and what the project ID protects<a class="anchor" href="#access-and-what-the-project-id-protects"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>A project ID is public configuration, not a secret. Anyone who signs in with a verified email while using a build that carries the project ID can read threads, post comments, and participate in that project. There is no invitation list or member roster.</p>
+<p>Control who can review by controlling who can reach your staging, preview, or QA build (for example, through your hosting provider&#39;s preview authentication, VPN, or app login). Project settings, <strong>Review address</strong>, <strong>Tags and AI</strong>, and the <strong>&lt;plan name&gt; plan</strong> usage block are restricted to organization admins and the person who created the project while they remain a member of the organization.</p>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/install"><span class="caption-4">Previous</span><span class="title-3">Install Critiqs</span></a>
+          <a class="pager-link next" href="/docs/backends"><span class="caption-4">Next</span><span class="title-3">Backends</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#share-one-project-id-across-staging-preview-and-qa">Share one project ID across staging, preview, and QA</a></li>
+            <li class="toc-h3"><a href="#build-time-versus-runtime-configuration">Build-time versus runtime configuration</a></li>
+            <li class="toc-h2"><a href="#connect-an-existing-project">Connect an existing project</a></li>
+            <li class="toc-h2"><a href="#one-project-per-app-in-a-monorepo">One project per app in a monorepo</a></li>
+            <li class="toc-h2"><a href="#set-the-review-address">Set the review address</a></li>
+            <li class="toc-h2"><a href="#access-and-what-the-project-id-protects">Access and what the project ID protects</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/projects.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

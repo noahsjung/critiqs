@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Captures and saved context · Critiqs docs</title>
+  <meta name="description" content="See what every Critiqs comment saves, how automatic captures work, how to mask sensitive data with data-critiqs-mask, and how capture access is checked.">
+  <link rel="canonical" href="https://critiqs.app/docs/captures">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/captures.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/captures">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Captures and saved context · Critiqs docs">
+  <meta property="og:description" content="See what every Critiqs comment saves, how automatic captures work, how to mask sensitive data with data-critiqs-mask, and how capture access is checked.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Captures and saved context · Critiqs docs">
+  <meta name="twitter:description" content="See what every Critiqs comment saves, how automatic captures work, how to mask sensitive data with data-critiqs-mask, and how capture access is checked.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Captures and saved context",
+  "description": "See what every Critiqs comment saves, how automatic captures work, how to mask sensitive data with data-critiqs-mask, and how capture access is checked.",
+  "url": "https://critiqs.app/docs/captures",
+  "mainEntityOfPage": "https://critiqs.app/docs/captures",
+  "articleSection": "Review",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Captures and saved context",
+      "item": "https://critiqs.app/docs/captures"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Captures and saved context</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures" aria-current="page">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Review</li></ol></nav>
+            <h1 class="heading-3">Captures and saved context</h1>
+            <p class="doc-lede title-2">See what every Critiqs comment saves, how automatic captures work, how to mask sensitive data with data-critiqs-mask, and how capture access is checked.</p>
+          </header>
+<p>Every new thread in Critiqs attempts an automatic capture and saves context metadata from the moment you posted it. Even if the UI changes in a later build or the original element disappears, reviewers and developers can still see what was on screen.</p>
+<h2 id="what-every-comment-saves">What every comment saves<a class="anchor" href="#what-every-comment-saves"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Open any thread and expand <strong>Saved context</strong> (expanded automatically when the target element is not on screen) and <strong>Details</strong> to see what was recorded:</p>
+<ol>
+<li><strong>Capture:</strong> Starting a new thread attempts an automatic PNG screenshot of your visible browser viewport with the commented element outlined in blue. Click the capture image to view it full size.</li>
+<li><strong>Page and browser details:</strong> The page URL (with Critiqs&#39;s <code>?critiqs=</code> link parameter stripped), browser viewport width and height, browser name, capture timestamp, and the prototype build version (shown as <code>Unknown</code> if your app does not pass the <code>version</code> prop).</li>
+<li><strong>Screen, tab, and view state:</strong> The logical screen name (the URL path by default, or the screen your app returns from <code>getContext</code>), active view state such as the selected tab, open dialog, filters, or step, and any demo persona your app reports.</li>
+<li><strong>Element anchor:</strong> Critiqs saves the element&#39;s <code>data-critiqs-id</code> purpose ID (if set), its <code>data-critiqs-record</code> key (if inside a record), fallback clues (HTML tag, accessible label, role, and DOM path), and whether the thread applies to <strong>This record only</strong> or <strong>Every record showing this element</strong>. Under <strong>Details</strong>, <strong>Element</strong> shows one description, chosen in order from the purpose ID, the label, or the HTML tag.</li>
+</ol>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>A demo persona reported by the host app is stored only as review context (&quot;Viewing as&quot;). It never replaces the signed-in reviewer&#39;s real identity or permissions.</p>
+</div>
+<h2 id="how-automatic-captures-work">How automatic captures work<a class="anchor" href="#how-automatic-captures-work"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Critiqs renders captures directly from the browser&#39;s DOM using <code>modern-screenshot</code>, cropped to your current viewport and keeping nested scroll containers at their scroll position.</p>
+<ul>
+<li><strong>Critiqs stays out of the picture:</strong> Critiqs skips every mounted <code>&lt;Critiqs /&gt;</code> element while copying the page, so its toolbar, sidebar, pins, and windows never appear in captures and never flicker on screen.</li>
+<li><strong>The page stays responsive:</strong> Copying yields to the browser in short slices so the page does not freeze while a capture runs.</li>
+<li><strong>No mismatched views:</strong> If the screen or view state changes while a capture is running, Critiqs discards the capture instead of saving an image from the wrong view.</li>
+</ul>
+<h3 id="when-automatic-capture-fails">When automatic capture fails<a class="anchor" href="#when-automatic-capture-fails"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>DOM capture can fail if a page contains cross-origin images or frames the browser blocks from reading, if the rendered PNG exceeds 8 MB, or if rendering takes longer than 10 seconds. Dimmed backdrops behind dialogs can also be omitted by DOM rendering.</p>
+<p>When automatic capture fails, Critiqs still saves your comment along with the failure reason. Inside the thread, click <strong>Attach a screenshot</strong> to upload a PNG, JPEG, WebP, or GIF image (up to 10 MB). A manually supplied screenshot is stored as uploaded and may have no target outline.</p>
+<h2 id="privacy-and-masking-sensitive-content">Privacy and masking sensitive content<a class="anchor" href="#privacy-and-masking-sensitive-content"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<h3 id="mask-regions-with-data-critiqs-mask">Mask regions with data-critiqs-mask<a class="anchor" href="#mask-regions-with-data-critiqs-mask"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Add the <code>data-critiqs-mask</code> attribute to any element that displays sensitive information such as personal data, API keys, or billing numbers:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx">&lt;div data-critiqs-mask&gt;
+	<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>Account balance: $42,100.00<span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span></span>
+&lt;/div&gt;</code></pre></div>
+<p>During capture, Critiqs replaces the masked element&#39;s copy with a solid gray box of the same size and removes all of its child nodes, text, attributes, and CSS classes before rendering the image. The same attribute covers sensitive elements in <strong>Mockup mode</strong> page copies, and password inputs in page copies are automatically replaced with bullets.</p>
+<p>Masking covers rendered capture pixels and frozen page copies only. It does not redact saved thread metadata: the element&#39;s label is still read from its live <code>aria-label</code> or text content when someone clicks it, and the page URL and any app-supplied context (<code>getContext</code>, <code>data-critiqs-id</code>, and <code>data-critiqs-record</code>) are saved as well. Keep secrets and sensitive personal data out of element labels, URLs, and app-supplied context.</p>
+<h3 id="masking-canvas-video-and-iframe-elements">Masking canvas, video, and iframe elements<a class="anchor" href="#masking-canvas-video-and-iframe-elements"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Place <code>data-critiqs-mask</code> on a wrapper element around a <code>&lt;canvas&gt;</code>, <code>&lt;video&gt;</code>, or <code>&lt;iframe&gt;</code>, not directly on the media element itself:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx">&lt;div data-critiqs-mask&gt;
+	<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">canvas</span> <span class="hljs-attr">id</span>=<span class="hljs-string">&quot;sensitive-chart&quot;</span> /&gt;</span></span>
+&lt;/div&gt;</code></pre></div>
+<p>The DOM capture renderer replaces <code>&lt;canvas&gt;</code>, <code>&lt;video&gt;</code>, and <code>&lt;iframe&gt;</code> nodes without preserving their attributes. If one of those elements carries <code>data-critiqs-mask</code> directly, Critiqs refuses the automatic capture instead of risking an unmasked image, saves the comment with the reason, and lets you attach a safe screenshot manually.</p>
+<h3 id="access-control-and-data-boundaries">Access control and data boundaries<a class="anchor" href="#access-control-and-data-boundaries"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<ul>
+<li><strong>Authenticated capture delivery:</strong> Captures are never served from public URLs. Critiqs serves every capture through its authenticated <code>/capture</code> endpoint, which checks the signed-in reviewer&#39;s access to the project on every request and returns a sandboxing <code>Content-Security-Policy</code> header.</li>
+<li><strong>Unused upload cleanup:</strong> Uploaded screenshots must be attached to a thread within one hour and can be used only once. On deployments using Cloudflare R2 storage, unused R2 uploads are removed automatically.</li>
+<li><strong>Exports and AI:</strong> Markdown and JSON exports include discussions, links, tags, targets, and metadata, but exclude sign-in credentials, unrelated app data, and capture images. AI requests for tag grouping, search, and mockups never receive captures or reviewer email addresses, and masked regions are left out of page descriptions sent to AI.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/threads"><span class="caption-4">Previous</span><span class="title-3">Threads and the sidebar</span></a>
+          <a class="pager-link next" href="/docs/shortcuts"><span class="caption-4">Next</span><span class="title-3">Keyboard shortcuts</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#what-every-comment-saves">What every comment saves</a></li>
+            <li class="toc-h2"><a href="#how-automatic-captures-work">How automatic captures work</a></li>
+            <li class="toc-h3"><a href="#when-automatic-capture-fails">When automatic capture fails</a></li>
+            <li class="toc-h2"><a href="#privacy-and-masking-sensitive-content">Privacy and masking sensitive content</a></li>
+            <li class="toc-h3"><a href="#mask-regions-with-data-critiqs-mask">Mask regions with data-critiqs-mask</a></li>
+            <li class="toc-h3"><a href="#masking-canvas-video-and-iframe-elements">Masking canvas, video, and iframe elements</a></li>
+            <li class="toc-h3"><a href="#access-control-and-data-boundaries">Access control and data boundaries</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/captures.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Troubleshooting · Critiqs docs</title>
+  <meta name="description" content="Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.">
+  <link rel="canonical" href="https://critiqs.app/docs/troubleshooting">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/troubleshooting.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/troubleshooting">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Troubleshooting · Critiqs docs">
+  <meta property="og:description" content="Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Troubleshooting · Critiqs docs">
+  <meta name="twitter:description" content="Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Troubleshooting",
+  "description": "Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.",
+  "url": "https://critiqs.app/docs/troubleshooting",
+  "mainEntityOfPage": "https://critiqs.app/docs/troubleshooting",
+  "articleSection": "Reference",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Troubleshooting",
+      "item": "https://critiqs.app/docs/troubleshooting"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Troubleshooting</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting" aria-current="page">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Reference</li></ol></nav>
+            <h1 class="heading-3">Troubleshooting</h1>
+            <p class="doc-lede title-2">Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.</p>
+          </header>
+<p>Start by running <code>doctor</code> in your app folder:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor</code></pre></div>
+<p>If your app lives in a monorepo, pass <code>--dir apps/&lt;app&gt;</code>. If your Vite app uses a custom <code>envDir</code>, pass <code>--project-env-file &lt;relative path&gt;</code>. Doctor checks your component, backend reachability and version, local project ID, review address, sign-in, screenshot storage, AI, and mention emails.</p>
+<h2 id="critiqs-does-not-appear-on-the-page">Critiqs does not appear on the page<a class="anchor" href="#critiqs-does-not-appear-on-the-page"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>When <code>&lt;Critiqs /&gt;</code> has <code>requireProjectId</code>, it renders nothing and makes no requests when the project ID is unset or malformed. If a well-formed ID does not exist on the backend, Critiqs contacts the backend to check it, logs a warning, and keeps the UI hidden.</p>
+<ol>
+<li>Open your browser developer console and look for a warning starting with <code>Critiqs:</code>.</li>
+<li>Check that your environment variable is set (<code>VITE_CRITIQS_PROJECT_ID</code> for Vite, <code>NEXT_PUBLIC_CRITIQS_PROJECT_ID</code> for Next.js, or the app-suffixed variable in a monorepo such as <code>VITE_CRITIQS_PROJECT_ID_ADMIN</code>).</li>
+<li>Restart your dev server after changing <code>.env.local</code>.</li>
+<li>For staging or preview deployments, set the variable in the host&#39;s <strong>build settings</strong> and trigger a new build. Vite and Next.js inline <code>VITE_*</code> and <code>NEXT_PUBLIC_*</code> values at build time, not at runtime.</li>
+<li>If you build once and promote the same bundle across environments, pass the ID from your own runtime config to <code>projectId</code> and keep <code>requireProjectId</code>.</li>
+</ol>
+<h2 id="backend-not-reachable-or-version-mismatch">Backend not reachable or version mismatch<a class="anchor" href="#backend-not-reachable-or-version-mismatch"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ul>
+<li><strong><code>Critiqs Cloud isn&#39;t ready for this version</code></strong> or <strong><code>runs an older version</code></strong>: your installed <code>critiqs-react</code> package requires a newer backend protocol than the deployment serves. On a team-owned Convex deployment, deploy the matching backend functions. On Critiqs Cloud, wait for the hosted backend update or check for a matching package release.</li>
+<li><strong>Unreachable backend</strong>: run <code>npx critiqs-react doctor</code> and check whether <code>/critiqs/config</code> and <code>/critiqs/health</code> succeed from your browser&#39;s Network tab. Confirm the <code>backend</code> prop matches your Convex <code>.convex.cloud</code> URL (omit <code>backend</code> to use Critiqs Cloud).</li>
+<li><strong>Project not found on backend</strong>: the <code>projectId</code> does not exist on the configured backend. Check that you are not pointing a Critiqs Cloud project ID at a team-owned Convex backend (or the reverse).</li>
+</ul>
+<h2 id="sign-in-issues">Sign-in issues<a class="anchor" href="#sign-in-issues"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ul>
+<li><strong>Nothing happens when clicking Sign in (<code>Your browser blocked the sign-in window</code>)</strong>: allow pop-ups for your staging or preview site and click <strong>Sign in</strong> again.</li>
+<li><strong>Site refused by sign-in service</strong>: allowed sites must use <code>https://</code>, except when running locally on your computer (<code>localhost</code>).</li>
+<li><strong>Sign-in code expired or window locked</strong>: email codes expire after 10 minutes and work once. Five wrong guesses lock the sign-in window. Close it and open a fresh sign-in window. Rate limits also apply (at most 3 codes per window, 5 per email address in 15 minutes).</li>
+<li><strong>No browser available during <code>critiqs init</code> or <code>critiqs sign-in</code></strong>: pass <code>--remote</code> to print an approval URL and short setup code (such as <code>BCDF-GHJK</code>) that you can approve from a phone or laptop within 10 minutes.</li>
+<li><strong>Self-hosted deployment cannot sign anyone in</strong>: check <code>CRITIQS_AUTH_ISSUER</code>. If running your own sign-in service, verify <code>CRITIQS_AUTH_PRIVATE_KEY</code>, <code>RESEND_API_KEY</code>, and <code>CRITIQS_EMAIL_FROM</code> are set on the Convex deployment.</li>
+</ul>
+<h2 id="content-security-policy-csp">Content Security Policy (CSP)<a class="anchor" href="#content-security-policy-csp"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>If your host app sends a strict <code>Content-Security-Policy</code> header, allow Critiqs&#39;s connections, shadow-root styles, captures, and Mockup mode frame:</p>
+<ul>
+<li><code>connect-src</code>: your Critiqs backend origin (<code>https://*.convex.cloud</code>, <code>wss://*.convex.cloud</code>, and <code>https://*.convex.site</code>, or your specific Convex deployment domains) and the sign-in service origin.</li>
+<li><code>style-src</code>: Critiqs injects a <code>&lt;style&gt;</code> tag inside its shadow root, which requires <code>&#39;unsafe-inline&#39;</code> if your policy blocks inline styles.</li>
+<li><code>img-src</code>: allow <code>data:</code>, <code>blob:</code>, and your backend&#39;s <code>.convex.site</code> origin for <code>/capture</code>.</li>
+<li><code>frame-src</code> / <code>child-src</code>: Mockup mode renders frozen page copies inside a sandboxed <code>&lt;iframe&gt;</code>.</li>
+</ul>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>This list comes from what Critiqs loads and connects to. Test your policy on a staging build before you rely on it.</p>
+</div>
+<h2 id="mcp-server-errors">MCP server errors<a class="anchor" href="#mcp-server-errors"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Message</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>This computer isn&#39;t signed in to Critiqs</code> or <code>sign-in ended</code></td>
+<td>Run <code>npx critiqs-react sign-in</code> (or have the agent call <code>critiqs_sign_in</code> and <code>critiqs_sign_in_finish</code>). Sessions expire after 30 days unused or 90 days total.</td>
+</tr>
+<tr>
+<td><code>Another Critiqs process is using this computer&#39;s sign-in</code></td>
+<td>Two local processes refreshed the token at the same time. Retry in a few seconds (abandoned locks clear after 30 seconds).</td>
+</tr>
+<tr>
+<td><code>people are named ...</code></td>
+<td>Two participants share that display name. Pass one of the returned <code>authorId</code> values instead.</td>
+</tr>
+<tr>
+<td><code>No one named ... has commented in this project</code></td>
+<td>Only project participants can be mentioned. Pick a name or <code>authorId</code> from <code>critiqs_thread</code>.</td>
+</tr>
+<tr>
+<td><code>can&#39;t post agent replies yet</code> or <code>has no mockups yet</code></td>
+<td>The backend runs an older version than <code>critiqs-react</code>. Upgrade the backend deployment.</td>
+</tr>
+<tr>
+<td><code>didn&#39;t confirm signing out</code></td>
+<td>The sign-in service was unreachable, so your local sign-in was kept. Run <code>npx critiqs-react sign-out</code> again once it is reachable.</td>
+</tr>
+<tr>
+<td><code>Deploying to the team&#39;s own Convex needs CONVEX_DEPLOY_KEY</code></td>
+<td>Inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or shell environment (not in a committed config file, chat messages, or tool arguments), or run <code>npx critiqs-react init --own-convex</code> in a terminal using its hidden prompt.</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="critiqs-init-setup-messages"><code>critiqs init</code> setup messages<a class="anchor" href="#critiqs-init-setup-messages"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Message</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Init didn&#39;t find where the app renders</code></td>
+<td>Pass <code>--entry &lt;file&gt;</code> (and <code>--mount &lt;Element&gt;</code>), or add <code>&lt;Critiqs /&gt;</code> manually and rerun <code>npx critiqs-react init</code>.</td>
+</tr>
+<tr>
+<td><code>Found several places the app could render Critiqs</code></td>
+<td>Pass <code>--entry &lt;file&gt;</code>, or run <code>init</code> inside one app folder with <code>--dir</code>.</td>
+</tr>
+<tr>
+<td><code>... is a workspace with N apps</code></td>
+<td>Run one of the printed <code>npx critiqs-react init --dir &lt;app&gt;</code> commands for each app.</td>
+</tr>
+<tr>
+<td><code>sets envDir in a way init can&#39;t follow</code></td>
+<td>Pass <code>--project-env-file &lt;path to .env.local&gt;</code> relative to <code>--dir</code>, and pass the same flag to <code>doctor</code>.</td>
+</tr>
+<tr>
+<td><code>sets envPrefix</code></td>
+<td>Wire <code>&lt;Critiqs projectId={import.meta.env.&lt;PREFIX_NAME&gt;} requireProjectId /&gt;</code> manually, then rerun <code>init</code>.</td>
+</tr>
+<tr>
+<td><code>sets projectId from code</code></td>
+<td><code>init</code> does not overwrite computed expressions. Put the printed project ID where your code reads it.</td>
+</tr>
+<tr>
+<td><code>The code already uses project ...</code></td>
+<td>Nothing changed. Pass <code>--review-url &lt;url&gt;</code> to update email links, or <code>--new-project</code> only if you want a new project.</td>
+</tr>
+<tr>
+<td><code>Couldn&#39;t write .env.local</code> after creating the project</td>
+<td>Add the printed <code>NAME=&lt;projectId&gt;</code> line to <code>.env.local</code> manually; the project and component are already created.</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="mention-and-reply-emails">Mention and reply emails<a class="anchor" href="#mention-and-reply-emails"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ul>
+<li><strong>Emails do not open the deployed build (or doctor warns about a missing or local review address):</strong> Run <code>npx critiqs-react init --review-url https://&lt;your-staging-url&gt;</code> or update <strong>Review address</strong> in <strong>Project setup</strong>. Addresses like <code>localhost</code> or <code>.ts.net</code> only open on one computer or private network.</li>
+<li><strong>No emails arrive on a self-hosted Convex deployment:</strong> Check that <code>RESEND_API_KEY</code> and <code>CRITIQS_EMAIL_FROM</code> are set on the backend and that the sender domain is verified in Resend. Run <code>npx critiqs-react doctor</code> to see whether the last email failed or scheduled sending is overdue.</li>
+<li><strong>One reviewer stopped getting emails:</strong> Check <strong>Email notifications…</strong> in their avatar menu or the Project panel. Muting a project turns off both mention and reply emails for that project.</li>
+</ul>
+<h2 id="automatic-captures-fail">Automatic captures fail<a class="anchor" href="#automatic-captures-fail"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Automatic DOM captures time out after 10 seconds, fail if the screen or view state changes mid-capture, or fail if a <code>&lt;canvas&gt;</code>, <code>&lt;video&gt;</code>, or <code>&lt;iframe&gt;</code> has <code>data-critiqs-mask</code> placed directly on it.</p>
+<ul>
+<li>Move <code>data-critiqs-mask</code> to a wrapper element around canvas, video, or iframe content.</li>
+<li>Even when automatic capture fails, Critiqs saves the comment with the reason and offers <strong>Attach a screenshot</strong> inside the thread.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/self-hosting"><span class="caption-4">Previous</span><span class="title-3">Self-hosting on your own Convex</span></a>
+          <a class="pager-link next" href="/docs/faq"><span class="caption-4">Next</span><span class="title-3">Frequently asked questions</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#critiqs-does-not-appear-on-the-page">Critiqs does not appear on the page</a></li>
+            <li class="toc-h2"><a href="#backend-not-reachable-or-version-mismatch">Backend not reachable or version mismatch</a></li>
+            <li class="toc-h2"><a href="#sign-in-issues">Sign-in issues</a></li>
+            <li class="toc-h2"><a href="#content-security-policy-csp">Content Security Policy (CSP)</a></li>
+            <li class="toc-h2"><a href="#mcp-server-errors">MCP server errors</a></li>
+            <li class="toc-h2"><a href="#critiqs-init-setup-messages">critiqs init setup messages</a></li>
+            <li class="toc-h2"><a href="#mention-and-reply-emails">Mention and reply emails</a></li>
+            <li class="toc-h2"><a href="#automatic-captures-fail">Automatic captures fail</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/troubleshooting.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

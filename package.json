@@ -1,0 +1,25 @@
+{
+  "name": "critiqs-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run build && bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test && bun run test:release && bun run check:package",
+    "check": "bun run typecheck && bun run test",
+    "build": "bun run --filter critiqs-react build",
+    "check:package": "bun scripts/check-package.ts",
+    "test:release": "bun test ./scripts/",
+    "changeset": "changeset",
+    "check:consumers": "bun scripts/check-consumers.ts",
+    "measure:setup": "bun scripts/measure-setup.ts"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "@changesets/parse": "1.0.0",
+    "typescript": "^7.0.2"
+  }
+}

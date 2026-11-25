@@ -1,0 +1,53 @@
+// Review addresses that tests classify the same way in the package, its backends, and its command line.
+
+/** Addresses only people on one computer or private network can open. */
+export const PRIVATE_ADDRESSES = [
+  "http://localhost:5173/",
+  "http://app.localhost:3000/",
+  "https://printer.local/",
+  "https://ci.internal/app/",
+  "https://router.home.arpa/",
+  "https://devbox:3000/",
+  "https://devbox.tail1234.ts.net/app/",
+  "https://DevBox.Tail1234.TS.NET/",
+  "https://devbox.tail1234.ts.net./",
+  "http://127.0.0.1:4310/",
+  "http://0.0.0.0:8080/",
+  "http://10.1.2.3/",
+  "http://172.16.0.1/",
+  "http://172.31.255.255/",
+  "http://192.168.1.4:3000/",
+  "http://169.254.10.10/",
+  "http://100.64.0.1/",
+  "http://100.101.102.103:5173/",
+  "http://100.127.255.254/",
+  "http://[::1]:3000/",
+  "http://[fd00::1]/",
+  "http://[fd7a:115c:a1e0::1]/",
+  "http://[fe80::1]/",
+  "http://[febf::1]/",
+  "http://[::ffff:127.0.0.1]/",
+  "http://[::ffff:100.64.0.1]/",
+];
+
+/** Addresses not recognized as private, including public lookalikes; this doesn't prove anyone can open them. */
+export const OTHER_ADDRESSES = [
+  "https://team.github.io/admin-prototype/",
+  "https://proto.example/",
+  "https://fdesign.example/",
+  "https://fcatalog.example/",
+  "https://10.example.com/",
+  "https://169.254.example.com/",
+  "https://ts.net.example.com/",
+  "https://example.ts.network/",
+  "https://localhost.example.com/",
+  "http://100.63.255.255/",
+  "http://100.128.0.1/",
+  "http://172.32.0.1/",
+  "http://8.8.8.8/",
+  "http://[2001:db8::1]/",
+  "http://[fe8:1::1]/",
+  "http://[fec0::1]/",
+  "http://[::ffff:8.8.8.8]/",
+  "not an address",
+];

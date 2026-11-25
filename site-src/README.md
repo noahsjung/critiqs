@@ -1,0 +1,119 @@
+# Landing page clips
+
+`record.mjs` makes the videos and stills in `site/media/` from the real Critiqs
+UI. It runs Critiqs from source on a sample app ("Acme", made-up data),
+against a local Convex backend, and drives it in headless Chrome as four
+people with named cursors. Mockup mode's AI answers come from `mock-ai.ts`, a
+local stand-in that returns scripted changes (`mock-answers.ts`), so no AI key
+is needed.
+
+```sh
+bun install                                   # at the repository root: Critiqs's own packages
+cd site-src && bun install                     # the sample app and recorder
+
+# Terminal 2: a local Convex backend; keep it running
+cd packages/backend && bunx convex dev         # choose a local deployment
+
+# Back in terminal 1
+cd packages/backend
+bun run setup:local                            # development sign-in, codes shown on screen
+bunx convex env set CRITIQS_MANAGED_AI enabled
+bunx convex env set CRITIQS_MANAGED_AI_PROVIDER compatible
+bunx convex env set CRITIQS_MANAGED_AI_BASE_URL http://127.0.0.1:4812/v1
+bunx convex env set CRITIQS_MANAGED_AI_MODEL critiqs-demo
+
+cd ../../site-src
+echo "VITE_CRITIQS_BACKEND=http://127.0.0.1:3210" > app/.env.local
+bun mock-ai.ts &                               # the AI stand-in
+bun run app &                                  # the sample app on http://127.0.0.1:4811
+node record.mjs                                # all clips, comment.jpg and og.png; or: node record.mjs collab og
+```
+
+The sample app has a dark theme so the light Critiqs panel stands out, and the
+feature clips use a closer 1080 x 675 view (`CLOSE` in `lib.mjs`) because they
+show at about half width on the page. Each clip creates a fresh project, so runs don't affect each other. Frames are
+recorded with Chrome's screencast and encoded to H.264 with ffmpeg (set
+`FFMPEG` to its path). `server.ts` is the self-hosted SQLite backend, which
+works for comments but not Mockup mode.
+
+# Docs and blog
+
+`build-pages.mjs` turns the Markdown in `content/` into the docs and blog
+pages in `site/`. Vercel still deploys `site/` as is, so commit what it
+writes.
+
+```sh
+cd site-src && bun install
+bun build-pages.mjs            # write the pages
+bun build-pages.mjs --check    # exit 1 if site/ is out of date (CI runs this)
+```
+
+It writes `site/docs/` and `site/blog/` in full (anything else there is
+removed), plus `site/sitemap.xml`, `site/robots.txt`, `site/llms.txt` and
+`site/blog/feed.xml`. Each doc also gets a plain Markdown copy at
+`site/docs/<slug>.md` for agents. Don't edit these files by hand; `--check`
+fails on any difference. The pages' styles are `site/docs.css` and their
+script `site/docs.js`, written by hand.
+
+## Add a doc
+
+Create `content/docs/<slug>.md`. The file name is the URL:
+`content/docs/install.md` becomes `/docs/install`.
+
+```md
+---
+title: Install Critiqs
+description: Add Critiqs to a React app's staging build. At most 160 characters.
+section: Get started
+order: 1
+requires: [412, 418]
+---
+
+Start with a paragraph, then use ## and ### headings.
+```
+
+- `section` is one of: Get started, Review, Mockup mode, Agents, Teams and
+  plans, Guides, Reference. The sidebar and docs home list sections in that
+  order, and pages by `order` within a section.
+- `requires` is optional: the pull requests the page depends on. It isn't
+  shown on the page.
+
+## Add a post
+
+Create `content/blog/<slug>.md`; it becomes `/blog/<slug>`.
+
+```md
+---
+title: Why build review belongs on the build
+description: One or two sentences for the blog list and search results.
+date: 2026-11-24
+updated: 2026-12-02
+tags: [Review, Agents]
+---
+```
+
+`updated` is optional. Posts are listed newest first, with a reading time
+worked out from the text.
+
+## Writing
+
+- The title comes from front matter, so start headings at `##`, and don't
+  skip a level. h2 and h3 headings make the "On this page" list.
+- Link to another page by its file name (`[Install](install.md)`,
+  `[Post](../blog/some-post.md)`) or its URL (`/docs/install`). A link to a
+  page that doesn't exist stops the build.
+- Code blocks are highlighted when the page is built. Name the language
+  (`sh`, `tsx`, `ts`, `js`, `json`, `css`, `html`, `yaml`, `diff`, `md`);
+  each block gets a Copy button.
+- Callouts are a quote that starts with a bold label:
+  `> **Note:** Reviewers don't install anything.` or
+  `> **Plan:** Plus and Pro only.`
+- Tables use GitHub's pipe syntax and scroll sideways on phones.
+
+The build stops with a list of problems if front matter is missing or wrong,
+a date isn't a real calendar day, a description is over 160 characters, a
+file is named `index.md` (that name belongs to the generated list page), a
+heading is `#` or skips a level, or a link points nowhere. A link with a
+`#fragment`, including a same-page `#link`, must name a heading on its target
+page: heading ids are the heading text in lowercase, with punctuation dropped
+and spaces turned into hyphens.

@@ -1,0 +1,79 @@
+{
+  "name": "critiqs-react",
+  "version": "0.3.0",
+  "description": "Critiqs's React component: add <Critiqs /> to a prototype to comment on it, discuss feedback, and find its context.",
+  "license": "MIT",
+  "keywords": [
+    "react",
+    "feedback",
+    "comments",
+    "review",
+    "prototype",
+    "design review",
+    "nextjs"
+  ],
+  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/react#readme",
+  "bugs": {
+    "url": "https://github.com/noahsjung/Critiqs/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    }
+  },
+  "bin": {
+    "critiqs": "./bin/critiqs.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --isolate",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build"
+  },
+  "dependencies": {
+    "convex": "^1.46.0",
+    "modern-screenshot": "^4.6.0"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.6",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "fake-indexeddb": "^6.2.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "@critiqs/core": "workspace:*",
+    "@critiqs/backend": "workspace:*",
+    "@critiqs/server": "workspace:*"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "AGENT_SETUP.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noahsjung/Critiqs.git",
+    "directory": "packages/react"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

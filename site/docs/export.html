@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Export threads · Critiqs docs</title>
+  <meta name="description" content="Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.">
+  <link rel="canonical" href="https://critiqs.app/docs/export">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/export.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/export">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Export threads · Critiqs docs">
+  <meta property="og:description" content="Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Export threads · Critiqs docs">
+  <meta name="twitter:description" content="Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Export threads",
+  "description": "Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.",
+  "url": "https://critiqs.app/docs/export",
+  "mainEntityOfPage": "https://critiqs.app/docs/export",
+  "articleSection": "Agents",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Export threads",
+      "item": "https://critiqs.app/docs/export"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Export threads</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export" aria-current="page">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Agents</li></ol></nav>
+            <h1 class="heading-3">Export threads</h1>
+            <p class="doc-lede title-2">Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.</p>
+          </header>
+<p>Exporting lets you bundle selected threads into one Markdown document for people or one JSON file for tools and coding agents. Use export when you want a quick handoff to an issue tracker, a pull request description, or an agent session without configuring <a href="/docs/mcp">MCP</a>.</p>
+<h2 id="export-selected-threads">Export selected threads<a class="anchor" href="#export-selected-threads"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ol>
+<li>Press <code>C</code> or click <strong>Comment mode</strong> on the toolbar and open the comments list in the sidebar.</li>
+<li>Optional: filter the list by status, unread, screen, tags, or tag groups so only relevant threads appear.</li>
+<li>Click <strong>Select threads to export</strong>.</li>
+<li>Tick the threads you want to include, or click <strong>Select all</strong>. You can export up to 200 threads at once.</li>
+<li>Click <strong>Export…</strong>.</li>
+<li>Edit the collection title if needed (it defaults to <code>Feedback handoff, &lt;date&gt;</code>).</li>
+<li>Choose a format:<ul>
+<li><strong>Markdown, for people</strong>: readable headings, metadata bullet points, and quoted messages.</li>
+<li><strong>JSON, for tools</strong>: structured JSON with <code>schemaVersion: 1</code>.</li>
+</ul>
+</li>
+<li>Click <strong>Copy</strong> to copy the preview to your clipboard, or <strong>Download</strong> to save it as a <code>.md</code> or <code>.json</code> file.</li>
+</ol>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Export collections are created on demand and are not saved in Critiqs. Mockup threads are separate from feedback threads; read mockups through <a href="/docs/mcp">MCP</a>.</p>
+</div>
+<h2 id="what-each-export-includes">What each export includes<a class="anchor" href="#what-each-export-includes"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Every exported thread keeps its full discussion without merging separate conversations:</p>
+<ul>
+<li>Thread ID, shareable link, status (<code>open</code> or <code>resolved</code>), and tags</li>
+<li>Screen, view state, scope (<code>shared</code> or <code>record</code>), and whether the thread was reattached</li>
+<li>Target details: <code>purposeId</code> (<code>data-critiqs-id</code>), <code>recordKey</code> (<code>data-critiqs-record</code>), and element label</li>
+<li>Page URL, browser viewport size, prototype revision, demo persona, and whether a capture exists (<code>hasCapture</code>)</li>
+<li>Every message with its author, timestamp, edited timestamp, revision, direct link, text, and <code>via: &quot;agent&quot;</code> when posted by a coding agent</li>
+</ul>
+<p>Exports exclude sign-in details, unrelated app data, deleted threads, and capture images. Open any thread&#39;s link in the export to view its saved capture.</p>
+<p>If a thread&#39;s discussion fails to load while preparing the export, Critiqs stops the export instead of producing a partial handoff.</p>
+<h2 id="format-examples">Format examples<a class="anchor" href="#format-examples"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<h3 id="markdown-for-people">Markdown, for people<a class="anchor" href="#markdown-for-people"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">markdown</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-markdown"><span class="hljs-section"># Feedback handoff, 11/24/2026</span>
+
+Project: Acme console
+Exported: 2026-11-24T18:30:00.000Z
+Threads: 1
+
+<span class="hljs-section">## Spell out the department here.</span>
+
+<span class="hljs-bullet">-</span> Link: https://staging.acme.example/customers/harbor?critiqs=thr<span class="hljs-emphasis">_123
+- Status: open
+- Tags: UX copy change, #wording
+- Screen: customer-details
+- Target: `customer.department`, &quot;Ops&quot;, record customer:harbor
+- Scope: this record only
+- Revision: staging-2026.11.24
+- Page: https://staging.acme.example/customers/harbor at 1440×900
+- View state: tab=team
+- Capture: saved; open the link to view it
+
+### Discussion
+
+<span class="hljs-strong">**Priya**</span>, 2026-11-24T18:10:00.000Z, revision staging-2026.11.24:
+
+&gt; Spell out the department here. #wording</span></code></pre></div>
+<h3 id="json-for-tools">JSON, for tools<a class="anchor" href="#json-for-tools"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;schemaVersion&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;title&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Feedback handoff, 11/24/2026&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;projectName&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Acme console&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;exportedAt&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1795458600000</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;threads&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;id&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;thr_123&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;link&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;https://staging.acme.example/customers/harbor?critiqs=thr_123&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;status&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;open&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;tags&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;UX copy change&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;#wording&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;screen&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;customer-details&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;viewState&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;tab&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;team&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;scope&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;record&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">&quot;purposeId&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;customer.department&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;recordKey&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;customer:harbor&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;label&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Ops&quot;</span>
+      <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;revision&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;staging-2026.11.24&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;pageUrl&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;https://staging.acme.example/customers/harbor&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;viewport&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;width&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1440</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;height&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">900</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;persona&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">null</span></span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;reattached&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">false</span></span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;hasCapture&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;messages&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+        <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;id&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;msg_456&quot;</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;link&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;https://staging.acme.example/customers/harbor?critiqs=thr_123.msg_456&quot;</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;author&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Priya&quot;</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;createdAt&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1795457400000</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;editedAt&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">null</span></span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;body&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Spell out the department here. #wording&quot;</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;revision&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;staging-2026.11.24&quot;</span>
+        <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span></code></pre></div>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/agent-skill"><span class="caption-4">Previous</span><span class="title-3">Add the Critiqs agent skill</span></a>
+          <a class="pager-link next" href="/docs/cli"><span class="caption-4">Next</span><span class="title-3">Command line reference</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#export-selected-threads">Export selected threads</a></li>
+            <li class="toc-h2"><a href="#what-each-export-includes">What each export includes</a></li>
+            <li class="toc-h2"><a href="#format-examples">Format examples</a></li>
+            <li class="toc-h3"><a href="#markdown-for-people">Markdown, for people</a></li>
+            <li class="toc-h3"><a href="#json-for-tools">JSON, for tools</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/export.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

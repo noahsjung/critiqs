@@ -1,0 +1,18 @@
+import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
+
+const crons = cronJobs();
+
+crons.interval("remove expired sign-in attempts and sessions", { hours: 1 }, internal.signIn.cleanUp, {});
+
+crons.interval("send mention emails", { minutes: 1 }, internal.notificationEmails.deliver, {});
+crons.interval("send plan alert emails", { minutes: 1 }, internal.notificationEmails.deliverPlanAlerts, {});
+crons.interval("remove old mention emails", { hours: 24 }, internal.notifications.cleanUp, {});
+crons.interval("remove unused R2 screenshots", { minutes: 10 }, internal.captures.cleanUp, {});
+crons.interval("group new tags", { minutes: 1 }, internal.ai.groupTags, {});
+crons.interval("remove expired AI request counters", { hours: 1 }, internal.grouping.cleanUpRateLimits, {});
+crons.interval("report Critiqs AI usage to billing", { minutes: 1 }, internal.billing.reportUsage, {});
+crons.interval("check organizations' subscriptions with billing", { hours: 24 }, internal.billing.reconcile, {});
+crons.interval("remove old billing records", { hours: 24 }, internal.billing.cleanUp, {});
+
+export default crons;

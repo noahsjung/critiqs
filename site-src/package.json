@@ -1,0 +1,23 @@
+{
+  "name": "critiqs-site-src",
+  "private": true,
+  "type": "module",
+  "description": "Sample app and recording script that make the critiqs.app landing page's clips from the real Critiqs UI.",
+  "scripts": {
+    "server": "bun server.ts",
+    "app": "vite --port 4811 --strictPort",
+    "convex": "cd ../packages/backend && bunx convex dev",
+    "record": "node record.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.2",
+    "highlight.js": "11.12.0",
+    "marked": "18.3.0",
+    "playwright-core": "1.56.1",
+    "vite": "8.3.4"
+  }
+}

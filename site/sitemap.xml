@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://critiqs.app/</loc></url>
+  <url><loc>https://critiqs.app/docs</loc></url>
+  <url><loc>https://critiqs.app/docs/introduction</loc></url>
+  <url><loc>https://critiqs.app/docs/install</loc></url>
+  <url><loc>https://critiqs.app/docs/projects</loc></url>
+  <url><loc>https://critiqs.app/docs/backends</loc></url>
+  <url><loc>https://critiqs.app/docs/comments</loc></url>
+  <url><loc>https://critiqs.app/docs/threads</loc></url>
+  <url><loc>https://critiqs.app/docs/captures</loc></url>
+  <url><loc>https://critiqs.app/docs/shortcuts</loc></url>
+  <url><loc>https://critiqs.app/docs/mockup-mode</loc></url>
+  <url><loc>https://critiqs.app/docs/ai-models-and-credits</loc></url>
+  <url><loc>https://critiqs.app/docs/your-ai</loc></url>
+  <url><loc>https://critiqs.app/docs/mcp</loc></url>
+  <url><loc>https://critiqs.app/docs/agent-skill</loc></url>
+  <url><loc>https://critiqs.app/docs/export</loc></url>
+  <url><loc>https://critiqs.app/docs/cli</loc></url>
+  <url><loc>https://critiqs.app/docs/organizations</loc></url>
+  <url><loc>https://critiqs.app/docs/plans-and-limits</loc></url>
+  <url><loc>https://critiqs.app/docs/best-practices</loc></url>
+  <url><loc>https://critiqs.app/docs/self-hosting</loc></url>
+  <url><loc>https://critiqs.app/docs/troubleshooting</loc></url>
+  <url><loc>https://critiqs.app/docs/faq</loc></url>
+  <url><loc>https://critiqs.app/blog</loc></url>
+  <url><loc>https://critiqs.app/blog/best-website-feedback-tools-2026</loc><lastmod>2026-11-24</lastmod></url>
+  <url><loc>https://critiqs.app/blog/collect-staging-feedback-without-screenshots</loc><lastmod>2026-11-24</lastmod></url>
+  <url><loc>https://critiqs.app/blog/critiqs-vs-pastel</loc><lastmod>2026-11-24</lastmod></url>
+  <url><loc>https://critiqs.app/blog/design-qa-checklist-before-release</loc><lastmod>2026-11-24</lastmod></url>
+  <url><loc>https://critiqs.app/blog/review-pull-request-previews-with-non-developers</loc><lastmod>2026-11-24</lastmod></url>
+  <url><loc>https://critiqs.app/blog/ui-feedback-for-ai-coding-agents-mcp</loc><lastmod>2026-11-24</lastmod></url>
+</urlset>

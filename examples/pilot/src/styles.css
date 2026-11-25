@@ -1,0 +1,135 @@
+/* Plain admin styling. Keeps the bottom center clear for Critiqs's toolbar. */
+
+:root {
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #e3e3e8;
+  --surface: #f6f6f8;
+  --accent: #2f5bd3;
+  --danger: #c4322b;
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+body { margin: 0; background: var(--surface); }
+h1 { margin: 0 0 4px; font-size: 22px; }
+h2 { margin: 0 0 8px; font-size: 17px; }
+button, select { font: inherit; color: inherit; }
+
+/* Header bar: controls sit on the left so Critiqs's sidebar does not cover them. */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 24px;
+  background: #1f2430;
+  color: #f2f2f5;
+}
+.app-title { font-size: 16px; margin-right: 16px; }
+.app-header label { color: #b9bccb; }
+.app-header select {
+  margin-left: 4px;
+  padding: 3px 6px;
+  border: 1px solid #3a4052;
+  border-radius: 6px;
+  background: #2a3040;
+  color: #f2f2f5;
+}
+
+.page { max-width: 720px; padding: 24px; }
+.subtitle { margin: 0 0 16px; color: var(--muted); }
+
+/* User list: rows are absolutely positioned inside a virtualized container. */
+.columns-3 { grid-template-columns: 2fr 1fr 1fr; }
+.columns-2 { grid-template-columns: 2fr 1fr; }
+.list-columns {
+  display: grid;
+  padding: 0 16px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.list {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+}
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+.row:hover { background: var(--surface); }
+.row span:first-child { font-weight: 500; }
+
+/* User details. */
+.back {
+  margin-bottom: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.tabs { display: flex; gap: 4px; margin: 16px 0; border-bottom: 1px solid var(--border); }
+.tabs [role="tab"] {
+  margin-bottom: -1px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tabs [role="tab"][aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
+.panel { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+.panel p { margin: 0 0 16px; }
+.fields { display: grid; grid-template-columns: 140px 1fr; gap: 10px 16px; margin: 0; }
+.fields dt { color: var(--muted); }
+.fields dd { margin: 0; }
+
+.danger {
+  padding: 6px 14px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger);
+  color: white;
+  cursor: pointer;
+}
+.danger-link { color: var(--danger); }
+
+/* Revoke dialog: shown in the upper part of the viewport, away from the toolbar. */
+.backdrop { position: fixed; inset: 0; background: rgb(20 22 30 / 0.35); }
+.dialog {
+  position: fixed;
+  top: 18%;
+  left: 50%;
+  width: min(380px, calc(100vw - 48px));
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  padding: 20px 24px;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.2);
+}
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions button:not(.danger) {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}

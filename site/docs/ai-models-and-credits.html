@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI models and credits · Critiqs docs</title>
+  <meta name="description" content="Understand Critiqs AI models, token pricing, how credits are calculated per request, monthly plan allowances, and what affects cost.">
+  <link rel="canonical" href="https://critiqs.app/docs/ai-models-and-credits">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/ai-models-and-credits.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/ai-models-and-credits">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="AI models and credits · Critiqs docs">
+  <meta property="og:description" content="Understand Critiqs AI models, token pricing, how credits are calculated per request, monthly plan allowances, and what affects cost.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AI models and credits · Critiqs docs">
+  <meta name="twitter:description" content="Understand Critiqs AI models, token pricing, how credits are calculated per request, monthly plan allowances, and what affects cost.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "AI models and credits",
+  "description": "Understand Critiqs AI models, token pricing, how credits are calculated per request, monthly plan allowances, and what affects cost.",
+  "url": "https://critiqs.app/docs/ai-models-and-credits",
+  "mainEntityOfPage": "https://critiqs.app/docs/ai-models-and-credits",
+  "articleSection": "Mockup mode",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "AI models and credits",
+      "item": "https://critiqs.app/docs/ai-models-and-credits"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">AI models and credits</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits" aria-current="page">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Mockup mode</li></ol></nav>
+            <h1 class="heading-3">AI models and credits</h1>
+            <p class="doc-lede title-2">Understand Critiqs AI models, token pricing, how credits are calculated per request, monthly plan allowances, and what affects cost.</p>
+          </header>
+<p>Critiqs AI works on Critiqs Cloud with no provider account or API key to set up. Usage is measured in <strong>Critiqs AI credits</strong>, where <strong>1 credit equals 1 US cent ($0.01)</strong>.</p>
+<p>Commenting, replying, mentioning reviewers, tagging, filtering, basic search, and exporting never use credits. Credits apply only when you run <strong>Mockup mode</strong>, AI search (plain-language questions and cited insights), or automatic tag grouping through Critiqs AI. If you connect your own AI provider key instead, Critiqs charges no credits. See <a href="/docs/your-ai">Your AI</a>.</p>
+<h2 id="how-credits-are-calculated">How credits are calculated<a class="anchor" href="#how-credits-are-calculated"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Before calling a model, Critiqs reserves the request&#39;s estimated worst-case cost against the payer&#39;s remaining balance (including allowed extra credits, minus active holds). Because of that hold, a small balance above zero can still be refused if it cannot cover the worst-case estimate.</p>
+<p>Once the model answers, Critiqs releases the hold and charges the request&#39;s actual cost. For a priced model, Critiqs uses the provider&#39;s reported USD cost when one is available, and otherwise computes it from the request&#39;s input and output tokens at the model&#39;s configured token prices:</p>
+<div class="code-block"><div class="code-head"><span></span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-text">credits = ceil(api_cost_usd × 200)</code></pre></div>
+<p>The minimum charge is <strong>1 credit</strong> per request. Because 1 credit is $0.01 (100 credits per US dollar), multiplying the dollar cost by 200 means you pay twice the API cost, rounded up to the next whole credit. A failed request releases its hold and costs nothing.</p>
+<p>Models configured without token prices charge a flat credit amount per request instead.</p>
+<h3 id="worked-examples">Worked examples<a class="anchor" href="#worked-examples"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<ul>
+<li><strong>A typical Mockup change on Claude Haiku 5.5:</strong> 6,000 input tokens ($0.0006) and 1,000 output tokens ($0.0005) cost $0.0011 at list price. <code>ceil(0.0011 × 200) = ceil(0.22) = 1</code> credit.</li>
+<li><strong>The same change on Claude Opus 5.5:</strong> 6,000 input tokens ($0.024) and 1,000 output tokens ($0.02) cost $0.044 at list price. <code>ceil(0.044 × 200) = ceil(8.8) = 9</code> credits.</li>
+</ul>
+<h2 id="reference-model-list-and-prices">Reference model list and prices<a class="anchor" href="#reference-model-list-and-prices"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Each deployment configures its own Critiqs AI models and prices. The reference list below shows four models and example list prices as chosen by name in <strong>Your AI</strong>, <strong>Tags and AI</strong>, and the <strong>Model</strong> menu in <strong>Mockup mode</strong>:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Input tokens (USD per million)</th>
+<th>Output tokens (USD per million)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Claude Opus 5.5</td>
+<td>$4.00</td>
+<td>$20.00</td>
+</tr>
+<tr>
+<td>Claude Haiku 5.5</td>
+<td>$0.10</td>
+<td>$0.50</td>
+</tr>
+<tr>
+<td>Gemini 4 Neon</td>
+<td>$3.00</td>
+<td>$15.00</td>
+</tr>
+<tr>
+<td>GPT-6.2 Sol</td>
+<td>$2.00</td>
+<td>$10.00</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="estimated-credits-per-mockup-change">Estimated credits per mockup change<a class="anchor" href="#estimated-credits-per-mockup-change"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Estimated credits per Mockup change</th>
+<th>Estimated changes on Free (200)</th>
+<th>Estimated changes on Plus (2,000)</th>
+<th>Estimated changes on Pro (10,000)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Claude Haiku 5.5</td>
+<td>About 1</td>
+<td>About 200</td>
+<td>About 2,000</td>
+<td>About 10,000</td>
+</tr>
+<tr>
+<td>GPT-6.2 Sol</td>
+<td>3 to 8</td>
+<td>25 to 65</td>
+<td>250 to 650</td>
+<td>1,250 to 3,300</td>
+</tr>
+<tr>
+<td>Gemini 4 Neon</td>
+<td>4 to 12</td>
+<td>16 to 50</td>
+<td>160 to 500</td>
+<td>830 to 2,500</td>
+</tr>
+<tr>
+<td>Claude Opus 5.5</td>
+<td>5 to 16</td>
+<td>12 to 40</td>
+<td>125 to 400</td>
+<td>625 to 2,000</td>
+</tr>
+</tbody></table>
+</div>
+<p>These ranges are estimates based on Mockup requests measured on a sample app: about 3,000 to 10,000 tokens in (the instructions, the visible part of the page, the thread, and the changes so far) and 500 to 2,000 tokens out. A long Mockup turn that continues further down the page can make up to 5 requests, and each request costs credits.</p>
+<h2 id="why-bigger-pages-and-longer-threads-cost-more">Why bigger pages and longer threads cost more<a class="anchor" href="#why-bigger-pages-and-longer-threads-cost-more"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Because credits follow actual token usage, two things raise the cost of a request:</p>
+<ul>
+<li><strong>Bigger pages:</strong> Each Mockup mode turn sends a structured description of the frozen page copy (elements, classes, text, and computed styles) plus the edits made so far. A dense page with many elements uses more input tokens than a simple form. On very long pages, Critiqs AI can make follow-up passes further down the page, up to 5 requests in a single Mockup turn, and each pass counts as another model request.</li>
+<li><strong>Longer threads and linked comments:</strong> Every follow-up message in a mockup thread sends the thread&#39;s conversation history and any linked comments attached with <strong>+ Add existing comment</strong>. Starting a fresh mockup thread for an unrelated visual change keeps input tokens smaller than continuing a long thread.</li>
+<li><strong>Multi-width copies:</strong> A mockup with several width copies applies each new turn across its copies, which requires more work than a single-width copy.</li>
+<li><strong>AI search:</strong> A plain-language search makes one model call to interpret the question into filters. It makes a second call for cited insights (from up to 24,000 characters of matching threads) only when the first call succeeds and finds matching threads.</li>
+</ul>
+<h2 id="monthly-credits-by-plan">Monthly credits by plan<a class="anchor" href="#monthly-credits-by-plan"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<div class="callout callout-plan" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#signoff"></use></svg>Plan</p><p>On Critiqs Cloud, monthly credits are included with each plan. While Critiqs is in beta, Plus is $10/month (regularly $20) and Pro is $50/month (regularly $100).</p>
+</div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Plan</th>
+<th>Included Critiqs AI credits per month</th>
+<th>Extra credits beyond allowance</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Free</td>
+<td>200 credits</td>
+<td>Not available; use your own API key or upgrade</td>
+</tr>
+<tr>
+<td>Plus</td>
+<td>2,000 credits</td>
+<td>$1 per 100 credits, with an admin spending cap</td>
+</tr>
+<tr>
+<td>Pro</td>
+<td>10,000 credits</td>
+<td>$1 per 100 credits, with an admin spending cap</td>
+</tr>
+</tbody></table>
+</div>
+<p>Credits count per organization. When a project pays for Critiqs AI, its requests count against the project&#39;s organization. When a person pays for their own requests, they count against their home organization while they belong to it, or fall back to their own usage account on the default plan if they have no eligible home organization. Admins set the cap on extra credits in <strong>Plan and billing</strong>.</p>
+<h2 id="checking-usage-and-controlling-spend">Checking usage and controlling spend<a class="anchor" href="#checking-usage-and-controlling-spend"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<ul>
+<li><strong>Project usage:</strong> Organization admins and the project creator (while a member) see project credit usage under the <strong>&lt;plan name&gt; plan</strong> block (for example, <strong>Free plan</strong> or <strong>Plus plan</strong>) in the <strong>Project</strong> panel and in the <strong>AI</strong> tab of <strong>Tags and AI</strong>.</li>
+<li><strong>Personal usage:</strong> Any signed-in reviewer can open <strong>Your AI…</strong> from their avatar menu to see their personal credit usage and click <strong>Upgrade</strong> if needed.</li>
+<li><strong>Allowed models:</strong> Organization admins and the project creator (while a member) can open <strong>Tags and AI</strong>, switch to the <strong>AI</strong> tab, and open <strong>Allowed models</strong> to restrict which Critiqs AI models reviewers can select when the project pays. For example, you can allow Claude Haiku 5.5 and GPT-6.2 Sol while turning off Claude Opus 5.5 on a shared budget.</li>
+<li><strong>Who pays:</strong> Organization admins and the project creator (while a member) choose whether the project or each individual reviewer pays for requests they start. See <a href="/docs/your-ai">Your AI</a>.</li>
+</ul>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/mockup-mode"><span class="caption-4">Previous</span><span class="title-3">Mockup mode</span></a>
+          <a class="pager-link next" href="/docs/your-ai"><span class="caption-4">Next</span><span class="title-3">Your AI and provider keys</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#how-credits-are-calculated">How credits are calculated</a></li>
+            <li class="toc-h3"><a href="#worked-examples">Worked examples</a></li>
+            <li class="toc-h2"><a href="#reference-model-list-and-prices">Reference model list and prices</a></li>
+            <li class="toc-h2"><a href="#estimated-credits-per-mockup-change">Estimated credits per mockup change</a></li>
+            <li class="toc-h2"><a href="#why-bigger-pages-and-longer-threads-cost-more">Why bigger pages and longer threads cost more</a></li>
+            <li class="toc-h2"><a href="#monthly-credits-by-plan">Monthly credits by plan</a></li>
+            <li class="toc-h2"><a href="#checking-usage-and-controlling-spend">Checking usage and controlling spend</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/ai-models-and-credits.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

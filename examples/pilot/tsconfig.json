@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    // Like vite.config.ts, check against the component's source, so no package build is needed first.
+    "paths": { "critiqs-react": ["../../packages/react/src/index.ts"] }
+  },
+  "include": ["src", "vite.config.ts"]
+}

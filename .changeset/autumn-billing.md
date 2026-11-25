@@ -1,0 +1,5 @@
+---
+"critiqs-react": minor
+---
+
+Convex deployments can take payment for Critiqs Cloud's plans through Autumn, which runs Stripe. With `CRITIQS_BILLING=autumn` and `AUTUMN_SECRET_KEY` set, an organization's admins buy Plus or Pro on Stripe Checkout, move between plans, go back to Free at the end of the period, add or remove Pro's 100 GB storage add-ons one at a time (several stack; they end with Pro when the organization leaves it, and stay when an admin keeps Pro), and open Stripe's portal for payment details, returning to the site they signed in from (`billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`; members read `billing:status`). Autumn's webhook (`/critiqs/billing/autumn`, signature-checked) and a daily check keep each organization's plan and storage in step with its subscription, and Critiqs AI credits used on Plus and Pro are reported to Autumn once each, as soon as they are used. Such deployments report `billing` in `/critiqs/config` and `/critiqs/health`; the Convex transport gains an optional `billing`. Deployments without these settings are unchanged and never contact Autumn. The billing interface comes in a later release.

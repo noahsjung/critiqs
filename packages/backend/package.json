@@ -1,0 +1,29 @@
+{
+  "name": "@critiqs/backend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Critiqs's Convex schema and server functions. Deployed to Critiqs's hosted Convex or a project's own Convex deployment.",
+  "type": "module",
+  "scripts": {
+    "dev": "convex dev",
+    "codegen": "convex codegen",
+    "typecheck": "tsc -p tsconfig.json && tsc -p convex/tsconfig.json",
+    "test": "bun test",
+    "setup:local": "bun scripts/setup-local.ts"
+  },
+  "dependencies": {
+    "@critiqs/core": "workspace:*",
+    "@critiqs/server": "workspace:*",
+    "aws4fetch": "^1.0.20",
+    "convex": "^1.46.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "convex-test": "^0.0.61",
+    "typescript": "^7.0.2",
+    "@types/node": "^22.0.0"
+  },
+  "exports": {
+    "./api": "./convex/_generated/api.js"
+  }
+}

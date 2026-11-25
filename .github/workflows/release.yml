@@ -1,0 +1,92 @@
+name: Release
+
+# Keeps one "Release Critiqs" pull request up to date with the release notes
+# merged to main. It never merges, approves, publishes, or deploys; see
+# docs/releasing.md.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-pull-request
+  cancel-in-progress: false
+
+jobs:
+  release-pull-request:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the release branch
+      pull-requests: write # open and update the release pull request
+      actions: write # start CI on the release branch
+    env:
+      BRANCH: changeset-release/main
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Version
+        run: bun scripts/release.ts version
+      - name: Open or update the release pull request
+        run: |
+          set -euo pipefail
+          # Only this repository's own branch is the release pull request; a
+          # fork's branch can have the same name.
+          pr=$(gh pr list --head "$BRANCH" --base main --state open --limit 100 --json number,isCrossRepository \
+            | jq -r '[.[] | select(.isCrossRepository == false)][0].number // empty')
+          if [ -z "$(git status --porcelain)" ]; then
+            if [ -n "$pr" ]; then
+              gh pr close "$pr" --comment "main has no unreleased release notes, so this release is no longer needed."
+            fi
+            exit 0
+          fi
+
+          version=$(jq -r .version packages/react/package.json)
+          title="Release Critiqs: critiqs-react $version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add -A
+          git commit -m "Release critiqs-react $version"
+          bun scripts/release.ts pr-body > "$RUNNER_TEMP/release-body.md"
+
+          # Push only when the generated release differs from the current one.
+          if git fetch --quiet origin "$BRANCH" 2>/dev/null \
+            && [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse 'HEAD^{tree}')" ] \
+            && [ "$(git rev-parse 'FETCH_HEAD^')" = "$(git rev-parse 'HEAD^')" ]; then
+            echo "The release branch already holds this release."
+            head=$(git rev-parse FETCH_HEAD)
+          else
+            git push --force origin "HEAD:refs/heads/$BRANCH"
+            head=$(git rev-parse HEAD)
+          fi
+
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$title" --body-file "$RUNNER_TEMP/release-body.md"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/release-body.md"
+          fi
+
+          # Pushes made with this workflow's token start no push workflows, and
+          # its pull request events wait for approval, so start CI explicitly
+          # for the release branch's commit unless a run was already started
+          # for it, including by an earlier attempt that then failed.
+          runs=$(gh run list --workflow ci.yml --event workflow_dispatch --branch "$BRANCH" --commit "$head" --limit 1 --json databaseId \
+            | jq 'length')
+          if [ "$runs" = 0 ]; then
+            gh workflow run ci.yml --ref "$BRANCH"
+          else
+            echo "CI already started for $head."
+          fi

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Command line reference · Critiqs docs</title>
+  <meta name="description" content="Reference for every critiqs-react CLI command, flag, environment variable, and exit code.">
+  <link rel="canonical" href="https://critiqs.app/docs/cli">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/cli.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/cli">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Command line reference · Critiqs docs">
+  <meta property="og:description" content="Reference for every critiqs-react CLI command, flag, environment variable, and exit code.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Command line reference · Critiqs docs">
+  <meta name="twitter:description" content="Reference for every critiqs-react CLI command, flag, environment variable, and exit code.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Command line reference",
+  "description": "Reference for every critiqs-react CLI command, flag, environment variable, and exit code.",
+  "url": "https://critiqs.app/docs/cli",
+  "mainEntityOfPage": "https://critiqs.app/docs/cli",
+  "articleSection": "Agents",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Command line reference",
+      "item": "https://critiqs.app/docs/cli"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Command line reference</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli" aria-current="page">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Agents</li></ol></nav>
+            <h1 class="heading-3">Command line reference</h1>
+            <p class="doc-lede title-2">Reference for every critiqs-react CLI command, flag, environment variable, and exit code.</p>
+          </header>
+<p>The <code>critiqs-react</code> package includes the <code>critiqs</code> command line tool for setting up projects, checking configuration, signing your computer in for coding agents, and running the <a href="/docs/mcp">MCP server</a>.</p>
+<p>Run it with your package manager (Node.js 20 or later required):</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react &lt;<span class="hljs-built_in">command</span>&gt; [options]
+<span class="hljs-comment"># Also works with: pnpm exec critiqs, yarn critiqs, bunx critiqs-react</span></code></pre></div>
+<h2 id="exit-codes">Exit codes<a class="anchor" href="#exit-codes"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0</code></td>
+<td>Command succeeded</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>Command did not finish or a <code>doctor</code> check failed</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>Invalid command or flag combination</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="commands">Commands<a class="anchor" href="#commands"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<h3 id="critiqs-init"><code>critiqs init</code><a class="anchor" href="#critiqs-init"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Adds <code>&lt;Critiqs /&gt;</code> where your React app renders (a React root, a Next.js App Router layout, or a Next.js Pages Router <code>_app</code>), signs you in, creates or reuses a Critiqs project, and writes its project ID.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init [options]</code></pre></div>
+<p>In Vite and Next.js apps, <code>init</code> wires <code>&lt;Critiqs /&gt;</code> to a public environment variable with <code>requireProjectId</code>, writes the ID to <code>.env.local</code>, and adds an empty entry to <code>.env.example</code>. In other setups, it writes the literal <code>projectId</code> into the component. Running <code>init</code> again keeps the existing project unless you pass <code>--new-project</code>.</p>
+<p>In a monorepo workspace, run <code>init</code> once per app with <code>--dir apps/&lt;app&gt;</code>. At the workspace root, interactive terminals ask which app to set up; non-interactive runs list each app&#39;s <code>--dir</code> command and change nothing.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--name &lt;name&gt;</code></td>
+<td>Project name (defaults to the app&#39;s package name, or <code>&lt;workspace&gt;/&lt;app&gt;</code> in a monorepo).</td>
+</tr>
+<tr>
+<td><code>--review-url &lt;url&gt;</code></td>
+<td>Deployed address where mention and reply emails link, including any base path.</td>
+</tr>
+<tr>
+<td><code>--entry &lt;file&gt;</code></td>
+<td>Source file where your app renders, relative to <code>--dir</code>.</td>
+</tr>
+<tr>
+<td><code>--mount &lt;Element&gt;</code></td>
+<td>Element inside <code>--entry</code> to place <code>&lt;Critiqs /&gt;</code> beside, such as <code>App</code> or <code>Outlet</code>.</td>
+</tr>
+<tr>
+<td><code>--remote</code></td>
+<td>Approve sign-in from a browser on any device with a short setup code. Automatic over SSH or without a desktop.</td>
+</tr>
+<tr>
+<td><code>--browser</code></td>
+<td>Open sign-in in a browser on this computer (default when a desktop is available).</td>
+</tr>
+<tr>
+<td><code>--new-project</code></td>
+<td>Create a new project even if the code or your account already has one.</td>
+</tr>
+<tr>
+<td><code>--dir &lt;path&gt;</code></td>
+<td>App folder to inspect and update (defaults to current folder).</td>
+</tr>
+<tr>
+<td><code>--project-env-file &lt;file&gt;</code></td>
+<td><code>.env</code> file to write, relative to <code>--dir</code> (default <code>.env.local</code>). Also accepted as <code>--env-file</code>.</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Print one JSON result to stdout and send progress (including remote setup codes) to stderr.</td>
+</tr>
+<tr>
+<td><code>--cloud</code></td>
+<td>Use Critiqs Cloud (the default).</td>
+</tr>
+<tr>
+<td><code>--own-convex</code></td>
+<td>Deploy Critiqs&#39;s functions to your team&#39;s own Convex deployment and write <code>backend</code>. See <a href="/docs/self-hosting">self-hosting</a>.</td>
+</tr>
+<tr>
+<td><code>--backend &lt;url&gt;</code></td>
+<td>Connect to an already deployed Critiqs backend URL.</td>
+</tr>
+</tbody></table>
+</div>
+<p>Environment variables read with <code>--own-convex</code> (never passed as CLI arguments):</p>
+<ul>
+<li><code>CONVEX_DEPLOY_KEY</code>: production deploy key from your Convex project settings (starts with <code>prod:</code>)</li>
+<li><code>CONVEX_SELF_HOSTED_URL</code> and <code>CONVEX_SELF_HOSTED_ADMIN_KEY</code>: for a self-hosted Convex backend (do not combine with <code>CONVEX_DEPLOY_KEY</code>)</li>
+<li><code>RESEND_API_KEY</code> and <code>CRITIQS_EMAIL_FROM</code>: optional, for mention and reply emails</li>
+<li><code>CRITIQS_SIGN_IN_URL</code>: optional custom sign-in service URL (defaults to Critiqs Cloud&#39;s sign-in service)</li>
+</ul>
+<h3 id="critiqs-init-projectid"><code>critiqs init &lt;projectId&gt;</code><a class="anchor" href="#critiqs-init-projectid"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Connects your app to an existing project ID without signing in.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init &lt;projectId&gt; [--<span class="hljs-built_in">dir</span> &lt;path&gt;] [--entry &lt;file&gt;] [--mount &lt;Element&gt;] [--project-env-file &lt;file&gt;] [--dry-run]</code></pre></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--dry-run</code></td>
+<td>Print the planned component or <code>.env</code> change without modifying any files.</td>
+</tr>
+<tr>
+<td><code>--dir &lt;path&gt;</code></td>
+<td>App folder (defaults to current folder).</td>
+</tr>
+<tr>
+<td><code>--entry &lt;file&gt;</code></td>
+<td>File where the app renders, relative to <code>--dir</code>.</td>
+</tr>
+<tr>
+<td><code>--mount &lt;Element&gt;</code></td>
+<td>Element to place <code>&lt;Critiqs /&gt;</code> beside.</td>
+</tr>
+<tr>
+<td><code>--project-env-file &lt;file&gt;</code></td>
+<td><code>.env</code> file to write, relative to <code>--dir</code>.</td>
+</tr>
+</tbody></table>
+</div>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Flags for creating projects (<code>--cloud</code>, <code>--own-convex</code>, <code>--backend</code>, <code>--name</code>, <code>--review-url</code>, <code>--remote</code>, <code>--browser</code>, <code>--new-project</code>, <code>--json</code>) cannot be combined with a <code>&lt;projectId&gt;</code> argument.</p>
+</div>
+<h3 id="critiqs-doctor"><code>critiqs doctor</code><a class="anchor" href="#critiqs-doctor"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Checks your local Critiqs setup: the component, backend reachability and protocol version, local project ID, deployment notes, review address, sign-in configuration, screenshot storage, optional AI status, and mention email status.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor [options]</code></pre></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--backend &lt;url&gt;</code></td>
+<td>Check a specific backend URL instead of the one in your code.</td>
+</tr>
+<tr>
+<td><code>--dir &lt;path&gt;</code></td>
+<td>App folder to check (defaults to current folder).</td>
+</tr>
+<tr>
+<td><code>--project-env-file &lt;file&gt;</code></td>
+<td><code>.env</code> file to inspect, relative to <code>--dir</code> (default <code>.env.local</code>).</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Print the check report as JSON (<code>ok</code>, <code>checks</code>, <code>note</code>).</td>
+</tr>
+</tbody></table>
+</div>
+<p>Each check reports a <code>basis</code>:</p>
+<ul>
+<li><code>configuration</code>: the settings are present.</li>
+<li><code>observed</code>: the backend reported live or stored runtime state (for example, answering <code>/critiqs/health</code>, finding the project, or checking the stored delivery status of past mention emails).</li>
+</ul>
+<p>Doctor never sends an email, uploads a capture, or posts a comment, and it cannot read environment variables stored in a remote hosting provider&#39;s build settings.</p>
+<h3 id="critiqs-sign-in"><code>critiqs sign-in</code><a class="anchor" href="#critiqs-sign-in"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Signs your computer in once so coding agents running locally can read feedback, inspect mockups, and post replies through <code>critiqs mcp</code>.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-in [--remote | --browser] [--backend &lt;url&gt;]</code></pre></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--remote</code></td>
+<td>Print the approval URL and setup code without opening a browser locally.</td>
+</tr>
+<tr>
+<td><code>--browser</code></td>
+<td>Print the URL and code and open the approval page in your local browser.</td>
+</tr>
+<tr>
+<td><code>--backend &lt;url&gt;</code></td>
+<td>Sign in to a backend other than Critiqs Cloud.</td>
+</tr>
+</tbody></table>
+</div>
+<p>Credentials are saved in <code>sign-in.json</code> under <code>$CRITIQS_CONFIG_DIR</code>, <code>$XDG_CONFIG_HOME/critiqs</code> (<code>~/.config/critiqs</code>), or <code>%APPDATA%\critiqs</code>. Sign-in lasts until <code>critiqs sign-out</code>, 30 days without use, or 90 days total.</p>
+<h3 id="critiqs-sign-out"><code>critiqs sign-out</code><a class="anchor" href="#critiqs-sign-out"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Ends this computer&#39;s saved sign-in with the sign-in service and deletes the local session entry.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-out [--backend &lt;url&gt;]</code></pre></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--backend &lt;url&gt;</code></td>
+<td>Sign out from a backend other than Critiqs Cloud.</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="critiqs-mcp"><code>critiqs mcp</code><a class="anchor" href="#critiqs-mcp"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Starts the stdio MCP server for coding agents. See <a href="/docs/mcp">Connect a coding agent with MCP</a> for client configuration and the full tool list.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react mcp</code></pre></div>
+<h3 id="help">Help<a class="anchor" href="#help"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Print usage and options at any time:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react --<span class="hljs-built_in">help</span></code></pre></div>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/export"><span class="caption-4">Previous</span><span class="title-3">Export threads</span></a>
+          <a class="pager-link next" href="/docs/organizations"><span class="caption-4">Next</span><span class="title-3">Organizations and roles</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#exit-codes">Exit codes</a></li>
+            <li class="toc-h2"><a href="#commands">Commands</a></li>
+            <li class="toc-h3"><a href="#critiqs-init">critiqs init</a></li>
+            <li class="toc-h3"><a href="#critiqs-init-projectid">critiqs init &lt;projectId&gt;</a></li>
+            <li class="toc-h3"><a href="#critiqs-doctor">critiqs doctor</a></li>
+            <li class="toc-h3"><a href="#critiqs-sign-in">critiqs sign-in</a></li>
+            <li class="toc-h3"><a href="#critiqs-sign-out">critiqs sign-out</a></li>
+            <li class="toc-h3"><a href="#critiqs-mcp">critiqs mcp</a></li>
+            <li class="toc-h3"><a href="#help">Help</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/cli.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backends · Critiqs docs</title>
+  <meta name="description" content="Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.">
+  <link rel="canonical" href="https://critiqs.app/docs/backends">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="alternate" type="text/markdown" href="/docs/backends.md">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiqs.app/docs/backends">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Backends · Critiqs docs">
+  <meta property="og:description" content="Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Backends · Critiqs docs">
+  <meta name="twitter:description" content="Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/docs.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="/main.js" defer></script>
+  <script src="/docs.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Backends",
+  "description": "Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.",
+  "url": "https://critiqs.app/docs/backends",
+  "mainEntityOfPage": "https://critiqs.app/docs/backends",
+  "articleSection": "Get started",
+  "inLanguage": "en",
+  "image": "https://critiqs.app/og.png",
+  "author": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Critiqs",
+    "url": "https://critiqs.app/",
+    "logo": "https://critiqs.app/apple-touch-icon.png"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Critiqs",
+      "item": "https://critiqs.app/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Docs",
+      "item": "https://critiqs.app/docs"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Backends",
+      "item": "https://critiqs.app/docs/backends"
+    }
+  ]
+}
+</script>
+</head>
+<body class="docs-page">
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs" aria-current="true">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/#install">Get started</a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <button class="docs-menu-button button-sm" type="button" aria-expanded="false" aria-controls="docs-nav">
+          <svg class="icon" aria-hidden="true"><use href="/icons.svg#list"></use></svg>Docs menu<span class="docs-menu-current body-6">Backends</span>
+        </button>
+        <nav class="docs-nav" id="docs-nav" aria-label="Docs">
+          <a class="docs-home body-5" href="/docs">Docs home</a>
+          <p class="docs-group title-4">Get started</p>
+          <ul class="body-6">
+            <li><a href="/docs/introduction">Introduction</a></li>
+            <li><a href="/docs/install">Install Critiqs</a></li>
+            <li><a href="/docs/projects">Projects and project IDs</a></li>
+            <li><a href="/docs/backends" aria-current="page">Backends</a></li>
+          </ul>
+          <p class="docs-group title-4">Review</p>
+          <ul class="body-6">
+            <li><a href="/docs/comments">Leaving comments</a></li>
+            <li><a href="/docs/threads">Threads and the sidebar</a></li>
+            <li><a href="/docs/captures">Captures and saved context</a></li>
+            <li><a href="/docs/shortcuts">Keyboard shortcuts</a></li>
+          </ul>
+          <p class="docs-group title-4">Mockup mode</p>
+          <ul class="body-6">
+            <li><a href="/docs/mockup-mode">Mockup mode</a></li>
+            <li><a href="/docs/ai-models-and-credits">AI models and credits</a></li>
+            <li><a href="/docs/your-ai">Your AI and provider keys</a></li>
+          </ul>
+          <p class="docs-group title-4">Agents</p>
+          <ul class="body-6">
+            <li><a href="/docs/mcp">Connect a coding agent with MCP</a></li>
+            <li><a href="/docs/agent-skill">Add the Critiqs agent skill</a></li>
+            <li><a href="/docs/export">Export threads</a></li>
+            <li><a href="/docs/cli">Command line reference</a></li>
+          </ul>
+          <p class="docs-group title-4">Teams and plans</p>
+          <ul class="body-6">
+            <li><a href="/docs/organizations">Organizations and roles</a></li>
+            <li><a href="/docs/plans-and-limits">Plans and limits</a></li>
+          </ul>
+          <p class="docs-group title-4">Guides</p>
+          <ul class="body-6">
+            <li><a href="/docs/best-practices">Best practices for build reviews</a></li>
+            <li><a href="/docs/self-hosting">Self-hosting on your own Convex</a></li>
+          </ul>
+          <p class="docs-group title-4">Reference</p>
+          <ul class="body-6">
+            <li><a href="/docs/troubleshooting">Troubleshooting</a></li>
+            <li><a href="/docs/faq">Frequently asked questions</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main id="main" class="docs-main">
+        <article class="prose">
+          <header class="doc-header">
+            <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Get started</li></ol></nav>
+            <h1 class="heading-3">Backends</h1>
+            <p class="doc-lede title-2">Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.</p>
+          </header>
+<p>This guide covers two backend options: <strong>Critiqs Cloud</strong> by default, or your team&#39;s own <strong>Convex deployment</strong> if you want feedback and captures stored on infrastructure you control. Both run the same open-source Critiqs server code under the MIT license. Team-owned Convex uses Critiqs Cloud&#39;s sign-in service by default; to run with no Critiqs service involved, configure your own sign-in as described in <a href="/docs/self-hosting">Self-hosting on your own Convex</a>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Critiqs Cloud</th>
+<th>Team-owned Convex</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Hosting and setup</td>
+<td>Managed by Critiqs; no keys required</td>
+<td>Deployed to your Convex account</td>
+</tr>
+<tr>
+<td>Sign-in and email</td>
+<td>Built-in email codes and notifications</td>
+<td>Uses Critiqs Cloud sign-in by default, or your own; Resend key for email</td>
+</tr>
+<tr>
+<td>Captures storage</td>
+<td>Managed by Critiqs</td>
+<td>Convex file storage or private Cloudflare R2 bucket</td>
+</tr>
+<tr>
+<td>Mockup mode and MCP server</td>
+<td>Included</td>
+<td>Included</td>
+</tr>
+<tr>
+<td>AI</td>
+<td>Critiqs AI credits or your own provider key</td>
+<td>Your own provider key (or deployment default provider)</td>
+</tr>
+<tr>
+<td>Plan limits</td>
+<td>Free, Plus, and Pro plans</td>
+<td>No Critiqs plan limits</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="critiqs-cloud-default">Critiqs Cloud (default)<a class="anchor" href="#critiqs-cloud-default"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Critiqs Cloud is the default backend when you omit the <code>backend</code> prop on <code>&lt;Critiqs /&gt;</code>. Critiqs operates the Convex backend, email-code sign-in service, and notification emails.</p>
+<p>You do not configure any backend keys or environment secrets. Run <code>npx critiqs-react init</code>, sign in with your email, and Critiqs Cloud creates your project.</p>
+<div class="callout callout-plan" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#signoff"></use></svg>Plan</p><p>Critiqs Cloud includes a Free plan (1 project, 5 reviewers a month, 500 comments a month, 200 Critiqs AI credits a month, and 500 MB of captures), Plus ($20/month regular, $10/month beta), and Pro ($100/month regular, $50/month beta). See <a href="/docs/ai-models-and-credits">AI models and credits</a> for credit details.</p>
+</div>
+<h2 id="team-owned-convex-deployment">Team-owned Convex deployment<a class="anchor" href="#team-owned-convex-deployment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>To keep all comments, threads, mockups, and captures in your own Convex account, deploy Critiqs&#39;s Convex functions to your own deployment. The <code>critiqs-react</code> package bundles the backend functions for you.</p>
+<h3 id="1-create-a-convex-deploy-key">1. Create a Convex deploy key<a class="anchor" href="#1-create-a-convex-deploy-key"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Create a project in your Convex dashboard and generate a production deploy key (<code>CONVEX_DEPLOY_KEY</code>) in that project&#39;s settings.</p>
+<h3 id="2-deploy-and-connect-with-init">2. Deploy and connect with init<a class="anchor" href="#2-deploy-and-connect-with-init"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Run <code>init</code> with <code>--own-convex</code>:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --own-convex</code></pre></div>
+<p>Init asks for <code>CONVEX_DEPLOY_KEY</code> (or reads it from your environment) and sends secrets through standard input rather than command arguments. It deploys Critiqs&#39;s functions to your deployment, connects your app, and adds the <code>backend</code> prop to <code>&lt;Critiqs /&gt;</code>:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">tsx</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-tsx">&lt;<span class="hljs-title class_">Critiqs</span>
+	backend=<span class="hljs-string">&quot;https://your-deployment.convex.cloud&quot;</span>
+	projectId={<span class="hljs-keyword">import</span>.<span class="hljs-property">meta</span>.<span class="hljs-property">env</span>.<span class="hljs-property">VITE_CRITIQS_PROJECT_ID</span>}
+	requireProjectId
+/&gt;</code></pre></div>
+<p>To connect another app or checkout to a Convex deployment that already runs Critiqs, pass <code>--backend</code>:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --backend https://your-deployment.convex.cloud</code></pre></div>
+<p>Self-hosted Convex backends are also supported by setting <code>CONVEX_SELF_HOSTED_URL</code> and <code>CONVEX_SELF_HOSTED_ADMIN_KEY</code> in your environment before running <code>init --own-convex</code>.</p>
+<h3 id="3-configure-optional-backend-services">3. Configure optional backend services<a class="anchor" href="#3-configure-optional-backend-services"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Set environment variables on your Convex deployment from your terminal (typing secrets into stdin, not as command arguments) or in the Convex dashboard. Never put backend keys in your React app or build settings.</p>
+<h4 id="mention-and-reply-emails">Mention and reply emails<a class="anchor" href="#mention-and-reply-emails"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h4>
+<p>By default, a team-owned Convex deployment trusts Critiqs Cloud&#39;s sign-in service (<code>CRITIQS_AUTH_ISSUER</code>), so reviewers can sign in right away. To send mention and reply notification emails from your deployment, set a Resend key and verified sender address:</p>
+<ul>
+<li><code>RESEND_API_KEY</code>: Your Resend API key.</li>
+<li><code>CRITIQS_EMAIL_FROM</code>: A verified sender address, such as <code>Critiqs &lt;critiqs@example.com&gt;</code>.</li>
+</ul>
+<p>If you also want to run your own sign-in service with no Critiqs service involved, set <code>CRITIQS_AUTH_PRIVATE_KEY</code> (an ES256 private JWK) and point <code>CRITIQS_AUTH_ISSUER</code> to your own <code>.convex.site</code> URL alongside the Resend settings. See <a href="/docs/self-hosting">Self-hosting on your own Convex</a>.</p>
+<h4 id="private-cloudflare-r2-capture-storage">Private Cloudflare R2 capture storage<a class="anchor" href="#private-cloudflare-r2-capture-storage"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h4>
+<p>By default, captures are stored in Convex file storage. To store captures in a private Cloudflare R2 bucket while keeping metadata and access checks in Convex, set these variables on your Convex deployment:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>CRITIQS_CAPTURE_STORAGE</code></td>
+<td><code>r2</code></td>
+</tr>
+<tr>
+<td><code>CRITIQS_R2_ACCOUNT_ID</code></td>
+<td>Your Cloudflare account ID</td>
+</tr>
+<tr>
+<td><code>CRITIQS_R2_BUCKET</code></td>
+<td>Private bucket name (public access disabled)</td>
+</tr>
+<tr>
+<td><code>CRITIQS_R2_ACCESS_KEY_ID</code></td>
+<td>R2 API token access key restricted to that bucket</td>
+</tr>
+<tr>
+<td><code>CRITIQS_R2_SECRET_ACCESS_KEY</code></td>
+<td>R2 API token secret key</td>
+</tr>
+</tbody></table>
+</div>
+<p>Existing captures stored in Convex remain readable after switching to R2.</p>
+<h4 id="ai-on-your-own-convex-deployment">AI on your own Convex deployment<a class="anchor" href="#ai-on-your-own-convex-deployment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h4>
+<p>To let project owners and reviewers save their own AI provider keys in Critiqs, set an encryption key on the same Convex deployment (for example with <code>--prod</code>, or with <code>CONVEX_DEPLOYMENT</code> or <code>CONVEX_DEPLOY_KEY</code> set in the process environment):</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx convex <span class="hljs-built_in">env</span> <span class="hljs-built_in">set</span> --prod CRITIQS_AI_ENCRYPTION_KEY</code></pre></div>
+<p>Generate a value of at least 32 random characters (for example with <code>openssl rand -base64 32</code>). You can also configure a default provider for every project that does not save its own key by setting <code>CRITIQS_AI_PROVIDER</code>, <code>CRITIQS_AI_MODEL</code>, and <code>CRITIQS_AI_API_KEY</code>. To allow custom OpenAI-compatible endpoints, list their URLs in <code>CRITIQS_AI_ALLOWED_ENDPOINTS</code>.</p>
+<h2 id="verify-your-backend">Verify your backend<a class="anchor" href="#verify-your-backend"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Run <code>doctor</code> to verify that your component, backend version, project, and optional services are configured:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor</code></pre></div>
+<p>Pass <code>--backend &lt;url&gt;</code> to check a specific deployment URL.</p>
+        </article>
+        <nav class="pager" aria-label="Previous and next">
+          <a class="pager-link prev" href="/docs/projects"><span class="caption-4">Previous</span><span class="title-3">Projects and project IDs</span></a>
+          <a class="pager-link next" href="/docs/comments"><span class="caption-4">Next</span><span class="title-3">Leaving comments</span></a>
+        </nav>
+      </main>
+      <div class="docs-aside">
+        <nav class="toc" aria-labelledby="toc-title">
+          <p class="toc-title title-4" id="toc-title">On this page</p>
+          <ul class="body-6">
+            <li class="toc-h2"><a href="#critiqs-cloud-default">Critiqs Cloud (default)</a></li>
+            <li class="toc-h2"><a href="#team-owned-convex-deployment">Team-owned Convex deployment</a></li>
+            <li class="toc-h3"><a href="#1-create-a-convex-deploy-key">1. Create a Convex deploy key</a></li>
+            <li class="toc-h3"><a href="#2-deploy-and-connect-with-init">2. Deploy and connect with init</a></li>
+            <li class="toc-h3"><a href="#3-configure-optional-backend-services">3. Configure optional backend services</a></li>
+            <li class="toc-h2"><a href="#verify-your-backend">Verify your backend</a></li>
+          </ul>
+        </nav>
+        <a class="md-link caption-4" href="/docs/backends.md">View as Markdown</a>
+      </div>
+    </div>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="/#compare">Why Critiqs</a>
+          <a href="/#mockups">Mockup mode</a>
+          <a href="/#pricing">Pricing</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Critiqs: team review on your staging and preview builds</title>
+  <meta name="description" content="Add Critiqs to your staging or preview build. Product, design, QA and clients click what they mean and comment on the real app, and every thread keeps the screen it was left on for developers and coding agents. Free to start, MIT license.">
+  <link rel="canonical" href="https://critiqs.app/">
+  <meta name="theme-color" content="#fbfbfa">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://critiqs.app/">
+  <meta property="og:site_name" content="Critiqs">
+  <meta property="og:title" content="Critiqs: team review on your staging and preview builds">
+  <meta property="og:description" content="Comments and AI mockups on your real app. Anyone on the team reviews in a browser, and every note becomes context for developers and coding agents.">
+  <meta property="og:image" content="https://critiqs.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Critiqs: team review on your staging and preview builds">
+  <meta name="twitter:description" content="Comments and AI mockups on your real app. Anyone on the team reviews in a browser, and every note becomes context for developers and coding agents.">
+  <meta name="twitter:image" content="https://critiqs.app/og.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/main.js" defer></script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Critiqs",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Web",
+    "url": "https://critiqs.app/",
+    "description": "Comments and AI mockups on your React app, for team reviews and coding agents.",
+    "license": "https://opensource.org/licenses/MIT",
+    "downloadUrl": "https://www.npmjs.com/package/critiqs-react"
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+  <header>
+    <nav class="nav" aria-label="Main">
+      <a class="brand title-3" href="/" aria-label="Critiqs home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="#0d63f3"/><circle cx="12" cy="12" r="3.5" fill="#fff"/></svg>
+        Critiqs
+      </a>
+      <div class="nav-links body-5">
+        <a href="#pricing">Pricing</a>
+        <a href="/docs">Docs</a>
+        <a href="/blog">Blog</a>
+      </div>
+      <a class="btn btn-primary button-sm nav-cta" href="#install">Get started</a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
+        <span class="bar"></span><span class="bar"></span>
+      </button>
+    </nav>
+    <div class="mobile-menu heading-5" id="mobile-menu" hidden>
+      <a href="#pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="#install">Get started</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap">
+        <div class="hero-copy" data-enter>
+          <h1 id="hero-title" class="heading-1">Team review, right on your<br> staging and preview builds</h1>
+          <p class="lede title-1">Product, design, QA and clients open your build in a browser, click an element and talk it through together. Every thread keeps a capture and the screen it was on, ready for a developer or coding agent.</p>
+          <div class="actions" id="install">
+            <div class="install">
+              <code><span class="prompt">$ </span>npm install critiqs-react</code>
+              <button class="btn btn-primary button-sm" type="button" data-copy="npm install critiqs-react">
+                <svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg>
+                <svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg>
+                <span class="copy-label">Copy command</span>
+              </button>
+            </div>
+            <a class="btn btn-quiet button-md" href="#pricing">See pricing <svg class="icon" aria-hidden="true"><use href="/icons.svg#arrow"></use></svg></a>
+          </div>
+        </div>
+
+        <figure class="clip">
+          <div class="frame">
+            <div class="frame-inner">
+              <div class="browser-bar" aria-hidden="true">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <div class="url caption-5">app.acme.example/customers/harbor-logistics</div>
+              </div>
+              <video width="1920" height="1200" muted loop playsinline preload="metadata" poster="/media/collab.jpg" data-clip
+                data-name="the team review clip" aria-label="Three people review the same customer page in Critiqs. Priya comments on the Ops department, Mei comments on the seat count from her own browser, and Daniel replies to Priya. Each comment and reply appears on Priya's screen as it is posted.">
+                <source src="/media/collab.mp4" type="video/mp4">
+              </video>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Review today, and with Critiqs -->
+    <section class="block" id="compare" aria-labelledby="compare-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="compare-title" class="heading-2">Review without the screenshot back-and-forth</h2>
+          <p class="title-2">Most build reviews still happen after the fact, in chat. Critiqs moves them onto the page itself, where anyone on the team can take part.</p>
+        </div>
+        <div class="vs-list">
+          <article class="vs">
+            <div class="vs-head">
+              <h3 class="heading-5">One comment on the page, not a screenshot and five messages</h3>
+              <p class="body-3">A screenshot in chat starts a round of questions: which customer, which build, which tab. A comment on the build answers them before anyone asks.</p>
+            </div>
+            <div class="vs-pair">
+              <figure class="vs-side today">
+                <figcaption class="vs-label"><svg class="icon" aria-hidden="true"><use href="/icons.svg#x"></use></svg>Today</figcaption>
+                <div class="chat" role="img" aria-label="A team chat thread. Priya posts a cropped screenshot with the Ops label circled. Mei asks which customer it is, Daniel asks whether it's staging or production, and Priya says she'll send another screenshot.">
+                  <div class="chat-top title-4"><span class="chat-hash">#</span>acme-review<span class="caption-5">4 members</span></div>
+                  <div class="msg"><span class="face priya caption-3">PR</span><div class="msg-body"><p class="msg-who"><b>Priya</b><time>10:42</time></p><p>The department label reads wrong here, see below</p><img src="/media/chat-shot.jpg" width="1440" height="762" loading="lazy" alt=""></div></div>
+                  <div class="msg"><span class="face mei caption-3">MT</span><div class="msg-body"><p class="msg-who"><b>Mei</b><time>10:58</time></p><p>Which customer is that? Mine looks different.</p></div></div>
+                  <div class="msg"><span class="face daniel caption-3">DO</span><div class="msg-body"><p class="msg-who"><b>Daniel</b><time>11:20</time></p><p>Staging or production? Before or after today’s build?</p></div></div>
+                  <div class="msg"><span class="face priya caption-3">PR</span><div class="msg-body"><p class="msg-who"><b>Priya</b><time>11:34</time></p><p>Harbor Logistics, Team tab. I’ll send another screenshot.</p></div></div>
+                </div>
+              </figure>
+              <figure class="vs-side ours">
+                <figcaption class="vs-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="currentColor"/><circle cx="12" cy="12" r="3.5" fill="var(--accent)"/></svg>With Critiqs</figcaption>
+                <div class="vs-shot frame"><div class="frame-inner">
+                  <div class="browser-bar" aria-hidden="true"><div class="dots"><span></span><span></span><span></span></div><div class="url caption-5">staging.acme.example/customers/harbor-logistics</div></div>
+                  <img src="/media/comment.jpg" width="1440" height="900" loading="lazy" alt="Priya writes her comment right on the Ops cell of the build, while Mei's and Daniel's cursors are on the same page.">
+                </div></div>
+              </figure>
+            </div>
+          </article>
+
+          <article class="vs">
+            <div class="vs-head">
+              <h3 class="heading-5">Join the review without setting anything up</h3>
+              <p class="body-3">Today, taking part means tracker accounts, repository access and a copy of the app running on your computer. With Critiqs, a reviewer opens a link.</p>
+            </div>
+            <div class="vs-pair">
+              <figure class="vs-side today">
+                <figcaption class="vs-label"><svg class="icon" aria-hidden="true"><use href="/icons.svg#x"></use></svg>Today</figcaption>
+                <div class="setup" role="img" aria-label="A setup checklist before someone can review: 2 of 8 steps done. Still to do: repository access, installing Git and Node.js, cloning and installing the app, getting secret keys from a developer, running the app locally, and a screenshot tool.">
+                  <div class="setup-top"><b class="title-4">Before you can review</b><span class="caption-4">2 of 8 done</span></div>
+                  <div class="setup-bar"><span style="width: 25%"></span></div>
+                  <ol>
+                    <li class="done"><span class="box"></span><span>Jira, Linear or GitHub Issues account</span></li>
+                    <li class="done"><span class="box"></span><span>Invite to the team chat</span></li>
+                    <li class="wait"><span class="box"></span><span>Repository access</span><span class="why">waiting on IT</span></li>
+                    <li><span class="box"></span><span>Install Git and Node.js</span></li>
+                    <li><span class="box"></span><span>Clone the app and install packages</span></li>
+                    <li class="wait"><span class="box"></span><span>Secret keys for <code>.env</code></span><span class="why">ask Daniel</span></li>
+                    <li><span class="box"></span><span>Run the app on your computer</span></li>
+                    <li><span class="box"></span><span>A screenshot and markup tool</span></li>
+                  </ol>
+                </div>
+              </figure>
+              <figure class="vs-side ours">
+                <figcaption class="vs-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="currentColor"/><circle cx="12" cy="12" r="3.5" fill="var(--accent)"/></svg>With Critiqs</figcaption>
+                <div class="setup ours" role="img" aria-label="A browser window open at the build's link. The same checklist has one step, open the link, and it is done.">
+                  <div class="mini-bar" aria-hidden="true"><div class="dots"><span></span><span></span><span></span></div><div class="url caption-5">staging.acme.example</div></div>
+                  <div class="setup-body">
+                    <div class="setup-top"><b class="title-4">Before you can review</b><span class="caption-4">1 of 1 done</span></div>
+                    <div class="setup-bar"><span style="width: 100%"></span></div>
+                    <ol>
+                      <li class="done"><span class="box"></span><span>Open the link in your browser</span></li>
+                    </ol>
+                    <p class="setup-done"><span class="big-check"><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg></span><b class="title-3">Ready to comment</b><span class="body-6">Sign in with an email code when you post. Nothing to install.</span></p>
+                  </div>
+                </div>
+              </figure>
+            </div>
+          </article>
+
+          <article class="vs">
+            <div class="vs-head">
+              <h3 class="heading-5">Feedback from every build, in one place</h3>
+              <p class="body-3">Give staging, preview and QA builds the same project ID. Every comment lands in one list, tagged with the build it came from.</p>
+            </div>
+            <div class="vs-pair">
+              <figure class="vs-side today">
+                <figcaption class="vs-label"><svg class="icon" aria-hidden="true"><use href="/icons.svg#x"></use></svg>Today</figcaption>
+                <div class="scatter" role="img" aria-label="Feedback scattered across a chat thread, an email, meeting notes, a spreadsheet and a direct message.">
+                  <div class="scrap s1"><b class="caption-3">#acme-review</b><span>“see screenshot above”</span></div>
+                  <div class="scrap s2"><b class="caption-3">Email</b><span>Re: staging feedback (4)</span></div>
+                  <div class="scrap s3"><b class="caption-3">Meeting notes</b><span>Demo, Tuesday: fix seats?</span></div>
+                  <div class="scrap s4"><b class="caption-3">QA bugs v3.xlsx</b><span>Row 41: label on Team tab</span></div>
+                  <div class="scrap s5"><b class="caption-3">Direct message</b><span>“quick thing on the preview”</span></div>
+                </div>
+              </figure>
+              <figure class="vs-side ours">
+                <figcaption class="vs-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="currentColor"/><circle cx="12" cy="12" r="3.5" fill="var(--accent)"/></svg>With Critiqs</figcaption>
+                <div class="hub" role="img" aria-label="Three builds, staging, a pull request preview and QA, each with a comment on it. All three comments flow into one Acme console list, each tagged with its build.">
+                  <div class="builds">
+                    <div class="build b1"><div class="mini-bar"><div class="dots"><span></span><span></span><span></span></div><span class="tag">staging</span></div><div class="mini-page"><i></i><i></i><i class="short"></i><span class="dot face priya">PR</span></div></div>
+                    <div class="build b2"><div class="mini-bar"><div class="dots"><span></span><span></span><span></span></div><span class="tag">preview #482</span></div><div class="mini-page"><i></i><i class="short"></i><i></i><span class="dot face mei">MT</span></div></div>
+                    <div class="build b3"><div class="mini-bar"><div class="dots"><span></span><span></span><span></span></div><span class="tag">qa</span></div><div class="mini-page"><i class="short"></i><i></i><i></i><span class="dot face daniel">DO</span></div></div>
+                  </div>
+                  <svg class="flow-lines" viewBox="0 0 40 340" aria-hidden="true">
+                    <path d="M0 48 C 26 48, 14 170, 40 170"/><path d="M0 170 L 40 170"/><path d="M0 292 C 26 292, 14 170, 40 170"/><circle cx="37" cy="170" r="3"/>
+                  </svg>
+                  <div class="inbox">
+                    <div class="inbox-top"><b class="title-4">Acme console</b><span class="caption-5">All feedback · 3 open</span></div>
+                    <ul>
+                      <li><span class="face priya caption-3">PR</span><span class="body-6">Spell out the department here.</span><span class="tag b1">staging</span></li>
+                      <li><span class="face mei caption-3">MT</span><span class="body-6">Can seats show the limit as a bar?</span><span class="tag b2">preview #482</span></li>
+                      <li><span class="face daniel caption-3">DO</span><span class="body-6">Should 82% link to the usage report?</span><span class="tag b3">qa</span></li>
+                    </ul>
+                  </div>
+                </div>
+              </figure>
+            </div>
+          </article>
+
+          <article class="vs">
+            <div class="vs-head">
+              <h3 class="heading-5">Everyone can review the build, not only developers</h3>
+              <p class="body-3">Today, only someone who can run the app sees a change before it ships. With Critiqs, product, design and clients comment on the same build, and a coding agent can pick up the threads.</p>
+            </div>
+            <div class="vs-pair">
+              <figure class="vs-side today">
+                <figcaption class="vs-label"><svg class="icon" aria-hidden="true"><use href="/icons.svg#x"></use></svg>Today</figcaption>
+                <div class="room" role="img" aria-label="The build runs at localhost on Daniel's laptop, and only his cursor is on it. Outside it, Priya asks for a screenshot, Mei asks if it's deployed yet, and the client will see it at the demo.">
+                  <div class="room-screen">
+                    <div class="mini-bar"><div class="dots"><span></span><span></span><span></span></div><div class="url caption-5">localhost:5173 · Daniel’s laptop</div></div>
+                    <img src="/media/screen.jpg" width="1920" height="1200" loading="lazy" alt="">
+                    <span class="cur daniel" style="left: 58%; top: 52%"><svg viewBox="0 0 16 16"><path d="M1 1l5.5 13 2-5.5L14 6.5z"/></svg><b>Daniel</b></span>
+                  </div>
+                  <div class="waiting">
+                    <p><span class="face priya caption-3">PR</span><span class="bubble body-6">Can you send a screenshot?</span></p>
+                    <p><span class="face mei caption-3">MT</span><span class="bubble body-6">Is it deployed yet?</span></p>
+                    <p><span class="face client caption-3">CL</span><span class="bubble body-6">I’ll see it at the demo.</span></p>
+                  </div>
+                </div>
+              </figure>
+              <figure class="vs-side ours">
+                <figcaption class="vs-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20H4a2 2 0 0 1-2-2v-8A10 10 0 0 1 12 2Z" fill="currentColor"/><circle cx="12" cy="12" r="3.5" fill="var(--accent)"/></svg>With Critiqs</figcaption>
+                <div class="room ours" role="img" aria-label="The build at its staging link, with Priya, Mei, the client and Daniel all on it at once. Each has left a comment, and a coding agent has replied to one.">
+                  <div class="room-screen">
+                    <div class="mini-bar"><div class="dots"><span></span><span></span><span></span></div><div class="url caption-5">staging.acme.example</div></div>
+                    <img src="/media/screen.jpg" width="1920" height="1200" loading="lazy" alt="">
+                    <span class="cur priya" style="left: 26%; top: 24%"><svg viewBox="0 0 16 16"><path d="M1 1l5.5 13 2-5.5L14 6.5z"/></svg><b>Priya · Product</b></span>
+                    <span class="cur mei" style="left: 64%; top: 18%"><svg viewBox="0 0 16 16"><path d="M1 1l5.5 13 2-5.5L14 6.5z"/></svg><b>Mei · Design</b></span>
+                    <span class="cur client" style="left: 74%; top: 62%"><svg viewBox="0 0 16 16"><path d="M1 1l5.5 13 2-5.5L14 6.5z"/></svg><b>Client</b></span>
+                    <span class="cur daniel" style="left: 46%; top: 60%"><svg viewBox="0 0 16 16"><path d="M1 1l5.5 13 2-5.5L14 6.5z"/></svg><b>Daniel · Dev</b></span>
+                    <div class="note-card"><span class="face agent"><svg class="icon" aria-hidden="true"><use href="/icons.svg#agent"></use></svg></span><span class="body-6"><b>Coding agent</b> Seats now show as a bar. Ready to check.</span></div>
+                  </div>
+                </div>
+              </figure>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="block" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="features-title" class="heading-2">Every comment keeps the screen behind it</h2>
+          <p class="title-2">Each comment is pinned to an element, with a capture of what the reviewer saw, so nobody has to explain a screenshot.</p>
+        </div>
+        <div class="features">
+          <article class="feature">
+            <div class="feature-copy">
+              <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#click"></use></svg></div>
+              <h3 class="heading-4">Point at it instead of describing it</h3>
+              <p class="body-3">Switch to Comment mode and click any element. Your comment is pinned to it for everyone, with a capture of what you saw.</p>
+            </div>
+            <figure class="clip">
+              <div class="frame"><div class="frame-inner">
+                <img src="/media/comment.jpg" width="1440" height="900" loading="lazy" alt="Critiqs Comment mode on the customer page: the Ops cell is outlined, and Priya's comment is typed in the composer with This component selected.">
+              </div></div>
+            </figure>
+          </article>
+
+          <article class="feature">
+            <div class="feature-copy">
+              <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#history"></use></svg></div>
+              <h3 class="heading-4">Every thread remembers where it was left</h3>
+              <p class="body-3">Every thread saves a capture and the page it was left on. When your app tells Critiqs which tab, dialog or record is open, picking a thread brings that view back and opens the discussion beside the element.</p>
+            </div>
+            <figure class="clip">
+              <div class="frame"><div class="frame-inner">
+                <video width="1920" height="1200" muted loop playsinline preload="none" poster="/media/context.jpg" data-clip
+                  data-name="the context clip" aria-label="Priya picks Kai's thread from the sidebar. The app switches to the Billing tab and opens the thread beside the invoice date. She then picks Daniel's thread and the app switches to the Overview tab.">
+                  <source src="/media/context.mp4" type="video/mp4">
+                </video>
+              </div></div>
+            </figure>
+          </article>
+
+          <article class="feature">
+            <div class="feature-copy">
+              <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#agent"></use></svg></div>
+              <h3 class="heading-4">Hand it to a developer or a coding agent</h3>
+              <p class="body-3">Select threads and export them as Markdown for people or JSON for tools. Coding agents connect through the Critiqs MCP server, read each thread with its context, and reply in it.</p>
+            </div>
+            <figure class="clip">
+              <div class="frame"><div class="frame-inner">
+                <video width="1920" height="1200" muted loop playsinline preload="none" poster="/media/handoff.jpg" data-clip
+                  data-name="the handoff clip" aria-label="Daniel selects three threads in the sidebar and exports them. The export dialog shows the threads as Markdown, then as JSON, and he copies it.">
+                  <source src="/media/handoff.mp4" type="video/mp4">
+                </video>
+              </div></div>
+            </figure>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mockup mode -->
+    <section class="mockup" id="mockups" aria-labelledby="mockups-title">
+      <div class="wrap">
+        <div class="section-head center">
+          <h2 id="mockups-title" class="heading-2">Try a change on the page before anyone builds it</h2>
+          <p class="title-2">Describe a design change in plain words: wording, spacing, colors or layout. Critiqs AI edits the HTML and CSS of a frozen copy of the page, never your app, so your feedback arrives with the picture you had in mind.</p>
+        </div>
+        <figure class="clip">
+          <div class="frame">
+            <div class="frame-inner">
+              <div class="browser-bar" aria-hidden="true">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <div class="url caption-5">app.acme.example/customers/harbor-logistics</div>
+              </div>
+              <video width="1920" height="1200" muted loop playsinline preload="none" poster="/media/mockup.jpg" data-clip
+                data-name="the Mockup mode clip" aria-label="Priya opens Mockup mode, starts a thread and asks to spell out Ops as Operations and show seats as a bar. Critiqs AI shows its steps while a light sweeps over the page, then replies and the page copy changes, saved as version 1. She asks for a quieter Upgrade plan button, which becomes version 2, then holds to compare with the live page.">
+                <source src="/media/mockup.mp4" type="video/mp4">
+              </video>
+            </div>
+          </div>
+        </figure>
+        <ol class="mockup-steps">
+          <li><h3 class="title-2">Ask in your own words</h3><p class="body-6">Start a thread on the page or on one element, such as “make this a quieter outline button”. Add existing comments for Critiqs AI to read.</p></li>
+          <li><h3 class="title-2">Watch the page change</h3><p class="body-6">Critiqs AI reads the page and rewrites the copy’s HTML and CSS, showing each step as it works. Text, spacing, colors and layout update in place; your real app stays as it is.</p></li>
+          <li><h3 class="title-2">Attach it to the feedback</h3><p class="body-6">Every version stays in the thread, so developers and agents see exactly what you meant. Hold Compare to see the live page again.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Where teams use it -->
+    <section class="block" id="uses" aria-labelledby="uses-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="uses-title" class="heading-2">Use it wherever a build gets reviewed</h2>
+          <p class="title-2">Most teams add Critiqs to staging, preview deployments or a QA environment, so anyone checking the build can comment on it. Production stays clean.</p>
+        </div>
+        <ol class="flow body-5" aria-label="Where Critiqs fits in a release">
+          <li><span class="flow-num caption-3" aria-hidden="true">1</span>A build goes to preview or QA</li>
+          <li><span class="flow-num caption-3" aria-hidden="true">2</span>The team reviews it in the browser</li>
+          <li><span class="flow-num caption-3" aria-hidden="true">3</span>A developer or agent picks up the threads</li>
+          <li><span class="flow-num caption-3" aria-hidden="true">4</span>The next build is checked against them</li>
+        </ol>
+        <div class="uses">
+          <article class="use">
+            <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#browser"></use></svg></div>
+            <h3 class="title-1">Staging and pull request previews</h3>
+            <p class="body-6">Add Critiqs to branch previews and staging, so product, design and engineering review a change before it merges.</p>
+          </article>
+          <article class="use">
+            <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#bug"></use></svg></div>
+            <h3 class="title-1">QA passes and bug bashes</h3>
+            <p class="body-6">Testers pin each bug to the element with a capture of what they saw, and tag it so triage can filter.</p>
+          </article>
+          <article class="use">
+            <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#design"></use></svg></div>
+            <h3 class="title-1">Design QA before release</h3>
+            <p class="body-6">Designers check the build against the design and mock up the fix on the page instead of writing a paragraph.</p>
+          </article>
+          <article class="use">
+            <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#signoff"></use></svg></div>
+            <h3 class="title-1">Stakeholder sign-off</h3>
+            <p class="body-6">Send a preview link to people who never open a design tool or GitHub. They comment in their browser, on the screens they care about.</p>
+          </article>
+          <article class="use">
+            <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#users"></use></svg></div>
+            <h3 class="title-1">Client reviews</h3>
+            <p class="body-6">Share a staging build with a client. They sign in with an email code and leave feedback on the real thing.</p>
+          </article>
+          <article class="use">
+            <div class="icon-tile"><svg class="icon" aria-hidden="true"><use href="/icons.svg#demo"></use></svg></div>
+            <h3 class="title-1">Live demo meetings</h3>
+            <p class="body-6">Walk through a build on a call and pin each note where it comes up, instead of digging through the recording later.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tagline reveal -->
+    <section class="tagline" aria-label="What Critiqs is for">
+      <div class="wrap">
+        <p class="heading-2" data-reveal>Feedback belongs on the app,<br> next to the thing it’s about.<br> Not in a screenshot three messages up.</p>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="block" id="how" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="how-title" class="heading-2">Add it to your staging build</h2>
+          <p class="title-2">Two commands to install. Critiqs Cloud handles storage, sign-in and email, so there are no keys to enter.</p>
+        </div>
+        <ol class="steps">
+          <li class="step">
+            <span class="step-num caption-3" aria-hidden="true">1</span>
+            <h3 class="title-1">Add Critiqs to your app</h3>
+            <p class="body-3">Setup adds <code class="inline">&lt;Critiqs /&gt;</code> where your app renders, signs you in, and creates your project.</p>
+            <pre><code>npm install critiqs-react
+npx critiqs-react init</code></pre>
+          </li>
+          <li class="step">
+            <span class="step-num caption-3" aria-hidden="true">2</span>
+            <h3 class="title-1">Share the link</h3>
+            <p class="body-3">Set the project ID in your staging, preview and QA build settings, leave it out of production, and send the link. Builds that share an ID share one set of threads. Optionally pass your tabs, records and build version so threads can bring their view back.</p>
+          </li>
+          <li class="step">
+            <span class="step-num caption-3" aria-hidden="true">3</span>
+            <h3 class="title-1">Build from the threads</h3>
+            <p class="body-3">Export threads for an issue, or add the Critiqs MCP server to your coding agent so it reads them with their context.</p>
+            <pre><code>npx critiqs-react mcp</code></pre>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Pricing -->
+    <section class="block" id="pricing" aria-labelledby="pricing-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="pricing-title" class="heading-2">Start free, upgrade as the team grows</h2>
+          <p class="title-2">Critiqs Cloud is free to start. While Critiqs is in beta, Plus and Pro are half price. Billed monthly.</p>
+        </div>
+        <div class="plans">
+          <article class="plan">
+            <div class="plan-head">
+              <div class="plan-name"><h3 class="title-1">Free</h3></div>
+              <p class="price"><span class="heading-3">$0</span></p>
+              <p class="body-6">For trying Critiqs on one app.</p>
+            </div>
+            <ul class="body-6">
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>1 project</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>5 reviewers a month per project</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>500 comments a month per project</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span>200 Critiqs AI credits a month<span class="credit-hint">About 12 to 200 Mockup changes</span></span></li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>500 MB of captures</li>
+            </ul>
+            <a class="btn btn-outline button-md" href="#how">Start free</a>
+          </article>
+          <article class="plan featured">
+            <div class="plan-head">
+              <div class="plan-name"><h3 class="title-1">Plus</h3><span class="plan-tag caption-3">Beta price</span></div>
+              <p class="price"><s class="was title-1"><span class="visually-hidden">Regular price </span>$20</s><span class="heading-3"><span class="visually-hidden">Beta price </span>$10</span><span class="per body-6">a month</span></p>
+              <p class="body-6">For a team reviewing a few apps every week.</p>
+            </div>
+            <ul class="body-6">
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>10 projects</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>25 reviewers a month per project</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>5,000 comments a month per project</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span>2,000 Critiqs AI credits a month, then $1 per 100<span class="credit-hint">About 125 to 2,000 Mockup changes</span></span></li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>10 GB of captures</li>
+            </ul>
+            <a class="btn btn-primary button-md" href="#how">Start with Plus</a>
+          </article>
+          <article class="plan">
+            <div class="plan-head">
+              <div class="plan-name"><h3 class="title-1">Pro</h3><span class="plan-tag caption-3">Beta price</span></div>
+              <p class="price"><s class="was title-1"><span class="visually-hidden">Regular price </span>$100</s><span class="heading-3"><span class="visually-hidden">Beta price </span>$50</span><span class="per body-6">a month</span></p>
+              <p class="body-6">For organizations with many apps and reviewers.</p>
+            </div>
+            <ul class="body-6">
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>No limit on projects</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>No limit on reviewers or comments</li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span>10,000 Critiqs AI credits a month, then $1 per 100<span class="credit-hint">About 625 to 10,000 Mockup changes</span></span></li>
+              <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>100 GB of captures, then $10 a month per 100 GB</li>
+            </ul>
+            <a class="btn btn-outline button-md" href="#how">Start with Pro</a>
+          </article>
+        </div>
+        <article class="self-host">
+          <div class="plan-head">
+            <div class="plan-name"><h3 class="title-1">Self-hosted</h3></div>
+            <p class="price"><span class="heading-3">$0</span><span class="per body-6">MIT license</span></p>
+            <p class="body-6">For teams that keep feedback on their own servers.</p>
+          </div>
+          <ul class="body-6">
+            <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>Your own Convex deployment</li>
+            <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>Your data stays on your servers</li>
+            <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>No limits on projects, reviewers or comments</li>
+            <li><svg class="icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>Bring your own AI provider key</li>
+          </ul>
+          <a class="btn btn-outline button-md" href="https://www.npmjs.com/package/critiqs-react">Read the setup guide</a>
+        </article>
+        <div class="credits">
+          <div class="credits-head">
+            <h3 class="title-1">What a credit buys</h3>
+            <p class="body-6">A Mockup change is one request in a Mockup thread. Its cost depends on the model you pick and how much of the page and thread it reads.</p>
+          </div>
+          <div class="credits-table" role="region" aria-label="Credits per Mockup change by model" tabindex="0">
+            <table class="body-6">
+              <thead><tr><th scope="col">Model</th><th scope="col">Credits per change</th><th scope="col" class="opt">Changes on Free</th><th scope="col">Changes on Plus</th><th scope="col" class="opt">Changes on Pro</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Claude Haiku 5.5</th><td>About 1</td><td class="opt">About 200</td><td>About 2,000</td><td class="opt">About 10,000</td></tr>
+                <tr><th scope="row">GPT-6.2 Sol</th><td>3 to 8</td><td class="opt">25 to 65</td><td>250 to 650</td><td class="opt">1,250 to 3,300</td></tr>
+                <tr><th scope="row">Gemini 4 Neon</th><td>4 to 12</td><td class="opt">16 to 50</td><td>160 to 500</td><td class="opt">830 to 2,500</td></tr>
+                <tr><th scope="row">Claude Opus 5.5</th><td>5 to 16</td><td class="opt">12 to 40</td><td>125 to 400</td><td class="opt">625 to 2,000</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="caption-5 credits-note">Estimates from measured requests: about 3,000 to 10,000 tokens in and 500 to 2,000 out. A request costs twice the model provider’s price for its tokens, rounded up to whole credits. Long pages and long threads cost more.</p>
+        </div>
+        <p class="pricing-note caption-5">Prices in US dollars. One Critiqs AI credit is one cent of usage, and on Plus and Pro admins set a cap on extra credits. Commenting never uses credits, and teams can use their own AI provider key instead.</p>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="block" id="faq" aria-labelledby="faq-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="faq-title" class="heading-2">Questions before you install</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary class="title-2">Which apps does Critiqs work with?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">Any React 18 or 19 app, including Vite, Next.js (App Router or Pages Router), Remix, Create React App, or your own setup. React and React DOM are its only peer dependencies, and setup needs Node.js 20 or later.</div>
+          </details>
+          <details>
+            <summary class="title-2">Do reviewers need an extension, an account or a password?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">No. They open your staging or preview link in any browser and sign in with their email address and a one-time code. Their first sign-in creates their account, and there is nothing to install.</div>
+          </details>
+          <details>
+            <summary class="title-2">Does Mockup mode change our code?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">No. Mockup mode freezes the current page into a copy in the browser, and Critiqs AI only changes that copy. Your running app stays as it is until a developer or coding agent builds the change. Mockup mode runs on Critiqs Cloud or a team’s own Convex deployment.</div>
+          </details>
+          <details>
+            <summary class="title-2">How do coding agents use the feedback?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3"><code>npx critiqs-react mcp</code> gives your agent tools that list threads with their context, read whole discussions, fetch captures, read mockups, and reply marked “via coding agent”. Agent tools work with Critiqs Cloud and Convex deployments. You can also export threads as Markdown or JSON.</div>
+          </details>
+          <details>
+            <summary class="title-2">Where is the feedback stored?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">On Critiqs Cloud by default. Teams that need their own storage can run Critiqs on their own Convex deployment.</div>
+          </details>
+          <details>
+            <summary class="title-2">Will our real users see Critiqs?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">Only where you turn it on. In Vite and Next.js apps, setup adds <code>requireProjectId</code>, so Critiqs appears only in builds that set a project ID. A build without one adds nothing to the page and contacts no server.</div>
+          </details>
+          <details>
+            <summary class="title-2">What happens to comments when the UI changes?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">If Critiqs can still find the element, the pin follows it. If the element moved behind a tab or was removed, the thread stays in the sidebar with its saved capture and context, and threads from earlier builds are kept.</div>
+          </details>
+          <details>
+            <summary class="title-2">Does Critiqs need AI?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
+            <div class="answer body-3">No. Commenting, threads, mentions, tags and exports never depend on AI. Mockup mode, automatic tag grouping and plain-language search use Critiqs AI, or your own key for OpenAI, Anthropic, Google Gemini, OpenRouter or Vercel AI Gateway.</div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final call to action -->
+    <section class="final" aria-labelledby="final-title">
+      <div class="wrap">
+        <div class="inner">
+          <h2 id="final-title" class="heading-2">Add Critiqs to your next staging build</h2>
+          <p class="title-2">Start free on Critiqs Cloud, or host it yourself under the MIT license.</p>
+          <div class="install">
+            <code><span class="prompt">$ </span>npm install critiqs-react</code>
+            <button class="btn btn-primary button-sm" type="button" data-copy="npm install critiqs-react">
+              <svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg>
+              <svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg>
+              <span class="copy-label">Copy command</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap body-6">
+      <div class="foot-groups">
+        <nav aria-label="Product">
+          <p class="foot-title title-4">Product</p>
+          <a href="#compare">Why Critiqs</a>
+          <a href="#mockups">Mockup mode</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <p class="foot-title title-4">Resources</p>
+          <a href="/docs">Docs</a>
+          <a href="/docs/install">Install guide</a>
+          <a href="/docs/agent-skill">Agent skill</a>
+          <a href="/blog">Blog</a>
+        </nav>
+        <nav aria-label="Elsewhere">
+          <p class="foot-title title-4">Elsewhere</p>
+          <a href="https://www.npmjs.com/package/critiqs-react">npm package</a>
+          <a href="/blog/feed.xml">RSS feed</a>
+          <a href="/llms.txt">llms.txt</a>
+        </nav>
+      </div>
+      <p class="foot-legal">© 2026 Critiqs. Clips show Critiqs with sample data.</p>
+    </div>
+  </footer>
+
+  <p class="visually-hidden" role="status" aria-live="polite" id="copy-status"></p>
+</body>
+</html>

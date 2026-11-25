@@ -1,0 +1,841 @@
+import { httpRouter } from "convex/server";
+import { internal } from "./_generated/api";
+import { type ActionCtx, httpAction } from "./_generated/server";
+import {
+  CODE_MINUTES,
+  cleanCode,
+  codeDigest,
+  generateCode,
+  MailError,
+  normalizeEmail,
+  readPreferenceToken,
+  resendMailer,
+  signInCodeMessage,
+} from "@critiqs/server";
+import {
+  codePage,
+  consentPage,
+  deliverPage,
+  deviceApprovalPage,
+  deviceCodePage,
+  emailPage,
+  messagePage,
+  namePage,
+  preferencePage,
+} from "./lib/pages";
+import { linkSecret } from "./lib/links";
+import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture } from "./captureHttp";
+import { captureStorageHealth } from "./lib/r2";
+import { ATTEMPT_MINUTES } from "./signIn";
+import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
+import { deployment } from "./lib/ai";
+import { billingConfig, billingHealth, verifyWebhook } from "./lib/billing";
+import { syncOrganization } from "./billing";
+
+/** Which AI this deployment offers, without any key or address. */
+function aiHealth() {
+  const config = deployment();
+  return { managed: config.managed !== null, defaultProvider: config.defaultProvider?.provider ?? null, keysStorable: config.encryptionKey !== null };
+}
+
+const http = httpRouter();
+
+// Captures remain protected for both native Convex storage and private R2.
+http.route({ path: "/capture", method: "GET", handler: downloadCapture });
+http.route({ path: "/capture/upload", method: "POST", handler: uploadCapture });
+// Mockups' page copies, read with the same access checks as their project's threads.
+http.route({ path: "/mockup/snapshot", method: "GET", handler: downloadSnapshot });
+for (const path of ["/capture", "/capture/upload", "/mockup/snapshot"]) {
+  http.route({ path, method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CAPTURE_CORS })) });
+}
+
+// ---------------------------------------------------------------------------
+// Deployment configuration
+
+/** Critiqs's sign-in service. The hosted deployment names itself; own deployments name the hosted one. */
+function signInUrl(): string {
+  const issuer = process.env.CRITIQS_AUTH_ISSUER;
+  if (issuer === undefined || issuer === "") throw new Error("CRITIQS_AUTH_ISSUER is not set.");
+  return issuer.replace(/\/$/, "");
+}
+
+/** Tells the component where reviewers sign in for this deployment. */
+http.route({
+  path: "/critiqs/config",
+  method: "GET",
+  handler: httpAction(async () =>
+    Response.json(
+      // Raise `protocol` when the component needs functions or sign-in steps an older backend lacks.
+      // `deviceSignIn`: this sign-in service lets setup on another device be approved in a browser (/auth/device).
+      // `deviceSessions`: such an approval can also keep a command line signed in (`critiqs sign-in`).
+      // `agentReplies`: replies may be marked as written by a coding agent (`critiqs_reply`), and reply emails go out.
+      // `mockups`: Mockup mode's functions (`mockups:*`, `ai:mockupReply`, `/mockup/snapshot`) and mockup threads.
+      // `personalAi`: each person's own AI settings (`aiSettings:getPersonal`, `aiSettings:removePersonal`,
+      // `ai:savePersonalSettings`, `ai:testPersonalSettings`), their own Critiqs AI credits used (`aiSettings:myUsage`),
+      // and projects' AI usage rules and Critiqs AI models.
+      // `modelLists`: providers' model lists (`ai:listModels`, `ai:listPersonalModels`), the OpenRouter provider,
+      // and the models a person's requests may choose among (`aiSettings:myChoice`, `model` on `ai:mockupReply`).
+      // `organizations`: the organizations a person belongs to (`organizations:mine`), and `organization` on projects.
+      // `organizationMembers`: an organization's members and invites (`organizations:get`, `rename`, `invite`,
+      // `revokeInvite`, `setRole`, `removeMember`), `home` on organizations, and `organizationId` on `projects:create`.
+      // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`organizations:setOverageCap`).
+      // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
+      {
+        signInUrl: signInUrl(),
+        protocol: 5,
+        ai: aiHealth(),
+        deviceSignIn: true,
+        deviceSessions: true,
+        agentReplies: true,
+        mockups: true,
+        personalAi: true,
+        modelLists: true,
+        organizations: true,
+        organizationMembers: true,
+        overageCap: true,
+        ...(billingConfig() === null ? {} : { billing: true }),
+      },
+      { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
+    ),
+  ),
+});
+
+/**
+ * What `critiqs doctor` checks: whether this deployment can sign people in and
+ * send email, and whether mention emails are actually going out. With
+ * `projectId`, also whether that project exists here. Reveals no feedback.
+ */
+http.route({
+  path: "/critiqs/health",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const projectId = new URL(request.url).searchParams.get("projectId");
+    const state = await ctx.runQuery(internal.notifications.health, { projectId: projectId ?? undefined });
+    const email = Boolean(process.env.RESEND_API_KEY && process.env.CRITIQS_EMAIL_FROM);
+    const issuer = process.env.CRITIQS_AUTH_ISSUER?.replace(/\/$/, "") ?? "";
+    const site = (process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
+    return Response.json(
+      {
+        protocol: 5,
+        // Whether this deployment runs sign-in itself, and how; or trusts another's.
+        signIn: issuer === "" ? "unconfigured" : issuer !== site ? "external" : signInMode(),
+        email,
+        plans: process.env.CRITIQS_PLANS === "enabled",
+        billing: billingHealth(),
+        captures: captureStorageHealth(),
+        ai: { ...aiHealth(), ...(deployment().managedProblem ? { managedProblem: deployment().managedProblem } : {}) },
+        ...state,
+      },
+      { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
+    );
+  }),
+});
+
+/**
+ * Autumn's webhook. Register `<site>/critiqs/billing/autumn` in Autumn for
+ * `billing.updated`. A verified message makes Critiqs read the customer from
+ * Autumn again and record it before answering (canceling a storage add-on left
+ * behind when the organization left Pro), whatever the event, so events
+ * arriving late, out of order, or more than once still leave the latest
+ * state. When Autumn can't be read or the add-on can't be canceled the answer
+ * is 503, and Svix sends the message again later. Not found where the
+ * deployment doesn't take payment.
+ */
+http.route({
+  path: "/critiqs/billing/autumn",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const config = billingConfig();
+    if (config === null) return new Response("Not found", { status: 404 });
+    if (config.webhookSecret === null) {
+      console.error("An Autumn webhook arrived, but AUTUMN_WEBHOOK_SECRET isn't set.");
+      return new Response("Billing webhooks aren't set up", { status: 503 });
+    }
+    const body = await request.text();
+    const check = await verifyWebhook(config.webhookSecret, request.headers, body, Date.now());
+    if (!check.ok) {
+      console.warn(`Refused an Autumn webhook: ${check.reason}.`);
+      return new Response("Invalid signature", { status: 401 });
+    }
+    const organizationId = await ctx.runQuery(internal.billing.organizationOf, { customerId: customerOf(body) });
+    if (organizationId !== null) {
+      try {
+        await syncOrganization(ctx, config, organizationId);
+      } catch (error) {
+        console.error(`Autumn webhook ${check.id}: couldn't sync the customer with Autumn:`, error instanceof Error ? error.message : String(error));
+        return new Response("Autumn couldn't be read; send this again later", { status: 503 });
+      }
+    }
+    return new Response(null, { status: 204 });
+  }),
+});
+
+function customerOf(body: string): string | null {
+  try {
+    const id = (JSON.parse(body) as { data?: { customer_id?: unknown } } | null)?.data?.customer_id;
+    return typeof id === "string" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sign-in service (Critiqs's hosted deployment, or a local one in development)
+//
+// 1. The component opens /auth/start in a popup, naming its site and a nonce.
+//    A cookie ties the attempt to that browser.
+// 2. The reviewer enters their email; Critiqs sends a one-time code to it.
+//    Development deployments show the code instead of sending it.
+// 3. A matching code verifies the address. A new reviewer chooses a name.
+// 4. The first time a reviewer signs in from a site, they allow that site.
+// 5. The popup posts tokens to that site only. The component refreshes its
+//    short-lived access token through /auth/refresh from the same site.
+
+type SignInMode = "email" | "development" | "unavailable";
+
+function signInMode(): SignInMode {
+  // Codes and tokens are both keyed by the signing key; without it nobody can sign in.
+  if (!process.env.CRITIQS_AUTH_PRIVATE_KEY) return "unavailable";
+  if (process.env.RESEND_API_KEY && process.env.CRITIQS_EMAIL_FROM) return "email";
+  // Development sign-in shows codes on screen, so anyone could claim any email; it only runs locally.
+  if (process.env.CRITIQS_DEV_SIGN_IN === "enabled" && isLoopback(new URL(signInUrl()).hostname)) return "development";
+  return "unavailable";
+}
+
+/** Key for code digests, derived from the signing key so deployments need no extra secret. */
+function codeSecret(): string {
+  const key = process.env.CRITIQS_AUTH_PRIVATE_KEY;
+  if (key === undefined || key === "") throw new Error("CRITIQS_AUTH_PRIVATE_KEY is not set.");
+  return `critiqs-sign-in-code:${key}`;
+}
+
+const ATTEMPT_COOKIE = "critiqs_sign_in";
+
+function attemptCookie(value: string, maxAgeSeconds: number): string {
+  const secure = signInUrl().startsWith("https:") ? "; Secure" : "";
+  return `${ATTEMPT_COOKIE}=${value}; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
+}
+
+/** Hash of this browser's attempt cookie, or an empty string when it has none. */
+async function browserBinding(request: Request): Promise<string> {
+  const cookies = request.headers.get("Cookie") ?? "";
+  const value = cookies
+    .split(";")
+    .map((part) => part.trim().split("="))
+    .find(([name]) => name === ATTEMPT_COOKIE)?.[1];
+  return value === undefined || value === "" ? "" : await hashSecret(value);
+}
+
+function withHeaders(response: Response, headers: Record<string, string>): Response {
+  const merged = new Headers(response.headers);
+  for (const [name, value] of Object.entries(headers)) merged.append(name, value);
+  return new Response(response.body, { status: response.status, headers: merged });
+}
+
+http.route({
+  path: "/.well-known/jwks.json",
+  method: "GET",
+  handler: httpAction(async () => {
+    const { publicJwk } = await signingKey();
+    return Response.json({ keys: [publicJwk] }, { headers: { "Cache-Control": "public, max-age=300" } });
+  }),
+});
+
+http.route({
+  path: "/auth/start",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const params = new URL(request.url).searchParams;
+    const origin = normalizeOrigin(params.get("origin"));
+    const clientState = params.get("state") ?? "";
+    if (origin === null || clientState === "" || clientState.length > 200) {
+      return messagePage(
+        "Can't sign in",
+        "This sign-in link is incomplete, or the prototype is not served over HTTPS. Close this window and try again.",
+      );
+    }
+    const mode = signInMode();
+    if (mode === "unavailable") {
+      return messagePage("Sign-in unavailable", "This Critiqs deployment can't send sign-in codes yet.", 503);
+    }
+    const key = randomSecret();
+    const binding = randomSecret();
+    const start = await ctx.runMutation(internal.signIn.startAttempt, {
+      key,
+      origin,
+      clientState,
+      bindingHash: await hashSecret(binding),
+    });
+    if (!start.allowed) {
+      return withHeaders(messagePage("Try sign-in again shortly", "Too many sign-in requests. Please wait a minute and try again.", 429),
+        { "Retry-After": String(start.retryAfter) });
+    }
+    const cookie = { "Set-Cookie": attemptCookie(binding, ATTEMPT_MINUTES * 60) };
+    return withHeaders(emailPage(key, origin, { development: mode === "development" }), cookie);
+  }),
+});
+
+/** Sends a code to the address entered, or a new code to the same address. */
+http.route({
+  path: "/auth/email",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const mode = signInMode();
+    if (mode === "unavailable") return messagePage("Sign-in unavailable", "This Critiqs deployment can't send sign-in codes yet.", 503);
+    const form = new URLSearchParams(await request.text());
+    const key = form.get("attempt") ?? "";
+    const binding = await browserBinding(request);
+    const typed = (form.get("email") ?? "").slice(0, 300);
+    const email = normalizeEmail(typed);
+    const context = await ctx.runMutation(internal.signIn.codeContext, { key, bindingHash: binding });
+    if (email === null) {
+      const origin = await attemptOrigin(ctx, key, binding);
+      if (origin === null) return expiredPage();
+      return emailPage(key, origin, { development: mode === "development", error: "Enter a valid email address.", email: typed });
+    }
+    const prepared = await ctx.runMutation(internal.signIn.prepareCode, { key, bindingHash: binding, email });
+    switch (prepared.status) {
+      case "expired":
+        return expiredPage();
+      case "locked":
+        return lockedPage();
+      case "too-many-codes":
+      case "rate-limited":
+        // The current code, if any, still works.
+        if (context !== null && context.email === email) {
+          return codePage(key, context.origin, email, {
+            development: mode === "development",
+            canResend: false,
+            error:
+              prepared.status === "too-many-codes"
+                ? "No more codes can be sent from this window. Use the latest code, or close this window and start again."
+                : "Too many codes were sent recently. Wait a few minutes before asking for another.",
+          });
+        }
+        return withHeaders(
+          messagePage("Try again shortly", "Too many codes were sent recently. Wait a few minutes, then close this window and start again.", 429),
+          prepared.status === "rate-limited" ? { "Retry-After": String(prepared.retryAfter) } : {},
+        );
+    }
+    const code = generateCode();
+    const digest = await codeDigest(codeSecret(), { attempt: key, email, generation: prepared.generation, code });
+    const stored = await ctx.runMutation(internal.signIn.storeCode, {
+      key,
+      bindingHash: binding,
+      generation: prepared.generation,
+      digest,
+      expiresAt: Date.now() + CODE_MINUTES * 60 * 1000,
+    });
+    if (!stored) return expiredPage();
+    if (mode === "email") {
+      try {
+        await resendMailer({ apiKey: process.env.RESEND_API_KEY!, from: process.env.CRITIQS_EMAIL_FROM! }).send(
+          signInCodeMessage({ to: email, code, site: prepared.origin, idempotencyKey: `${key}:${prepared.generation}` }),
+        );
+      } catch (error) {
+        if (!(error instanceof MailError)) throw error;
+        return emailPage(key, prepared.origin, {
+          development: false,
+          email,
+          error: "The code couldn't be sent. Check the address, or try again in a minute.",
+        });
+      }
+    }
+    return codePage(key, prepared.origin, email, {
+      development: mode === "development",
+      ...(mode === "development" ? { developmentCode: code } : {}),
+      canResend: true,
+    });
+  }),
+});
+
+/** Checks a typed code. */
+http.route({
+  path: "/auth/code",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const mode = signInMode();
+    if (mode === "unavailable") return messagePage("Sign-in unavailable", "This Critiqs deployment can't send sign-in codes yet.", 503);
+    const form = new URLSearchParams(await request.text());
+    const key = form.get("attempt") ?? "";
+    const binding = await browserBinding(request);
+    const context = await ctx.runMutation(internal.signIn.codeContext, { key, bindingHash: binding });
+    if (context === null) return expiredPage();
+    const typed = cleanCode((form.get("code") ?? "").slice(0, 20));
+    const codeError = (error: string) =>
+      codePage(key, context.origin, context.email, { development: mode === "development", canResend: true, error });
+    if (!/^\d{6}$/.test(typed)) return codeError("Enter the 6-digit code from the email.");
+    const digest = await codeDigest(codeSecret(), { attempt: key, email: context.email, generation: context.generation, code: typed });
+    const consent = randomSecret();
+    const result = await ctx.runMutation(internal.signIn.verifyCode, {
+      key,
+      bindingHash: binding,
+      generation: context.generation,
+      digest,
+      consentHash: await hashSecret(consent),
+    });
+    switch (result.status) {
+      case "expired":
+        return expiredPage();
+      case "locked":
+        return lockedPage();
+      case "code-expired":
+        return codeError("That code has expired. Send a new code.");
+      case "wrong":
+        return codeError(`That code doesn't match. ${result.guessesLeft} ${result.guessesLeft === 1 ? "try" : "tries"} left.`);
+      case "needs-name":
+        return namePage(key, {});
+      case "verified":
+        if (result.device) return deviceApprovalPage(key, consent, result.profile, { keepSignedIn: result.keepSignedIn });
+        if (result.allowed) return await finishSignIn(ctx, key, binding, null, true);
+        return consentPage(key, consent, result.origin, result.profile);
+    }
+  }),
+});
+
+/** A new reviewer's display name, after their address is verified. */
+http.route({
+  path: "/auth/name",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const form = new URLSearchParams(await request.text());
+    const key = form.get("attempt") ?? "";
+    const binding = await browserBinding(request);
+    const consent = randomSecret();
+    const result = await ctx.runMutation(internal.signIn.registerReviewer, {
+      key,
+      bindingHash: binding,
+      name: (form.get("name") ?? "").slice(0, 200),
+      consentHash: await hashSecret(consent),
+    });
+    if (result.status === "expired") return expiredPage();
+    if (result.status === "invalid-name") return namePage(key, { error: "Use a name of 1 to 60 characters." });
+    if (result.device) return deviceApprovalPage(key, consent, result.profile, { keepSignedIn: result.keepSignedIn });
+    if (result.allowed) return await finishSignIn(ctx, key, binding, null, true);
+    return consentPage(key, consent, result.origin, result.profile);
+  }),
+});
+
+http.route({
+  path: "/auth/consent",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const form = new URLSearchParams(await request.text());
+    const consent = form.get("consent") ?? "";
+    if (consent === "") return expiredPage();
+    return await finishSignIn(
+      ctx,
+      form.get("attempt") ?? "",
+      await browserBinding(request),
+      await hashSecret(consent),
+      form.get("decision") === "allow",
+    );
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// Approving setup from another device (RFC 8628's device flow)
+//
+// 1. Setup (`critiqs init --remote`, or the MCP server) posts to
+//    /auth/device/start and receives a device secret, a short setup code, and
+//    this service's /auth/device address. It shows the code and the address.
+// 2. In any browser, the person opens /auth/device, types the code, signs in
+//    with an email code as usual, and approves or denies. A cookie ties these
+//    pages to that browser, as with sign-in windows.
+// 3. Setup polls /auth/device/token with its secret. Once approved, the poll
+//    receives a 15-minute access token for the approver, once. No refresh
+//    token is issued, so nothing outlives setup.
+//
+// `critiqs sign-in` starts the same flow with `{ "keepSignedIn": true }`. Its
+// approval page says the command line stays signed in, and the poll that
+// receives the approval also gets a refresh token for a session owned by this
+// sign-in service's origin, which /auth/refresh and /auth/sign-out accept as
+// they do a site's.
+
+/** Letters that can't spell words or be misread as digits, for setup codes. */
+const CODE_LETTERS = "BCDFGHJKLMNPQRSTVWXZ";
+
+function setupCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  // 256 is a multiple of 20 plus 16; the slight bias leaves about 34 bits.
+  const letters = Array.from(bytes, (byte) => CODE_LETTERS[byte % CODE_LETTERS.length]).join("");
+  return `${letters.slice(0, 4)}-${letters.slice(4)}`;
+}
+
+/** The code as typed, without spaces, dashes, or case; null when it can't be one. */
+function cleanSetupCode(typed: string): string | null {
+  const letters = typed.toUpperCase().replace(/[^A-Z]/g, "");
+  return letters.length === 8 && [...letters].every((letter) => CODE_LETTERS.includes(letter)) ? letters : null;
+}
+
+/** Codes are short, so their stored hash is keyed by the signing key. */
+async function setupCodeHash(letters: string): Promise<string> {
+  return await hashSecret(`${codeSecret()}:device:${letters}`);
+}
+
+const DEVICE_HEADERS = { "Cache-Control": "no-store" };
+
+function deviceError(error: string, status: number, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}): Response {
+  return Response.json({ error, ...extra }, { status, headers: { ...DEVICE_HEADERS, ...headers } });
+}
+
+http.route({
+  path: "/auth/device/start",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (signInMode() === "unavailable") return deviceError("unavailable", 503);
+    let keepSignedIn = false;
+    try {
+      keepSignedIn = ((await request.json()) as { keepSignedIn?: unknown } | null)?.keepSignedIn === true;
+    } catch {}
+    const deviceCode = randomSecret();
+    const deviceHash = await hashSecret(deviceCode);
+    // A new code if one is already waiting; collisions are rare.
+    for (let tries = 0; tries < 5; tries++) {
+      const userCode = setupCode();
+      const started = await ctx.runMutation(internal.deviceSignIn.start, {
+        deviceHash,
+        userCodeHash: await setupCodeHash(userCode.replace("-", "")),
+        ...(keepSignedIn ? { keepSignedIn: true } : {}),
+      });
+      if (started.status === "rate-limited") {
+        return deviceError("slow_down", 429, { retryAfter: started.retryAfter }, { "Retry-After": String(started.retryAfter) });
+      }
+      if (started.status === "started") {
+        return Response.json(
+          { deviceCode, userCode, verificationUrl: `${signInUrl()}/auth/device`, expiresIn: started.expiresIn, interval: started.interval },
+          { headers: DEVICE_HEADERS },
+        );
+      }
+    }
+    return deviceError("unavailable", 503);
+  }),
+});
+
+http.route({
+  path: "/auth/device/token",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let deviceCode: unknown;
+    try {
+      ({ deviceCode } = (await request.json()) as { deviceCode?: unknown });
+    } catch {}
+    if (typeof deviceCode !== "string" || deviceCode === "" || deviceCode.length > 200) return deviceError("invalid_request", 400);
+    // Used only if the grant keeps the command line signed in.
+    const refreshToken = randomSecret();
+    const result = await ctx.runMutation(internal.deviceSignIn.poll, {
+      deviceHash: await hashSecret(deviceCode),
+      refreshHash: await hashSecret(refreshToken),
+      origin: deviceTokenOrigin(),
+    });
+    switch (result.status) {
+      case "pending":
+        return deviceError("authorization_pending", 400, { interval: result.interval });
+      case "slow-down":
+        return deviceError("slow_down", 400, { interval: result.interval });
+      case "denied":
+        return deviceError("access_denied", 400);
+      case "expired":
+        return deviceError("expired_token", 400);
+      case "invalid":
+        return deviceError("invalid_grant", 400);
+    }
+    const { session } = result;
+    const { accessToken, expiresAt } = await issueAccessToken(signInUrl(), result.profile, deviceTokenOrigin(), Date.now(), session?.endsAt);
+    return Response.json(
+      {
+        accessToken,
+        expiresAt,
+        reviewer: { name: result.profile.name, email: result.profile.email },
+        ...(session === null ? {} : { refreshToken, sessionEndsAt: session.endsAt }),
+      },
+      { headers: DEVICE_HEADERS },
+    );
+  }),
+});
+
+/**
+ * The site a device approval's token names, and the origin its session (if
+ * any) belongs to: this sign-in service, since no prototype is involved.
+ */
+function deviceTokenOrigin(): string {
+  return new URL(signInUrl()).origin;
+}
+
+http.route({
+  path: "/auth/device",
+  method: "GET",
+  handler: httpAction(async () => {
+    if (signInMode() === "unavailable") return messagePage("Sign-in unavailable", "This Critiqs deployment can't send sign-in codes yet.", 503);
+    return deviceCodePage();
+  }),
+});
+
+http.route({
+  path: "/auth/device",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const mode = signInMode();
+    if (mode === "unavailable") return messagePage("Sign-in unavailable", "This Critiqs deployment can't send sign-in codes yet.", 503);
+    const letters = cleanSetupCode((new URLSearchParams(await request.text()).get("user_code") ?? "").slice(0, 40));
+    if (letters === null) return deviceCodePage({ error: "Enter the 8-letter code shown by setup, such as BCDF-GHJK.", status: 400 });
+    const key = randomSecret();
+    const binding = randomSecret();
+    const begun = await ctx.runMutation(internal.deviceSignIn.begin, {
+      userCodeHash: await setupCodeHash(letters),
+      key,
+      bindingHash: await hashSecret(binding),
+      clientState: "device",
+    });
+    if (begun.status === "rate-limited") {
+      return withHeaders(deviceCodePage({ error: "Too many codes were tried. Wait a minute, then try again.", status: 429 }), {
+        "Retry-After": String(begun.retryAfter),
+      });
+    }
+    if (begun.status === "unknown") {
+      return deviceCodePage({ error: "That code isn't waiting for approval. Check it, or start setup again if it expired.", status: 400 });
+    }
+    return withHeaders(emailPage(key, begun.site, { development: mode === "development" }), {
+      "Set-Cookie": attemptCookie(binding, ATTEMPT_MINUTES * 60),
+    });
+  }),
+});
+
+http.route({
+  path: "/auth/device/decision",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const form = new URLSearchParams(await request.text());
+    const consent = form.get("consent") ?? "";
+    if (consent === "") return expiredPage();
+    const result = await ctx.runMutation(internal.deviceSignIn.decide, {
+      key: form.get("attempt") ?? "",
+      bindingHash: await browserBinding(request),
+      consentHash: await hashSecret(consent),
+      allow: form.get("decision") === "approve",
+    });
+    const clear = { "Set-Cookie": attemptCookie("", 0) };
+    if (result.status === "expired") {
+      return messagePage("Setup approval expired", "This approval took too long, was already answered, or was started in another browser. Start setup again.");
+    }
+    if (result.status === "denied") {
+      return withHeaders(messagePage(result.keepSignedIn ? "Access denied" : "Setup denied", "Nothing was signed in. You can close this page.", 200), clear);
+    }
+    if (result.keepSignedIn) {
+      return withHeaders(
+        messagePage(
+          "Access approved",
+          "Return to where you started; it continues on its own. To end this access, run critiqs sign-out on that computer. You can close this page.",
+          200,
+        ),
+        clear,
+      );
+    }
+    return withHeaders(
+      messagePage("Setup approved", "Return to where you started setup; it continues on its own. You can close this page.", 200),
+      clear,
+    );
+  }),
+});
+
+/** The site an attempt signs in to, for the browser that started it. */
+async function attemptOrigin(ctx: ActionCtx, key: string, binding: string): Promise<string | null> {
+  return await ctx.runMutation(internal.signIn.attemptOrigin, { key, bindingHash: binding });
+}
+
+async function finishSignIn(
+  ctx: ActionCtx,
+  key: string,
+  binding: string,
+  consentHash: string | null,
+  allow: boolean,
+): Promise<Response> {
+  const refreshToken = randomSecret();
+  const result = await ctx.runMutation(internal.signIn.finishAttempt, {
+    key,
+    bindingHash: binding,
+    consentHash,
+    allow,
+    refreshHash: await hashSecret(refreshToken),
+  });
+  if (result === null) return expiredPage();
+  const clear = { "Set-Cookie": attemptCookie("", 0) };
+  const { origin, clientState, profile } = result;
+  if (profile === null) {
+    return withHeaders(deliverPage(origin, { type: "critiqs:sign-in", state: clientState, error: "cancelled" }), clear);
+  }
+  const { accessToken, expiresAt } = await issueAccessToken(signInUrl(), profile, origin);
+  return withHeaders(
+    deliverPage(origin, { type: "critiqs:sign-in", state: clientState, accessToken, refreshToken, expiresAt }),
+    clear,
+  );
+}
+
+function lockedPage(): Response {
+  return messagePage(
+    "Too many wrong codes",
+    "This sign-in is locked after too many wrong codes. Close this window and start again.",
+    429,
+  );
+}
+
+function expiredPage(): Response {
+  return messagePage(
+    "Sign-in expired",
+    "This sign-in took too long, was already used, or was started in another browser. Close this window and try again.",
+  );
+}
+
+/** Returns a fresh access token for a session, only to the site that owns it. */
+http.route({
+  path: "/auth/refresh",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const origin = normalizeOrigin(request.headers.get("Origin"));
+    const headers = sessionCors(origin);
+    const refreshToken = await readRefreshToken(request);
+    if (origin === null || refreshToken === null) return new Response("Bad request", { status: 400, headers });
+    const nextRefreshToken = randomSecret();
+    const session = await ctx.runMutation(internal.signIn.refreshSession, {
+      refreshHash: await hashSecret(refreshToken),
+      nextRefreshHash: await hashSecret(nextRefreshToken),
+      origin,
+    });
+    if (session === null) return new Response("Signed out", { status: 401, headers });
+    const { accessToken, expiresAt } = await issueAccessToken(signInUrl(), session.profile, origin, Date.now(), session.endsAt);
+    return Response.json({ accessToken, refreshToken: nextRefreshToken, expiresAt }, { headers });
+  }),
+});
+
+/** Changes the signed-in reviewer's display name; the component then refreshes its token. */
+http.route({
+  path: "/auth/profile",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const origin = normalizeOrigin(request.headers.get("Origin"));
+    const headers = sessionCors(origin);
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response("Bad request", { status: 400, headers });
+    }
+    if (typeof body !== "object" || body === null) return new Response("Bad request", { status: 400, headers });
+    const { refreshToken, name } = body as { refreshToken?: unknown; name?: unknown };
+    if (origin === null || typeof refreshToken !== "string" || refreshToken === "" || typeof name !== "string") {
+      return new Response("Bad request", { status: 400, headers });
+    }
+    const result = await ctx.runMutation(internal.signIn.renameReviewer, {
+      refreshHash: await hashSecret(refreshToken),
+      origin,
+      name,
+    });
+    if (result === "signed-out") return new Response("Signed out", { status: 401, headers });
+    if (result === "invalid") {
+      return Response.json({ error: "Use a name of 1 to 60 characters." }, { status: 400, headers });
+    }
+    return new Response(null, { status: 204, headers });
+  }),
+});
+
+http.route({
+  path: "/auth/sign-out",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const origin = normalizeOrigin(request.headers.get("Origin"));
+    const headers = sessionCors(origin);
+    const refreshToken = await readRefreshToken(request);
+    let ended = false;
+    if (origin !== null && refreshToken !== null) {
+      ended = await ctx.runMutation(internal.signIn.endSession, { refreshHash: await hashSecret(refreshToken), origin });
+    }
+    // `critiqs sign-out` reports a session it couldn't find, such as one replaced by a renewal whose answer was lost.
+    return new Response(null, { status: 204, headers: { ...headers, "Critiqs-Session-Ended": String(ended) } });
+  }),
+});
+
+for (const path of ["/auth/refresh", "/auth/profile", "/auth/sign-out"]) {
+  http.route({
+    path,
+    method: "OPTIONS",
+    handler: httpAction(async (_, request) =>
+      new Response(null, { status: 204, headers: sessionCors(normalizeOrigin(request.headers.get("Origin"))) }),
+    ),
+  });
+}
+
+function sessionCors(origin: string | null): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin ?? "null",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Cache-Control": "no-store",
+    Vary: "Origin",
+  };
+}
+
+async function readRefreshToken(request: Request): Promise<string | null> {
+  try {
+    const { refreshToken } = (await request.json()) as { refreshToken?: unknown };
+    return typeof refreshToken === "string" && refreshToken !== "" ? refreshToken : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Accepts only a bare origin, such as `https://proto.example`. Plain HTTP is
+ * allowed only on this computer, where a network cannot tamper with the page.
+ */
+function normalizeOrigin(value: string | null): string | null {
+  if (value === null) return null;
+  try {
+    const url = new URL(value);
+    if (url.origin !== value.replace(/\/$/, "")) return null;
+    if (url.protocol === "https:") return url.origin;
+    return url.protocol === "http:" && isLoopback(url.hostname) ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function isLoopback(hostname: string): boolean {
+  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
+// ---------------------------------------------------------------------------
+// Mute and unsubscribe links from mention emails
+
+http.route({
+  path: "/notifications/preferences",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const token = new URL(request.url).searchParams.get("token") ?? "";
+    const scope = await readPreferenceToken(await linkSecret(ctx), token);
+    if (scope === null) return messagePage("Link not recognized", "This link is incomplete or was changed. Use the link in your email.");
+    return preferencePage(
+      token,
+      scope.projectId === null
+        ? "Stop all emails from Critiqs, for mentions and replies? You can turn them back on from the account menu."
+        : "Mute emails from this project? You can unmute it from the account menu.",
+    );
+  }),
+});
+
+http.route({
+  path: "/notifications/preferences",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = new URLSearchParams(await request.text()).get("token") ?? "";
+    const scope = await readPreferenceToken(await linkSecret(ctx), token);
+    if (scope === null) return messagePage("Link not recognized", "This link is incomplete or was changed. Use the link in your email.");
+    await ctx.runMutation(internal.notifications.applyLink, scope);
+    return messagePage(
+      "Done",
+      scope.projectId === null ? "You won't get emails from Critiqs any more." : "This project's emails are muted.",
+      200,
+    );
+  }),
+});
+
+export default http;

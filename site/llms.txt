@@ -1,0 +1,56 @@
+# Critiqs
+
+> Critiqs is a React component that lets teams comment on staging and preview builds. Reviewers click an element and comment on the real app; every thread keeps a capture and the screen it was left on, for developers and coding agents.
+
+Critiqs is installed with `npm install critiqs-react` and set up with `npx critiqs-react init`. It runs on Critiqs Cloud or a team's own Convex deployment, under the MIT license. Coding agents read threads through the Critiqs MCP server (`npx critiqs-react mcp`). Each doc below links to a plain Markdown copy.
+
+## Get started
+
+- [Introduction](https://critiqs.app/docs/introduction.md): Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.
+- [Install Critiqs](https://critiqs.app/docs/install.md): Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.
+- [Projects and project IDs](https://critiqs.app/docs/projects.md): Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.
+- [Backends](https://critiqs.app/docs/backends.md): Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.
+
+## Review
+
+- [Leaving comments](https://critiqs.app/docs/comments.md): Switch between Browse mode and Comment mode, pick an element, choose This component or Matching components, post feedback, and use pins.
+- [Threads and the sidebar](https://critiqs.app/docs/threads.md): Reply, use @mentions and #tags, resolve threads, track unread comments, filter the sidebar, and jump back to where a thread was left.
+- [Captures and saved context](https://critiqs.app/docs/captures.md): See what every Critiqs comment saves, how automatic captures work, how to mask sensitive data with data-critiqs-mask, and how capture access is checked.
+- [Keyboard shortcuts](https://critiqs.app/docs/shortcuts.md): Reference for every Critiqs keyboard shortcut across Browse mode, Comment mode, Mockup mode, commenting, and sidebar resizing.
+
+## Mockup mode
+
+- [Mockup mode](https://critiqs.app/docs/mockup-mode.md): Freeze a page copy, ask Critiqs AI for HTML and CSS design changes, manage versions, compare with the live page, and add width copies.
+- [AI models and credits](https://critiqs.app/docs/ai-models-and-credits.md): Understand Critiqs AI models, token pricing, how credits are calculated per request, monthly plan allowances, and what affects cost.
+- [Your AI and provider keys](https://critiqs.app/docs/your-ai.md): Use Your AI to pick models or connect your own OpenAI, Anthropic, Gemini, OpenRouter, or Vercel AI Gateway key, and control who pays.
+
+## Agents
+
+- [Connect a coding agent with MCP](https://critiqs.app/docs/mcp.md): Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.
+- [Add the Critiqs agent skill](https://critiqs.app/docs/agent-skill.md): Install the Critiqs SKILL.md file so Claude Code, Codex, and Cursor know how to install Critiqs, read threads and mockups, and reply.
+- [Export threads](https://critiqs.app/docs/export.md): Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.
+- [Command line reference](https://critiqs.app/docs/cli.md): Reference for every critiqs-react CLI command, flag, environment variable, and exit code.
+
+## Teams and plans
+
+- [Organizations and roles](https://critiqs.app/docs/organizations.md): Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.
+- [Plans and limits](https://critiqs.app/docs/plans-and-limits.md): Compare Critiqs Cloud Free, Plus, and Pro plans, beta pricing, AI credits, overage caps, image storage, and limit behavior.
+
+## Guides
+
+- [Best practices for build reviews](https://critiqs.app/docs/best-practices.md): Practical patterns for configuring projects, naming builds, tagging threads, using Mockup mode, and handing work to coding agents.
+- [Self-hosting on your own Convex](https://critiqs.app/docs/self-hosting.md): Deploy Critiqs's open-source backend to your own Convex deployment, configure email, R2 capture storage, and AI keys.
+
+## Reference
+
+- [Troubleshooting](https://critiqs.app/docs/troubleshooting.md): Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.
+- [Frequently asked questions](https://critiqs.app/docs/faq.md): Short answers to common questions about installing Critiqs, reviewers, Mockup mode, coding agents, pricing, and self-hosting.
+
+## Blog
+
+- [Best website feedback tools for product teams in 2026](https://critiqs.app/blog/best-website-feedback-tools-2026): Compare six website feedback tools in 2026, including Critiqs, Pastel, BugHerd, Marker.io, MarkUp.io, and Vercel Toolbar, with verified pricing and MCP support.
+- [How to collect feedback on a staging site without screenshots](https://critiqs.app/blog/collect-staging-feedback-without-screenshots): Replace cropped screenshots and scattered Slack threads with on-page staging reviews that capture the element, view state, and build automatically.
+- [Critiqs vs Pastel: which website feedback tool fits your team](https://critiqs.app/blog/critiqs-vs-pastel): Compare Critiqs and Pastel on setup, React state capture, AI mockups, MCP coding agents, self-hosting, and 2026 pricing to pick the right review tool.
+- [A design QA checklist before release for web apps](https://critiqs.app/blog/design-qa-checklist-before-release): Run a structured pre-release design QA pass on staging or pull request previews covering layout, copy, states, responsiveness, and actionable bug handoff.
+- [How to review a pull request preview with non-developers](https://critiqs.app/blog/review-pull-request-previews-with-non-developers): Let product managers, designers, QA, and clients review pull request previews in a browser without Git, local builds, or GitHub accounts.
+- [How to give UI feedback to AI coding agents with MCP](https://critiqs.app/blog/ui-feedback-for-ai-coding-agents-mcp): Connect on-page visual feedback and AI mockups to Claude Code, Codex, and Cursor using the Model Context Protocol so agents fix UI bugs accurately.
