@@ -4,14 +4,13 @@
 // pin, Built in on a page with Critiqs installed, comments shown
 // automatically on a later visit, sign-out, and the screenshot fallback.
 //
-// Automation can't click the toolbar icon or open Chrome's side panel, so a
-// test build (CRITIQS_TEST=1) stands in for the click: it grants this run's
+// A test build (CRITIQS_TEST=1) stands in for the click: it grants this run's
 // test sites at install (a real build asks for no site at install) and lets
 // the run call the worker's own click handler, which adds the page layer to
 // the tab. The side panel's page is opened in a window of its own, at side
-// panel width, for that tab. What this doesn't cover: the toolbar click
-// itself, Chrome's side panel frame, and the access Chrome grants for a
-// click (activeTab). The manual test script covers those.
+// panel width, for that tab. The toolbar click, Chrome's side panel, and the
+// access Chrome grants for a click (activeTab) are covered by checklist.ts,
+// which runs the manual test with the real build.
 //
 // Needs: CRITIQS_BACKEND, a local Convex deployment with development sign-in
 // (`bun run setup:local` in packages/backend) and CRITIQS_EXTENSION_IDS

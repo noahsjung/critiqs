@@ -436,6 +436,13 @@ describe("unusual paths", () => {
     });
   }
 
+  test("a no-release note covers the browser extension, which ships through the Chrome Web Store", async () => {
+    const repo = await fixture();
+    await repo.branch("feature");
+    await repo.commit({ "packages/extension/src/panel/Share.tsx": "export const s = 1;\n", ...noRelease });
+    expect(await repo.check()).toMatchObject({ ok: true, messages: [".changeset/docs.md: no release"] });
+  });
+
   test("accepts a new note with a non-ASCII name and rejects editing one", async () => {
     const repo = await fixture();
     await repo.branch("feature");

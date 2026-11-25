@@ -1,7 +1,10 @@
 # Manual test in real Chrome
 
-What automation can't check: the toolbar click, Chrome's side panel, and the
-real-pixel screenshots Chrome allows after that click. About 10 minutes.
+`bun run check:checklist` runs these steps in Chrome for Testing and reports
+each one (see the [README](README.md#checks)). Three things still need a
+person: Chrome's prompt in step 10, whether step 14's site leaves **Site
+access** after allowing it through that prompt, and the keyboard shortcut in
+step 18. By hand, the whole list takes about 10 minutes.
 
 ## Before you start
 
@@ -33,9 +36,9 @@ Write down its address: ________________
 | 8 | Reload the page (Cmd+R). | The panel asks you to click the Critiqs icon on this page. | |
 | 9 | Click the Critiqs icon again. | The pin comes back, and the panel shows the project again. | |
 | 10 | Choose **Settings** in the panel, then turn on **Show comments here automatically**. | Chrome asks to allow Critiqs on this one site. Allow it. The switch stays on. | |
-| 11 | With the side panel still open, reload the page, and don't click the icon. Make another comment. | The panel reconnects by itself. Chrome doesn't allow a real-pixel screenshot without a click, so the panel says once: "For screenshots with real pixels, click the Critiqs icon on this page." The comment saves. | |
+| 11 | With the side panel still open, reload the page, and don't click the icon. Make another comment. | The panel reconnects by itself, and the comment saves. Chrome keeps the icon's grant through a reload of the same site, so the screenshot is still real pixels. After the tab has opened another site and come back, Chrome refuses the screenshot without a click, and the panel says once: "For screenshots with real pixels, click the Critiqs icon on this page." | |
 | 12 | Close the side panel (its X). Reload the page. | Pins show on the page without clicking the icon. | |
-| 13 | Click a pin. | Write down what happens: the side panel opens, or nothing (Chrome may not allow opening it from a pin). | |
+| 13 | Click a pin. | The side panel opens on the pin's comment (Chrome 151). Write down if your Chrome does nothing instead. | |
 | 14 | Click the icon, then in **Settings** turn the switch off. Close the panel and reload. | No pins until you click the icon. `chrome://extensions` → Critiqs → **Details → Site access** no longer lists the site. | |
 | 15 | Open a site with Critiqs installed (with `<Critiqs />` or the script tag). Click the icon. | The panel says **Built in**, and only the site's own Critiqs is on the page. | |
 | 16 | Open `chrome://extensions` in a tab and click the icon. | The panel says **Critiqs can't open here**. | |

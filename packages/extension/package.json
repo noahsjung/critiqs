@@ -8,7 +8,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test",
     "build": "bun scripts/build.ts",
-    "check:chrome": "bun scripts/check-extension.ts"
+    "check:chrome": "bun scripts/check-extension.ts",
+    "check:checklist": "bun scripts/checklist.ts"
   },
   "devDependencies": {
     "@critiqs/backend": "workspace:*",
