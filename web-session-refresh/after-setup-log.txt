@@ -1,0 +1,6 @@
+after-setup: signed in as dana.after-setup.1795632352646@example.com on http://127.0.0.1:5330
+[setup] opened /setup/n576p9m4ybfarhmsmn1dmey8mn8jwkvx: {"saved":true,"signedInAs":"dana.after-setup.1795632352646@example.com","signInPrompt":false}
+[setup] 1. reload with a good sign-in: 0 refresh request(s)
+[setup] 2. refresh sent {"refreshToken":"TTv6-J…","nextRefreshToken":"y47PHw…"}; backend answered 200; page closed before the answer arrived
+[setup] 3. reopened: refreshes [{"refreshToken":"TTv6-J…","nextRefreshToken":"y47PHw…"}], answers [200]; {"saved":true,"signedInAs":"dana.after-setup.1795632352646@example.com","signInPrompt":false}; refresh token changed: true
+[setup] 4. later renewal answers [200]; {"answers":[200],"saved":true,"signedInAs":"dana.after-setup.1795632352646@example.com","signInPrompt":false}

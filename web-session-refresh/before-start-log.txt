@@ -1,0 +1,6 @@
+before-start: signed in as dana.before-start.1795632314974@example.com on http://127.0.0.1:5331
+[start] opened /start: {"saved":true,"signedInAs":"dana.before-start.1795632314974@example.com","signInPrompt":false}
+[start] 1. reload with a good sign-in: 1 refresh request(s)
+[start] 2. refresh sent {"refreshToken":"ZMNfaT…","nextRefreshToken":"(none)"}; backend answered 200; page closed before the answer arrived
+[start] 3. reopened: refreshes [{"refreshToken":"ZMNfaT…","nextRefreshToken":"(none)"}], answers [401]; {"saved":false,"signedInAs":null,"signInPrompt":false}; refresh token changed: false
+[start] signed out; stopping

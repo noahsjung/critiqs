@@ -1,0 +1,11 @@
+after: signed in as dana.after.1795632273639@example.com on http://127.0.0.1:5330
+[start] opened /start: {"saved":true,"signedInAs":"dana.after.1795632273639@example.com","signInPrompt":false}
+[start] 1. reload with a good sign-in: 0 refresh request(s)
+[start] 2. refresh sent {"refreshToken":"u1eljn…","nextRefreshToken":"ydjSCa…"}; backend answered 200; page closed before the answer arrived
+[start] 3. reopened: refreshes [{"refreshToken":"u1eljn…","nextRefreshToken":"ydjSCa…"}], answers [200]; {"saved":true,"signedInAs":"dana.after.1795632273639@example.com","signInPrompt":false}; refresh token changed: true
+[start] 4. later renewal answers [200]; {"answers":[200],"saved":true,"signedInAs":"dana.after.1795632273639@example.com","signInPrompt":false}
+[thread] opened /t/X_09yySHfNy7Fgr3grj-mA: {"saved":true,"signedInAs":"dana.after.1795632273639@example.com","signInPrompt":false}
+[thread] 1. reload with a good sign-in: 0 refresh request(s)
+[thread] 2. refresh sent {"refreshToken":"0AQOy-…","nextRefreshToken":"e6U_ea…"}; backend answered 200; page closed before the answer arrived
+[thread] 3. reopened: refreshes [{"refreshToken":"0AQOy-…","nextRefreshToken":"e6U_ea…"}], answers [200]; {"saved":true,"signedInAs":"dana.after.1795632273639@example.com","signInPrompt":false}; refresh token changed: true
+[thread] 4. later renewal answers [200]; {"answers":[200],"saved":true,"signedInAs":"dana.after.1795632273639@example.com","signInPrompt":false}

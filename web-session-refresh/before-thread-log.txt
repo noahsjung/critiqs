@@ -1,0 +1,6 @@
+before-thread: signed in as dana.before-thread.1795632330165@example.com on http://127.0.0.1:5331
+[thread] opened /t/0_h-SC2cI_H5MBypnYejRA: {"saved":true,"signedInAs":"dana.before-thread.1795632330165@example.com","signInPrompt":false}
+[thread] 1. reload with a good sign-in: 1 refresh request(s)
+[thread] 2. refresh sent {"refreshToken":"4DDIbY…","nextRefreshToken":"(none)"}; backend answered 200; page closed before the answer arrived
+[thread] 3. reopened: refreshes [{"refreshToken":"4DDIbY…","nextRefreshToken":"(none)"}], answers [401]; {"saved":false,"signedInAs":null,"signInPrompt":true}; refresh token changed: false
+[thread] signed out; stopping

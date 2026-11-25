@@ -1,0 +1,6 @@
+before-setup: signed in as dana.before-setup.1795632371452@example.com on http://127.0.0.1:5331
+[setup] opened /setup/n570hkc8mfbwtjxn1rwe5k1k298jwmwa: {"saved":true,"signedInAs":"dana.before-setup.1795632371452@example.com","signInPrompt":false}
+[setup] 1. reload with a good sign-in: 1 refresh request(s)
+[setup] 2. refresh sent {"refreshToken":"Nv4mne…","nextRefreshToken":"(none)"}; backend answered 200; page closed before the answer arrived
+[setup] 3. reopened: refreshes [{"refreshToken":"Nv4mne…","nextRefreshToken":"(none)"}], answers [401]; {"saved":false,"signedInAs":null,"signInPrompt":true}; refresh token changed: false
+[setup] signed out; stopping
