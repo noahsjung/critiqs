@@ -1,0 +1,4 @@
+before: signed in inside the side panel and started reviewing https://before.critiqs.test:56685
+1. panel reopened with a good sign-in: 1 renewal request(s); signed in
+2. renewal sent {"from":"panel","refreshToken":"fAFL41…","nextRefreshToken":"(none)"}; backend answered 200; panel closed before the answer arrived. Saved now: refreshToken fAFL41…, pending replacement (none)
+3. panel reopened: renewals [{"from":"panel","refreshToken":"fAFL41…","nextRefreshToken":"(none)"}], answers [401]; sign-in form; saved session gone; refresh token changed: false
