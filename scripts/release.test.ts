@@ -27,11 +27,26 @@ async function linkChangesets(dir: string) {
   await symlink(join(root, "node_modules/@changesets"), join(dir, "node_modules/@changesets"));
 }
 
+/** Whether the disk under `dir` tells apart names that differ only in case (Linux; not macOS's default). */
+async function caseSensitive(dir: string): Promise<boolean> {
+  const probe = join(dir, "Case-Probe");
+  await Bun.write(probe, "");
+  const sensitive = !(await Bun.file(join(dir, "case-probe")).exists());
+  await rm(probe);
+  return sensitive;
+}
+
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 let fixtures = 0;
 
-/** A Git repository with the workspace's package layout and release configuration, on `main`. */
-async function fixture(reactVersion = "0.1.0") {
+/**
+ * A Git repository with the workspace's package layout and release
+ * configuration, on `main`. Without `readme`, `.changeset/README.md` is left
+ * out, so another-case name such as `readme.md` is a file of its own even on
+ * a case-insensitive disk (macOS's default), where it would otherwise be
+ * the same file as README.md.
+ */
+async function fixture(reactVersion = "0.1.0", { readme = true } = {}) {
   const dir = join(scratch, `repo-${fixtures++}`);
   const files: Record<string, string> = {
     ".gitignore": "node_modules/\n",
@@ -44,7 +59,7 @@ async function fixture(reactVersion = "0.1.0") {
     "examples/pilot/package.json": json({ name: "@critiqs/example-pilot", version: "0.0.0", private: true, dependencies: { "critiqs-react": "workspace:*" } }),
     "docs/guide.md": "# Guide\n",
     ".changeset/config.json": await Bun.file(join(root, ".changeset/config.json")).text(),
-    ".changeset/README.md": "# Release notes\n",
+    ...(readme ? { ".changeset/README.md": "# Release notes\n" } : {}),
     "scripts/release.ts": await Bun.file(join(root, "scripts/release.ts")).text(),
   };
   for (const [path, text] of Object.entries(files)) await Bun.write(join(dir, path), text);
@@ -201,23 +216,43 @@ describe("pull request gate", () => {
 describe("note file names the Changesets CLI skips", () => {
   const skipped = [".hidden.md", "README.md", "readme.md", "Readme.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md"];
   const read = ["agents.md", "plain.md", "naïve note.md"];
+  /** Another case of README.md: a different file only where the disk is case-sensitive, so tested without the fixture's README.md. */
+  const otherCaseReadme = (name: string) => name !== "README.md" && name.toLowerCase() === "readme.md";
 
   test("match the installed CLI: it consumes exactly the names the gate accepts", async () => {
-    const repo = await fixture();
-    const notes = Object.fromEntries([...skipped, ...read].map((name) => [`.changeset/${name}`, note({ "critiqs-react": "patch" }, `From ${name}.`)]));
-    await repo.commit(notes);
-    expect(await version(repo.dir)).toBe("0.1.1");
-    const changelog = await repo.read("packages/react/CHANGELOG.md");
+    // Names that differ only in case (README.md, readme.md; AGENTS.md, agents.md) are one file on a
+    // case-insensitive disk, so each checkout gets names that are distinct in any case.
+    const groups: string[][] = [];
     for (const name of [...skipped, ...read]) {
-      expect(isNoteName(name)).toBe(read.includes(name));
-      expect(changelog.includes(`From ${name}.`)).toBe(read.includes(name));
-      expect(await Bun.file(join(repo.dir, ".changeset", name)).exists()).toBe(!read.includes(name));
+      const group = groups.find((names) => !names.some((other) => other.toLowerCase() === name.toLowerCase()));
+      if (group === undefined) groups.push([name]);
+      else group.push(name);
+    }
+    expect(groups.length).toBeGreaterThan(1);
+    // Every checkout has a note the CLI reads, so each run shows it read the folder and skipped the rest.
+    for (const names of groups) if (!names.some((name) => read.includes(name))) names.push("plain.md");
+    // Where the disk tells them apart (Linux, as in CI), also all names in one folder, so a name read
+    // or skipped only beside another case of itself (agents.md beside AGENTS.md) is caught too.
+    if (await caseSensitive(scratch)) groups.unshift([...skipped, ...read]);
+    for (const names of groups) {
+      const repo = await fixture("0.1.0", { readme: !names.some(otherCaseReadme) });
+      await repo.commit(Object.fromEntries(names.map((name) => [`.changeset/${name}`, note({ "critiqs-react": "patch" }, `From ${name}.`)])));
+      // Each name is a file of its own. Some disks (HFS+) return names decomposed, so compare them composed.
+      const written = (await readdir(join(repo.dir, ".changeset"))).map((name) => name.normalize("NFC"));
+      expect(written.filter((name) => names.includes(name)).sort()).toEqual([...names].sort());
+      expect(await version(repo.dir)).toBe("0.1.1");
+      const changelog = await repo.read("packages/react/CHANGELOG.md");
+      for (const name of names) {
+        expect(isNoteName(name)).toBe(read.includes(name));
+        expect(changelog.includes(`From ${name}.`)).toBe(read.includes(name));
+        expect(await Bun.file(join(repo.dir, ".changeset", name)).exists()).toBe(!read.includes(name));
+      }
     }
   });
 
   for (const name of skipped.filter((name) => name !== "README.md")) {
     test(`rejects a release note named ${name}`, async () => {
-      const repo = await fixture();
+      const repo = await fixture("0.1.0", { readme: !otherCaseReadme(name) });
       await repo.branch("feature");
       await repo.commit({ "packages/core/src/index.ts": "export const b = 2;\n", [`.changeset/${name}`]: note({ "critiqs-react": "minor" }, "Feature.") });
       const result = await repo.check();
