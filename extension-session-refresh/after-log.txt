@@ -1,8 +1,8 @@
-after: signed in inside the side panel and started reviewing https://after.critiqs.test:56604
+after: signed in inside the side panel and started reviewing https://after.critiqs.test:59698
 1. panel reopened with a good sign-in: 0 renewal request(s); signed in
-2. renewal sent {"from":"panel","refreshToken":"V1erqZ…","nextRefreshToken":"HU_JT6…"}; backend answered 200; panel closed before the answer arrived. Saved now: refreshToken V1erqZ…, pending replacement HU_JT6…
-3. panel reopened: renewals [{"from":"panel","refreshToken":"V1erqZ…","nextRefreshToken":"HU_JT6…"}], answers [200]; signed in; saved session kept; refresh token changed: true
+2. renewal sent {"from":"panel","refreshToken":"Npwn5y…","nextRefreshToken":"Ha05Bi…"}; backend answered 200; panel closed before the answer arrived. Saved now: refreshToken Npwn5y…, pending replacement Ha05Bi…
+3. panel reopened: renewals [{"from":"panel","refreshToken":"Npwn5y…","nextRefreshToken":"Ha05Bi…"}], answers [200]; signed in; saved session kept; refresh token changed: true
 4. later renewal answers [200]; signed in
 5. a lock named "session:http://127.0.0.1:3333" the panel holds: held as seen from the worker: 1
-6a. worker renewals: [{"from":"worker","refreshToken":"hjyWTk…","nextRefreshToken":"8myJwy…"},{"from":"worker","refreshToken":"hjyWTk…","nextRefreshToken":"8myJwy…"}]; backend answered 200; the worker's answer was cut off. Saved: refreshToken hjyWTk…, pending 8myJwy…
-6b. side panel opened: renewals [{"from":"panel","refreshToken":"hjyWTk…","nextRefreshToken":"8myJwy…"}], answers [200]; signed in; saved refreshToken is the worker's pending replacement: true; nothing pending: true
+6a. worker renewals: [{"from":"worker","refreshToken":"Mbgdx4…","nextRefreshToken":"r4XVVO…"},{"from":"worker","refreshToken":"Mbgdx4…","nextRefreshToken":"r4XVVO…"}]; backend answered 200; the worker's answer was cut off. Saved: refreshToken Mbgdx4…, pending r4XVVO…
+6b. side panel opened: renewals [{"from":"panel","refreshToken":"Mbgdx4…","nextRefreshToken":"r4XVVO…"}], answers [200]; signed in; saved refreshToken is the worker's pending replacement: true; nothing pending: true
