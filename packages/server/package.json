@@ -20,6 +20,7 @@
     "./contract-tickets": "./test/contract-tickets.ts",
     "./contract-ticket-links": "./test/contract-ticket-links.ts",
     "./contract-ticket-drafts": "./test/contract-ticket-drafts.ts",
+    "./contract-ticket-status": "./test/contract-ticket-status.ts",
     "./linear-standin": "./test/linear-standin.ts"
   },
   "scripts": {

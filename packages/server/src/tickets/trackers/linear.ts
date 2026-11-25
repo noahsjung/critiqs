@@ -6,6 +6,7 @@ import {
   type CreateOutcome,
   type SignInTokens,
   type TicketImage,
+  type TicketStatusUpdate,
   type TrackerAdapter,
   type TrackerEndpoint,
   type TrackerEndpointOptions,
@@ -40,12 +41,13 @@ export interface LinearApp {
 
 const VERIFY = "query CritiqsVerify { viewer { id name email } organization { id name } }";
 /** What Critiqs reads of an issue. */
-const ISSUE = "id identifier title url state { name type } team { organization { id } }";
+const ISSUE = "id identifier title url state { name type } updatedAt team { organization { id } }";
 const TEAMS = "query CritiqsTeams { teams(first: 250) { nodes { id name key } } }";
 // Archived issues too: Linear's lists leave them out unless asked, and an issue
 // archived since it was created or linked is still that ticket.
 const ISSUE_BY_ID = `query CritiqsIssue($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { ${ISSUE} } } }`;
 const ISSUE_BY_KEY = `query CritiqsIssueByKey($team: String!, $number: Float!) { issues(filter: { team: { key: { eqIgnoreCase: $team } }, number: { eq: $number } }, first: 1) { nodes { ${ISSUE} } } }`;
+const ISSUE_STATUS = "query CritiqsIssueStatus($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { id state { name type } updatedAt } } }";
 const SEARCH = `query CritiqsSearch($term: String!, $teamId: String) { searchIssues(term: $term, teamId: $teamId, first: 10) { nodes { ${ISSUE} } } }`;
 const CREATE = `mutation CritiqsCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { ${ISSUE} } } }`;
 // Linear keeps one attachment per issue and address: creating it again updates
@@ -138,8 +140,12 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       if (!written.done) throw new TrackerRefusal("invalid", "Add it in Linear instead.");
     },
     status: async (token, ticket) => {
-      const issue = (await issueById(token, ticket.externalId)) ?? fail("not-found", "Linear can't find this issue, or you can't see it.");
-      return { externalId: issue.externalId, status: issue.status };
+      const data = await graphql(to, token, ISSUE_STATUS, { id: ticket.externalId });
+      const nodes = isRecord(data) && isRecord(data.issues) && Array.isArray(data.issues.nodes) ? data.issues.nodes : null;
+      if (nodes === null) throw unexpected("no issues");
+      const issue = nodes.find((node) => isRecord(node) && node.id === ticket.externalId);
+      if (!isRecord(issue)) fail("not-found", "Linear can't find this issue, or you can't see it.");
+      return { externalId: String(issue.id), status: parseStatus(issue.state), asOf: timeOf(issue.updatedAt) };
     },
     uploadImage: async (token, image) => uploadImage(to, token, image),
     templates: async (token, destinationId) =>
@@ -408,6 +414,7 @@ function parseIssue(value: unknown): CreatedTicket | null {
     title: value.title,
     status: parseStatus(value.state),
     site: organization !== null && text(organization.id) ? organization.id : null,
+    asOf: timeOf(value.updatedAt),
   };
 }
 
@@ -421,6 +428,11 @@ function firstIssue(data: unknown, field: string): CreatedTicket | null {
   return issueList(data, field)[0] ?? null;
 }
 
+/** A time Linear sent as an ISO 8601 string, in milliseconds; null when it isn't one. */
+function timeOf(value: unknown): number | null {
+  const time = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(time) ? time : null;
+}
 /**
  * Linear's sign-in page for Critiqs, asking only for what tickets need: to
  * read, to create and update issues with their attachments and files, and to
@@ -521,4 +533,78 @@ async function tokenRequest(to: TrackerEndpoint, form: Record<string, string>, n
     refresh: text(body.refresh_token) ? body.refresh_token : null,
     expiresAt: expiresIn === null ? null : now + expiresIn * 1000,
   };
+}
+
+/**
+ * How far from Critiqs's clock a webhook's `webhookTimestamp` may be, as
+ * Linear recommends (https://linear.app/developers/webhooks): older
+ * deliveries, such as a recorded one sent again, are refused.
+ */
+export const LINEAR_WEBHOOK_TOLERANCE_MS = 60_000;
+
+/** The status Critiqs records for an issue Linear deleted: the work is closed there, as for Canceled. */
+export const LINEAR_DELETED_STATUS = { label: "Deleted", category: "canceled" } as const;
+
+/** What a call to the Linear webhook route means. */
+export type LinearWebhook =
+  /** Not from Linear, or too old: a wrong or missing signature, or a timestamp outside the tolerance. Nothing in it is used. */
+  | { status: "refused"; reason: string }
+  /** From Linear, but nothing Critiqs keeps: another kind of event, or an issue event without a state. */
+  | { status: "ignored" }
+  /** An issue's status, for every thread that links it. */
+  | { status: "update"; update: TicketStatusUpdate };
+
+function hexBytes(hex: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^(?:[0-9a-f]{2})+$/i.test(hex)) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index++) bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  return bytes;
+}
+
+/**
+ * Reads a call to the Linear webhook route. Linear signs each delivery's raw
+ * body with the webhook's signing secret (`Linear-Signature`, hex
+ * HMAC-SHA256); the signature is checked over the body's exact bytes, in
+ * constant time, before anything in the body is decoded or read, and then
+ * the body's `webhookTimestamp` must be within a minute of `now`. Issue
+ * events (create, update, remove) become the issue's status, mapped as the
+ * adapter maps it, as of the issue's `updatedAt`; a deletion is as of when
+ * it happened, if that is later.
+ */
+export async function readLinearWebhook(secret: string, rawBody: Uint8Array<ArrayBuffer>, signature: string | null, now: number): Promise<LinearWebhook> {
+  const given = signature === null ? null : hexBytes(signature.trim());
+  if (given === null) return { status: "refused", reason: "missing or malformed signature" };
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  if (!(await crypto.subtle.verify("HMAC", key, given, rawBody))) return { status: "refused", reason: "wrong signature" };
+  let body: unknown;
+  try {
+    // Only now is the body text: strict UTF-8, so bytes that aren't are refused rather than replaced.
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBody));
+  } catch {
+    return { status: "refused", reason: "unreadable body" };
+  }
+  if (!isRecord(body) || typeof body.webhookTimestamp !== "number" || Math.abs(now - body.webhookTimestamp) > LINEAR_WEBHOOK_TOLERANCE_MS) {
+    return { status: "refused", reason: "stale or missing webhookTimestamp" };
+  }
+  const { data } = body;
+  if (body.type !== "Issue" || !isRecord(data) || !text(data.id)) return { status: "ignored" };
+  const site = text(body.organizationId) ? body.organizationId : null;
+  // When the event happened in Linear: the delivery's `createdAt`, else when it was sent.
+  const happenedAt = timeOf(body.createdAt) ?? body.webhookTimestamp;
+  const updatedAt = timeOf(data.updatedAt) ?? happenedAt;
+  const update = (status: TicketStatus, asOf: number, deleted = false): LinearWebhook => ({
+    status: "update",
+    update: { tracker: "linear", externalId: data.id as string, site, status, asOf, deleted },
+  });
+  switch (body.action) {
+    case "create":
+    case "update":
+      return isRecord(data.state) && text(data.state.name) ? update(parseStatus(data.state), updatedAt) : { status: "ignored" };
+    case "remove":
+      // The deletion itself is the change, so it is as of when it happened, never before the issue's last update:
+      // an update delivered late or again can't bring the issue back, and a check that read it since doesn't hide it.
+      return update({ ...LINEAR_DELETED_STATUS }, Math.max(updatedAt, happenedAt), true);
+    default:
+      return { status: "ignored" };
+  }
 }

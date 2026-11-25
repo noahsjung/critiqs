@@ -16,9 +16,10 @@ sign-in or a pasted API key, and, on Convex for Linear, creating a ticket from
 a thread (with the capture uploaded into it) or linking an existing one, and
 showing linked tickets on pins, the thread list, the thread window, and
 comments added to a mockup; and, on Convex for Linear, drafting with Critiqs
-AI, the team's Linear templates turned on per project by its owners, and
-labels suggested from tags. Not built yet: a project's default destination,
-status updates, GitHub Issues, and Jira.
+AI, the team's Linear templates turned on per project by its owners, labels
+suggested from tags, status updates from Linear's webhooks and from the check
+when a thread opens, and **Resolve when done**. Not built yet: a project's
+default destination, GitHub Issues, and Jira.
 
 ## Outcomes
 
@@ -52,11 +53,13 @@ each one asks of Critiqs.
 | One-time setup by the team | None, unless the workspace requires an admin to approve apps | A GitHub organization admin installs the Critiqs GitHub App | None, unless the site's admin restricts apps |
 
 To confirm while building, against each tracker's current API: how a Linear
-template is applied when an issue is created; whether Linear sends an app's
-webhooks for every person who connects, or only after a workspace admin
-installs it; how Jira proves and expires the webhooks an app registers; and
-how GitHub renders issue-form answers. With a pasted token there is no
-webhook in any tracker. Where a webhook can't be had, status
+template is applied when an issue is created; how Jira proves and expires the
+webhooks an app registers; and how GitHub renders issue-form answers.
+Confirmed for Linear: an OAuth app's webhook is created for a workspace when
+someone in it first authorizes the app, and covers that workspace's issues
+([Linear's webhooks](https://linear.app/developers/webhooks)). A pasted token
+brings no webhook in any tracker, so issues in a Linear workspace where
+everyone pasted an API key get none. Where a webhook can't be had, status
 comes from the check when a thread opens (see
 [Status from the tracker](#status-from-the-tracker)).
 
@@ -345,9 +348,45 @@ Critiqs keeps each linked ticket's status and when it last changed:
 - If that person has disconnected, the chip shows the last status Critiqs knew,
   marked as such.
 
+**Built for Linear on Convex:**
+
+- **Webhooks.** The operator's Linear app sends issue events to the backend,
+  which reads at most 256 KB of each delivery and uses it only after checking
+  Linear's signature over its exact bytes and that it was sent within the
+  last minute. Each issue's new status reaches every thread linking it.
+  Critiqs orders updates by Linear's own time of the issue's last change, so
+  a late delivery never puts back an older status, and a repeated or
+  replayed one changes nothing at all; linking or creating a ticket records
+  that time for the status it read then. A deleted issue shows as
+  **Deleted** and counts as canceled, as of when it was deleted, so an older
+  update arriving afterwards doesn't bring it back, nor does an update with
+  the same time. A delivery that arrives while a ticket is being linked is
+  kept with the link and wins over what linking read when it is newer, so an
+  issue deleted mid-link shows **Deleted** once linked.
+- **The check when a thread opens.** Opening a thread checks each linked
+  ticket whose status is more than **5 minutes** old, at most once every 5
+  minutes per ticket however many people open it, in the background. It reads
+  the ticket with the token of the person who linked it, for the tracker
+  account they linked it with, never anyone else's, and saves what it read on
+  that link only: another thread's link to the same ticket keeps its own
+  status. The check also catches a change whose webhook was missed.
+- **Last known.** When that person has disconnected, connected another
+  account, or can no longer see the ticket, the status stays and the chip
+  adds "· last known"; hovering says when it was last read and why. A webhook
+  or a later check that works clears it, and a check refused after a webhook
+  saved a newer status while it ran leaves that status current.
+
 **Resolve when done:** a project setting that resolves a thread when every
-ticket linked to it reaches the tracker's done state. **Proposed:** off by
-default, and reopening a ticket does not reopen the thread.
+ticket linked to it reaches the tracker's done state. **Built:** off by
+default; only the project's owners change it, in **Tags and AI** under
+**Tickets** ("Resolve threads when their tickets are done"). A status update
+that makes the last unfinished ticket of an open thread done or canceled
+resolves the thread; canceled counts, since the work is closed either way.
+The thread says it was resolved when its tickets were done, naming no
+person. Reopening a ticket does not reopen the thread, and a person who
+reopens it keeps it open until a ticket finishes again. Turning the setting
+on resolves nothing at once; threads resolve on their tickets' next update.
+Only linked tickets count, not ones still being created.
 
 ## Attribution
 
@@ -391,7 +430,7 @@ Each step is its own pull request.
    thread window, and mockup threads.
 6. AI drafting and templates.
 7. Status updates: webhooks, the check when a thread opens, and **Resolve when
-   done**.
+   done** (built for Linear).
 8. GitHub Issues, with repository templates and issue forms.
 9. Jira Cloud, with Atlassian Document Format and required fields.
 10. The onboarding step, and whichever proposals above are agreed, such as bulk

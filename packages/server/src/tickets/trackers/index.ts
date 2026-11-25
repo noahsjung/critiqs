@@ -272,7 +272,7 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
     verify: async (token) => checkedIdentity(await verify(token)),
     destinations: async (token) => some((await destinations(token)).map(checkedDestination)),
     search: async (token, query, destinationId) =>
-      some((await search(token, query, destinationId)).map((found) => checkedTicket(found, place, token))).map(({ site: _site, ...ticket }) => ticket),
+      some((await search(token, query, destinationId)).map((found) => checkedTicket(found, place, token))).map(({ tracker, externalId, key, url, title, status }) => ({ tracker, externalId, key, url, title, status })),
     get: async (token, externalId) => {
       const ticket = await get(token, externalId);
       // An answer about another ticket than the one asked for is never linked, or written to later.
@@ -296,7 +296,7 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
       const answer = await status(token, ticket);
       // Another ticket's status is never saved as this one's.
       if (answer.externalId !== ticket.externalId) throw unreadable("another ticket");
-      return checkedStatus(answer.status);
+      return { status: checkedStatus(answer.status), asOf: answer.asOf };
     },
   };
   if (uploadImage) checked.uploadImage = async (token, image) => webAddress(await uploadImage(token, image)) ?? Promise.reject(unreadable("upload address"));
@@ -351,7 +351,7 @@ export interface HeldTicket extends TicketRef {
 /** What an adapter answers before `checkedAdapter` checks it: a search's tickets with their sites, and a status with the ticket it was read from. */
 export interface UncheckedAdapter extends Omit<TrackerAdapter, "search" | "status"> {
   search(token: TrackerToken, query: string, destinationId?: string): Promise<(TicketRef & { status: TicketStatus; site: string | null })[]>;
-  status(token: TrackerToken, ticket: HeldTicket): Promise<{ externalId: string; status: TicketStatus }>;
+  status(token: TrackerToken, ticket: HeldTicket): Promise<TicketStatusReading & { externalId: string }>;
 }
 
 /** A ticket Critiqs created, as the tracker reports it. */
@@ -359,6 +359,25 @@ export interface CreatedTicket extends TicketRef {
   status: TicketStatus;
   /** The tracker's workspace, organization, or site the ticket is in, to match status updates; null where the tracker has none. */
   site: string | null;
+  /** The tracker's time `status` was current as of (the ticket's last update there); null when it doesn't say. */
+  asOf: number | null;
+}
+
+/** A ticket's status as the tracker reported it. */
+export interface TicketStatusReading {
+  status: TicketStatus;
+  /** The tracker's time the status was current as of (the ticket's last update there); null when it doesn't say. */
+  asOf: number | null;
+}
+
+/** A ticket's new status from a tracker's webhook, for every thread that links it. */
+export interface TicketStatusUpdate extends TicketStatusReading {
+  tracker: TrackerId;
+  externalId: string;
+  /** The workspace, organization, or site the ticket is in, when the tracker said; only links in it are updated. */
+  site: string | null;
+  /** The tracker deleted the ticket: at the same `asOf`, this wins over any other status. */
+  deleted: boolean;
 }
 
 /** An image to put in a ticket, such as a thread's capture. */
@@ -410,7 +429,8 @@ export interface TrackerAdapter {
   linkBack(token: TrackerToken, ticket: HeldTicket, link: { url: WebAddress; title: string }): Promise<void>;
   /** Adds a comment: text Critiqs made (`ticketLinkComment`), never a plain string. */
   comment(token: TrackerToken, ticket: HeldTicket, body: TicketMarkdown): Promise<void>;
-  status(token: TrackerToken, ticket: HeldTicket): Promise<TicketStatus>;
+  /** The ticket's status now, with the tracker's time it is current as of; refused when the person can't see the ticket. */
+  status(token: TrackerToken, ticket: HeldTicket): Promise<TicketStatusReading>;
   /** Uploads an image for a new ticket's text and returns the address to embed; absent where the tracker can't take images (GitHub). */
   uploadImage?(token: TrackerToken, image: TicketImage): Promise<WebAddress>;
   /**

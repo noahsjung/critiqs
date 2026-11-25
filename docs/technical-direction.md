@@ -2291,8 +2291,10 @@ back (a URL attachment), comment, status, and capture upload (Linear's signed
 upload). Also built, for Linear on Convex: drafting with Critiqs AI, the
 project's ticket templates, and labels suggested from tags, with the rules in
 `packages/server/src/tickets/drafts.ts` and the adapter's `templates`,
-`template`, and `labels`. The storage, token, sign-in, calls to trackers,
-drafting, and compatibility items below describe them.
+`template`, and `labels`; and status from Linear's webhooks and from the check
+when a thread opens, and **Resolve when done**, with the rules in
+`packages/server/src/tickets/status.ts`. The storage, token, sign-in, calls to
+trackers, webhooks, drafting, and compatibility items below describe them.
 
 **Proposed:** the technical choices.
 
@@ -2393,7 +2395,31 @@ drafting, and compatibility items below describe them.
   Jira's registered webhooks on a schedule before they expire; a self-hosted
   server without background work renews them when tickets are used. Where no
   webhook can arrive, opening a thread checks its tickets' status, at most once
-  every few minutes.
+  every few minutes. Built for Linear on Convex: `POST
+  /trackers/linear/webhook` reads the raw body, checks `Linear-Signature` (hex
+  HMAC-SHA256 under `CRITIQS_LINEAR_WEBHOOK_SECRET`, compared in constant
+  time), then that the signed `webhookTimestamp` is within a minute of now,
+  before using anything in it; it answers 401 otherwise, 404 when the secret
+  isn't set, and 200 for events it ignores, so Linear doesn't retry them.
+  Issue create, update, and remove events save the issue's status, mapped as
+  the adapter maps Linear's state types (a removed issue is **Deleted**,
+  canceled), on every link to it in the delivery's workspace, in one
+  mutation. Each link keeps the tracker's time its status is as of (the
+  issue's `updatedAt`), and an update older than that changes nothing, so
+  replays and Linear's retries (1 minute, 1 hour, 6 hours) are safe. The
+  check when a thread opens is `ticketStatus:checkStatus`: for links whose
+  status is over 5 minutes old and whose last check started over 5 minutes
+  ago, it records the start and schedules one action per link. The action
+  reads the link's linker and the tracker account recorded on the link
+  (`accountId`, saved when it was linked or created) and uses only that
+  account's token; a person disconnected or connected as another account
+  marks the status stale without calling Linear, as does Linear refusing the
+  token or not finding the issue for them. Passing failures change nothing.
+  **Resolve when done** runs in the same mutation that saves a status: when
+  the update made a link done or canceled and every linked ticket of its open
+  thread now is, and the project has it on, the thread is resolved with
+  `statusChangedByTickets` set instead of a person, and thread answers say
+  `resolvedByTickets`. A person's later status change clears it.
 - **Drafting and templates.** A project's ticket settings record whether its
   templates are on (`templatesOn`, absent meaning off) and which it offers,
   by tracker, destination, and template ID; only its owners read or change
@@ -2429,10 +2455,13 @@ drafting, and compatibility items below describe them.
   sends it to Linear as `templateId` with the chosen `labelIds`.
 - **Compatibility.** The backend reports `tickets` in `/critiqs/config`, with
   which trackers it offers and whether each uses sign-in or a pasted token,
-  `threadTickets: true` where threads can create and link tickets, and
+  `threadTickets: true` where threads can create and link tickets;
   `drafting: true` where the Create dialog drafts with AI and templates and
-  owners choose templates; older backends leave these out, and the component
-  sends a template or labels only to a backend that reports `drafting`. The component shows Your
+  owners choose templates; and `ticketStatus: true` where opening a thread
+  checks its tickets' status and projects have **Resolve when done**. Older
+  backends leave these out: the component sends a template or labels only to
+  a backend that reports `drafting`, and calls `ticketStatus:*` only with
+  `ticketStatus`. The component shows Your
   trackers only with `tickets`, and **Create ticket…** and **Link ticket…**
   only with `threadTickets`, through an optional `tickets` part of its
   transport, as Mockup mode does with `mockups`. Linked tickets show wherever
@@ -2444,6 +2473,7 @@ Settings for tickets on a Convex deployment (built: Linear):
 | --- | --- |
 | `CRITIQS_AI_ENCRYPTION_KEY` | Encrypts tracker tokens too, under its own derived key. Without it, `/critiqs/config` reports no `tickets` and Your trackers isn't offered |
 | `CRITIQS_LINEAR_CLIENT_ID`, `CRITIQS_LINEAR_CLIENT_SECRET` | The operator's Linear OAuth app, both or neither. Its callback address is `<deployment site>/trackers/linear/callback`. Without them, people paste a Linear API key |
+| `CRITIQS_LINEAR_WEBHOOK_SECRET` | The signing secret of the operator's Linear app's webhook. In the app's settings, turn on webhooks with the address `<deployment site>/trackers/linear/webhook` and the Issues events, then copy its signing secret here. Linear then sends each workspace's issue changes once someone there connects through Linear sign-in; tickets linked with pasted API keys get webhooks only from such a workspace. Without it, the webhook route refuses every call and status comes from the check when a thread opens |
 | `CRITIQS_LINEAR_API_URL`, `CRITIQS_LINEAR_APP_URL` | Tests only: Linear's API and sign-in addresses, pointed at a local stand-in. Never set them on a real deployment |
 
 ## Shareable links

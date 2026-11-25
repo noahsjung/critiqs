@@ -39,6 +39,7 @@ import type {
   TicketLinkInput,
   TicketLinkView,
   TicketSearchResult,
+  TicketSettingsView,
   TrackerAccountView,
   TrackerId,
   TrackerSignInStart,
@@ -150,6 +151,10 @@ export interface FakeTrackers {
   link?: (input: TicketLinkInput) => Promise<TicketLinkView>;
   /** Answers adding a ticket's link back; by default the ticket, with its link back. */
   addLinkBack?: (linkId: string) => Promise<TicketLinkView>;
+  /** Projects' ticket settings, by project ID; by default Resolve when done off. */
+  settings?: Record<string, TicketSettingsView>;
+  /** Answers turning Resolve when done on or off; by default it saves. */
+  setResolveWhenDone?: (projectId: string, on: boolean) => Promise<void>;
 }
 
 /** A linked ticket as a fake backend answers it. */
@@ -418,6 +423,15 @@ function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknow
     },
     unlinkTicket: async (linkId) => {
       record("unlinkTicket", { linkId });
+    },
+    checkTicketStatus: async (threadId) => {
+      record("checkTicketStatus", { threadId });
+    },
+    useTicketSettings: (projectId, enabled) => (enabled ? { status: "ready", data: trackers.settings?.[projectId] ?? { resolveWhenDone: false } } : { status: "loading" }),
+    setResolveWhenDone: async (projectId, on) => {
+      record("setResolveWhenDone", { projectId, on });
+      await trackers.setResolveWhenDone?.(projectId, on);
+      trackers.settings = { ...trackers.settings, [projectId]: { resolveWhenDone: on } };
     },
   };
 }

@@ -83,6 +83,13 @@ export interface TicketLinkView {
   status: TicketStatus | null;
   /** When Critiqs last read the status, or null before it has. */
   statusCheckedAt: number | null;
+  /**
+   * Whether `status` is only the last one Critiqs knew: the person who linked
+   * the ticket disconnected their tracker or connected another account, or
+   * can no longer see the ticket, so Critiqs can't check it. Webhooks still
+   * update it. Absent from backends before ticket status updates.
+   */
+  statusStale?: boolean;
   /** Whether Critiqs created the ticket, rather than linking one that already existed. */
   createdFromCritiqs: boolean;
   linkedByName: string;
@@ -272,6 +279,23 @@ export interface TicketsConfig {
    * templates on. Absent on backends from before these.
    */
   drafting?: boolean;
+  /**
+   * Whether tickets' status comes back to Critiqs: opening a thread checks
+   * its tickets (`ticketStatus:checkStatus`), and projects have **Resolve when
+   * done**. Older backends leave it out.
+   */
+  ticketStatus?: boolean;
+}
+
+/** Whether a ticket's status counts as finished for **Resolve when done**: done, or canceled, since the work is closed either way. */
+export function ticketFinished(status: TicketStatus | null | undefined): boolean {
+  return status?.category === "done" || status?.category === "canceled";
+}
+
+/** A project's ticket settings, as its owners see them. */
+export interface TicketSettingsView {
+  /** Resolve a thread when every ticket linked to it is done or canceled. Off by default. */
+  resolveWhenDone: boolean;
 }
 
 /**

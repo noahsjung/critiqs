@@ -19,6 +19,8 @@ export interface TicketsDeployment {
   encryptionKey: string | null;
   /** The operator's Linear OAuth app; without it, people paste a Linear API key instead of signing in. */
   linear: LinearApp | null;
+  /** Signs the Linear app's webhooks (`CRITIQS_LINEAR_WEBHOOK_SECRET`); without it, the webhook route refuses every call and status comes from checks when threads open. */
+  linearWebhookSecret: string | null;
   /** Linear's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
   linearApiUrl: string;
   linearAppUrl: string;
@@ -27,7 +29,7 @@ export interface TicketsDeployment {
 /**
  * Reads the operator's settings: `CRITIQS_AI_ENCRYPTION_KEY`,
  * `CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` (both, or
- * neither), and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`.
+ * neither), `CRITIQS_LINEAR_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`.
  */
 export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>): TicketsDeployment {
   const clientId = env.CRITIQS_LINEAR_CLIENT_ID?.trim();
@@ -35,6 +37,7 @@ export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>
   return {
     encryptionKey: validEncryptionKey(env.CRITIQS_AI_ENCRYPTION_KEY) ? env.CRITIQS_AI_ENCRYPTION_KEY! : null,
     linear: clientId && clientSecret ? { clientId, clientSecret } : null,
+    linearWebhookSecret: env.CRITIQS_LINEAR_WEBHOOK_SECRET?.trim() || null,
     linearApiUrl: env.CRITIQS_LINEAR_API_URL?.trim() || LINEAR_API_URL,
     linearAppUrl: env.CRITIQS_LINEAR_APP_URL?.trim() || LINEAR_APP_URL,
   };
@@ -45,13 +48,13 @@ export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
 
 /**
  * What `/critiqs/config` reports: the trackers offered and how each connects,
- * that threads can create and link tickets, and that the Create dialog can
- * draft with AI and from templates; null, so tickets aren't
+ * that threads can create and link tickets, that the Create dialog can draft
+ * with AI and from templates, and that tickets' status comes back; null, so tickets aren't
  * offered, without an encryption key.
  */
 export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
   if (deployment.encryptionKey === null) return null;
-  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true, drafting: true };
+  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true, drafting: true, ticketStatus: true };
 }
 
 /** The adapter that talks to a tracker, at the deployment's addresses. */

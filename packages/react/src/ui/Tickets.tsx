@@ -18,6 +18,7 @@ import { useStoredState } from "../hooks.ts";
 import { errorMessage, useTransport } from "../transport.ts";
 import { Dialog } from "./common.tsx";
 import { DialogHeader, Select, SettingRow } from "./ds.tsx";
+import { fullTime } from "./format.ts";
 import { CloseIcon, TicketIcon } from "./icons.tsx";
 import { ModelChoice } from "./mockup/MockupPanel.tsx";
 
@@ -58,6 +59,19 @@ function StatusDot({ status }: { status: TicketStatus | null }) {
 }
 
 /**
+ * What a chip says on hover: the ticket's title, tracker, and who linked it;
+ * for a status Critiqs can no longer check, that it is the last one known and
+ * why, with when it was last read.
+ */
+function chipTitle(ticket: TicketLinkView): string {
+  const tracker = trackerLabel(ticket.tracker);
+  const about = `${ticket.title} (${tracker}, linked by ${ticket.linkedByName})`;
+  if (ticket.statusStale !== true || ticket.status === null) return about;
+  const when = ticket.statusCheckedAt === null ? "" : ` from ${fullTime(ticket.statusCheckedAt)}`;
+  return `${about}. Last known status${when}: Critiqs can't check it with ${ticket.linkedByName}'s ${tracker} account.`;
+}
+
+/**
  * The thread's linked tickets, under the thread window's header: each opens
  * the ticket in a new tab. A ticket the person created whose tracker didn't
  * add the link back to the thread offers **Add link back**.
@@ -80,15 +94,16 @@ export function TicketChips({
   return (
     <ul className="ticket-chips" aria-label="Linked tickets">
       {tickets.map((ticket) => {
-        const title = `${ticket.title} (${trackerLabel(ticket.tracker)}, linked by ${ticket.linkedByName})`;
+        const title = chipTitle(ticket);
         const chip = (
           <>
             <TicketIcon size={14} />
             <span className="key">{ticket.key}</span>
             {ticket.status !== null && (
-              <span className="status">
+              <span className={ticket.statusStale === true ? "status stale" : "status"}>
                 <StatusDot status={ticket.status} />
                 {ticket.status.label}
+                {ticket.statusStale === true && <span className="stale-note">· last known</span>}
               </span>
             )}
           </>

@@ -735,3 +735,151 @@ test("the Tickets tab asks an owner without Linear to connect it, and a backend 
   await click(shadow.querySelector('[aria-label="Tags and AI settings"]'));
   expect(button(dialog(shadow, "Tags and AI")!, "Tickets")).toBeNull();
 });
+
+const WITH_STATUS: TicketsConfig = { ...OFFERED, ticketStatus: true };
+
+test("a ticket whose status Critiqs can't check shows its last known status, and says why on hover", async () => {
+  const checkedAt = Date.parse("2026-11-25T09:30:00.000Z");
+  const shadow = await mount(
+    backend({
+      thread: detail([
+        fakeTicketView({ _id: "stale", key: "ENG-1", status: { label: "In Progress", category: "started" }, statusStale: true, statusCheckedAt: checkedAt, linkedByName: "Lee" }),
+        fakeTicketView({ _id: "fresh", key: "ENG-2", status: { label: "Done", category: "done" }, statusStale: false }),
+      ]),
+    }),
+    WITH_STATUS,
+  );
+  await click(shadow.querySelector(".pin"));
+  const [stale, fresh] = [...shadow.querySelectorAll('[aria-label="Linked tickets"] .ticket-chip a')];
+  expect(stale!.textContent).toBe("ENG-1In Progress· last known");
+  expect(stale!.getAttribute("title")).toMatch(/\. Last known status from .+: Critiqs can't check it with Lee's Linear account\.$/);
+  expect(fresh!.textContent).toBe("ENG-2Done");
+  expect(fresh!.getAttribute("title")).not.toContain("Last known");
+});
+
+test("opening a thread with tickets asks the backend to check their status once, only where it reports ticketStatus", async () => {
+  const withTicket = () => backend({ thread: detail([fakeTicketView({ key: "ENG-1" })]) });
+  let data = withTicket();
+  let shadow = await mount(data, WITH_STATUS);
+  await click(shadow.querySelector(".pin"));
+  await settle();
+  expect(data.calls!.filter((call) => call.name === "checkTicketStatus").map((call) => call.args)).toEqual([{ threadId: "thread" }]);
+  await act(async () => root?.unmount());
+  root = null;
+
+  // A backend from before status updates.
+  data = withTicket();
+  shadow = await mount(data, OFFERED);
+  await click(shadow.querySelector(".pin"));
+  expect(data.calls!.some((call) => call.name === "checkTicketStatus")).toBe(false);
+  await act(async () => root?.unmount());
+  root = null;
+
+  // A thread without tickets has nothing to check.
+  data = backend();
+  shadow = await mount(data, WITH_STATUS);
+  await click(shadow.querySelector(".pin"));
+  expect(data.calls!.some((call) => call.name === "checkTicketStatus")).toBe(false);
+});
+
+test("a thread resolved because its tickets were done says so instead of naming a person", async () => {
+  const resolved = { ...detail([fakeTicketView({ key: "ENG-1", status: { label: "Done", category: "done" } })]), status: "resolved" as const, resolvedByTickets: true as const, statusChangedAt: Date.parse("2026-11-25T10:00:00.000Z") };
+  // The list still shows it open; the window opens what the backend answers.
+  const shadow = await mount(backend({ threads: [summary([badge])], thread: resolved }), WITH_STATUS);
+  await click(shadow.querySelector(".pin"));
+  expect(shadow.querySelector(".status-banner")?.textContent).toMatch(/^Resolved when its tickets were done, .+\. Resolved threads stay as an archive\.$/);
+});
+
+test("the project owner turns Resolve when done on and off in the Tickets tab of Tags and AI, only where the backend has it", async () => {
+  const data = backend();
+  let shadow = await mount(data, WITH_STATUS, { sidebarOpen: true });
+  await click(shadow.querySelector('[aria-label="Tags and AI settings"]'));
+  await click(button(shadow, "Tickets"));
+  const toggle = () => shadow.querySelector<HTMLButtonElement>('[role="tabpanel"][aria-label="Tickets"] [role="switch"]');
+  const label = shadow.getElementById(toggle()!.getAttribute("aria-labelledby")!);
+  expect(label?.textContent).toBe("Resolve threads when their tickets are done");
+  expect(toggle()!.getAttribute("aria-checked")).toBe("false");
+  expect(shadow.querySelector('[role="tabpanel"]')?.textContent).toContain("Canceled tickets count as done. Reopening a ticket doesn't reopen its thread.");
+
+  await click(toggle());
+  expect(data.calls!.filter((call) => call.name === "setResolveWhenDone").map((call) => call.args)).toEqual([{ projectId: "project", on: true }]);
+  expect(toggle()!.getAttribute("aria-checked")).toBe("true");
+  expect(shadow.textContent).toContain("Threads now resolve when their tickets are done");
+
+  // While a save is under way the switch shows the new choice and keeps focus; another press waits for it.
+  let finish = () => {};
+  data.trackers!.setResolveWhenDone = () => new Promise<void>((resolve) => (finish = resolve));
+  // The settings read the choice back later, as a live query can lag the save.
+  let live = data.trackers!.settings!;
+  let written = live;
+  Object.defineProperty(data.trackers!, "settings", { configurable: true, get: () => live, set: (value) => (written = value) });
+  toggle()!.focus();
+  await click(toggle());
+  expect(toggle()!.getAttribute("aria-checked")).toBe("false");
+  expect(toggle()!.disabled).toBe(false);
+  expect(shadow.activeElement).toBe(toggle());
+  await click(toggle());
+  expect(data.calls!.filter((call) => call.name === "setResolveWhenDone")).toHaveLength(2);
+  await act(async () => finish());
+  await settle();
+  // Saved, but not read back yet: still the new choice.
+  expect(toggle()!.getAttribute("aria-checked")).toBe("false");
+  live = written;
+  delete (data.trackers as { settings?: unknown }).settings;
+  data.trackers!.settings = live;
+
+  // A refused save says why and puts the switch back.
+  data.trackers!.setResolveWhenDone = async () => {
+    throw new ConvexError({ code: "forbidden", message: "Only the person who set up this project can change its ticket settings." });
+  };
+  await click(toggle());
+  expect(toggle()!.getAttribute("aria-checked")).toBe("false");
+  expect(shadow.querySelector('[role="tabpanel"] [role="alert"]')?.textContent).toBe("Only the person who set up this project can change its ticket settings.");
+  await act(async () => root?.unmount());
+  root = null;
+
+  // A backend without ticket status has no Tickets tab.
+  shadow = await mount(backend(), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('[aria-label="Tags and AI settings"]'));
+  expect(button(shadow, "Tickets")).toBeNull();
+});
+
+test("with drafting and ticket status, one Tickets tab shows the templates first, then Resolve when done, and each saves only its own setting", async () => {
+  const data = backend();
+  let shadow = await mount(data, { ...OFFERED, drafting: true, ticketStatus: true }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect([...settings.querySelectorAll('[role="tab"]')].filter((tab) => tab.textContent === "Tickets")).toHaveLength(1);
+  const panel = settings.querySelector('[role="tabpanel"][aria-label="Tickets"]')!;
+  const templates = () => switchFor(panel, "Use the team's ticket templates")!;
+  const resolve = () => switchFor(panel, "Resolve threads when their tickets are done")!;
+  expect(templates().compareDocumentPosition(resolve()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(panel.textContent).toContain("Canceled tickets count as done. Reopening a ticket doesn't reopen its thread.");
+
+  await click(templates());
+  expect(calls(data, "saveTicketTemplateSettings")).toEqual([{ projectId: "project", on: true, templates: [] }]);
+  expect(calls(data, "setResolveWhenDone")).toEqual([]);
+  expect(resolve().getAttribute("aria-checked")).toBe("false");
+  await click(resolve());
+  expect(calls(data, "setResolveWhenDone")).toEqual([{ projectId: "project", on: true }]);
+  expect(calls(data, "saveTicketTemplateSettings")).toHaveLength(1);
+  expect(templates().getAttribute("aria-checked")).toBe("true");
+  expect(resolve().getAttribute("aria-checked")).toBe("true");
+  await act(async () => root?.unmount());
+  root = null;
+  host?.remove();
+  page?.remove();
+
+  // Each section shows only where the backend has it.
+  shadow = await mount(backend(), DRAFTING, { sidebarOpen: true });
+  let panelOnly = (await openTicketsTab(shadow)).querySelector('[role="tabpanel"][aria-label="Tickets"]')!;
+  expect(switchFor(panelOnly, "Use the team's ticket templates")).not.toBeNull();
+  expect(switchFor(panelOnly, "Resolve threads when their tickets are done")).toBeNull();
+  await act(async () => root?.unmount());
+  root = null;
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend(), WITH_STATUS, { sidebarOpen: true });
+  panelOnly = (await openTicketsTab(shadow)).querySelector('[role="tabpanel"][aria-label="Tickets"]')!;
+  expect(switchFor(panelOnly, "Use the team's ticket templates")).toBeNull();
+  expect(switchFor(panelOnly, "Resolve threads when their tickets are done")).not.toBeNull();
+});

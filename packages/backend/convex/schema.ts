@@ -426,6 +426,8 @@ export default defineSchema({
     editCount: v.optional(v.number()),
     statusChangedBy: v.optional(v.id("users")),
     statusChangedAt: v.optional(v.number()),
+    /** True when the thread was last resolved because every ticket linked to it was done (Resolve when done). */
+    statusChangedByTickets: v.optional(v.boolean()),
     /** Replacement target. The anchor keeps the original target and evidence. */
     reattachment: v.optional(
       v.object({ location: locationValidator, reattachedBy: v.id("users"), reattachedAt: v.number() }),
@@ -631,6 +633,16 @@ export default defineSchema({
     status: v.optional(ticketStatusValidator),
     statusCheckedAt: v.optional(v.number()),
     statusChangedAt: v.optional(v.number()),
+    /** The tracker's own time the status was current as of; older updates change nothing. */
+    statusAsOf: v.optional(v.number()),
+    /** The status says the tracker deleted the ticket; an update at the same time never replaces it. */
+    statusDeleted: v.optional(v.boolean()),
+    /** When opening the thread last started a status check, at most once every few minutes. */
+    statusCheckStartedAt: v.optional(v.number()),
+    /** Critiqs can't check the status with the linker's account; the status is the last one it knew. */
+    statusStale: v.optional(v.boolean()),
+    /** The tracker account the person linked or created it with; status checks use only its token. */
+    accountId: v.optional(v.string()),
     linkedBy: v.id("users"),
     linkedAt: v.number(),
     createdFromCritiqs: v.boolean(),

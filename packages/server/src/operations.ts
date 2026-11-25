@@ -593,6 +593,7 @@ export async function ticketView(store: Store, link: TicketLinkRecord, viewer: {
     title: link.title,
     status: link.status ?? null,
     statusCheckedAt: link.statusCheckedAt ?? null,
+    statusStale: link.statusStale === true,
     createdFromCritiqs: link.createdFromCritiqs,
     linkedByName: (await store.users.get(link.linkedBy))?.name ?? "Unknown",
     linkedAt: link.linkedAt,
@@ -636,8 +637,9 @@ async function threadDetail(
     createdAt: thread.createdAt,
     lastMessageAt: thread.lastMessageAt,
     messageCount: thread.messageCount,
-    statusChangedByName: await nameOf(thread.statusChangedBy),
+    statusChangedByName: thread.statusChangedByTickets ? null : await nameOf(thread.statusChangedBy),
     ...(thread.statusChangedAt === undefined ? {} : { statusChangedAt: thread.statusChangedAt }),
+    ...(thread.statusChangedByTickets && thread.status === "resolved" ? { resolvedByTickets: true as const } : {}),
     ...(reattachment === undefined
       ? {}
       : { reattachment: { location: reattachment.location, reattachedAt: reattachment.reattachedAt } }),
@@ -695,7 +697,7 @@ export async function setStatus(
   const user = await requireUser(store, identity);
   const { thread } = await requireThread(store, user, args.threadId);
   if (thread.status === args.status) return;
-  await store.threads.patch(thread._id, { status: args.status, statusChangedBy: user._id, statusChangedAt: Date.now() });
+  await store.threads.patch(thread._id, { status: args.status, statusChangedBy: user._id, statusChangedAt: Date.now(), ...(thread.statusChangedByTickets ? { statusChangedByTickets: false } : {}) });
 }
 
 /**

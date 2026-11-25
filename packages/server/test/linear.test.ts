@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { type TicketMarkdown, webAddress } from "@critiqs/core";
 import { CritiqsError } from "../src/errors.ts";
 import { fetchUntil } from "../src/tickets/trackers/index.ts";
-import { exchangeLinearCode, linearAdapter, linearAuthorizeUrl, linearStatusCategory, refreshLinearToken } from "../src/tickets/trackers/linear.ts";
+import { exchangeLinearCode, linearAdapter, linearAuthorizeUrl, linearStatusCategory, readLinearWebhook, refreshLinearToken } from "../src/tickets/trackers/linear.ts";
+import { linearIssueWebhook, linearSignature } from "./linear-standin.ts";
 
 /** Text as a test sends it straight to the adapter; Critiqs itself makes it only with `ticketBody` or `ticketLinkComment`. */
 const md = (text: string) => text as TicketMarkdown;
@@ -148,6 +149,7 @@ const issue = (id: string, identifier: string, state = { name: "In Progress", ty
   title: `Issue ${identifier}`,
   url: `https://linear.app/acme/issue/${identifier.toLowerCase()}`,
   state,
+  updatedAt: "2026-11-25T08:00:00.000Z",
   team: { organization: { id: "org-1" } },
 });
 const sentQuery = (index: number) => JSON.parse(requests[index]!.body) as { query: string; variables: Record<string, unknown> };
@@ -206,6 +208,8 @@ test("create sends the team, title, and Markdown text, using the creation's ID a
     title: "Issue ENG-7",
     status: { label: "Triage", category: "open" },
     site: "org-1",
+    // When the issue last changed, so a webhook sent before this read can't replace its status.
+    asOf: Date.parse("2026-11-25T08:00:00.000Z"),
   });
   expect(sentQuery(0).variables).toEqual({ input: { id: creationId, teamId: "t1", title: "Department is wrong", description: "> Text\n" } });
   // An ID Linear wouldn't accept isn't sent; Linear picks one.
@@ -266,8 +270,13 @@ test("an unknown creation's issue is found by the creation's ID, and get refuses
   const missing = await refusal(linear.get(key, "i404"));
   expect(missing.code).toBe("not-found");
   expect(missing.message).toBe("Linear can't find this issue, or you can't see it.");
-  replies.push({ body: { data: { issues: { nodes: [issue("i1", "ENG-1", { name: "Done", type: "completed" })] } } } });
-  expect(await linear.status(key, { tracker: "linear", externalId: "i1", key: "ENG-1", url: "https://linear.app/acme/issue/eng-1", title: "t", site: "org-1" })).toEqual({ label: "Done", category: "done" });
+  // Status reads the state and Linear's own time of the issue's last update, archived issues included.
+  replies.push({ body: { data: { issues: { nodes: [{ id: "i1", state: { name: "Done", type: "completed" }, updatedAt: "2026-11-25T10:00:00.000Z" }] } } } });
+  const ref = { tracker: "linear" as const, externalId: "i1", key: "ENG-1", url: "https://linear.app/acme/issue/eng-1", title: "t", site: "org-1" };
+  expect(await linear.status(key, ref)).toEqual({ status: { label: "Done", category: "done" }, asOf: Date.parse("2026-11-25T10:00:00.000Z") });
+  expect(sentQuery(requests.length - 1).query).toContain("includeArchived: true");
+  replies.push({ body: { data: { issues: { nodes: [] } } } });
+  expect((await refusal(linear.status(key, ref))).code).toBe("not-found");
 });
 
 test("the link back is a URL attachment on the issue, which Linear keeps one of per address, and a comment is Markdown on it", async () => {
@@ -462,4 +471,88 @@ test("labels are the team's and the workspace's, without label groups, as Linear
   expect(sentQuery(0).query).toContain("isGroup: { eq: false }");
   expect(sentQuery(0).query).toContain("parent { id groupType }");
   expect(sentQuery(0).variables).toEqual({ team: "team-eng" });
+});
+
+describe("Linear webhooks", () => {
+  const SECRET = "lin_wh_signing_secret";
+  const NOW = Date.parse("2026-11-25T12:00:00.000Z");
+  const bytes = (text: string) => new TextEncoder().encode(text);
+  const read = async (delivery: { body: string; headers: Record<string, string> }, now = NOW) => await readLinearWebhook(SECRET, bytes(delivery.body), delivery.headers["Linear-Signature"] ?? null, now);
+  const event = (overrides: Partial<Parameters<typeof linearIssueWebhook>[1]> = {}) =>
+    linearIssueWebhook(SECRET, { action: "update", issueId: "issue-9", state: { name: "Done", type: "completed" }, updatedAt: NOW - 5_000, sentAt: NOW - 1_000, ...overrides });
+
+  test("a signed issue update becomes the issue's status, mapped as the adapter maps it, as of the issue's own update time", async () => {
+    expect(await read(await event())).toEqual({
+      status: "update",
+      update: { tracker: "linear", externalId: "issue-9", site: "org-1", status: { label: "Done", category: "done" }, asOf: NOW - 5_000, deleted: false },
+    });
+    const mapped = async (type: string) => {
+      const result = await read(await event({ state: { name: type, type } }));
+      return result.status === "update" ? result.update.status.category : result.status;
+    };
+    expect(await Promise.all(["triage", "backlog", "unstarted", "started", "completed", "canceled", "duplicate", "something-new"].map(mapped))).toEqual([
+      "open",
+      "open",
+      "open",
+      "started",
+      "done",
+      "canceled",
+      "canceled",
+      "unknown",
+    ]);
+    // A new issue carries its state too.
+    expect((await read(await event({ action: "create", state: { name: "Triage", type: "triage" } }))).status).toBe("update");
+  });
+
+  test("a deleted issue counts as canceled, labeled Deleted, as of when it was deleted", async () => {
+    const result = await read(await event({ action: "remove", updatedAt: NOW - 5_000, happenedAt: NOW - 2_000 }));
+    expect(result).toMatchObject({ status: "update", update: { status: { label: "Deleted", category: "canceled" }, asOf: NOW - 2_000, deleted: true } });
+    // Never before the issue's own last update.
+    expect(await read(await event({ action: "remove", updatedAt: NOW - 2_000, happenedAt: NOW - 5_000 }))).toMatchObject({ update: { asOf: NOW - 2_000 } });
+    // Without the event's createdAt, when Linear sent it.
+    const body = JSON.parse((await event({ action: "remove", updatedAt: NOW - 5_000 })).body) as Record<string, unknown>;
+    delete body.createdAt;
+    const text = JSON.stringify(body);
+    expect(await readLinearWebhook(SECRET, bytes(text), await linearSignature(SECRET, text), NOW)).toMatchObject({ update: { asOf: NOW - 1_000 } });
+  });
+
+  test("a wrong, missing, or malformed signature, or a body changed after signing, is refused before the body is read", async () => {
+    const delivery = await event();
+    expect(await readLinearWebhook("another-secret", bytes(delivery.body), delivery.headers["Linear-Signature"]!, NOW)).toEqual({ status: "refused", reason: "wrong signature" });
+    expect(await readLinearWebhook(SECRET, bytes(delivery.body.replace("Done", "Todo")), delivery.headers["Linear-Signature"]!, NOW)).toEqual({ status: "refused", reason: "wrong signature" });
+    expect(await readLinearWebhook(SECRET, bytes(delivery.body), null, NOW)).toEqual({ status: "refused", reason: "missing or malformed signature" });
+    expect(await readLinearWebhook(SECRET, bytes(delivery.body), "not hex!", NOW)).toEqual({ status: "refused", reason: "missing or malformed signature" });
+    // Signed, but not JSON.
+    expect(await readLinearWebhook(SECRET, bytes("{nope"), await linearSignature(SECRET, "{nope"), NOW)).toEqual({ status: "refused", reason: "unreadable body" });
+  });
+
+  test("the signature is checked over the body's exact bytes, and only valid UTF-8 is read after it", async () => {
+    // A delivery whose title holds a byte that isn't UTF-8 (0xFF): read leniently as text, it would become U+FFFD.
+    const raw = bytes((await event()).body.replace("Department", "Department\u0000"));
+    raw[raw.indexOf(0)] = 0xff;
+    const lossy = new TextDecoder().decode(raw);
+    expect(lossy).toContain("Department\uFFFD");
+    // Signed over what a lenient read makes of it: not the bytes that came, so refused.
+    expect(await readLinearWebhook(SECRET, raw, await linearSignature(SECRET, lossy), NOW)).toEqual({ status: "refused", reason: "wrong signature" });
+    // Signed over the very bytes: genuine, but not UTF-8, so nothing in it is read.
+    expect(await readLinearWebhook(SECRET, raw, await linearSignature(SECRET, raw), NOW)).toEqual({ status: "refused", reason: "unreadable body" });
+  });
+
+  test("a delivery whose webhookTimestamp is more than a minute from now, such as a recorded one sent again, is refused", async () => {
+    const stale = { status: "refused" as const, reason: "stale or missing webhookTimestamp" };
+    expect(await read(await event({ sentAt: NOW - 61_000 }))).toEqual(stale);
+    expect(await read(await event({ sentAt: NOW + 61_000 }))).toEqual(stale);
+    expect((await read(await event({ sentAt: NOW - 59_000 }))).status).toBe("update");
+    // The same delivery, read again two minutes later.
+    const delivery = await event();
+    expect((await read(delivery)).status).toBe("update");
+    expect(await read(delivery, NOW + 120_000)).toEqual(stale);
+  });
+
+  test("other events, and issue events without a state, are ignored", async () => {
+    expect(await read(await event({ type: "Comment" }))).toEqual({ status: "ignored" });
+    expect(await read(await event({ state: null }))).toEqual({ status: "ignored" });
+    const body = JSON.stringify({ action: "revoked", type: "OAuthApp", oauthClientId: "c", organizationId: "org-1", webhookTimestamp: NOW });
+    expect(await readLinearWebhook(SECRET, bytes(body), await linearSignature(SECRET, body), NOW)).toEqual({ status: "ignored" });
+  });
 });

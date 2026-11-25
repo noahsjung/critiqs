@@ -5,6 +5,7 @@ import { defineDeveloperEmailContract, defineOnboardingContract } from "@critiqs
 import { defineTicketContract } from "@critiqs/server/contract-tickets";
 import { defineTicketLinkContract } from "@critiqs/server/contract-ticket-links";
 import { defineTicketDraftContract } from "@critiqs/server/contract-ticket-drafts";
+import { defineTicketStatusContract } from "@critiqs/server/contract-ticket-status";
 import type { Plan } from "@critiqs/server";
 import { afterEach } from "bun:test";
 import type { Id } from "../convex/_generated/dataModel";
@@ -59,3 +60,4 @@ defineAddressContract("Convex", () => convexBackend());
 defineTicketContract("Convex", () => convexBackend());
 defineTicketLinkContract("Convex", () => convexBackend());
 defineTicketDraftContract("Convex", () => convexBackend());
+defineTicketStatusContract("Convex", () => convexBackend());

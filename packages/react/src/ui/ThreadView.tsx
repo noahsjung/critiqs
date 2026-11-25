@@ -54,6 +54,8 @@ export interface ThreadViewProps {
   onOpenMockup?: (mockupId: string, threadId: string | null) => void;
   /** Creating and linking tickets, where the backend offers them; absent elsewhere. */
   tickets?: TicketsOffer;
+  /** The backend checks tickets' status when a thread opens (`tickets.ticketStatus`). */
+  ticketStatus?: boolean;
 }
 
 export function ThreadView(props: ThreadViewProps) {
@@ -176,6 +178,11 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
       (failure) => props.notify(errorMessage(failure)),
     );
   };
+  // Opening a thread with tickets asks the backend to check their status; it checks only status a few minutes old.
+  const checkTickets = props.ticketStatus === true && (thread.tickets?.length ?? 0) > 0;
+  useEffect(() => {
+    if (checkTickets) transport.tickets?.checkTicketStatus(threadId).catch(() => undefined);
+  }, [checkTickets, threadId, transport]);
   const { draft, sending, error } = props.reply;
 
   // Where "New" starts is fixed when the thread opens, so it stays put while the reviewer reads.
@@ -310,7 +317,7 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
       <div className="window-body" ref={body}>
         {thread.status === "resolved" && (
           <div className="status-banner">
-            Resolved{thread.statusChangedByName ? ` by ${thread.statusChangedByName}` : ""}
+            Resolved{thread.resolvedByTickets === true ? " when its tickets were done" : thread.statusChangedByName ? ` by ${thread.statusChangedByName}` : ""}
             {thread.statusChangedAt ? `, ${fullTime(thread.statusChangedAt)}` : ""}. Resolved threads stay as an archive.
           </div>
         )}

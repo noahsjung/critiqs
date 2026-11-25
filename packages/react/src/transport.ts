@@ -48,6 +48,7 @@ import type {
   TicketLinkInput,
   TicketLinkView,
   TicketSearchResult,
+  TicketSettingsView,
   TrackerAccountView,
   TrackerDisconnected,
   TrackerId,
@@ -328,6 +329,17 @@ export interface TicketTransport {
   addTicketLinkBack(linkId: string): Promise<TicketLinkView>;
   /** Removes a ticket's link from its thread, in Critiqs only. */
   unlinkTicket(linkId: string): Promise<void>;
+  /**
+   * When the person opens a thread: asks the backend to check its tickets'
+   * status, which it does only for status more than a few minutes old, with
+   * each ticket's linker's own account. Only where the backend reports
+   * `tickets.ticketStatus`.
+   */
+  checkTicketStatus(threadId: string): Promise<void>;
+  /** A project's ticket settings, for its owners; skipped while `enabled` is false. */
+  useTicketSettings(projectId: string, enabled: boolean): QueryState<TicketSettingsView>;
+  /** Turns Resolve when done on or off for a project; owners only. */
+  setResolveWhenDone(projectId: string, on: boolean): Promise<void>;
 }
 
 /** A page copy's layout as frozen, with its uploaded file. */

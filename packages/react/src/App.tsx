@@ -1360,6 +1360,7 @@ function PanelApp({
                   ? { offered: trackersOffered, onYourTrackers: openYourTrackers, personId: reviewerId, modelLists: deployment.modelLists === true, onSetUpAi: openYourAi }
                   : undefined
               }
+              ticketStatus={trackersOffered?.ticketStatus === true && reviewerId !== null}
             />
           )}
         </ThreadWindow>
@@ -1448,7 +1449,7 @@ function PanelApp({
           notify={notify}
           modelLists={deployment.modelLists === true}
           presetTags={deployment.presetTags === true}
-          tickets={trackersOffered?.drafting === true && transport.tickets !== undefined}
+          tickets={{ templates: trackersOffered?.drafting === true && transport.tickets !== undefined, resolveWhenDone: trackersOffered?.ticketStatus === true }}
         />
       )}
       {billing !== null && openBilling !== null && transport.billing !== undefined && (

@@ -1,14 +1,23 @@
 import type { TicketTemplateChoice, TicketTemplateSettings, TrackerTemplateGroup } from "@critiqs/core";
 import { useEffect, useState } from "react";
 import { errorMessage, useTransport } from "../transport.ts";
+import { ResolveWhenDoneSection } from "./ResolveWhenDone.tsx";
 import { SettingRow, Switch } from "./ds.tsx";
 
 // The project's ticket settings, for its owners, in the Tags and AI dialog's
 // Tickets tab. Each setting is its own section, so others can sit beside it.
 
-/** The Tickets tab: the project's ticket settings, each its own section. */
-export function TicketsTab({ projectId, notify }: { projectId: string; notify: (message: string) => void }) {
-  return <TicketTemplatesSection projectId={projectId} notify={notify} />;
+/**
+ * The Tickets tab: the project's ticket settings, each its own section and
+ * each only where the backend has it: templates first, then Resolve when done.
+ */
+export function TicketsTab({ projectId, notify, templates, resolveWhenDone }: { projectId: string; notify: (message: string) => void; templates: boolean; resolveWhenDone: boolean }) {
+  return (
+    <div className="ds-page">
+      {templates && <TicketTemplatesSection projectId={projectId} notify={notify} />}
+      {resolveWhenDone && <ResolveWhenDoneSection projectId={projectId} notify={notify} />}
+    </div>
+  );
 }
 
 type Loaded<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; message: string };

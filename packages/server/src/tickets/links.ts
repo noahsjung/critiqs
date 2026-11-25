@@ -18,6 +18,7 @@ import { MAX_THREAD_TICKET_ROWS, MAX_THREAD_TICKETS, requireThread, requireUser,
 import { projectAccess } from "../organizations.ts";
 import type { Identity, ProjectRecord, Store, ThreadRecord, TicketLinkRecord, TicketSettingsRecord, UserRecord } from "../store.ts";
 import { requireOffered, type TicketsDeployment, ticketStore, trackerAdapter, trackerLabel } from "./accounts.ts";
+import { linkedReading, resolveWhenDone } from "./status.ts";
 import { type CreatedTicket, fetchUntil, type HeldTicket, type TicketImage, type TrackerAdapter, TrackerRefusal, type TrackerToken } from "./trackers/index.ts";
 
 // Tickets linked to threads: creating one in the person's tracker from a
@@ -405,6 +406,7 @@ export async function claimTicketCreation(
     state: "pending",
     creationId: args.creationId,
     creatorAccountId: account.accountId,
+    accountId: account.accountId,
     ...(linkBack === null ? {} : { linkBack: { ...linkBack, added: false } }),
     claimToken: args.holder,
     leaseUntil,
@@ -444,6 +446,8 @@ export async function finishTicketCreation(
     await tickets.links.delete(creation._id);
     return await view(existing);
   }
+  // The status as of the ticket's last change, so a webhook sent before this read and delivered after it can't replace it.
+  const reading = linkedReading(creation, ticket, now);
   await tickets.links.patch(creation._id, {
     externalId: ticket.externalId,
     key: ticket.key,
@@ -455,10 +459,10 @@ export async function finishTicketCreation(
     leaseUntil: null,
     parked: null,
     ...(creation.linkBack === undefined ? {} : { linkBack: { ...creation.linkBack, added: args.linkBackAdded } }),
-    status: ticket.status,
-    statusCheckedAt: now,
+    ...reading.changes,
     linkedAt: now,
   });
+  if (reading.finished) await resolveWhenDone(store, creation.threadId, now);
   return await view((await tickets.links.get(creation._id))!);
 }
 
@@ -728,6 +732,7 @@ export async function claimTicketLink(
     url: "",
     title: "",
     state: "pending",
+    accountId: account.accountId,
     claimToken: args.holder,
     leaseUntil,
     linkedBy: user._id,
@@ -775,6 +780,8 @@ export async function finishTicketLink(
     await tickets.links.delete(held._id);
     return { view: await view(existing), created: false };
   }
+  // The status as of the ticket's last change, or a webhook's delivered while linking (such as its deletion) when that is newer.
+  const reading = linkedReading(held, ticket, now);
   await tickets.links.patch(held._id, {
     externalId: ticket.externalId,
     key: ticket.key,
@@ -785,10 +792,10 @@ export async function finishTicketLink(
     claimToken: null,
     leaseUntil: null,
     parked: null,
-    status: ticket.status,
-    statusCheckedAt: now,
+    ...reading.changes,
     linkedAt: now,
   });
+  if (reading.finished) await resolveWhenDone(store, held.threadId, now);
   return { view: await view((await tickets.links.get(held._id))!), created: true };
 }
 

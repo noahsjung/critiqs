@@ -239,6 +239,8 @@ export interface ThreadRecord {
   editCount?: number;
   statusChangedBy?: string;
   statusChangedAt?: number;
+  /** True when the thread was last resolved because every ticket linked to it was done (Resolve when done), not by a person; `statusChangedBy` then doesn't apply. */
+  statusChangedByTickets?: boolean;
   /** Replacement target. The anchor keeps the original target and evidence. */
   reattachment?: { location: TargetLocation; reattachedBy: string; reattachedAt: number };
   /**
@@ -612,6 +614,20 @@ export interface TicketLinkRecord {
   status?: TicketStatus;
   statusCheckedAt?: number;
   statusChangedAt?: number;
+  /**
+   * The tracker's own time `status` was current as of (the ticket's last
+   * update there), so an update older than the one already saved, such as a
+   * webhook delivered late or replayed, changes nothing.
+   */
+  statusAsOf?: number;
+  /** True when `status` says the tracker deleted the ticket: an update at the same `statusAsOf` never replaces it. */
+  statusDeleted?: boolean;
+  /** When opening the thread last started a check of the status, so it is checked at most once every few minutes. */
+  statusCheckStartedAt?: number;
+  /** Set when Critiqs can't check the status with the linker's account (disconnected, another account, or no longer allowed to see the ticket): `status` is the last one it knew. */
+  statusStale?: boolean;
+  /** The tracker account (the tracker's ID for it) the person linked or created the ticket with: status checks use only this account's token. */
+  accountId?: string;
   /** Who linked or created it. */
   linkedBy: string;
   linkedAt: number;
@@ -694,6 +710,7 @@ export type ThreadChanges = Partial<
     | "editCount"
     | "statusChangedBy"
     | "statusChangedAt"
+    | "statusChangedByTickets"
     | "reattachment"
     | "textTags"
     | "followersReady"
@@ -731,7 +748,7 @@ export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" 
 };
 /** Changes to a ticket link; `null` clears an optional field. */
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
-  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt"]?: TicketLinkRecord[K] | null;
+  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt" | "statusAsOf" | "statusDeleted" | "statusCheckStartedAt" | "statusStale" | "accountId"]?: TicketLinkRecord[K] | null;
 };
 export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templatesOn" | "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
 

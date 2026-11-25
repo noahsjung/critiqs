@@ -27,7 +27,7 @@ export function TagsAiDialog({
   notify,
   modelLists = false,
   presetTags = false,
-  tickets = false,
+  tickets,
 }: {
   projectId: string;
   initialTab: "groups" | "ai" | "tickets";
@@ -37,10 +37,15 @@ export function TagsAiDialog({
   modelLists?: boolean;
   /** The backend lets the owner change the project's preset tags; older backends don't, so they aren't offered. */
   presetTags?: boolean;
-  /** The backend keeps the project's ticket settings, such as its templates. */
-  tickets?: boolean;
+  /**
+   * The project's ticket settings the backend keeps, so the dialog shows a
+   * Tickets tab: its templates (`tickets.drafting`) and Resolve when done
+   * (`tickets.ticketStatus`).
+   */
+  tickets?: { templates: boolean; resolveWhenDone: boolean };
 }) {
-  const [tab, setTab] = useState(initialTab === "tickets" && !tickets ? "groups" : initialTab);
+  const ticketsTab = tickets !== undefined && (tickets.templates || tickets.resolveWhenDone);
+  const [tab, setTab] = useState(initialTab === "tickets" && !ticketsTab ? "groups" : initialTab);
   const label = { groups: "Tags", ai: "AI", tickets: "Tickets" }[tab];
   return (
     <Dialog label="Tags and AI" onClose={onClose}>
@@ -53,7 +58,7 @@ export function TagsAiDialog({
           <button type="button" role="tab" aria-selected={tab === "ai"} aria-pressed={tab === "ai"} onClick={() => setTab("ai")}>
             AI
           </button>
-          {tickets && (
+          {ticketsTab && (
             <button type="button" role="tab" aria-selected={tab === "tickets"} aria-pressed={tab === "tickets"} onClick={() => setTab("tickets")}>
               Tickets
             </button>
@@ -66,7 +71,7 @@ export function TagsAiDialog({
         ) : tab === "ai" ? (
           <AiTab projectId={projectId} notify={notify} modelLists={modelLists} />
         ) : (
-          <TicketsTab projectId={projectId} notify={notify} />
+          <TicketsTab projectId={projectId} notify={notify} templates={tickets?.templates === true} resolveWhenDone={tickets?.resolveWhenDone === true} />
         )}
       </div>
       <div className="row end">

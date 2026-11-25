@@ -247,6 +247,8 @@ export interface ThreadDetail {
   messageCount: number;
   statusChangedByName: string | null;
   statusChangedAt?: number;
+  /** Set when the thread was resolved because every ticket linked to it was done (**Resolve when done**); `statusChangedByName` is then null. */
+  resolvedByTickets?: true;
   reattachment?: { location: TargetLocation; reattachedAt: number };
   reattachedByName: string | null;
   readState: { lastReadAt: number; manualUnread: boolean } | null;

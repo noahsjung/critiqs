@@ -51,6 +51,7 @@ const createdTicket = v.object({
   title: v.string(),
   status: ticketStatusValidator,
   site: v.union(v.string(), v.null()),
+  asOf: v.union(v.number(), v.null()),
 });
 const hold = { linkId: v.string(), holder: v.string() };
 /** Critiqs's standard format (no template, or null), or a template the project offers in the destination. */

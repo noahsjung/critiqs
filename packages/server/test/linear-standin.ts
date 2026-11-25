@@ -14,6 +14,8 @@ export interface StandInIssue {
   /** The template it was created from, and the labels it was created with. */
   templateId?: string;
   labelIds?: string[];
+  /** When the issue last changed, as Linear reports it (ISO 8601). */
+  updatedAt?: string;
 }
 
 export interface StandInLabel {
@@ -68,6 +70,9 @@ const TEAMS = [
 ];
 
 /** A stand-in Linear at `origin` (where its upload addresses point), with the given existing issues. */
+/** When an issue last changed, for issues a test doesn't date, such as ones Critiqs creates: before any test's clock. */
+export const STAND_IN_UPDATED_AT = "2026-01-01T00:00:00.000Z";
+
 export function linearStandIn(origin = "https://linear.test", existing: Omit<StandInIssue, "description">[] = []): LinearStandIn {
   const standIn: LinearStandIn = {
     // Like a network: a caller that aborts stops waiting, but Linear finishes what it started.
@@ -126,6 +131,7 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
     title: issue.title,
     url: `https://linear.app/acme/issue/${issue.identifier.toLowerCase()}`,
     state: issue.state,
+    updatedAt: issue.updatedAt ?? STAND_IN_UPDATED_AT,
     team: { organization: { id: "org-1" } },
   });
 
@@ -137,6 +143,14 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
         return { viewer: { id: "user-1", name: "Dana Smith" }, organization: { id: "org-1", name: "Acme" } };
       case "CritiqsTeams":
         return { teams: { nodes: TEAMS } };
+      case "CritiqsIssueStatus":
+        return {
+          issues: {
+            nodes: listed()
+              .filter((issue) => issue.id === variables.id)
+              .map((issue) => ({ id: issue.id, state: issue.state, updatedAt: issue.updatedAt ?? STAND_IN_UPDATED_AT })),
+          },
+        };
       case "CritiqsIssue":
         return { issues: { nodes: listed().filter((issue) => issue.id === variables.id).map(view) } };
       case "CritiqsIssueByKey":
@@ -246,4 +260,50 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
   }
 
   return standIn;
+}
+
+/** The hex HMAC-SHA256 of `body` (as UTF-8 when text) under `secret`, as Linear signs a webhook delivery (`Linear-Signature`). */
+export async function linearSignature(secret: string, body: string | Uint8Array<ArrayBuffer>): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, typeof body === "string" ? new TextEncoder().encode(body) : body));
+  return Array.from(signature, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A webhook delivery as Linear sends one for an issue event: the JSON body
+ * and its headers, signed with `secret`. `sentAt` is `webhookTimestamp`;
+ * `updatedAt` is the issue's own last change; `happenedAt`, the event's
+ * `createdAt`, is when the action happened (`updatedAt` unless given).
+ */
+export async function linearIssueWebhook(
+  secret: string,
+  event: { action: "create" | "update" | "remove"; issueId: string; state?: { name: string; type: string } | null; updatedAt: number; sentAt: number; happenedAt?: number; organizationId?: string; type?: string },
+): Promise<{ body: string; headers: Record<string, string> }> {
+  const payload = {
+    action: event.action,
+    type: event.type ?? "Issue",
+    createdAt: new Date(event.happenedAt ?? event.updatedAt).toISOString(),
+    data: {
+      id: event.issueId,
+      identifier: "ENG-9",
+      title: "Department label is unclear",
+      updatedAt: new Date(event.updatedAt).toISOString(),
+      ...(event.state === null ? {} : { state: { id: "state-1", color: "#000000", ...(event.state ?? { name: "Done", type: "completed" }) } }),
+    },
+    url: "https://linear.app/acme/issue/eng-9",
+    organizationId: event.organizationId ?? "org-1",
+    webhookId: "webhook-1",
+    webhookTimestamp: event.sentAt,
+  };
+  const body = JSON.stringify(payload);
+  return {
+    body,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Linear-Delivery": crypto.randomUUID(),
+      "Linear-Event": payload.type,
+      "Linear-Signature": await linearSignature(secret, body),
+      "User-Agent": "Linear-Webhook",
+    },
+  };
 }

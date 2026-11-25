@@ -328,6 +328,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
         title: "Ticket ENG-1",
         status: { label: "In Progress", category: "started" },
         statusCheckedAt: 2_100,
+        statusStale: false,
         createdFromCritiqs: true,
         linkedByName: "Dana",
         linkedAt: 2_000,
@@ -345,6 +346,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
         title: "Ticket ENG-2",
         status: null,
         statusCheckedAt: null,
+        statusStale: false,
         createdFromCritiqs: false,
         linkedByName: "Lee",
         linkedAt: 3_000,
@@ -364,7 +366,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   // Your trackers: the rules over this storage.
 
   const KEY = "operator-encryption-key-".padEnd(48, "x");
-  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
   const withSignIn: TicketsDeployment = { ...withKey, linear: { clientId: "client", clientSecret: "secret" } };
 
   /** A stand-in for Linear's API: its viewer, from the token sent; and its token endpoint, answering `refreshes` in turn. */
@@ -634,12 +636,13 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
     expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
-    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, drafting: true });
-    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true });
+    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
+    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true, ticketStatus: true });
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id" }).linear).toBeNull();
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id", CRITIQS_LINEAR_CLIENT_SECRET: "s" })).toEqual({
       encryptionKey: KEY,
       linear: { clientId: "id", clientSecret: "s" },
+      linearWebhookSecret: null,
       linearApiUrl: "https://api.linear.app",
       linearAppUrl: "https://linear.app",
     });

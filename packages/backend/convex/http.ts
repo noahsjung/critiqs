@@ -38,7 +38,7 @@ import { linkSecret } from "./lib/links";
 import { developerEmailSetup } from "./onboarding";
 import { threadPageWebsite } from "./notifications";
 import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadSnapshot } from "./captureHttp";
-import { linearCallback, linearStart, linearStartLink } from "./trackerHttp";
+import { linearCallback, linearStart, linearStartLink, linearWebhook } from "./trackerHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
@@ -78,6 +78,8 @@ for (const path of ["/capture", "/capture/upload", "/mockup/snapshot", "/mockup/
 http.route({ path: "/trackers/linear/start", method: "POST", handler: linearStart });
 http.route({ path: "/trackers/linear/start", method: "GET", handler: linearStartLink });
 http.route({ path: "/trackers/linear/callback", method: "GET", handler: linearCallback });
+// Linear's webhooks: issues' status, for every thread that links them.
+http.route({ path: "/trackers/linear/webhook", method: "POST", handler: linearWebhook });
 
 // Review links: routes only the review proxy calls, with its shared secret (reviewHttp.ts).
 http.route({ path: "/internal/review/v1/resolve", method: "POST", handler: resolveReviewHost });
@@ -155,6 +157,8 @@ http.route({
       // `remove`, and `critiqs share`); `allowCritiqs`: published egress.
       // `tickets`: each person's tracker accounts (`trackers:*`, `/trackers/linear/*`) and the trackers offered,
       // with how each connects. Absent until the operator sets CRITIQS_AI_ENCRYPTION_KEY, which encrypts tracker tokens.
+      // Its `ticketStatus`: opening a thread checks its tickets (`ticketStatus:checkStatus`), and projects' Resolve when
+      // done (`ticketStatus:settings`, `ticketStatus:setResolveWhenDone`).
       {
         signInUrl: signInUrl(),
         protocol: 5,

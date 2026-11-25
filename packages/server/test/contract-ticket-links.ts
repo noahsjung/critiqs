@@ -28,12 +28,12 @@ import {
 import { prepareDraft, ticketDraft } from "../src/tickets/drafts.ts";
 import type { Identity, Store } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
-import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
+import { type LinearStandIn, linearStandIn, STAND_IN_UPDATED_AT } from "./linear-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
 const REVIEW = "https://review.example/app?tab=users";
 
 function tickets(store: Store) {
@@ -252,7 +252,8 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     expect(issue!.description).toContain("Created from Critiqs by Dana: [open the thread](<https://review.example/app?tab=users&amp;critiqs=");
     expect(linear.attachments).toEqual([{ issueId: issue!.id, url: `https://review.example/app?tab=users&critiqs=${threadId}`, title: "Department is wrong" }]);
     const stored = (await backend.run((store) => tickets(store).links.listForThread(threadId, "linked", 50)))[0]!;
-    expect(stored).toMatchObject({ externalId: issue!.id, site: "org-1", state: "linked", statusCheckedAt: 5_000, creationId: issue!.id, creatorAccountId: `u-${await userId(backend, dana)}` });
+    // The status is as of the issue's last change in Linear, so a webhook sent before it was created can't replace it.
+    expect(stored).toMatchObject({ externalId: issue!.id, site: "org-1", state: "linked", statusCheckedAt: 5_000, statusAsOf: Date.parse(STAND_IN_UPDATED_AT), creationId: issue!.id, creatorAccountId: `u-${await userId(backend, dana)}` });
     expect(stored.linkBack).toEqual({ url: `https://review.example/app?tab=users&critiqs=${threadId}`, title: "Department is wrong", added: true });
     expect(view.canAddLinkBack).toBe(false);
     // Everyone in the project sees it on the thread, list row included.
@@ -440,7 +441,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     const [pending] = await pendingLinks(backend, threadId);
     const stranger = { linkId: pending!._id, holder: "not-the-holder" };
     await backend.run((store) => releaseTicketHold(store, dana, { ...stranger, end: "nothing" }, 5_000));
-    const ticket = { tracker: "linear" as const, externalId: "x", key: "ENG-9", url: "https://linear.app/x", title: "t", status: { label: "Todo", category: "open" as const }, site: null };
+    const ticket = { tracker: "linear" as const, externalId: "x", key: "ENG-9", url: "https://linear.app/x", title: "t", status: { label: "Todo", category: "open" as const }, site: null, asOf: null };
     expect((await refusal(backend.run((store) => finishTicketCreation(store, dana, { ...stranger, threadId, ticket, linkBackAdded: true }, 5_000)))).code).toBe("unavailable");
     expect(await pendingLinks(backend, threadId)).toHaveLength(1);
     held.open();

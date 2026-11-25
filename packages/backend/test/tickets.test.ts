@@ -171,7 +171,7 @@ test("when Linear doesn't add the link back, the creator sees it missing and add
   expect((await getThread(lee, { threadId })).tickets?.map((ticket) => ticket.canAddLinkBack)).toEqual([false]);
 });
 
-test("once a project is limited to its organization, someone outside it can't draft, create, link, or unlink its tickets", async () => {
+test("once a project is limited to its organization, someone outside it can't draft, create, link, unlink, or check its tickets", async () => {
   const { t, dana, lee, threadId, projectId } = await project();
   await lee.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_lee" });
   const linked = await lee.action(api.tickets.link, { threadId, tracker: "linear", externalId: "issue-9", comment: false });
@@ -188,6 +188,8 @@ test("once a project is limited to its organization, someone outside it can't dr
   await expect(lee.action(api.tickets.create, create)).rejects.toThrow(refused);
   await expect(lee.action(api.tickets.link, { threadId, tracker: "linear", externalId: "issue-9", comment: true })).rejects.toThrow(refused);
   await expect(lee.mutation(api.tickets.unlink, { linkId: linked._id })).rejects.toThrow(refused);
+  // Nor ask Critiqs to check its tickets' status in Linear.
+  await expect(lee.mutation(api.ticketStatus.checkStatus, { threadId })).rejects.toThrow(refused);
   // Refused before anything reached Linear, and the link Lee made earlier stays.
   expect(linear.operations).toEqual([]);
   expect((await getThread(dana, { threadId })).tickets?.map((ticket) => ticket.key)).toEqual(["ENG-9"]);

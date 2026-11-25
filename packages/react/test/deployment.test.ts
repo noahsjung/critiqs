@@ -222,6 +222,16 @@ test("offers Your trackers only for the trackers the backend reports, and how ea
   expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: "yes" }))).tickets).toEqual({
     trackers: [{ id: "linear", signIn: "oauth" }],
   });
+  // Status checks and Resolve when done only where the backend says so.
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, ticketStatus: true }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "token" }],
+    threadTickets: true,
+    ticketStatus: true,
+  });
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, ticketStatus: "yes" }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "token" }],
+    threadTickets: true,
+  });
   // A tracker or sign-in this version doesn't know is left out; with none left, tickets aren't offered.
   expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "asana", signIn: "oauth" }, { id: "linear", signIn: "token" }] }))).tickets).toEqual({
     trackers: [{ id: "linear", signIn: "token" }],

@@ -193,6 +193,8 @@ export const DOCS: DocTopic[] = [
       "Linked tickets show under the thread's header with their key and status; click one to open it. The person who linked it, or the project's owner, can unlink it; the ticket stays in the tracker.",
       "If the tracker creates your ticket but doesn't add its link to the thread, Critiqs says so, and the ticket's chip offers Add link back until it is added.",
       "The comments list shows each thread's ticket key and status, and a pin with a ticket has a small ticket mark.",
+      "Status comes back from the tracker: Linear tells Critiqs when a ticket changes where the deployment is set up for it, and opening a thread checks tickets whose status is more than 5 minutes old, using the account of the person who linked each one. If they disconnect, or the ticket is hidden from them, the chip shows the last status Critiqs knew, marked last known.",
+      "Resolve when done: the project's creator can turn on Resolve threads when their tickets are done, in Tags and AI, under Tickets. A thread then resolves when every ticket linked to it is done or canceled, and says it was resolved when its tickets were done. Reopening a ticket doesn't reopen the thread. It is off by default.",
       "A thread links to at most 20 tickets. Trying Create again in the same dialog never makes a second ticket, and if a ticket you started on a thread didn't finish, the next Create ticket there finishes it instead of making another. Tickets can't be created from mockup threads yet; a comment added to a mockup shows its tickets on its chip.",
     ],
   },

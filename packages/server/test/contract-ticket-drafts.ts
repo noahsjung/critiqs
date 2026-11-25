@@ -29,7 +29,7 @@ import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
 
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
 const REVIEW = "https://review.example/app";
 const bug: TicketTemplateChoice = { tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" };
 const copy: TicketTemplateChoice = { tracker: "linear", destinationId: "team-des", templateId: "tpl-copy", name: "Copy change" };

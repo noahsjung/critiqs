@@ -1,4 +1,4 @@
-import { CritiqsError, endTrackerSignIn, exchangeLinearCode, linearAdapter, linearAuthorizeUrl, SIGN_IN_MINUTES, sealSignIn } from "@critiqs/server";
+import { CritiqsError, endTrackerSignIn, exchangeLinearCode, linearAdapter, linearAuthorizeUrl, readLinearWebhook, SIGN_IN_MINUTES, sealSignIn } from "@critiqs/server";
 import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -168,3 +168,27 @@ function withHeaders(response: Response, headers: Record<string, string>): Respo
   for (const [name, value] of Object.entries(headers)) merged.append(name, value);
   return new Response(response.body, { status: response.status, headers: merged });
 }
+
+/** The most bytes a webhook delivery may hold; Linear's issue events are a few kilobytes. */
+const MAX_WEBHOOK_BYTES = 256 * 1024;
+
+/**
+ * Linear's webhooks for the operator's Linear app (set its webhook address to
+ * `<deployment site>/trackers/linear/webhook`, with Issues events): each
+ * delivery's signature is checked with `CRITIQS_LINEAR_WEBHOOK_SECRET`, and
+ * its timestamp must be within a minute, before anything in it is used. An
+ * issue's new status reaches every thread that links it; other events are
+ * answered 200 and ignored, so Linear doesn't retry them.
+ */
+export const linearWebhook = httpAction(async (ctx, request) => {
+  const secret = ticketsDeployment().linearWebhookSecret;
+  if (secret === null) return new Response("Linear webhooks aren't set up on this deployment.", { status: 404 });
+  // The signature covers the body's exact bytes, so they are read as bytes, never as text first.
+  const body = await readBoundedBody(request, MAX_WEBHOOK_BYTES);
+  if (body === "invalid") return new Response("Content-Length isn't a number.", { status: 400 });
+  if (body === "too-large") return new Response("Too large.", { status: 413 });
+  const read = await readLinearWebhook(secret, body, request.headers.get("Linear-Signature"), Date.now());
+  if (read.status === "refused") return new Response("Not a current delivery from Linear.", { status: 401 });
+  if (read.status === "update") await ctx.runMutation(internal.ticketStatus.apply, { update: read.update });
+  return new Response(null, { status: 200 });
+});

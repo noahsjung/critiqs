@@ -254,6 +254,9 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       linkTicket: ({ threadId, ...input }) => client.action(api.tickets.link, { threadId: threadId as Id<"threads">, ...input }),
       addTicketLinkBack: (linkId) => client.action(api.tickets.addLinkBack, { linkId }),
       unlinkTicket: (linkId) => change(mutation(api.tickets.unlink, { linkId })),
+      checkTicketStatus: async (threadId) => void (await mutation(api.ticketStatus.checkStatus, { threadId })),
+      useTicketSettings: (projectId, enabled) => useQueryState(api.ticketStatus.settings, enabled ? { projectId } : "skip"),
+      setResolveWhenDone: (projectId, on) => change(mutation(api.ticketStatus.setResolveWhenDone, { projectId, on })),
     },
   };
 }

@@ -460,6 +460,8 @@ button.hashtag { cursor: pointer; }
 .ticket-chip a svg { flex: none; color: var(--muted); }
 .ticket-chip .key { font-weight: 600; white-space: nowrap; }
 .ticket-chip .status { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ticket-chip .status.stale .ticket-dot { opacity: 0.45; }
+.ticket-chip .stale-note { color: var(--faint); }
 .ticket-chip .icon-btn { width: 20px; height: 20px; margin: 0 2px 0 -4px; border-radius: 50%; }
 .ticket-chip .icon-btn svg { width: 12px; height: 12px; }
 .ticket-chip .link-btn { padding: 2px var(--space-2) 2px 2px; font-size: var(--text-s); white-space: nowrap; }
