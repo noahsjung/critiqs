@@ -29,6 +29,11 @@ This workspace is private: it isn't published to npm.
   visits with no click. Turning it off removes both.
 - **Sites with Critiqs installed** get nothing from the extension; the panel
   says **Built in**.
+- **Sharing a comment:** **⋯ → Copy link** in a comment copies its page on
+  Critiqs's website (`<website>/t/<key>`) where the deployment has one, as on
+  Critiqs Cloud. That page opens for people without the extension once they
+  sign in. Without a website, the link is the page's own address with the
+  comment in it.
 - **Mockup mode** isn't offered: its page copy is drawn over the page, which a
   side panel can't do yet.
 

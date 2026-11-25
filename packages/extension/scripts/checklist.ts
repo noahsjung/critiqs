@@ -645,8 +645,9 @@ await step("18", "Press Alt+Shift+C on a page: same as clicking the icon", async
   };
 });
 
+const other: Tab = { page: null, id: -1 };
 await step("19", "A second site no project lists: Add to a project lists your projects and your organizations' projects, named by organization; the choice sticks", async (shots) => {
-  const other = await openTab(site("other"));
+  Object.assign(other, await openTab(site("other")));
   await clickIcon(other);
   panel = await sidePanel(other);
   focus(other, panel);
@@ -679,6 +680,55 @@ await step("19", "A second site no project lists: Add to a project lists your pr
   const named = rows.some((row) => row.includes(erinOrganization[0]!.name));
   if (mine.length < 2 || !named) throw new Error(`Rows: ${JSON.stringify(rows)}`);
   return `Rows ${JSON.stringify(rows)}; chose Erin's storefront (project ${erinProject}); reopening the panel shows it again`;
+});
+
+let copied = "";
+await step("20", "Comment, then choose ⋯ → Copy link on the comment: with a website set up for the deployment, it copies the thread's page link", async (shots) => {
+  const { website } = await resolveDeployment(backend);
+  await panel.click(button("Comment mode"));
+  await waitUntil("Comment mode on the page", () => other.page.evaluate(() => document.querySelector("critiqs-root")?.shadowRoot?.querySelector(".mode-hint") != null), 10_000);
+  await pick(other.page, '[data-critiqs-id="team.save"]');
+  await panel.type({ css: ".tag-field" }, "Share this with the client");
+  await panel.click(button("Comment"));
+  await panel.waitFor({ css: ".thread-window" });
+  await devtools.send("Browser.grantPermissions", { origin: `chrome-extension://${EXTENSION_ID}`, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
+  await panel.click(button("More actions"));
+  await panel.click(button("Copy link"));
+  await waitUntil("the copied note", async () => (await panel.text()).includes("Link to thread copied"), 10_000);
+  copied = await panel.evaluate(() => navigator.clipboard.readText());
+  await shoot("copy-link", shots);
+  if (website === undefined) return { outcome: "fail", measured: `The backend reports no website, so Copy link copied the prototype's link: ${copied}` };
+  if (!new RegExp(`^${website.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/t/[A-Za-z0-9_-]+$`).test(copied)) throw new Error(`Copied "${copied}", not ${website}/t/<key>.`);
+  return `"Link to thread copied"; the clipboard holds ${copied}`;
+});
+
+await step("20b", "The copied link opens the thread's page on the website", async (shots) => {
+  if (copied === "") throw new Error("Nothing was copied in step 20.");
+  const page = await context.newPage();
+  await page.goto(copied);
+  await page.bringToFront();
+  focus({ page, id: -1 }, null);
+  await page.getByRole("button", { name: "Sign in with email" }).waitFor({ timeout: 15_000 });
+  await shoot("thread-page-signed-out", shots);
+  // The page asks who is visiting, in Critiqs's sign-in window: the reviewer signs in with the same email.
+  const opened = context.waitForEvent("page", { timeout: 10_000 });
+  await page.getByRole("button", { name: "Sign in with email" }).click();
+  const popup: Page = await opened;
+  await popup.locator("input[name=email]").fill(email);
+  await popup.getByRole("button", { name: /Send code/ }).click();
+  await popup.locator("input[name=code]").waitFor();
+  const popupCode = /Development code:\s*(\d+)/.exec(await popup.locator("body").innerText())?.[1] ?? "";
+  await popup.locator("input[name=code]").fill(popupCode);
+  await popup.locator("input[name=code]").press("Enter");
+  for (let attempt = 0; attempt < 20 && !popup.isClosed(); attempt++) {
+    const allow = popup.getByRole("button", { name: /^(Allow this site|Allow|Continue)/ });
+    if ((await allow.count().catch(() => 0)) > 0) await allow.first().click().catch(() => undefined);
+    await Bun.sleep(500);
+  }
+  await page.getByText("Share this with the client").first().waitFor({ timeout: 20_000 });
+  await Bun.sleep(1000);
+  await shoot("thread-page", shots);
+  return `Opened ${copied}: Sign in to see this comment; after the reviewer signed in with the same email, the page shows the comment "Share this with the client"`;
 });
 
 await step("–", "No page errors in any tab during the run", async () => {

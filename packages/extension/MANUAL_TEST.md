@@ -45,6 +45,7 @@ Write down its address: ________________
 | 17 | Back on the first page: **Settings → Sign out**. | The panel shows **Sign in to Critiqs**. Signing in again with the same email skips the name. | |
 | 18 | Press Alt+Shift+C on a page. | Same as clicking the icon. | |
 | 19 | Open a second site that no project lists. Click the icon, then choose **Add to a project**. | The list shows the projects you created and, if you're an admin of an organization, its other projects too. When they come from more than one organization, each shows its organization's name. Choose one. Critiqs's panel shows that project, and reopening the panel on this site shows it again. | |
+| 20 | On that site, make a comment, then choose **⋯ → Copy link** on it. Open the copied link in a new tab. | "Link to thread copied". On a deployment with a website (Critiqs Cloud, or `CRITIQS_WEB_URL` set), the link is the comment's page there, `<website>/t/<key>`: it asks who you are, and after you sign in with the same email it shows the comment and its screenshot, for people without the extension too. Without a website, the link is the page's own address with the comment in it, which opens the comment where the page has Critiqs installed or the extension is clicked. | |
 
 ## Report
 
