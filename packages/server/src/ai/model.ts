@@ -11,7 +11,7 @@ export type JsonSchema = Record<string, unknown>;
 
 export interface StructuredRequest<T> {
   /** Names the task in errors and logs. */
-  task: "grouping" | "search" | "insights" | "mockup" | "test";
+  task: "grouping" | "search" | "insights" | "mockup" | "ticket" | "test";
   system: string;
   prompt: string;
   schema: JsonSchema;

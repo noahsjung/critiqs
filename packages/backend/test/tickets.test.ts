@@ -11,16 +11,51 @@ import { list, thread as getThread } from "./pages";
 // answers showing the linked tickets to everyone in the project.
 
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const ENV = ["CRITIQS_AI_ENCRYPTION_KEY", "CRITIQS_LINEAR_CLIENT_ID", "CRITIQS_LINEAR_CLIENT_SECRET", "CRITIQS_LINEAR_API_URL", "CONVEX_SITE_URL"];
+const ENV = [
+  "CRITIQS_AI_ENCRYPTION_KEY",
+  "CRITIQS_LINEAR_CLIENT_ID",
+  "CRITIQS_LINEAR_CLIENT_SECRET",
+  "CRITIQS_LINEAR_API_URL",
+  "CONVEX_SITE_URL",
+  "CRITIQS_AI_PROVIDER",
+  "CRITIQS_AI_MODEL",
+  "CRITIQS_AI_API_KEY",
+  "CRITIQS_AI_BASE_URL",
+];
 const saved = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
 const failedCapture = { status: "failed" as const, failureReason: "Blocked" };
 
 let server: ReturnType<typeof Bun.serve>;
 let linear: LinearStandIn;
+/** What the stand-in OpenAI-compatible model answers next, in order, and the prompts it was sent. */
+const answers: (unknown | Response)[] = [];
+const prompts: { model: string; prompt: string; authorization: string | null }[] = [];
+let model: ReturnType<typeof Bun.serve>;
 beforeAll(() => {
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => linear.handle(request) });
+  model = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const body = (await request.json()) as { model: string; messages: { role: string; content: string }[] };
+      prompts.push({ model: body.model, prompt: body.messages.find((message) => message.role === "user")?.content ?? "", authorization: request.headers.get("Authorization") });
+      const next = answers.shift();
+      if (next instanceof Response) return next;
+      return Response.json({
+        id: "chat",
+        object: "chat.completion",
+        created: 1,
+        model: body.model,
+        choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(next) }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      });
+    },
+  });
 });
-afterAll(() => server.stop(true));
+afterAll(() => {
+  server.stop(true);
+  model.stop(true);
+});
 beforeEach(() => {
   const origin = `http://127.0.0.1:${server.port}`;
   linear = linearStandIn(origin, [{ id: "issue-9", identifier: "ENG-9", title: "Department label is unclear", teamId: "team-eng", state: { name: "In Progress", type: "started" } }]);
@@ -31,6 +66,8 @@ beforeEach(() => {
   delete process.env.CRITIQS_LINEAR_CLIENT_SECRET;
 });
 afterEach(() => {
+  answers.length = 0;
+  prompts.length = 0;
   for (const name of ENV) {
     if (saved[name] === undefined) delete process.env[name];
     else process.env[name] = saved[name];
@@ -212,4 +249,72 @@ test("tickets can't be drafted, created, or linked from a mockup thread, and Lin
   ).rejects.toThrow("mockup threads");
   await expect(dana.action(api.tickets.link, { threadId, tracker: "linear", externalId: "issue-9", comment: false })).rejects.toThrow("mockup threads");
   expect(linear.operations.length).toBe(asked);
+});
+
+test("a project's owner turns on a Linear team's templates; a reviewer drafts into one with Critiqs AI and creates it with labels from the thread's tags", async () => {
+  const { dana, lee, sam, projectId, threadId } = await project();
+  process.env.CRITIQS_AI_PROVIDER = "compatible";
+  process.env.CRITIQS_AI_MODEL = "local-model";
+  process.env.CRITIQS_AI_API_KEY = "deployment-key";
+  process.env.CRITIQS_AI_BASE_URL = `http://127.0.0.1:${model.port}/v1`;
+  await lee.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_lee" });
+  await dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_dana" });
+
+  // Off by default; only the project's owner sees or changes it.
+  expect(await dana.query(api.tickets.templateSettings, { projectId })).toEqual({ on: false, templates: [] });
+  await expect(lee.query(api.tickets.templateSettings, { projectId })).rejects.toThrow("Only the person who set up this project");
+  await expect(sam.mutation(api.tickets.saveTemplateSettings, { projectId, on: true, templates: [] })).rejects.toThrow("Only the person who set up this project");
+  await expect(lee.action(api.tickets.trackerTemplates, { projectId, tracker: "linear" })).rejects.toThrow("Only the person who set up this project");
+  const groups = await dana.action(api.tickets.trackerTemplates, { projectId, tracker: "linear" });
+  expect(groups.map((group) => [group.destination.name, group.templates.map((template) => template.name)])).toEqual([
+    ["Design", ["Copy change"]],
+    ["Engineering", ["Bug report", "Feature request"]],
+  ]);
+  expect((await lee.action(api.tickets.options, { threadId, tracker: "linear", destinationId: "team-eng" })).templates).toEqual([]);
+  await dana.mutation(api.tickets.saveTemplateSettings, { projectId, on: true, templates: [{ tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" }] });
+
+  // Lee's thread is tagged Bug: the team's Bug label is suggested.
+  expect(await lee.action(api.tickets.options, { threadId, tracker: "linear", destinationId: "team-eng" })).toEqual({
+    templates: [{ id: "tpl-bug", name: "Bug report" }],
+    labels: [{ id: "label-bug", name: "Bug" }],
+  });
+  // Without AI, the template's first section gets the thread's summary and context.
+  const plain = await lee.action(api.tickets.draft, { threadId, tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug" });
+  expect(plain.body.startsWith("## Summary\n\n> Department is wrong\n\n- Link:")).toBe(true);
+
+  answers.push({ title: "Department shows the wrong team", sections: [{ heading: "Summary", text: "The department is wrong.", items: [], numbered: false }] });
+  const drafted = await lee.action(api.ai.draftTicket, { threadId, tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug" });
+  expect(drafted).toMatchObject({ title: "Department shows the wrong team", drafted: "ai", notice: null });
+  expect(drafted.body).toBe(
+    `## Summary\n\nThe department is wrong\\.\n\n## Steps to reproduce\n\n## Expected\n\n## Actual\n\nThread: [open the thread](<https://review.example/app?critiqs=${threadId}>)\n`,
+  );
+  expect(prompts.map((entry) => `${entry.model} ${entry.authorization}`)).toEqual(["local-model Bearer deployment-key"]);
+  expect(prompts[0]!.prompt).toContain("What happened?");
+  expect(prompts[0]!.prompt).not.toContain("lin_api_lee");
+
+  // The provider fails: the draft is filled without AI and says so.
+  answers.push(new Response("overloaded", { status: 500 }), new Response("overloaded", { status: 500 }), new Response("overloaded", { status: 500 }));
+  const fallback = await lee.action(api.ai.draftTicket, { threadId, tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug" });
+  expect(fallback).toMatchObject({ title: plain.title, body: plain.body, drafted: "plain" });
+  expect(fallback.notice).toMatch(/^Critiqs AI couldn't draft this ticket\. .+ The draft is filled from the thread without AI\.$/);
+
+  const view = await lee.action(api.tickets.create, {
+    threadId,
+    submissionId: crypto.randomUUID(),
+    tracker: "linear",
+    destinationId: "team-eng",
+    title: drafted.title,
+    body: drafted.body,
+    createdFromCritiqs: true,
+    templateId: "tpl-bug",
+    labelIds: ["label-bug"],
+  });
+  expect(linear.issues.find((issue) => issue.id === view.externalId)).toMatchObject({ title: "Department shows the wrong team", templateId: "tpl-bug", labelIds: ["label-bug"] });
+  // Turned off, the template is no longer offered, and a create naming it is refused before Linear is asked.
+  await dana.mutation(api.tickets.saveTemplateSettings, { projectId, on: false, templates: [{ tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" }] });
+  linear.operations.length = 0;
+  await expect(
+    lee.action(api.tickets.create, { threadId, submissionId: crypto.randomUUID(), tracker: "linear", destinationId: "team-eng", title: "T", body: "B", createdFromCritiqs: false, templateId: "tpl-bug" }),
+  ).rejects.toThrow("doesn't offer that template here");
+  expect(linear.operations).toEqual([]);
 });

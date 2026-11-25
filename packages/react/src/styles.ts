@@ -473,6 +473,12 @@ button.hashtag { cursor: pointer; }
 .pin-ticket { position: absolute; right: -6px; bottom: -6px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
   background: #fff; color: #1f2023; box-shadow: 0 1px 2px rgb(0 0 0 / 0.35); }
 .ticket-dialog .ticket-body { min-height: 168px; font-size: var(--text-s); line-height: 1.45; resize: vertical; }
+.ticket-ai { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.ticket-labels { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.ticket-labels ul { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) 6px; margin: 0; padding: 0; }
+.ticket-label { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px var(--space-2); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: var(--text-s); }
+.ticket-label .icon-btn { width: 20px; height: 20px; border-radius: 50%; }
+.ticket-label .icon-btn svg { width: 12px; height: 12px; }
 .ticket-check { display: flex; align-items: center; gap: var(--space-2); }
 .ticket-check input { margin: 0; accent-color: var(--accent); }
 .ticket-results { display: flex; flex-direction: column; max-height: 232px; overflow-y: auto; margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; }

@@ -1357,7 +1357,7 @@ function PanelApp({
               onOpenMockup={mockupsAvailable ? openMockup : undefined}
               tickets={
                 trackersOffered?.threadTickets === true && openYourTrackers !== null && reviewerId !== null
-                  ? { offered: trackersOffered, onYourTrackers: openYourTrackers, personId: reviewerId }
+                  ? { offered: trackersOffered, onYourTrackers: openYourTrackers, personId: reviewerId, modelLists: deployment.modelLists === true, onSetUpAi: openYourAi }
                   : undefined
               }
             />
@@ -1448,6 +1448,7 @@ function PanelApp({
           notify={notify}
           modelLists={deployment.modelLists === true}
           presetTags={deployment.presetTags === true}
+          tickets={trackersOffered?.drafting === true && transport.tickets !== undefined}
         />
       )}
       {billing !== null && openBilling !== null && transport.billing !== undefined && (

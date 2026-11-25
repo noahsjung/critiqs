@@ -16,7 +16,6 @@ import {
   IDLE_CREATION_MS,
   linkTicket,
   listTicketDestinations,
-  prepareTicketDraft,
   prepareTicketLinkBack,
   releaseTicketHold,
   requireTicketCreator,
@@ -24,9 +23,9 @@ import {
   saveTicketLinkBack,
   searchTickets,
   TICKET_WRITES_PER_MINUTE,
-  ticketDraft,
   unlinkTicket,
 } from "../src/tickets/links.ts";
+import { prepareDraft, ticketDraft } from "../src/tickets/drafts.ts";
 import type { Identity, Store } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
@@ -198,9 +197,11 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
   function draft(backend: ContractBackend, who: Identity, threadId: string) {
     return ticketDraft(
       {
-        prepare: () => backend.run((store) => prepareTicketDraft(store, who, { threadId, tracker: "linear", website }, 5_000)),
+        prepare: () => backend.run((store) => prepareDraft(store, who, { threadId, tracker: "linear", website }, 1_000)),
+        token: token(who),
         loadPage: ({ paginationOpts, ...args }) => backend.run((store) => ops.exportThreads(store, who, args, paginationOpts)),
       },
+      deployment,
       { tracker: "linear" },
     );
   }

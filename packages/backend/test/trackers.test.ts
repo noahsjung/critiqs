@@ -116,9 +116,9 @@ test("/critiqs/config offers Linear only with an encryption key: by API key, or 
   delete process.env.CRITIQS_AI_ENCRYPTION_KEY;
   expect(await config(t)).not.toHaveProperty("tickets");
   process.env.CRITIQS_AI_ENCRYPTION_KEY = KEY;
-  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true });
+  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, drafting: true });
   withSignIn();
-  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true });
+  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true });
 });
 
 test("a pasted Linear API key is checked with Linear, stored encrypted, and shown only to its person, never as a token", async () => {

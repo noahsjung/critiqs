@@ -622,7 +622,9 @@ export interface TicketLinkRecord {
 export interface TicketSettingsRecord {
   _id: string;
   projectId: string;
-  /** Tracker templates turned on for the project, by destination. */
+  /** Whether the Create dialog offers the chosen tracker templates; absent means off. */
+  templatesOn?: boolean;
+  /** Tracker templates the project offers while templates are on, by destination. */
   templates: { tracker: TrackerId; destinationId: string; templateId: string; name: string }[];
   /** Resolve a thread when every ticket linked to it is done. */
   resolveWhenDone: boolean;
@@ -731,7 +733,7 @@ export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" 
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
   [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt"]?: TicketLinkRecord[K] | null;
 };
-export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
+export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templatesOn" | "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
 
 export interface Store {
   /** The ID if `raw` is a well-formed ID for that table in this backend, else null. */

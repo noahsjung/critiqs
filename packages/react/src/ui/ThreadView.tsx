@@ -375,6 +375,9 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
           projectId={props.projectId}
           personId={ticketsOffer.personId}
           accounts={connected}
+          drafting={ticketsOffer.offered.drafting === true}
+          modelLists={ticketsOffer.modelLists === true}
+          onSetUpAi={ticketsOffer.onSetUpAi ?? null}
           returnFocus={moreButton.current}
           onClose={() => setTicketDialog(null)}
           onCreated={(ticket) => {

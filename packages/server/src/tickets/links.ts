@@ -1,17 +1,12 @@
 import {
-  type ExportPageLoader,
-  exportThread,
-  loadExport,
   type NewTicket,
   type TicketDestination,
-  type TicketDraft,
   type TicketLinkInput,
   type TicketLinkView,
   type TicketRef,
   type TicketSearchResult,
   ticketBody,
   ticketLinkComment,
-  ticketText,
   threadPageLink,
   type TrackerId,
   type WebAddress,
@@ -21,7 +16,7 @@ import { fail } from "../errors.ts";
 import { ensureThreadPageKey, reviewAddressLink } from "../notify.ts";
 import { MAX_THREAD_TICKET_ROWS, MAX_THREAD_TICKETS, requireThread, requireUser, ticketView } from "../operations.ts";
 import { projectAccess } from "../organizations.ts";
-import type { Identity, ProjectRecord, Store, ThreadRecord, TicketLinkRecord, UserRecord } from "../store.ts";
+import type { Identity, ProjectRecord, Store, ThreadRecord, TicketLinkRecord, TicketSettingsRecord, UserRecord } from "../store.ts";
 import { requireOffered, type TicketsDeployment, ticketStore, trackerAdapter, trackerLabel } from "./accounts.ts";
 import { type CreatedTicket, fetchUntil, type HeldTicket, type TicketImage, type TrackerAdapter, TrackerRefusal, type TrackerToken } from "./trackers/index.ts";
 
@@ -35,6 +30,8 @@ import { type CreatedTicket, fetchUntil, type HeldTicket, type TicketImage, type
 export const MAX_TICKET_TITLE_LENGTH = 255;
 export const MAX_TICKET_BODY_LENGTH = 50_000;
 export const MAX_TICKET_SEARCH_LENGTH = 200;
+/** The most labels a new ticket is created with. */
+export const MAX_TICKET_LABELS = 20;
 
 type Tickets = NonNullable<Store["tickets"]>;
 
@@ -170,7 +167,7 @@ export async function searchTickets(steps: TrackerSteps, deployment: TicketsDepl
 }
 
 // ---------------------------------------------------------------------------
-// A new ticket's draft, filled from the thread without AI.
+// A new ticket's draft; drafts.ts fills it.
 
 /** What a draft needs, after checking the person may make a ticket from the thread. */
 export interface DraftContext {
@@ -197,23 +194,6 @@ export async function prepareTicketDraft(store: Store, identity: Identity | null
     createdFromCritiqs: account.attribution,
     resumeSubmissionId: unfinished?.creationId ?? null,
   };
-}
-
-/**
- * A new ticket's title and text from the thread's export, as the Markdown
- * export reads it, for the person to edit. The line saying it came from
- * Critiqs isn't in the text: creating the ticket adds it, as they choose.
- */
-export async function ticketDraft(steps: { prepare(): Promise<DraftContext>; loadPage: ExportPageLoader }, args: { tracker: TrackerId }): Promise<TicketDraft> {
-  const context = await steps.prepare();
-  const data = await loadExport(steps.loadPage, context.projectId, [context.threadId], () => false);
-  const [entry] = data.threads;
-  if (entry === undefined) fail("unavailable", "This thread was deleted.");
-  // The export's own links aren't in ticket text; only `context.link` is.
-  const thread = exportThread(entry, () => context.link ?? "");
-  // Linear takes the capture into the ticket; other trackers link to the thread for it.
-  const { title, body } = ticketText(thread, { attribution: null, link: context.link, captureNote: args.tracker === "linear" ? "uploaded" : "link" });
-  return { title, body, createdFromCritiqs: context.createdFromCritiqs, resumeSubmissionId: context.resumeSubmissionId };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +276,12 @@ export interface HeldCreation extends TicketHold {
 export interface ClaimedCreation extends HeldCreation {
   /** An earlier attempt may have reached the tracker, so it is asked first. */
   resumed: boolean;
+  /**
+   * Whether the project offers the submission's template in its destination
+   * now (true without one). A new creation is refused without it; a resumed
+   * one may still find the ticket an earlier attempt made, but creates none.
+   */
+  templateOffered: boolean;
   /** For "Created from Critiqs by …". */
   name: string;
   /** The thread's capture, to put in the ticket; null without one. */
@@ -320,18 +306,33 @@ export function parseNewTicket(input: NewTicket): NewTicket {
   if (title.length > MAX_TICKET_TITLE_LENGTH) fail("invalid", `Keep the title under ${MAX_TICKET_TITLE_LENGTH} characters.`);
   if (input.body.length > MAX_TICKET_BODY_LENGTH) fail("invalid", `Keep the text under ${MAX_TICKET_BODY_LENGTH.toLocaleString("en-US")} characters.`);
   if (input.destinationId.trim() === "") fail("invalid", "Choose where the ticket goes.");
-  return { ...input, submissionId, title };
+  const labelIds = input.labelIds ?? [];
+  if (labelIds.length > MAX_TICKET_LABELS) fail("invalid", `Add at most ${MAX_TICKET_LABELS} labels.`);
+  if (labelIds.some((id) => id.trim() === "" || id.length > 200) || (input.templateId != null && (input.templateId.trim() === "" || input.templateId.length > 200))) {
+    fail("invalid", "Choose labels and templates from the dialog's lists.");
+  }
+  return { ...input, submissionId, title, labelIds: [...new Set(labelIds)], templateId: input.templateId ?? null };
 }
 
 /**
  * Checks the person may create a ticket from the thread in this tracker:
  * signed in, the thread open to tickets, and their own account connected.
  * Runs before anything in their request calls the tracker. One transaction.
+ * The template is checked when the creation is claimed: a ticket the tracker
+ * may have made already is looked for whatever the project offers now.
  */
 export async function requireTicketCreator(store: Store, identity: Identity | null, args: { threadId: string; tracker: TrackerId }): Promise<TrackerPerson> {
   const { user, account } = await requireAccount(store, identity, args.tracker);
   await ticketThread(store, user, args.threadId);
   return { userId: user._id, accountId: account.accountId };
+}
+
+const TEMPLATE_NOT_OFFERED = "This project doesn't offer that template here. Choose another, or Critiqs's standard format.";
+
+/** The templates a project offers in a destination, by ID: none while its templates are off. */
+export function offeredTemplates(record: TicketSettingsRecord | null, tracker: TrackerId, destinationId: string): string[] {
+  if (record?.templatesOn !== true) return [];
+  return record.templates.filter((choice) => choice.tracker === tracker && choice.destinationId === destinationId).map((choice) => choice.templateId);
 }
 
 /** Refuses a creation whose creator's connected account isn't the one they started it with. */
@@ -348,18 +349,20 @@ function requireSameAccount(link: TicketLinkRecord, account: { accountId: string
  * creation under the submission's ID, or that submission's creation resumed.
  * A submission already linked answers with its link. Refused while another
  * attempt holds it, and when it is someone else's, another thread's, or
- * started with another account. One transaction.
+ * started with another account; a new creation, also when the project
+ * doesn't offer its template in its destination. One transaction.
  */
 export async function claimTicketCreation(
   store: Store,
   identity: Identity | null,
-  args: { threadId: string; tracker: TrackerId; creationId: string; holder: string; accountId: string } & ThreadPages,
+  args: { threadId: string; tracker: TrackerId; creationId: string; holder: string; accountId: string; destinationId: string; templateId: string | null } & ThreadPages,
   now: number,
 ): Promise<CreationClaim> {
   const { tickets, user, account } = await requireAccount(store, identity, args.tracker);
   const { thread, project } = await ticketThread(store, user, args.threadId);
   if (account.accountId !== args.accountId) fail("unavailable", `Your ${trackerLabel(args.tracker)} connection changed. Try again.`);
   await requireTrackerRoom(store, "write", user._id, now);
+  const templateOffered = args.templateId === null || offeredTemplates(await tickets.settings.find(project._id), args.tracker, args.destinationId).includes(args.templateId);
   const leaseUntil = now + CREATION_LEASE_MS;
   const common = {
     threadId: thread._id,
@@ -382,8 +385,9 @@ export async function claimTicketCreation(
     await tickets.links.patch(earlier._id, { claimToken: args.holder, leaseUntil });
     // Every creation records its link back when it is submitted, unless the thread had no link then.
     const url = earlier.linkBack === undefined ? null : webAddress(earlier.linkBack.url);
-    return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: url === null ? null : { url, title: earlier.linkBack!.title }, resumed: true } };
+    return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: url === null ? null : { url, title: earlier.linkBack!.title }, resumed: true, templateOffered } };
   }
+  if (!templateOffered) fail("invalid", TEMPLATE_NOT_OFFERED);
   if ((await unfinishedCreation(tickets, { threadId: thread._id, userId: user._id, tracker: args.tracker, accountId: account.accountId })) !== null) {
     fail("invalid", "You started a ticket on this thread that isn't finished yet. Close this dialog and choose Create ticket again to finish it.");
   }
@@ -408,7 +412,7 @@ export async function claimTicketCreation(
     linkedAt: now,
     createdFromCritiqs: true,
   });
-  return { status: "claimed", creation: { ...common, linkId, linkBack, resumed: false } };
+  return { status: "claimed", creation: { ...common, linkId, linkBack, resumed: false, templateOffered } };
 }
 
 /**
@@ -479,7 +483,7 @@ export interface CreateSteps {
   requireCreator(): Promise<TrackerPerson>;
   /** Their token, only while they are connected as the account they were checked with. */
   token(creator: TrackerPerson): Promise<TrackerToken>;
-  claim(ids: { creationId: string; holder: string; accountId: string }): Promise<CreationClaim>;
+  claim(ids: { creationId: string; holder: string; accountId: string; destinationId: string; templateId: string | null }): Promise<CreationClaim>;
   finish(hold: TicketHold, ticket: CreatedTicket, linkBackAdded: boolean): Promise<TicketLinkView>;
   release(hold: TicketHold, end: CreationEnd): Promise<void>;
   /** The thread's capture image; null when it can't be read. */
@@ -534,7 +538,8 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
   const label = trackerLabel(ticket.tracker);
   const creator = await steps.requireCreator();
   const token = await steps.token(creator);
-  const claim = await steps.claim({ creationId: ticket.submissionId, holder: steps.newId(), accountId: creator.accountId });
+  const templateId = ticket.templateId ?? null;
+  const claim = await steps.claim({ creationId: ticket.submissionId, holder: steps.newId(), accountId: creator.accountId, destinationId: ticket.destinationId, templateId });
   if (claim.status === "linked") return claim.view;
   const held = claim.creation;
   const adapter = heldAdapter(steps, ticket.tracker, deployment, fetchFn, held);
@@ -553,9 +558,11 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
       const made = await found();
       if (made !== null) return await linkCreated(steps, adapter, token, held, made);
     }
+    // Checked only before the tracker is asked to create: a ticket made already is linked whatever the project offers now.
+    if (!held.templateOffered) fail("invalid", TEMPLATE_NOT_OFFERED);
     const capture = held.captureFileId === null || adapter.uploadImage === undefined ? null : await uploadCapture(steps, adapter.uploadImage, token, held.captureFileId);
     const body = ticketBody(ticket.body, { capture, attribution: ticket.createdFromCritiqs ? { name: held.name } : null, link: held.linkBack?.url ?? null });
-    const outcome = await adapter.create(token, { destinationId: ticket.destinationId, title: ticket.title, body, labels: [], creationId: held.creationId });
+    const outcome = await adapter.create(token, { destinationId: ticket.destinationId, title: ticket.title, body, labels: ticket.labelIds ?? [], templateId, creationId: held.creationId });
     switch (outcome.status) {
       case "created":
         return await linkCreated(steps, adapter, token, held, outcome.ticket);

@@ -15,8 +15,10 @@ backend tests, **Your trackers** on Convex for Linear, through Linear's
 sign-in or a pasted API key, and, on Convex for Linear, creating a ticket from
 a thread (with the capture uploaded into it) or linking an existing one, and
 showing linked tickets on pins, the thread list, the thread window, and
-comments added to a mockup. Not built yet: AI drafting, templates, labels, a
-project's default destination, status updates, GitHub Issues, and Jira.
+comments added to a mockup; and, on Convex for Linear, drafting with Critiqs
+AI, the team's Linear templates turned on per project by its owners, and
+labels suggested from tags. Not built yet: a project's default destination,
+status updates, GitHub Issues, and Jira.
 
 ## Outcomes
 
@@ -135,8 +137,9 @@ What this settles:
 above. **Built for Linear:** the menu items, Create ticket with its team
 (remembered per person and project), title, text filled without AI, and
 **Created from Critiqs**; and Link ticket with search and the optional
-comment. Templates, labels, and the project's default destination are not
-built.
+comment; the Template choice, **Draft with Critiqs AI**, and labels suggested
+from the thread's tags, each removable. The project's default destination is
+not built.
 
 The thread window's **⋯** menu offers **Create ticket…** and **Link ticket…**.
 Each shows the trackers the person has connected; with none, it offers to
@@ -153,6 +156,10 @@ connect one.
   reviews the draft before it is created.
 - **Labels:** suggested from the thread's tags.
 - **Created from Critiqs:** on by default; see [Attribution](#attribution).
+
+Choosing another team drops a chosen template for the standard format;
+until that draft loads, Create waits, and if it can't load, the dialog says why
+and offers **Try again**.
 
 The standard format is the thread's handoff, as the Markdown export writes it:
 the first message as the summary, then the link, screen, target, scope,
@@ -234,9 +241,22 @@ they are off until turned on.
   from the thread. Without AI, Critiqs puts the thread's summary and context
   into the template's first section and leaves the rest for the person.
 
-**Proposed:** templates are turned on per project, by its owners, because a
-template belongs to a team rather than one person; and a template can be
-matched to a tag, so a thread tagged Bug starts from the team's bug template.
+**Proposed, and built for Linear:** templates are turned on per project, by
+its owners, because a template belongs to a team rather than one person. In
+the project's settings (Tags and AI, then Tickets), **Use the team's ticket
+templates** is off until turned on; then the owner turns on, one by one, the
+templates of their own Linear teams to offer. Create ticket offers a team's
+turned-on templates in a **Template** menu beside **Critiqs's standard format**,
+reading them from Linear for each draft; choosing one fills the draft from it
+(if its draft can't be read, the template and draft before it stay), and the
+new issue is created from that template, so Linear applies its other
+defaults, such as labels, under the person's title and text. Turning templates
+off keeps the choice for next time, and doesn't stop a retry from finding an
+issue Linear already created from one. Built: team templates only; a workspace's
+templates, which belong to no team, aren't offered yet.
+
+**Proposed:** a template can be matched to a tag, so a thread tagged Bug starts
+from the team's bug template.
 
 ## AI drafting
 
@@ -249,6 +269,41 @@ Drafting is an AI request like search or a mockup change:
 - The draft shows its estimated cost before it is made, as the model menu does.
 - When AI is off, out of credits, or fails, the draft is filled without AI and
   says so. Creating a ticket never depends on AI.
+
+**Built for Linear:** the Create dialog opens with the draft filled without
+AI; **Draft with Critiqs AI**, with the model's cost beside it, replaces the
+title and text with Critiqs AI's draft from the thread and the chosen
+template, for the person to edit. Critiqs AI writes plain text, never
+Markdown: a short title, and text for each section the thread gives facts
+for, named by one of the template's headings (without a template, or with one
+that has no headings, Critiqs's standard sections: Summary, Steps to
+reproduce, Expected, Actual, and Context), as paragraphs and a list, numbered
+for steps. It is told never to invent facts, and the dialog asks the person to
+check the draft before creating; Critiqs doesn't check the draft's claims
+against the thread. Critiqs AI reads only the messages, tags, screen, target,
+and scope: never the page's address, view state, or the thread's link, which
+can carry a prototype's sign-in token.
+
+Critiqs writes the draft's Markdown itself. The headings are the template's
+top-level headings, either style, each once and in the template's order; a
+section the AI left empty keeps its heading, a standard section it left empty
+is left out, and text it wrote for a section the template doesn't have is
+dropped. Under each heading goes the AI's text, with the line breaks inside a
+paragraph made spaces and every ASCII punctuation character escaped except
+`, ; ? ! ' " %`, which mean something only after a `[` or `<`. So nothing
+Critiqs AI writes renders as a link, web or email address, image, HTML, code,
+heading, list, quote, or table: it reads exactly as written. Critiqs ends the
+text with the thread's link, the only link in it. Where the backend lists
+models, **Draft with Critiqs AI** waits until the model and its cost show,
+and says so when they can't load. When the project needs the person's own AI,
+the notice offers **Set up your AI**, which opens Your AI.
+Each person may ask for 10 drafts a minute.
+
+**Proposed, and built for Linear:** labels are suggested from the thread's
+tags: the team's and workspace's labels whose names match a tag, as Critiqs
+compares tags, show under the text, each removable, and are added to the
+ticket. At most five are suggested, and never two of one single-select label
+group, which Linear refuses, so the suggestion as it is always creates.
 
 ## Showing linked tickets
 

@@ -6,12 +6,14 @@ import type {
   AiSettingsInput,
   AiSettingsView,
   AiTestResult,
+  AiTicketDraft,
   PersonalAiSettingsInput,
   PersonalAiSettingsView,
   SearchResponse,
 } from "@critiqs/core";
 import {
   type CreditSteps,
+  draftTicketWithAi,
   groupDueTags,
   keyBinding,
   listModels as listProviderModels,
@@ -22,6 +24,7 @@ import {
   runSearch,
   sealKey,
   testConnection,
+  TICKET_AI,
 } from "@critiqs/server";
 import { createStructuredModel } from "@critiqs/server/ai-providers";
 import { v } from "convex/values";
@@ -29,11 +32,13 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, action, internalAction } from "./_generated/server";
 import { deployment } from "./lib/ai";
+import { exportPages, ticketsDeployment, trackerToken } from "./lib/tickets";
+import { trackerValidator } from "./lib/validators";
 import { run } from "./lib/store";
 
 // Critiqs's model calls: natural-language search with insights, saving and
 // testing a project's AI connection or a person's own, automatic tag
-// grouping, and Critiqs AI's turns in mockup threads. They run in
+// grouping, Critiqs AI's turns in mockup threads, and ticket drafts. They run in
 // Convex's Node runtime, where the AI SDK and provider packages load; every
 // read and write is a separate transaction, with authorization checked in
 // each before any model call.
@@ -110,6 +115,37 @@ export const mockupReply = action({
       });
       return { ...result, messageId: result.messageId as Id<"messages"> };
     }),
+});
+
+/**
+ * A ticket's title and text drafted by Critiqs AI from the thread, in the
+ * template the person chose, if any, for them to edit in the Create dialog.
+ * When Critiqs AI can't draft it (AI off, out of credits, the provider
+ * failed), the draft is filled without AI and says why.
+ */
+export const draftTicket = action({
+  args: {
+    threadId: v.id("threads"),
+    tracker: trackerValidator,
+    destinationId: v.string(),
+    templateId: v.union(v.string(), v.null()),
+    model: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<AiTicketDraft> =>
+    run(() =>
+      draftTicketWithAi(
+        {
+          prepare: () => ctx.runMutation(internal.tickets.prepareAiDraft, args),
+          token: (person) => trackerToken(ctx, person, args.tracker),
+          loadPage: exportPages(ctx),
+          ...credits(ctx),
+          model: (connection) => createStructuredModel(connection, { timeoutMs: TICKET_AI.timeoutMs }),
+          ai: deployment(),
+        },
+        ticketsDeployment(),
+        args,
+      ),
+    ),
 });
 
 /** Saves a project's AI settings. A new key is encrypted here and only its ciphertext is stored. */

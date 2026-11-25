@@ -634,8 +634,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
     expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
-    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true });
-    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true });
+    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, drafting: true });
+    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true });
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id" }).linear).toBeNull();
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id", CRITIQS_LINEAR_CLIENT_SECRET: "s" })).toEqual({
       encryptionKey: KEY,

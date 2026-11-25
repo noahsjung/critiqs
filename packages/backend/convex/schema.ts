@@ -643,6 +643,8 @@ export default defineSchema({
   /** A project's ticket settings. No record means templates off and Resolve when done off. */
   ticketSettings: defineTable({
     projectId: v.id("projects"),
+    /** Whether the Create dialog offers the chosen templates; absent means off. */
+    templatesOn: v.optional(v.boolean()),
     templates: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string() })),
     resolveWhenDone: v.boolean(),
     defaults: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), name: v.string() })),

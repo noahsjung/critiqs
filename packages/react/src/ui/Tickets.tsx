@@ -2,6 +2,9 @@ import {
   TRACKERS,
   type TicketBadge,
   type TicketDestination,
+  type TicketDraft,
+  type TicketDraftOptions,
+  type TicketLabel,
   type TicketLinkView,
   type TicketSearchResult,
   type TicketStatus,
@@ -16,6 +19,7 @@ import { errorMessage, useTransport } from "../transport.ts";
 import { Dialog } from "./common.tsx";
 import { DialogHeader, Select, SettingRow } from "./ds.tsx";
 import { CloseIcon, TicketIcon } from "./icons.tsx";
+import { ModelChoice } from "./mockup/MockupPanel.tsx";
 
 // Tickets linked to threads: the chips under the thread window's header, the
 // key and status on list rows and pins, and the dialogs that create a ticket
@@ -38,6 +42,10 @@ export interface TicketsOffer {
   onYourTrackers: () => void;
   /** The signed-in person, so what the dialogs remember in this browser is theirs alone. */
   personId: string;
+  /** The backend says which models the person's AI connection offers, and what each costs. */
+  modelLists?: boolean;
+  /** Opens Your AI, for a draft that needs the person's own AI first; null where they have none to set up. */
+  onSetUpAi?: (() => void) | null;
 }
 
 /** The trackers the person has connected, in the order the backend offers them. */
@@ -154,19 +162,38 @@ function TrackerRow({ accounts, value, onChange, disabled }: { accounts: Tracker
 
 type Loaded<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; message: string };
 
+/** Critiqs's standard format, in the Template menu. */
+const STANDARD = "";
+
+/** What one request with the model costs, as the model menu says it: "about 6 credits"; null for an own key, which costs none. */
+function draftCost(model: { credits?: number; estimated?: true } | undefined): string | null {
+  if (model?.credits === undefined) return null;
+  return `${model.estimated ? "About " : ""}${model.credits === 1 ? "1 credit" : `${model.credits} credits`}`;
+}
+
 /**
  * Creates a ticket from the thread: the tracker (among those connected), where
- * it goes (remembered per person, project, and tracker), and the title and text filled from the
- * thread, both editable, with **Created from Critiqs** defaulting to the
- * person's choice in Your trackers. When the person started a ticket on the
- * thread that didn't finish, the dialog finishes that one, under its
- * submission ID, rather than starting another.
+ * it goes (remembered per person, project, and tracker), and the title and
+ * text filled from the thread, both editable, with **Created from Critiqs**
+ * defaulting to the person's choice in Your trackers. When the person started
+ * a ticket on the thread that didn't finish, the dialog finishes that one,
+ * under its submission ID, rather than starting another.
+ *
+ * Where the backend drafts (`drafting`), it also offers the templates the
+ * project turned on for the destination, which fill the draft without AI
+ * when chosen; **Draft with Critiqs AI**, with its cost shown first, which
+ * fills it from the thread and the chosen template, or says why it couldn't
+ * and fills it without AI; and the destination's labels that match the
+ * thread's tags, each removable.
  */
 export function CreateTicketDialog({
   threadId,
   projectId,
   personId,
   accounts,
+  drafting = false,
+  modelLists = false,
+  onSetUpAi = null,
   onClose,
   onCreated,
   returnFocus,
@@ -177,11 +204,18 @@ export function CreateTicketDialog({
   personId: string;
   /** The person's connected trackers; at least one. */
   accounts: TrackerAccountView[];
+  /** The backend drafts with AI and from templates, and suggests labels. */
+  drafting?: boolean;
+  /** The backend says which models the person's AI connection offers, and what each costs. */
+  modelLists?: boolean;
+  /** Opens Your AI, which closes this dialog first; null where the person has none to set up. */
+  onSetUpAi?: (() => void) | null;
   onClose: () => void;
   onCreated: (ticket: TicketLinkView) => void;
   returnFocus?: HTMLElement | null;
 }) {
-  const tickets = useTransport().tickets!;
+  const transport = useTransport();
+  const tickets = transport.tickets!;
   const [tracker, setTracker] = useState<TrackerId>(accounts[0]!.tracker);
   const [destinations, setDestinations] = useState<Loaded<TicketDestination[]>>({ status: "loading" });
   const [remembered, remember] = useStoredState<string | null>(`critiqs:ticket-destination:${projectId}:${personId}:${tracker}`, null);
@@ -192,11 +226,36 @@ export function CreateTicketDialog({
   // The server names the person's unfinished one, which the dialog finishes instead of starting another.
   const submissions = useRef(new Map<TrackerId, string>());
   const [resuming, setResuming] = useState(false);
-  const [drafting, setDrafting] = useState(true);
+  /** What is filling the title and text: the thread without AI, Critiqs AI, or nothing. */
+  const [filling, setFilling] = useState<"plain" | "ai" | null>("plain");
+  /**
+   * Whether the title and text are for a tracker or team no longer chosen,
+   * or not loaded yet: their replacement is loading or couldn't load. Create
+   * waits until a draft loads for the choice now.
+   */
+  const [stale, setStale] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offer, setOffer] = useState<TicketDraftOptions>({ templates: [], labels: [] });
+  const [templateId, setTemplateId] = useState(STANDARD);
+  /** A template whose draft is loading: it is chosen once its draft loads; if it can't load, the template and draft before it stay. */
+  const [choosing, setChoosing] = useState<string | null>(null);
+  const [labels, setLabels] = useState<TicketLabel[]>([]);
+  /** What the last draft by Critiqs AI said: that it drafted, or why it couldn't, and whether setting up Your AI would let it. */
+  const [aiNote, setAiNote] = useState<{ text: string; setUpAi: boolean } | null>(null);
+  /** Answers to an earlier draft request are ignored once another starts. */
+  const latestDraft = useRef(0);
   const titleId = useId();
   const bodyId = useId();
+
+  // The models the person's AI connection offers here, for the cost and the model menu, as in Mockup mode.
+  const choiceQuery = transport.useAiChoice(drafting && modelLists ? projectId : null);
+  const choice = choiceQuery.status === "ready" ? choiceQuery.data : null;
+  const [rememberedModel, rememberModel] = useStoredState<string | null>(`critiqs:ticket-model:${projectId}`, null);
+  const models = choice?.models ?? [];
+  const model = models.find((entry) => entry.id === rememberedModel) ?? models.find((entry) => entry.id === choice?.defaultModel) ?? models[0];
+  // Where the backend lists models, a draft waits for the model and its cost, so a paid one never starts before its cost shows.
+  const choiceLoaded = !modelLists || choice !== null;
 
   useEffect(() => {
     let cancelled = false;
@@ -210,34 +269,122 @@ export function CreateTicketDialog({
     };
   }, [tickets, tracker]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setDrafting(true);
-    setResuming(false);
-    tickets.ticketDraft(threadId, tracker).then(
+  /** Fills the title and text: without AI, or by Critiqs AI, which may say why it filled them without AI instead. A failed request keeps them, and says why. */
+  function fill<T extends { title: string; body: string }>(by: "plain" | "ai", load: () => Promise<T>, after?: (draft: T) => void, failed?: () => void) {
+    const request = ++latestDraft.current;
+    setFilling(by);
+    setError(null);
+    load().then(
       (draft) => {
-        if (cancelled) return;
+        if (latestDraft.current !== request) return;
         setTitle(draft.title);
         setBody(draft.body);
-        setAttribution(draft.createdFromCritiqs);
-        if (draft.resumeSubmissionId !== null) submissions.current.set(tracker, draft.resumeSubmissionId);
-        setResuming(draft.resumeSubmissionId !== null);
-        setDrafting(false);
+        setStale(false);
+        after?.(draft);
+        setFilling(null);
       },
       (failure) => {
-        if (cancelled) return;
+        if (latestDraft.current !== request) return;
         setError(errorMessage(failure));
-        setDrafting(false);
+        failed?.();
+        setFilling(null);
       },
     );
+  }
+
+  /**
+   * Fills the standard format's draft for the tracker, in place of text for
+   * another tracker or team: until it loads, Create waits, and if it can't
+   * load, the dialog says why and offers Try again.
+   */
+  function replaceDraft(after?: (draft: TicketDraft) => void) {
+    setStale(true);
+    fill(
+      "plain",
+      () => tickets.ticketDraft(threadId, tracker),
+      (draft) => {
+        if (draft.resumeSubmissionId !== null) submissions.current.set(tracker, draft.resumeSubmissionId);
+        setResuming(draft.resumeSubmissionId !== null);
+        after?.(draft);
+      },
+    );
+  }
+
+  useEffect(() => {
+    setResuming(false);
+    setTemplateId(STANDARD);
+    setChoosing(null);
+    setAiNote(null);
+    replaceDraft((draft) => setAttribution(draft.createdFromCritiqs));
     return () => {
-      cancelled = true;
+      latestDraft.current++;
     };
+    // `replaceDraft` only sets this dialog's state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickets, threadId, tracker]);
 
   const options = destinations.status === "ready" ? destinations.data : [];
   const destination = options.find((option) => option.id === remembered) ?? options[0] ?? null;
-  const ready = destination !== null && !drafting && !busy && title.trim() !== "";
+  const destinationId = destination?.id ?? null;
+
+  // The destination's templates and suggested labels; a template from another destination no longer applies.
+  useEffect(() => {
+    setOffer({ templates: [], labels: [] });
+    setLabels([]);
+    if (!drafting || destinationId === null) return;
+    let cancelled = false;
+    tickets.ticketDraftOptions(threadId, tracker, destinationId).then(
+      (data) => {
+        if (cancelled) return;
+        setOffer(data);
+        setLabels(data.labels);
+      },
+      // Templates and labels are extras: the draft works without them.
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [tickets, drafting, threadId, tracker, destinationId]);
+
+  const chooseDestination = (id: string) => {
+    remember(id);
+    // A template chosen, or any format still loading (whose failure would keep the template before it), belongs to the team before.
+    if (choosing !== null || templateId !== STANDARD) {
+      setChoosing(null);
+      setTemplateId(STANDARD);
+      setAiNote(null);
+      replaceDraft();
+    }
+  };
+
+  const chooseTemplate = (id: string) => {
+    if (destinationId === null) return;
+    setChoosing(id);
+    fill(
+      "plain",
+      () => tickets.ticketDraft(threadId, tracker, id === STANDARD ? undefined : { destinationId, templateId: id }),
+      () => {
+        setTemplateId(id);
+        setAiNote(null);
+        setChoosing(null);
+      },
+      () => setChoosing(null),
+    );
+  };
+
+  const draftWithAi = () => {
+    if (destinationId === null || !choiceLoaded) return;
+    setAiNote(null);
+    fill(
+      "ai",
+      () => tickets.draftTicketWithAi({ threadId, tracker, destinationId, templateId: templateId === STANDARD ? null : templateId, ...(model === undefined ? {} : { model: model.id }) }),
+      (draft) => setAiNote({ text: draft.notice ?? "Drafted by Critiqs AI from the thread. Check it before creating.", setUpAi: draft.noticeCode === "setup-ai" }),
+    );
+  };
+
+  const ready = destination !== null && filling === null && !stale && !busy && title.trim() !== "";
+  const cost = draftCost(model);
 
   const submit = async () => {
     if (!ready) return;
@@ -246,7 +393,18 @@ export function CreateTicketDialog({
     const submissionId = submissions.current.get(tracker) ?? crypto.randomUUID();
     submissions.current.set(tracker, submissionId);
     try {
-      const created = await tickets.createTicket({ threadId, submissionId, tracker, destinationId: destination.id, title, body, createdFromCritiqs: attribution });
+      const created = await tickets.createTicket({
+        threadId,
+        submissionId,
+        tracker,
+        destinationId: destination.id,
+        title,
+        body,
+        createdFromCritiqs: attribution,
+        // Older backends take neither.
+        ...(templateId === STANDARD ? {} : { templateId }),
+        ...(labels.length === 0 ? {} : { labelIds: labels.map((label) => label.id) }),
+      });
       remember(destination.id);
       onCreated(created);
     } catch (failure) {
@@ -282,20 +440,80 @@ export function CreateTicketDialog({
                   labelledBy={labelId}
                   disabled={busy || destinations.status === "loading" || options.length === 0}
                   options={options.map((option) => ({ value: option.id, label: option.name, ...(option.key === null ? {} : { detail: option.key }) }))}
-                  onChange={remember}
+                  onChange={chooseDestination}
                 />
               )
             }
           </SettingRow>
+          {offer.templates.length > 0 && (
+            <SettingRow label="Template">
+              {(labelId) => (
+                <Select
+                  value={choosing ?? templateId}
+                  labelledBy={labelId}
+                  disabled={busy || filling !== null}
+                  options={[{ value: STANDARD, label: "Critiqs's standard format" }, ...offer.templates.map((template) => ({ value: template.id, label: template.name }))]}
+                  onChange={chooseTemplate}
+                />
+              )}
+            </SettingRow>
+          )}
         </div>
         <label className="stacked" htmlFor={titleId}>
           <span className="field-label">Title</span>
-          <input id={titleId} className="field" value={title} disabled={drafting || busy} placeholder={drafting ? "Filling from the thread…" : ""} onChange={(event) => setTitle(event.target.value)} />
+          <input id={titleId} className="field" value={title} disabled={filling !== null || busy} placeholder={filling !== null ? "Filling from the thread…" : ""} onChange={(event) => setTitle(event.target.value)} />
         </label>
         <label className="stacked" htmlFor={bodyId}>
           <span className="field-label">Text</span>
-          <textarea id={bodyId} className="field ticket-body" rows={9} value={body} disabled={drafting || busy} onChange={(event) => setBody(event.target.value)} />
+          <textarea id={bodyId} className="field ticket-body" rows={9} value={body} disabled={filling !== null || busy} onChange={(event) => setBody(event.target.value)} />
         </label>
+        {drafting && (
+          <div className="ticket-ai">
+            <button type="button" className="btn small" disabled={busy || filling !== null || destination === null || !choiceLoaded} onClick={draftWithAi}>
+              {filling === "ai" ? "Drafting…" : "Draft with Critiqs AI"}
+            </button>
+            {models.length > 1 && model !== undefined && <ModelChoice models={models} value={model.id} onChange={rememberModel} />}
+            {cost !== null && <span className="note">{cost}</span>}
+            {choiceQuery.status === "error" && <span className="note">Couldn't load the AI's models.</span>}
+          </div>
+        )}
+        {aiNote !== null &&
+          (aiNote.setUpAi && onSetUpAi !== null ? (
+            <div className="note row between">
+              <span role="status">{aiNote.text}</span>
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => {
+                  onClose();
+                  onSetUpAi();
+                }}
+              >
+                Set up your AI
+              </button>
+            </div>
+          ) : (
+            <p className="note" role="status">
+              {aiNote.text}
+            </p>
+          ))}
+        {labels.length > 0 && (
+          <div className="ticket-labels">
+            <span className="field-label" id={`${titleId}-labels`}>
+              Labels
+            </span>
+            <ul aria-labelledby={`${titleId}-labels`}>
+              {labels.map((label) => (
+                <li key={label.id} className="ticket-label">
+                  {label.name}
+                  <button type="button" className="icon-btn" aria-label={`Remove label ${label.name}`} disabled={busy} onClick={() => setLabels(labels.filter((each) => each.id !== label.id))}>
+                    <CloseIcon />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <label className="ticket-check">
           <input type="checkbox" checked={attribution} disabled={busy} onChange={(event) => setAttribution(event.target.checked)} />
           Created from Critiqs
@@ -304,6 +522,14 @@ export function CreateTicketDialog({
           <p className="error" role="alert">
             {error}
           </p>
+        )}
+        {stale && filling === null && (
+          <div className="note row between">
+            <span>Create waits until the draft for this {DESTINATION_LABEL[tracker].toLowerCase()} loads.</span>
+            <button type="button" className="btn small" disabled={busy} onClick={() => replaceDraft()}>
+              Try again
+            </button>
+          </div>
         )}
         <div className="ds-actions">
           <button type="submit" className="btn primary" disabled={!ready}>

@@ -277,7 +277,8 @@ checkout. Self-hosted deployments have no plans.
 ## Tickets
 
 **Agreed (2026-11-25), partly built** (Linear on Convex: Your trackers,
-creating and linking tickets, and showing them). Beyond the first release's scope. From a
+creating and linking tickets, showing them, drafting with Critiqs AI, and the
+team's templates). Beyond the first release's scope. From a
 thread, a reviewer creates a ticket in Linear, GitHub Issues, or Jira, or links
 the thread to an existing one, using their own tracker account connected in
 **Your trackers**. Critiqs AI drafts the ticket from the thread, filling the

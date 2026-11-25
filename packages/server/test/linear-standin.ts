@@ -11,6 +11,26 @@ export interface StandInIssue {
   state: { name: string; type: string };
   /** When the issue was archived; Linear's lists leave archived issues out unless asked with `includeArchived: true`. */
   archivedAt?: string;
+  /** The template it was created from, and the labels it was created with. */
+  templateId?: string;
+  labelIds?: string[];
+}
+
+export interface StandInLabel {
+  id: string;
+  name: string;
+  teamId: string | null;
+  isGroup?: boolean;
+  groupType?: "singleSelect" | "multiSelect";
+  parentId?: string;
+}
+
+/** An issue template in the stand-in: a team's, or the workspace's when `teamId` is null. */
+export interface StandInTemplate {
+  id: string;
+  name: string;
+  teamId: string | null;
+  content: string | null;
 }
 
 export interface LinearStandIn {
@@ -21,6 +41,15 @@ export interface LinearStandIn {
   attachments: { issueId: string; url: string; title: string | null }[];
   comments: { issueId: string; body: string }[];
   uploads: { path: string; contentType: string | null; size: number }[];
+  /** Issue templates, which tests may change between drafts. */
+  templates: StandInTemplate[];
+  /**
+   * Labels: a team's, or the workspace's when `teamId` is null. A group
+   * (`isGroup`) holds the labels whose `parentId` names it; an issue takes at
+   * most one label of a single-select group, which a group without a
+   * `groupType` is, as in Linear.
+   */
+  labels: StandInLabel[];
   /** Every GraphQL operation's name, in order. */
   operations: string[];
   /** The token each operation was sent with, in the same order. */
@@ -74,6 +103,18 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
     attachments: [],
     comments: [],
     uploads: [],
+    templates: [
+      { id: "tpl-bug", name: "Bug report", teamId: "team-eng", content: "## Summary\n\nWhat happened?\n\n## Steps to reproduce\n\n1.\n\n## Expected\n\n## Actual\n" },
+      { id: "tpl-feature", name: "Feature request", teamId: "team-eng", content: "## Problem\n\n## Proposal\n" },
+      { id: "tpl-copy", name: "Copy change", teamId: "team-des", content: null },
+      { id: "tpl-workspace", name: "Workspace template", teamId: null, content: "## Notes\n" },
+    ],
+    labels: [
+      { id: "label-bug", name: "Bug", teamId: "team-eng" },
+      { id: "label-wording", name: "Wording", teamId: null },
+      { id: "label-des-bug", name: "Bug", teamId: "team-des" },
+      { id: "label-area", name: "Area", teamId: "team-eng", isGroup: true },
+    ],
     operations: [],
     tokens: [],
     intercept: null,
@@ -109,14 +150,28 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
         return { searchIssues: { nodes: listed().filter((issue) => issue.title.toLowerCase().includes(term)).map(view) } };
       }
       case "CritiqsCreate": {
-        const input = variables.input as { id?: string; teamId: string; title: string; description: string };
+        const input = variables.input as { id?: string; teamId: string; title: string; description: string; templateId?: string; labelIds?: string[] };
         const team = TEAMS.find((entry) => entry.id === input.teamId);
         if (team === undefined) return Response.json({ errors: [{ message: "Entity not found: Team", extensions: { code: "INPUT_ERROR" } }] }, { status: 400 });
         if (input.id !== undefined && standIn.issues.some((issue) => issue.id === input.id)) {
           return Response.json({ errors: [{ message: "Issue with this id already exists", extensions: { code: "INPUT_ERROR" } }] }, { status: 400 });
         }
         const number = Math.max(0, ...standIn.issues.filter((issue) => issue.teamId === team.id).map((issue) => Number(issue.identifier.split("-")[1]))) + 1;
-        const issue = { id: input.id ?? crypto.randomUUID(), identifier: `${team.key}-${number}`, title: input.title, description: input.description, teamId: team.id, state: { name: "Triage", type: "triage" } };
+        if (input.templateId !== undefined && !standIn.templates.some((template) => template.id === input.templateId)) {
+          return Response.json({ errors: [{ message: "Entity not found: Template", extensions: { code: "INPUT_ERROR" } }] }, { status: 400 });
+        }
+        const labelError = invalidLabels(input.labelIds ?? [], team.id);
+        if (labelError !== null) return Response.json({ errors: [{ message: labelError, extensions: { code: "INPUT_ERROR" } }] }, { status: 400 });
+        const issue: StandInIssue = {
+          id: input.id ?? crypto.randomUUID(),
+          identifier: `${team.key}-${number}`,
+          title: input.title,
+          description: input.description,
+          teamId: team.id,
+          state: { name: "Triage", type: "triage" },
+          ...(input.templateId === undefined ? {} : { templateId: input.templateId }),
+          ...(input.labelIds === undefined ? {} : { labelIds: input.labelIds }),
+        };
         standIn.issues.push(issue);
         return { issueCreate: { success: true, issue: view(issue) } };
       }
@@ -134,6 +189,33 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
         standIn.comments.push(input);
         return { commentCreate: { success: true } };
       }
+      case "CritiqsTemplates":
+      case "CritiqsTeamTemplates":
+      case "CritiqsTemplate": {
+        const found = standIn.templates.filter(
+          (template) =>
+            template.teamId !== null &&
+            (operation !== "CritiqsTeamTemplates" || template.teamId === variables.team) &&
+            (operation !== "CritiqsTemplate" || template.id === variables.id),
+        );
+        return {
+          templateSearch: found.map((template) => {
+            const team = TEAMS.find((entry) => entry.id === template.teamId)!;
+            return { id: template.id, name: template.name, team, ...(operation === "CritiqsTemplate" ? { content: template.content } : {}) };
+          }),
+        };
+      }
+      case "CritiqsLabels":
+        return {
+          issueLabels: {
+            nodes: standIn.labels
+              .filter((label) => label.isGroup !== true && (label.teamId === null || label.teamId === variables.team))
+              .map(({ id, name, parentId }) => {
+                const parent = standIn.labels.find((group) => group.id === parentId);
+                return { id, name, parent: parent === undefined ? null : { id: parent.id, groupType: parent.groupType ?? null } };
+              }),
+          },
+        };
       case "CritiqsUpload": {
         const id = standIn.uploads.length + 1;
         return {
@@ -146,6 +228,21 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
       default:
         return Response.json({ errors: [{ message: `Unknown operation ${operation}` }] }, { status: 400 });
     }
+  }
+
+  /** Why Linear refuses an issue's labels, as it does: one it can't find for the team, a group, or two of one single-select group; null when it takes them. */
+  function invalidLabels(ids: string[], teamId: string): string | null {
+    const groups = new Set<string>();
+    for (const id of ids) {
+      const label = standIn.labels.find((each) => each.id === id && (each.teamId === null || each.teamId === teamId));
+      if (label === undefined) return "Entity not found: IssueLabel";
+      if (label.isGroup === true) return "Label groups can't be applied to issues";
+      const group = standIn.labels.find((each) => each.id === label.parentId);
+      if (group === undefined || group.groupType === "multiSelect") continue;
+      if (groups.has(group.id)) return `Only one label of the group "${group.name}" can be applied to an issue`;
+      groups.add(group.id);
+    }
+    return null;
   }
 
   return standIn;

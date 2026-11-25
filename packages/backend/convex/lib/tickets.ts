@@ -1,6 +1,7 @@
-import type { TrackerId } from "@critiqs/core";
+import type { ExportPageLoader, TrackerId } from "@critiqs/core";
 import { type TicketsDeployment, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken } from "@critiqs/server";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { randomSecret } from "./tokens";
 
@@ -35,4 +36,10 @@ export async function trackerToken(ctx: ActionCtx, person: { userId: string; acc
     ticketsDeployment(),
     { userId, tracker, accountId },
   );
+}
+
+/** A thread's export pages for a draft: the same pages, and access checks, as the Markdown export. */
+export function exportPages(ctx: ActionCtx): ExportPageLoader {
+  return ({ projectId, threadIds, threadIndex, paginationOpts }) =>
+    ctx.runQuery(api.threads.exportThreads, { projectId: projectId as Id<"projects">, threadIds: threadIds as Id<"threads">[], threadIndex, paginationOpts });
 }

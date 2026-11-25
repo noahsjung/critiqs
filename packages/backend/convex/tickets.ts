@@ -1,4 +1,4 @@
-import type { TicketDestination, TicketDraft, TicketLinkView, TicketSearchResult } from "@critiqs/core";
+import type { TicketDestination, TicketDraft, TicketDraftOptions, TicketLinkView, TicketSearchResult, TicketTemplateSettings, TrackerTemplateGroup } from "@critiqs/core";
 import {
   addTicketLinkBack,
   claimTicketCreation,
@@ -6,27 +6,34 @@ import {
   createTicket,
   finishTicketCreation,
   finishTicketLink,
+  getTicketTemplateSettings,
   IMAGE_TYPES,
   imageTypeOf,
   linkTicket,
   listTicketDestinations,
-  prepareTicketDraft,
+  listTrackerTemplates,
+  prepareAiTicketDraft,
+  prepareDraft as prepareTicketDraft,
   prepareTicketLinkBack,
   releaseTicketHold,
+  requireTemplateOwner as requireTemplateOwnerOf,
   requireTicketCreator,
   requireTrackerAccount,
   saveTicketLinkBack,
+  saveTicketTemplateSettings,
   searchTickets,
   ticketDraft,
+  ticketDraftOptions,
   unlinkTicket,
 } from "@critiqs/server";
 import { v } from "convex/values";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { type ActionCtx, action, internalMutation, mutation } from "./_generated/server";
+import { type ActionCtx, action, internalMutation, mutation, query } from "./_generated/server";
+import { deployment as aiDeployment } from "./lib/ai";
 import { r2Config, r2Storage } from "./lib/r2";
 import { convexStore, identityOf, run } from "./lib/store";
-import { ticketsDeployment, trackerToken } from "./lib/tickets";
+import { exportPages, ticketsDeployment, trackerToken } from "./lib/tickets";
 import { ticketStatusValidator, trackerValidator } from "./lib/validators";
 import { threadPageWebsite } from "./notifications";
 
@@ -46,6 +53,9 @@ const createdTicket = v.object({
   site: v.union(v.string(), v.null()),
 });
 const hold = { linkId: v.string(), holder: v.string() };
+/** Critiqs's standard format (no template, or null), or a template the project offers in the destination. */
+const format = { destinationId: v.optional(v.string()), templateId: v.optional(v.union(v.string(), v.null())) };
+const templateChoice = v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string() });
 
 /** Where the signed-in person can create tickets in a tracker, such as their Linear teams. */
 export const destinations = action({
@@ -59,18 +69,60 @@ export const search = action({
   handler: async (ctx, args): Promise<TicketSearchResult[]> => run(() => searchTickets(trackerSteps(ctx, args.tracker), ticketsDeployment(), args)),
 });
 
-/** A new ticket's title and text from the thread, without AI, for the person to edit. */
+/**
+ * A new ticket's title and text from the thread, without AI, for the person
+ * to edit: Critiqs's standard format, or the template they chose, read from
+ * the tracker, with the thread's summary and context in its first section.
+ */
 export const draft = action({
-  args: { threadId: v.id("threads"), tracker: trackerValidator },
+  args: { threadId: v.id("threads"), tracker: trackerValidator, ...format },
   handler: async (ctx, args): Promise<TicketDraft> =>
     run(() =>
       ticketDraft(
         {
           prepare: () => ctx.runMutation(internal.tickets.prepareDraft, args),
-          // The same pages, and access checks, as the Markdown export.
-          loadPage: ({ projectId, threadIds, threadIndex, paginationOpts }) =>
-            ctx.runQuery(api.threads.exportThreads, { projectId: projectId as Id<"projects">, threadIds: threadIds as Id<"threads">[], threadIndex, paginationOpts }),
+          token: (person) => trackerToken(ctx, person, args.tracker),
+          loadPage: exportPages(ctx),
         },
+        ticketsDeployment(),
+        args,
+      ),
+    ),
+});
+
+/** What the Create dialog offers for a destination: the templates the project turned on there, and labels matching the thread's tags. */
+export const options = action({
+  args: { threadId: v.id("threads"), tracker: trackerValidator, destinationId: v.string() },
+  handler: async (ctx, args): Promise<TicketDraftOptions> =>
+    run(() =>
+      ticketDraftOptions(
+        { prepare: () => ctx.runMutation(internal.tickets.prepareDraft, args), token: (person) => trackerToken(ctx, person, args.tracker) },
+        ticketsDeployment(),
+        args,
+      ),
+    ),
+});
+
+/** The project's ticket templates, for its owners: off until turned on. */
+export const templateSettings = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args): Promise<TicketTemplateSettings> => run(async () => getTicketTemplateSettings(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/** Turns the project's ticket templates on or off and sets which it offers; owners only. */
+export const saveTemplateSettings = mutation({
+  args: { projectId: v.id("projects"), on: v.boolean(), templates: v.array(templateChoice) },
+  handler: async (ctx, args): Promise<TicketTemplateSettings> => run(async () => saveTicketTemplateSettings(convexStore(ctx), await identityOf(ctx), args, Date.now())),
+});
+
+/** The templates of the owner's own teams in the tracker, for choosing which the project offers. */
+export const trackerTemplates = action({
+  args: { projectId: v.id("projects"), tracker: trackerValidator },
+  handler: async (ctx, args): Promise<TrackerTemplateGroup[]> =>
+    run(() =>
+      listTrackerTemplates(
+        { requirePerson: () => ctx.runMutation(internal.tickets.requireOwnerAccount, args), token: (person) => trackerToken(ctx, person, args.tracker) },
+        ticketsDeployment(),
         args,
       ),
     ),
@@ -86,6 +138,8 @@ export const create = action({
     title: v.string(),
     body: v.string(),
     createdFromCritiqs: v.boolean(),
+    templateId: v.optional(v.union(v.string(), v.null())),
+    labelIds: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<TicketLinkView> =>
     run(() => {
@@ -157,8 +211,18 @@ export const requireAccount = internalMutation({
 });
 
 export const prepareDraft = internalMutation({
-  args: { threadId: v.id("threads"), tracker: trackerValidator },
+  args: { threadId: v.id("threads"), tracker: trackerValidator, ...format },
   handler: async (ctx, args) => run(async () => prepareTicketDraft(convexStore(ctx), await identityOf(ctx), { ...args, website: threadPageWebsite() }, Date.now())),
+});
+
+export const prepareAiDraft = internalMutation({
+  args: { threadId: v.id("threads"), tracker: trackerValidator, destinationId: v.string(), templateId: v.union(v.string(), v.null()), model: v.optional(v.string()) },
+  handler: async (ctx, args) => run(async () => prepareAiTicketDraft(convexStore(ctx), await identityOf(ctx), { ...args, website: threadPageWebsite() }, aiDeployment(), Date.now())),
+});
+
+export const requireOwnerAccount = internalMutation({
+  args: { projectId: v.id("projects"), tracker: trackerValidator },
+  handler: async (ctx, args) => run(async () => requireTemplateOwnerOf(convexStore(ctx), await identityOf(ctx), args, Date.now())),
 });
 
 export const requireCreator = internalMutation({
@@ -167,7 +231,15 @@ export const requireCreator = internalMutation({
 });
 
 export const claimCreate = internalMutation({
-  args: { threadId: v.id("threads"), tracker: trackerValidator, creationId: v.string(), holder: v.string(), accountId: v.string() },
+  args: {
+    threadId: v.id("threads"),
+    tracker: trackerValidator,
+    creationId: v.string(),
+    holder: v.string(),
+    accountId: v.string(),
+    destinationId: v.string(),
+    templateId: v.union(v.string(), v.null()),
+  },
   handler: async (ctx, args) => run(async () => claimTicketCreation(convexStore(ctx), await identityOf(ctx), { ...args, website: threadPageWebsite() }, Date.now())),
 });
 

@@ -19,6 +19,7 @@
     "./contract-addresses": "./test/contract-addresses.ts",
     "./contract-tickets": "./test/contract-tickets.ts",
     "./contract-ticket-links": "./test/contract-ticket-links.ts",
+    "./contract-ticket-drafts": "./test/contract-ticket-drafts.ts",
     "./linear-standin": "./test/linear-standin.ts"
   },
   "scripts": {

@@ -2288,8 +2288,11 @@ the backend, refreshes run one at a time, and `/critiqs/config` reports
 linking an existing one, and unlinking, with the rules in
 `packages/server/src/tickets/links.ts` and the adapter's search, create, link
 back (a URL attachment), comment, status, and capture upload (Linear's signed
-upload). The storage, token, sign-in, calls to trackers, and compatibility
-items below describe them.
+upload). Also built, for Linear on Convex: drafting with Critiqs AI, the
+project's ticket templates, and labels suggested from tags, with the rules in
+`packages/server/src/tickets/drafts.ts` and the adapter's `templates`,
+`template`, and `labels`. The storage, token, sign-in, calls to trackers,
+drafting, and compatibility items below describe them.
 
 **Proposed:** the technical choices.
 
@@ -2391,10 +2394,45 @@ items below describe them.
   server without background work renews them when tickets are used. Where no
   webhook can arrive, opening a thread checks its tickets' status, at most once
   every few minutes.
+- **Drafting and templates.** A project's ticket settings record whether its
+  templates are on (`templatesOn`, absent meaning off) and which it offers,
+  by tracker, destination, and template ID; only its owners read or change
+  them. Templates are read from the tracker for each draft (Linear's
+  `templateSearch`, team issue templates, their Markdown `content`), never
+  copied. The Create dialog asks `tickets:options` for a destination's
+  offered templates and the labels matching the thread's tags (at most five,
+  never two of one single-select Linear label group, so the suggestion as it
+  is always creates);
+  `tickets:draft` fills the chosen template without AI; `ai:draftTicket` asks
+  Critiqs AI, as a mockup turn does: one mutation checks the person, the
+  template, the per-minute limit, and the AI usage rule's connection, then
+  the action reads the thread's export and the template, asks the model
+  through `askPaid` for a structured `{ title, sections }`, plain text only:
+  each section `{ heading, text, items, numbered }`, its heading one of the
+  outline's names (the schema's `enum`). The outline is the template's
+  top-level headings, read by `markdownBlocks` (a port of commonmark.js's
+  block parser in `@critiqs/core`), or Critiqs's standard sections. The
+  answer is parsed at that boundary into `PlainText` pieces matched to the
+  outline by exact name, and `aiTicketText` writes the Markdown: the
+  outline's headings, the pieces with ASCII punctuation escaped, and the
+  thread's link. `ticketBody` sends the person's text unchanged, adding a
+  closing fence only when `markdownBlocks` finds it ends inside a top-level
+  code fence. The
+  model reads only the messages (authors, times, text), tags, screen, target,
+  and scope, never the page's address, view state, or the thread's link, which
+  can carry a prototype's sign-in token; the template's name and text and the
+  thread go inside the prompt's data block. Any failure there returns the
+  draft filled without AI with a notice, so creating never depends on AI.
+  Creating checks that a named template is one the project offers in that
+  destination before the tracker is asked to create it (a retry first looks
+  for the issue an earlier try made, whatever the project offers now), and
+  sends it to Linear as `templateId` with the chosen `labelIds`.
 - **Compatibility.** The backend reports `tickets` in `/critiqs/config`, with
   which trackers it offers and whether each uses sign-in or a pasted token,
-  and `threadTickets: true` where threads can create and link tickets; a
-  backend with only Your trackers leaves that out. The component shows Your
+  `threadTickets: true` where threads can create and link tickets, and
+  `drafting: true` where the Create dialog drafts with AI and templates and
+  owners choose templates; older backends leave these out, and the component
+  sends a template or labels only to a backend that reports `drafting`. The component shows Your
   trackers only with `tickets`, and **Create ticket…** and **Link ticket…**
   only with `threadTickets`, through an optional `tickets` part of its
   transport, as Mockup mode does with `mockups`. Linked tickets show wherever

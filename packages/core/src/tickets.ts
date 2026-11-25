@@ -128,6 +128,92 @@ export interface NewTicket {
   body: string;
   /** Whether the ticket says it came from Critiqs, with the thread's link. */
   createdFromCritiqs: boolean;
+  /**
+   * The tracker template the ticket was drafted from, one the project offers
+   * for the destination; the tracker applies its other defaults, such as
+   * labels, with the person's title and text taking precedence. Absent or
+   * null for Critiqs's standard format.
+   */
+  templateId?: string | null;
+  /** Labels to add, by the tracker's IDs, such as those suggested from the thread's tags. */
+  labelIds?: string[];
+}
+
+/** A tracker template the Create dialog offers, such as a Linear team's issue template. */
+export interface TicketTemplate {
+  id: string;
+  name: string;
+}
+
+/** A label in the tracker, such as a Linear team's. */
+export interface TicketLabel {
+  id: string;
+  name: string;
+}
+
+/**
+ * What the Create dialog offers for one destination: the templates the
+ * project turned on there (none while templates are off), and the
+ * destination's labels whose names match the thread's tags.
+ */
+export interface TicketDraftOptions {
+  templates: TicketTemplate[];
+  labels: TicketLabel[];
+}
+
+/** What a draft is filled into: Critiqs's standard format, or a template the project offers for the destination. */
+export interface TicketDraftFormat {
+  destinationId: string;
+  /** Null for Critiqs's standard format. */
+  templateId: string | null;
+}
+
+/** What asking Critiqs AI to draft a ticket sends. */
+export interface AiTicketDraftInput extends TicketDraftFormat {
+  threadId: string;
+  tracker: TrackerId;
+  /** One of the models the person's connection offers (`AiChoiceView`); without it, its default. */
+  model?: string;
+}
+
+/**
+ * A ticket's title and text drafted by Critiqs AI, or, when it couldn't
+ * draft (AI off, out of credits, the provider failed), filled from the
+ * thread without AI, with `notice` saying why. Creating a ticket never
+ * depends on AI.
+ */
+export interface AiTicketDraft {
+  title: string;
+  body: string;
+  drafted: "ai" | "plain";
+  /** Why Critiqs AI didn't draft it; null when it did. */
+  notice: string | null;
+  /** `setup-ai` when the person must set up Your AI first. */
+  noticeCode?: "setup-ai";
+}
+
+/** One tracker template a project offers in the Create dialog. */
+export interface TicketTemplateChoice {
+  tracker: TrackerId;
+  destinationId: string;
+  templateId: string;
+  /** The template's name when it was chosen; the dialog shows its current name from the tracker. */
+  name: string;
+}
+
+/**
+ * A project's ticket templates, for its owners. Off until turned on; while
+ * off, tickets use Critiqs's standard format and no template is offered.
+ */
+export interface TicketTemplateSettings {
+  on: boolean;
+  templates: TicketTemplateChoice[];
+}
+
+/** A destination's templates in the tracker, for an owner choosing which to offer. */
+export interface TrackerTemplateGroup {
+  destination: TicketDestination;
+  templates: TicketTemplate[];
 }
 
 /** What linking a thread to an existing ticket sends. */
@@ -178,6 +264,12 @@ export interface TicketsConfig {
    * Your trackers, from before creating and linking were built, leaves it out.
    */
   threadTickets?: boolean;
+  /**
+   * Whether the Create dialog can draft with Critiqs AI and from the
+   * tracker's templates, suggest labels from tags, and owners can turn
+   * templates on. Absent on backends from before these.
+   */
+  drafting?: boolean;
 }
 
 /**
@@ -207,11 +299,7 @@ export interface TicketTextOptions {
  */
 export function ticketText(thread: ExportThread, options: TicketTextOptions): { title: string; body: string } {
   const [first] = thread.messages;
-  const capture = !thread.hasCapture
-    ? "none"
-    : options.captureNote === "uploaded"
-      ? "attached to this ticket"
-      : "saved with the thread; open its link to view it";
+  const capture = captureText(thread, options.captureNote);
   const lines = [
     // Every reviewer's text renders exactly as written (TICKET_STYLE), and quoted.
     ...(first === undefined ? [] : [...quoted(TICKET_STYLE.lines(first.body.trim())), ""]),
@@ -228,6 +316,174 @@ export function ticketText(thread: ExportThread, options: TicketTextOptions): { 
     title: first === undefined ? "(no messages)" : unresolvedText(summarize(first.body)),
     body: `${lines.join("\n")}\n`,
   };
+}
+
+/** A tracker template's text, as a draft is filled from it. */
+export interface TicketTemplateText {
+  name: string;
+  /** Markdown, with headings marking its sections. */
+  body: string;
+}
+
+/** The line its first top-level heading ends on, the template's first section starting after it; -1 without one. */
+function firstHeadingEnd(text: string): number {
+  return markdownBlocks(text).headings[0]?.end ?? -1;
+}
+
+/**
+ * A ticket's title and text filled into a tracker template without AI: the
+ * thread's summary (its first message, quoted) and context, with its link,
+ * go at the start of the template's first section, under its first heading
+ * (or before the template's text when it has no heading), and every section
+ * keeps its own text for the person to fill. The title is the thread's
+ * summary, as in the standard format.
+ */
+export function templateTicketText(thread: ExportThread, template: TicketTemplateText, options: Omit<TicketTextOptions, "attribution">): { title: string; body: string } {
+  const [first] = thread.messages;
+  const filled = [
+    ...(first === undefined ? [] : [...quoted(TICKET_STYLE.lines(first.body.trim())), ""]),
+    ...contextLines(thread, TICKET_STYLE, { link: options.link, linkText: "open the thread", status: false, capture: captureText(thread, options.captureNote) }),
+  ];
+  const text = template.body.replace(/\r\n?/g, "\n").trimEnd();
+  const lines = text.trim() === "" ? [] : text.split("\n");
+  const heading = firstHeadingEnd(text);
+  let body: string[];
+  if (lines.length === 0) body = filled;
+  else if (heading === -1) body = [...filled, "", ...lines];
+  else {
+    const rest = lines.slice(heading + 1);
+    const start = rest.findIndex((line) => line.trim() !== "");
+    body = [...lines.slice(0, heading + 1), "", ...filled, ...(start === -1 ? [] : ["", ...rest.slice(start)])];
+  }
+  return { title: first === undefined ? "(no messages)" : summarize(first.body), body: `${body.join("\n")}\n` };
+}
+
+// ---------------------------------------------------------------------------
+// Drafts by Critiqs AI. The model writes plain text, never Markdown; Critiqs
+// writes the Markdown: the headings, from the template or its standard
+// format, and the model's text with every character that could form Markdown
+// escaped, so nothing it writes renders as a link, image, HTML, code, heading,
+// or any other structure. Then the thread's one real link.
+
+/** A section of a drafted ticket. */
+export interface TicketSection {
+  /** What the model calls it: the heading's text, as the template writes it. */
+  name: string;
+  /** The heading line Critiqs writes, such as `## Expected`. */
+  heading: string;
+}
+
+/** The sections a draft by Critiqs AI fills, in order. */
+export interface TicketOutline {
+  sections: TicketSection[];
+  /** A template's sections stay when the model leaves them empty; the standard format's don't. */
+  keepEmpty: boolean;
+}
+
+/** Critiqs's standard format's sections, for a draft without a template, or with one that has no headings. */
+export const STANDARD_OUTLINE: TicketOutline = {
+  sections: ["Summary", "Steps to reproduce", "Expected", "Actual", "Context"].map((name) => ({ name, heading: `## ${name}` })),
+  keepEmpty: false,
+};
+
+/**
+ * The sections a draft fills: the template's top-level headings, in its
+ * order, each written as an ATX heading of its level; or Critiqs's standard
+ * format's, when there is no template or it has no headings.
+ */
+export function ticketOutline(template: string | null): TicketOutline {
+  const headings = template === null ? [] : markdownBlocks(template).headings;
+  const sections = headings.flatMap(({ level, text }) => {
+    const name = text.replace(/\s+/g, " ").trim();
+    return name === "" ? [] : [{ name, heading: `${"#".repeat(level)} ${name}` }];
+  });
+  return sections.length === 0 ? STANDARD_OUTLINE : { sections, keepEmpty: true };
+}
+
+declare const plain: unique symbol;
+/** Text on one line, as written by the model, never read as Markdown: made only by `plainText`. */
+export type PlainText = string & { readonly [plain]: true };
+
+/** Text as plain text: every run of whitespace, line breaks included, one space. Null when nothing is left. */
+export function plainText(value: string): PlainText | null {
+  const text = value.replace(/\s+/g, " ").trim();
+  return text === "" ? null : (text as PlainText);
+}
+
+/** A section's text by the model: paragraphs, then a list, each piece plain text. */
+export interface DraftedSection {
+  section: TicketSection;
+  paragraphs: PlainText[];
+  items: PlainText[];
+  /** Whether the list is numbered, as steps are. */
+  numbered: boolean;
+}
+
+/** A section as the model answers it, before Critiqs checks it. */
+export interface SectionAnswer {
+  heading: string;
+  text: string;
+  items: string[];
+  numbered: boolean;
+}
+
+/** Text's paragraphs, split at blank lines, each as plain text. */
+const paragraphsOf = (text: string) => text.split(/(?:\r\n|\r|\n)\s*(?:\r\n|\r|\n)/).flatMap((paragraph) => plainText(paragraph) ?? []);
+
+/**
+ * The outline's sections, each with what the model wrote for it: an answer
+ * is matched to a section by the section's exact name, the first section of
+ * that name still unfilled, or the last of that name when all are filled,
+ * whose text it adds to. An answer naming no section is dropped.
+ */
+export function draftedSections(outline: TicketOutline, answers: SectionAnswer[]): DraftedSection[] {
+  const drafted = outline.sections.map((section) => ({ section, paragraphs: [] as PlainText[], items: [] as PlainText[], numbered: false, filled: false }));
+  for (const answer of answers) {
+    const named = drafted.filter((entry) => entry.section.name === answer.heading.replace(/\s+/g, " ").trim());
+    const entry = named.find((each) => !each.filled) ?? named.at(-1);
+    if (entry === undefined) continue;
+    const items = answer.items.flatMap((item) => plainText(item) ?? []);
+    if (!entry.filled) entry.numbered = answer.numbered;
+    entry.filled = true;
+    entry.paragraphs.push(...paragraphsOf(answer.text));
+    entry.items.push(...items);
+  }
+  return drafted.map(({ filled: _, ...entry }) => entry);
+}
+
+/**
+ * Every ASCII punctuation character CommonMark or GitHub's Markdown gives a
+ * meaning to, anywhere in a line: all but `, ; ? ! ' " %`, which mean
+ * something only inside a link, image, or HTML tag, each of which needs a
+ * `[` or `<`, both escaped. The rest escaped, no link, autolink, image, HTML,
+ * entity, code, emphasis, heading, list, quote, or table can form.
+ */
+const MARKDOWN_PUNCTUATION = /[#$&()*+\-./:<=>@[\\\]^_`{|}~]/g;
+
+/** Plain text as Markdown that renders it exactly, as one line of a paragraph or list item. */
+const escaped = (text: PlainText) => text.replace(MARKDOWN_PUNCTUATION, "\\$&");
+
+/** The drafted sections as Markdown: each heading, then its paragraphs and list, escaped; a section left empty keeps its heading only when the outline says so. */
+export function draftedMarkdown(sections: DraftedSection[], outline: Pick<TicketOutline, "keepEmpty">): string {
+  const blocks: string[] = [];
+  for (const { section, paragraphs, items, numbered } of sections) {
+    if (paragraphs.length === 0 && items.length === 0 && !outline.keepEmpty) continue;
+    blocks.push(section.heading, ...paragraphs.map(escaped));
+    if (items.length > 0) blocks.push(items.map((item, index) => `${numbered ? `${index + 1}.` : "-"} ${escaped(item)}`).join("\n"));
+  }
+  return blocks.join("\n\n");
+}
+
+/** A draft by Critiqs AI as the person edits it: its sections' Markdown, then the thread's link. */
+export function aiTicketText(sections: DraftedSection[], outline: Pick<TicketOutline, "keepEmpty">, link: WebAddress | null): string {
+  const markdown = draftedMarkdown(sections, outline);
+  if (link === null) return markdown === "" ? "" : `${markdown}\n`;
+  return `${markdown === "" ? "" : `${markdown}\n\n`}Thread: ${markdownLink("open the thread", link)}\n`;
+}
+
+function captureText(thread: ExportThread, note: TicketTextOptions["captureNote"]): string {
+  if (!thread.hasCapture) return "none";
+  return note === "uploaded" ? "attached to this ticket" : "saved with the thread; open its link to view it";
 }
 
 function attributionLines(name: string, link: WebAddress | null): string[] {

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { Anchor, TicketBadge, TicketsConfig, ThreadDetail, ThreadSummary, TrackerAccountView } from "@critiqs/core";
+import type { AiChoiceView, Anchor, TicketBadge, TicketDraftOptions, TicketsConfig, ThreadDetail, ThreadSummary, TrackerAccountView } from "@critiqs/core";
 import { ConvexError } from "convex/values";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -90,7 +90,7 @@ afterEach(async () => {
 });
 
 /** The interface, signed in as `person` (Dana by default), over a prototype with the thread's target, its sidebar open or closed. */
-async function mount(data: FakeBackend, tickets: Deployment["tickets"] = OFFERED, { sidebarOpen = false, person = "Dana" } = {}) {
+async function mount(data: FakeBackend, tickets: Deployment["tickets"] = OFFERED, { sidebarOpen = false, person = "Dana", modelLists = false } = {}) {
   (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://prototype.example/pilot");
   page = document.createElement("main");
   const button = document.createElement("button");
@@ -111,7 +111,7 @@ async function mount(data: FakeBackend, tickets: Deployment["tickets"] = OFFERED
   shadow.append(inner);
   root = createRoot(inner);
   const session = new Session(SIGN_IN, localStorage, async () => new Response(null, { status: 204 }));
-  const deployment: Deployment = { backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null, personalAi: true, tickets };
+  const deployment: Deployment = { backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null, personalAi: true, tickets, ...(modelLists ? { modelLists: true } : {}) };
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={fakeTransport(data)}>
@@ -456,4 +456,282 @@ test("a linked ticket's address that isn't a web address is never a link", async
   const links = [...shadow.querySelectorAll('[aria-label="Linked tickets"] a')].map((anchor) => anchor.getAttribute("href"));
   expect(links).toEqual(["https://linear.app/acme/issue/eng-2"]);
   expect(shadow.querySelector('[aria-label="Linked tickets"]')!.textContent).toContain("ENG-1");
+});
+
+// ---------------------------------------------------------------------------
+// Drafting: templates, Critiqs AI, and labels from tags
+
+const DRAFTING: TicketsConfig = { ...OFFERED, drafting: true };
+const COPY = { id: "tpl-copy", name: "Copy change" };
+/** Design offers its Copy change template and suggests its Bug label; Engineering offers nothing. */
+const designOptions = async (destinationId: string): Promise<TicketDraftOptions> =>
+  destinationId === "team-des" ? { templates: [COPY], labels: [{ id: "label-bug", name: "Bug" }] } : { templates: [], labels: [] };
+const opus: AiChoiceView = { source: "project", models: [{ id: "opus", label: "Opus", credits: 6, estimated: true }], defaultModel: "opus" };
+const calls = (data: FakeBackend, name: string) => data.calls!.filter((call) => call.name === name).map((call) => call.args);
+
+async function chooseOption(shadow: ShadowRoot, select: Element | null | undefined, text: string) {
+  await click(select);
+  await click([...shadow.querySelectorAll('[role^="menuitem"]')].find((item) => item.textContent?.includes(text)));
+}
+
+const rowSelect = (scope: ParentNode, label: string) =>
+  [...scope.querySelectorAll(".ds-row")].find((row) => row.querySelector(".ds-row-label")?.textContent === label)?.querySelector(".ds-select") ?? null;
+
+test("with drafting, choosing the team's template fills the draft from it, and Draft with Critiqs AI, its cost shown first, fills it from the thread and template", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], options: designOptions }, aiChoice: opus });
+  const shadow = await mount(data, DRAFTING, { modelLists: true });
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  // Design is first: its template and its label matching the thread's Bug tag.
+  expect(rowSelect(create, "Template")!.textContent).toContain("Critiqs's standard format");
+  expect([...create.querySelectorAll(".ticket-label")].map((label) => label.textContent)).toEqual(["Bug"]);
+  expect(create.querySelector(".ticket-ai")!.textContent).toBe("Draft with Critiqs AIAbout 6 credits");
+
+  await chooseOption(shadow, rowSelect(create, "Template"), "Copy change");
+  expect(calls(data, "ticketDraft").at(-1)).toEqual({ threadId: "thread", tracker: "linear", destinationId: "team-des", templateId: "tpl-copy" });
+  expect(create.querySelector("textarea")!.value).toBe("## Summary\n\n> Department is wrong\n\n## Steps (tpl-copy)\n");
+  expect(calls(data, "draftTicketWithAi")).toEqual([]);
+
+  await click(button(create, "Draft with Critiqs AI"));
+  expect(calls(data, "draftTicketWithAi")).toEqual([{ threadId: "thread", tracker: "linear", destinationId: "team-des", templateId: "tpl-copy", model: "opus" }]);
+  expect(create.querySelector<HTMLInputElement>("input.field")!.value).toBe("Department shows the wrong team");
+  expect(create.querySelector("textarea")!.value).toBe("Drafted by AI\n");
+  expect(create.querySelector('[role="status"]')?.textContent).toBe("Drafted by Critiqs AI from the thread. Check it before creating.");
+
+  await click(button(create, "Create"));
+  expect(calls(data, "createTicket")).toEqual([expect.objectContaining({ destinationId: "team-des", title: "Department shows the wrong team", templateId: "tpl-copy", labelIds: ["label-bug"] })]);
+});
+
+test("Draft with Critiqs AI waits for the model and its cost to load; creating doesn't", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], options: designOptions } });
+  const shadow = await mount(data, DRAFTING, { modelLists: true });
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  // The models are still loading: no cost to show, so no draft can start.
+  expect(create.querySelector(".ticket-ai")!.textContent).toBe("Draft with Critiqs AI");
+  expect(button(create, "Draft with Critiqs AI")!.hasAttribute("disabled")).toBe(true);
+  await click(button(create, "Draft with Critiqs AI"));
+  expect(calls(data, "draftTicketWithAi")).toEqual([]);
+  expect(button(create, "Create")!.hasAttribute("disabled")).toBe(false);
+
+  // Loaded: the cost shows, and the draft asks for the model shown.
+  data.aiChoice = opus;
+  await type(create.querySelector("textarea"), "Edited");
+  expect(create.querySelector(".ticket-ai")!.textContent).toBe("Draft with Critiqs AIAbout 6 credits");
+  await click(button(create, "Draft with Critiqs AI"));
+  expect(calls(data, "draftTicketWithAi")).toEqual([{ threadId: "thread", tracker: "linear", destinationId: "team-des", templateId: null, model: "opus" }]);
+});
+
+test("when the AI's models can't load, Draft with Critiqs AI stays off and says so; creating still works", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], options: designOptions }, aiChoiceError: "Critiqs couldn't reach the server." });
+  const shadow = await mount(data, DRAFTING, { modelLists: true });
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  expect(button(create, "Draft with Critiqs AI")!.hasAttribute("disabled")).toBe(true);
+  expect(create.querySelector(".ticket-ai")!.textContent).toBe("Draft with Critiqs AICouldn't load the AI's models.");
+  expect(button(create, "Create")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a template whose draft can't load isn't chosen: the template and draft before it stay, and the dialog says why", async () => {
+  const data = backend({
+    trackers: {
+      accounts: [LINEAR],
+      options: designOptions,
+      draft: async (_threadId, _tracker, format) => {
+        if (format?.templateId === "tpl-copy") throw new ConvexError({ code: "not-found", message: "Linear no longer has this template. Choose another, or Critiqs's standard format." });
+        return { title: "Department is wrong", body: "> Department is wrong\n", createdFromCritiqs: true, resumeSubmissionId: null };
+      },
+    },
+  });
+  const shadow = await mount(data, DRAFTING);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  await chooseOption(shadow, rowSelect(create, "Template"), "Copy change");
+  expect(calls(data, "ticketDraft").at(-1)).toEqual({ threadId: "thread", tracker: "linear", destinationId: "team-des", templateId: "tpl-copy" });
+  expect(create.querySelector('[role="alert"]')?.textContent).toBe("Linear no longer has this template. Choose another, or Critiqs's standard format.");
+  expect(rowSelect(create, "Template")!.textContent).toContain("Critiqs's standard format");
+  expect(create.querySelector("textarea")!.value).toBe("> Department is wrong\n");
+  await click(button(create, "Create"));
+  const [sent] = calls(data, "createTicket") as Record<string, unknown>[];
+  expect(sent).not.toHaveProperty("templateId");
+});
+
+test("a removed label isn't sent, and another team drops the chosen template for the standard format", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], options: designOptions } });
+  const shadow = await mount(data, DRAFTING);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  // Without the model list, there's no cost to show, and the draft is still offered.
+  expect(create.querySelector(".ticket-ai")!.textContent).toBe("Draft with Critiqs AI");
+  await chooseOption(shadow, rowSelect(create, "Template"), "Copy change");
+  await click(button(create, "Remove label Bug"));
+  expect(create.querySelector(".ticket-labels")).toBeNull();
+
+  await chooseOption(shadow, rowSelect(create, "Team"), "Engineering");
+  expect(rowSelect(create, "Template")).toBeNull();
+  expect(calls(data, "ticketDraft").at(-1)).toEqual({ threadId: "thread", tracker: "linear" });
+  expect(create.querySelector("textarea")!.value).toBe("> Department is wrong\n");
+  await click(button(create, "Create"));
+  const [sent] = calls(data, "createTicket") as Record<string, unknown>[];
+  expect(sent).toMatchObject({ destinationId: "team-eng" });
+  expect(sent).not.toHaveProperty("templateId");
+  expect(sent).not.toHaveProperty("labelIds");
+});
+
+test("another team's draft replaces the one before it: while it loads, or if it can't, Create waits, and Try again loads it", async () => {
+  const pending: ((reason: unknown) => void)[] = [];
+  let failing = true;
+  const data = backend({
+    trackers: {
+      accounts: [LINEAR],
+      options: designOptions,
+      draft: async (_threadId, _tracker, format) => {
+        // The third draft, the standard format's after the template's, waits, then fails.
+        if (calls(data, "ticketDraft").length === 3) return new Promise((_, reject) => pending.push(reject));
+        // The fourth, the new team's, fails until Try again.
+        if (calls(data, "ticketDraft").length === 4 && failing) throw new ConvexError({ code: "unavailable", message: "Critiqs couldn't reach Linear. Try again in a moment." });
+        return { title: "Department is wrong", body: format === undefined ? "> Department is wrong\n" : "## Copy change\n", createdFromCritiqs: true, resumeSubmissionId: null };
+      },
+    },
+  });
+  const shadow = await mount(data, DRAFTING);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  await chooseOption(shadow, rowSelect(create, "Template"), "Copy change");
+  expect(create.querySelector("textarea")!.value).toBe("## Copy change\n");
+  await chooseOption(shadow, rowSelect(create, "Template"), "Critiqs's standard format");
+  expect(pending).toHaveLength(1);
+  await chooseOption(shadow, rowSelect(create, "Team"), "Engineering");
+  await act(async () => pending[0]!(new Error("Too slow")));
+  // The Design team's template text stays for the person to see, but can't be sent to Engineering.
+  expect(calls(data, "ticketDraft").at(-1)).toEqual({ threadId: "thread", tracker: "linear" });
+  expect(create.querySelector('[role="alert"]')?.textContent).toBe("Critiqs couldn't reach Linear. Try again in a moment.");
+  expect(create.querySelector("textarea")!.value).toBe("## Copy change\n");
+  expect(button(create, "Create")!.hasAttribute("disabled")).toBe(true);
+  expect(create.textContent).toContain("Create waits until the draft for this team loads.");
+
+  failing = false;
+  await click(button(create, "Try again"));
+  expect(create.querySelector("textarea")!.value).toBe("> Department is wrong\n");
+  expect(button(create, "Try again")).toBeNull();
+  await click(button(create, "Create"));
+  const [sent] = calls(data, "createTicket") as Record<string, unknown>[];
+  expect(sent).toMatchObject({ destinationId: "team-eng", body: "> Department is wrong\n" });
+  expect(sent).not.toHaveProperty("templateId");
+});
+
+test("when Critiqs AI can't draft, the dialog fills the draft without AI and says why; a failed request keeps the person's text", async () => {
+  const notice = "AI is turned off for this project. The draft is filled from the thread without AI.";
+  let fail = false;
+  const data = backend({
+    trackers: {
+      accounts: [LINEAR],
+      aiDraft: async () => {
+        if (fail) throw new ConvexError({ code: "unavailable", message: "Critiqs couldn't reach Linear. Try again in a moment." });
+        return { title: "Department is wrong", body: "> Department is wrong\n", drafted: "plain", notice };
+      },
+    },
+  });
+  const shadow = await mount(data, DRAFTING);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  await type(create.querySelector("textarea"), "Edited");
+  await click(button(create, "Draft with Critiqs AI"));
+  expect(create.querySelector('[role="status"]')?.textContent).toBe(notice);
+  expect(create.querySelector("textarea")!.value).toBe("> Department is wrong\n");
+  // Creating doesn't depend on AI.
+  expect(button(create, "Create")!.hasAttribute("disabled")).toBe(false);
+
+  fail = true;
+  await type(create.querySelector("textarea"), "Keep this");
+  await click(button(create, "Draft with Critiqs AI"));
+  expect(create.querySelector('[role="alert"]')?.textContent).toBe("Critiqs couldn't reach Linear. Try again in a moment.");
+  expect(create.querySelector("textarea")!.value).toBe("Keep this");
+});
+
+test("when the project needs the person's own AI, the draft's notice offers Set up your AI, which opens Your AI", async () => {
+  const notice = "This project uses each reviewer's own AI. Set up Your AI to draft with it. The draft is filled from the thread without AI.";
+  const data = backend({
+    trackers: { accounts: [LINEAR], aiDraft: async () => ({ title: "Department is wrong", body: "> Department is wrong\n", drafted: "plain", notice, noticeCode: "setup-ai" }) },
+  });
+  const shadow = await mount(data, DRAFTING);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  await click(button(create, "Draft with Critiqs AI"));
+  expect(create.querySelector('[role="status"]')?.textContent).toBe(notice);
+  await click(button(create, "Set up your AI"));
+  expect(dialog(shadow, "Create ticket")).toBeNull();
+  expect(dialog(shadow, "Your AI")).not.toBeNull();
+});
+
+test("a backend without drafting offers no template, Critiqs AI, or labels, and isn't asked for them", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], options: designOptions }, aiChoice: opus });
+  const shadow = await mount(data, OFFERED, { modelLists: true });
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  expect(button(create, "Draft with Critiqs AI")).toBeNull();
+  expect(rowSelect(create, "Template")).toBeNull();
+  expect(create.querySelector(".ticket-labels")).toBeNull();
+  expect(calls(data, "ticketDraftOptions")).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// The project's ticket templates, for its owners
+
+async function openTicketsTab(shadow: ShadowRoot) {
+  await click(shadow.querySelector('[aria-label="Tags and AI settings"]'));
+  const settings = dialog(shadow, "Tags and AI")!;
+  await click(button(settings, "Tickets"));
+  return settings;
+}
+
+const switchFor = (scope: ParentNode, label: string) =>
+  [...scope.querySelectorAll(".ds-row")].find((row) => row.querySelector(".ds-row-label")?.textContent === label)?.querySelector<HTMLButtonElement>('[role="switch"]') ?? null;
+
+test("an owner turns on the team's ticket templates in Tags and AI and chooses which to offer; turned off, the choice is kept", async () => {
+  const data = backend();
+  const shadow = await mount(data, DRAFTING, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  const use = () => switchFor(settings, "Use the team's ticket templates")!;
+  expect(use().getAttribute("aria-checked")).toBe("false");
+  expect(settings.querySelector(".ds-group-label")).toBeNull();
+  expect(calls(data, "listTrackerTemplates")).toEqual([]);
+
+  await click(use());
+  expect(calls(data, "saveTicketTemplateSettings")).toEqual([{ projectId: "project", on: true, templates: [] }]);
+  expect(shadow.textContent).toContain("Ticket templates turned on");
+  // The owner's own Linear teams' templates, by team.
+  expect([...settings.querySelectorAll(".ds-group-label")].map((label) => label.textContent)).toEqual(["Design", "Engineering"]);
+  expect(switchFor(settings, "Bug report")!.getAttribute("aria-checked")).toBe("false");
+
+  await click(switchFor(settings, "Bug report"));
+  const bug = { tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" };
+  expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({ projectId: "project", on: true, templates: [bug] });
+  expect(switchFor(settings, "Bug report")!.getAttribute("aria-checked")).toBe("true");
+  expect(shadow.textContent).toContain("Offering Bug report");
+
+  await click(use());
+  expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({ projectId: "project", on: false, templates: [bug] });
+  expect(settings.querySelector(".ds-group-label")).toBeNull();
+});
+
+test("the Tickets tab asks an owner without Linear to connect it, and a backend without drafting has no Tickets tab", async () => {
+  let shadow = await mount(backend({ trackers: { accounts: [], templateSettings: { on: true, templates: [] } } }), DRAFTING, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect(settings.textContent).toContain("Connect Linear in Your trackers to choose your teams' templates.");
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend(), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('[aria-label="Tags and AI settings"]'));
+  expect(button(dialog(shadow, "Tags and AI")!, "Tickets")).toBeNull();
 });

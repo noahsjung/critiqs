@@ -210,6 +210,15 @@ test("offers Your trackers only for the trackers the backend reports, and how ea
     trackers: [{ id: "linear", signIn: "oauth" }],
     threadTickets: true,
   });
+  // Drafting with AI and templates only where the backend says so, and only with threads' tickets.
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "oauth" }],
+    threadTickets: true,
+    drafting: true,
+  });
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "oauth" }], drafting: true }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "oauth" }],
+  });
   expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: "yes" }))).tickets).toEqual({
     trackers: [{ id: "linear", signIn: "oauth" }],
   });

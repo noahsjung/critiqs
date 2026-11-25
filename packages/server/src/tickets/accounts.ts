@@ -45,12 +45,13 @@ export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
 
 /**
  * What `/critiqs/config` reports: the trackers offered and how each connects,
- * and that threads can create and link tickets; null, so tickets aren't
+ * that threads can create and link tickets, and that the Create dialog can
+ * draft with AI and from templates; null, so tickets aren't
  * offered, without an encryption key.
  */
 export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
   if (deployment.encryptionKey === null) return null;
-  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true };
+  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true, drafting: true };
 }
 
 /** The adapter that talks to a tracker, at the deployment's addresses. */

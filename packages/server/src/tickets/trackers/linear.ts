@@ -1,4 +1,4 @@
-import { type TicketDestination, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, type WebAddress, webAddress } from "@critiqs/core";
+import { type TicketDestination, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, type TrackerTemplateGroup, type WebAddress, webAddress } from "@critiqs/core";
 import { CritiqsError, fail } from "../../errors.ts";
 import {
   checkedAdapter,
@@ -11,7 +11,9 @@ import {
   type TrackerEndpointOptions,
   type TicketPlace,
   type TrackerIdentity,
+  type TrackerLabel,
   TrackerRefusal,
+  type TrackerTemplate,
   type TrackerToken,
   trackerEndpoint,
   trackerText,
@@ -50,6 +52,16 @@ const CREATE = `mutation CritiqsCreate($input: IssueCreateInput!) { issueCreate(
 // it (https://linear.app/developers/attachments), so the link back is safe to repeat.
 const LINK_BACK = "mutation CritiqsLinkBack($input: AttachmentCreateInput!) { attachmentCreate(input: $input) { success } }";
 const COMMENT = "mutation CritiqsComment($input: CommentCreateInput!) { commentCreate(input: $input) { success } }";
+// Issue templates that belong to a team; workspace templates (no team) aren't offered yet.
+// `content` is the template's text as Markdown, its form fields as placeholders.
+const TEMPLATE_FIELDS = "id name team { id name key }";
+const TEMPLATES = `query CritiqsTemplates { templateSearch(filter: { type: { eq: "issue" }, team: { null: false } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
+const TEAM_TEMPLATES = `query CritiqsTeamTemplates($team: ID!) { templateSearch(filter: { type: { eq: "issue" }, team: { id: { eq: $team } } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
+const TEMPLATE = `query CritiqsTemplate($id: ID!) { templateSearch(filter: { id: { eq: $id }, type: { eq: "issue" }, team: { null: false } }, first: 1) { ${TEMPLATE_FIELDS} content } }`;
+// The team's labels and the workspace's, leaving out label groups, which issues can't take, with each one's group:
+// an issue takes at most one label of a single-select group, which a group without a type is.
+const LABELS =
+  "query CritiqsLabels($team: ID!) { issueLabels(first: 250, filter: { isGroup: { eq: false }, or: [{ team: { id: { eq: $team } } }, { team: { null: true } }] }) { nodes { id name parent { id groupType } } } }";
 const UPLOAD = "mutation CritiqsUpload($contentType: String!, $filename: String!, $size: Int!) { fileUpload(contentType: $contentType, filename: $filename, size: $size) { success uploadFile { uploadUrl assetUrl headers { key value } } } }";
 
 /** A Linear issue key, such as `ENG-123`: the team's key and the issue's number. */
@@ -93,6 +105,9 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
             teamId: input.destinationId,
             title: input.title,
             description: input.body,
+            // Linear applies the template's other defaults; the title and text given here take precedence, and labels add to its own.
+            ...(input.templateId === null ? {} : { templateId: input.templateId }),
+            ...(input.labels.length === 0 ? {} : { labelIds: input.labels }),
           },
         }, "issueCreate", "issue");
       } catch (error) {
@@ -127,6 +142,10 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       return { externalId: issue.externalId, status: issue.status };
     },
     uploadImage: async (token, image) => uploadImage(to, token, image),
+    templates: async (token, destinationId) =>
+      parseTemplateGroups(destinationId === undefined ? await graphql(to, token, TEMPLATES) : await graphql(to, token, TEAM_TEMPLATES, { team: destinationId })),
+    template: async (token, templateId) => parseTemplate(await graphql(to, token, TEMPLATE, { id: templateId })),
+    labels: async (token, destinationId) => parseLabels(await graphql(to, token, LABELS, { team: destinationId })),
   }, linearPlace(trackerWebOrigins(endpoint, LINEAR_APP_URL)));
 }
 
@@ -329,6 +348,47 @@ function parseTeams(data: unknown): TicketDestination[] {
     .filter((team): team is Record<string, unknown> => isRecord(team) && text(team.id) && text(team.name))
     .map((team) => ({ id: team.id as string, name: team.name as string, key: text(team.key) ? team.key : null }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function templateNodes(data: unknown): Record<string, unknown>[] {
+  const nodes = isRecord(data) ? data.templateSearch : null;
+  if (!Array.isArray(nodes)) throw unexpected("no templates");
+  return nodes.filter(isRecord);
+}
+
+function teamOf(template: Record<string, unknown>): TicketDestination | null {
+  const team = template.team;
+  if (!isRecord(team) || !text(team.id) || !text(team.name)) return null;
+  return { id: team.id, name: team.name, key: text(team.key) ? team.key : null };
+}
+
+/** Templates by team, teams by name, each team's templates in Linear's order. */
+function parseTemplateGroups(data: unknown): TrackerTemplateGroup[] {
+  const groups = new Map<string, TrackerTemplateGroup>();
+  for (const template of templateNodes(data)) {
+    const team = teamOf(template);
+    if (team === null || !text(template.id) || !text(template.name)) continue;
+    const group = groups.get(team.id) ?? { destination: team, templates: [] };
+    group.templates.push({ id: template.id, name: template.name });
+    groups.set(team.id, group);
+  }
+  return [...groups.values()].sort((a, b) => a.destination.name.localeCompare(b.destination.name));
+}
+
+function parseTemplate(data: unknown): TrackerTemplate | null {
+  const [template] = templateNodes(data);
+  if (template === undefined) return null;
+  const team = teamOf(template);
+  if (team === null || !text(template.id) || !text(template.name)) throw unexpected("template unreadable");
+  return { id: template.id, name: template.name, destinationId: team.id, body: typeof template.content === "string" ? template.content : "" };
+}
+
+function parseLabels(data: unknown): TrackerLabel[] {
+  const labels = isRecord(data) && isRecord(data.issueLabels) && Array.isArray(data.issueLabels.nodes) ? data.issueLabels.nodes : null;
+  if (labels === null) throw unexpected("no labels");
+  return labels
+    .filter((label): label is { id: string; name: string; parent?: unknown } => isRecord(label) && text(label.id) && text(label.name))
+    .map(({ id, name, parent }) => ({ id, name, exclusiveGroup: isRecord(parent) && text(parent.id) && parent.groupType !== "multiSelect" ? parent.id : null }));
 }
 
 function parseStatus(value: unknown): TicketStatus {

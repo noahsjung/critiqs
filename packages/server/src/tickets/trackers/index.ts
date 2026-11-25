@@ -1,12 +1,14 @@
 import {
   isPrivateHost,
   type TicketDestination,
+  type TicketLabel,
   type TicketMarkdown,
   type TicketRef,
   type TicketStatus,
   type TicketStatusCategory,
   TRACKER_LIMITS,
   type TrackerId,
+  type TrackerTemplateGroup,
   type WebAddress,
   webAddress,
 } from "@critiqs/core";
@@ -361,7 +363,7 @@ export interface TrackerAdapter {
    * the same across its attempts: a tracker that lets callers choose the new
    * ticket's ID takes it, so one creation can't make two tickets.
    */
-  create(token: TrackerToken, input: { destinationId: string; title: string; body: TicketMarkdown; labels: string[]; creationId: string }): Promise<CreateOutcome>;
+  create(token: TrackerToken, input: NewTrackerTicket): Promise<CreateOutcome>;
   /**
    * The ticket a creation made, when an attempt's outcome is unknown: found by
    * `creationId` where the tracker took it as the ticket's ID, else by the
@@ -375,8 +377,44 @@ export interface TrackerAdapter {
   status(token: TrackerToken, ticket: HeldTicket): Promise<TicketStatus>;
   /** Uploads an image for a new ticket's text and returns the address to embed; absent where the tracker can't take images (GitHub). */
   uploadImage?(token: TrackerToken, image: TicketImage): Promise<WebAddress>;
-  /** The destination's own ticket templates, where the tracker has them. */
-  templates?(token: TrackerToken, destinationId: string): Promise<{ id: string; name: string; body: string }[]>;
+  /**
+   * The ticket templates of each destination the person can see, by
+   * destination, or of one destination; absent where the tracker has none.
+   */
+  templates?(token: TrackerToken, destinationId?: string): Promise<TrackerTemplateGroup[]>;
+  /** One ticket template with its text, read fresh for a draft; null when the tracker no longer has it. */
+  template?(token: TrackerToken, templateId: string): Promise<TrackerTemplate | null>;
+  /** The labels a ticket in the destination can take; absent where the tracker has none. */
+  labels?(token: TrackerToken, destinationId: string): Promise<TrackerLabel[]>;
+}
+
+/** A label as a tracker lists it, with the group a ticket may take only one label from, if any. */
+export interface TrackerLabel extends TicketLabel {
+  /** The ID of the label's single-select group, such as a Linear label group; null when the label can go with any other. */
+  exclusiveGroup: string | null;
+}
+
+/** What creating a ticket sends the tracker. */
+export interface NewTrackerTicket {
+  destinationId: string;
+  title: string;
+  /** Ticket text Critiqs made (`ticketBody`), never a plain string. */
+  body: TicketMarkdown;
+  /** Label IDs to add. */
+  labels: string[];
+  /** The template the tracker applies its other defaults from, such as labels; null for none. */
+  templateId: string | null;
+  creationId: string;
+}
+
+/** A ticket template as the tracker has it now. */
+export interface TrackerTemplate {
+  id: string;
+  name: string;
+  /** The destination it belongs to. */
+  destinationId: string;
+  /** Its text, in Markdown, with headings marking its sections. */
+  body: string;
 }
 
 /** Tokens from a tracker's sign-in: the access token, the refresh token when it issues one, and when the access token expires. */

@@ -197,7 +197,7 @@ test("create sends the team, title, and Markdown text, using the creation's ID a
   requests.length = 0;
   const creationId = "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b";
   replies.push({ body: { data: { issueCreate: { success: true, issue: issue(creationId, "ENG-7", { name: "Triage", type: "triage" }) } } } });
-  const created = await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "Department is wrong", body: md("> Text\n"), labels: [], creationId });
+  const created = await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "Department is wrong", body: md("> Text\n"), labels: [], templateId: null, creationId });
   expect(created.status === "created" && created.ticket).toEqual({
     tracker: "linear",
     externalId: creationId,
@@ -210,12 +210,12 @@ test("create sends the team, title, and Markdown text, using the creation's ID a
   expect(sentQuery(0).variables).toEqual({ input: { id: creationId, teamId: "t1", title: "Department is wrong", description: "> Text\n" } });
   // An ID Linear wouldn't accept isn't sent; Linear picks one.
   replies.push({ body: { data: { issueCreate: { success: true, issue: issue("x", "ENG-8") } } } });
-  await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: "not-a-uuid" });
+  await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: "not-a-uuid" });
   expect(sentQuery(1).variables.input).not.toHaveProperty("id");
 });
 
 test("create says whether Linear refused, so nothing was made, or the outcome is unknown", async () => {
-  const create = () => linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b" });
+  const create = () => linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b" });
   const outcome = async (reply: Reply) => {
     replies.push(reply);
     const result = await create();
@@ -247,7 +247,7 @@ test("create says whether Linear refused, so nothing was made, or the outcome is
   expect((await outcome({ body: { data: { issueCreate: { success: true, issue: { ...made, url: null } } }, errors: [fieldError] } }))[0]).toBe("unknown");
   expect((await outcome({ body: { data: { issueCreate: { success: true, issue: made } }, errors: [fieldError] } }))[0]).toBe("unknown");
   expect((await outcome({ body: { data: { issueCreate: { success: null, issue: made } }, errors: [fieldError] } }))[0]).toBe("unknown");
-  const unreachable = await linearAdapter({ baseUrl: "http://127.0.0.1:9" }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: "x" });
+  const unreachable = await linearAdapter({ baseUrl: "http://127.0.0.1:9" }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: "x" });
   expect(unreachable.status).toBe("unknown");
 });
 
@@ -335,7 +335,7 @@ test("calls bounded by a deadline: none starts at or after it, and one still run
   expect(started).toBe(1);
   expect(Date.now() - began).toBeLessThan(500);
   // Through the adapter, a request cut off by the deadline is an unknown outcome: Linear may have acted.
-  const outcome = await linearAdapter({ baseUrl, fetch: fetchUntil(slow, Date.now() + 50, () => Date.now()) }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: "x" });
+  const outcome = await linearAdapter({ baseUrl, fetch: fetchUntil(slow, Date.now() + 50, () => Date.now()) }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: "x" });
   expect(outcome.status).toBe("unknown");
 });
 
@@ -373,14 +373,93 @@ test("a creation is the issue whose ID Critiqs chose: Linear answering with anot
   const linear = linearAdapter({ baseUrl });
   // Linear took the creation's ID as the new issue's; an answer about another issue is unknown, so the next attempt looks again.
   replies.push({ body: { data: { issueCreate: { success: true, issue: issue("0d9c8b7a-6f5e-4d3c-8b2a-190807060504", "ENG-9") } } } });
-  const created = await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId });
+  const created = await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId });
   expect(created.status).toBe("unknown");
   // Linear answers IDs in lower case; the one Critiqs chose may be written either way.
   replies.push({ body: { data: { issueCreate: { success: true, issue: issue(creationId, "ENG-7") } } } });
-  expect((await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: creationId.toUpperCase() })).status).toBe("created");
+  expect((await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: creationId.toUpperCase() })).status).toBe("created");
   // Looking for a lost answer by the creation's ID: another issue is not it.
   replies.push({ body: { data: { issues: { nodes: [issue("0d9c8b7a-6f5e-4d3c-8b2a-190807060504", "ENG-9")] } } } });
   expect((await refusal(linear.findCreated(key, { creationId, link: null }))).code).toBe("unavailable");
   replies.push({ body: { data: { issues: { nodes: [issue(creationId, "ENG-7")] } } } });
   expect((await linear.findCreated(key, { creationId, link: null }))?.externalId).toBe(creationId);
+});
+
+test("create applies a template and adds labels only when given them", async () => {
+  requests.length = 0;
+  replies.push({ body: { data: { issueCreate: { success: true, issue: issue("x", "ENG-8") } } } });
+  await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: md("B"), labels: ["label-bug"], templateId: "tpl-1", creationId: "not-a-uuid" });
+  expect(sentQuery(0).variables.input).toEqual({ teamId: "t1", title: "T", description: "B", templateId: "tpl-1", labelIds: ["label-bug"] });
+});
+
+test("templates are each team's issue templates, by team name, skipping workspace templates and ones Critiqs can't read", async () => {
+  requests.length = 0;
+  const eng = { id: "team-eng", name: "Engineering", key: "ENG" };
+  const des = { id: "team-des", name: "Design", key: null };
+  replies.push({
+    body: {
+      data: {
+        templateSearch: [
+          { id: "tpl-bug", name: "Bug report", team: eng },
+          { id: "tpl-ws", name: "Workspace template", team: null },
+          { id: "tpl-feature", name: "Feature", team: eng },
+          { id: "tpl-copy", name: "Copy change", team: des },
+          { id: "", name: "Broken", team: eng },
+          "garbage",
+        ],
+      },
+    },
+  });
+  expect(await linearAdapter({ baseUrl }).templates!(key)).toEqual([
+    { destination: { id: "team-des", name: "Design", key: null }, templates: [{ id: "tpl-copy", name: "Copy change" }] },
+    {
+      destination: { id: "team-eng", name: "Engineering", key: "ENG" },
+      templates: [
+        { id: "tpl-bug", name: "Bug report" },
+        { id: "tpl-feature", name: "Feature" },
+      ],
+    },
+  ]);
+  expect(sentQuery(0).query).toContain('templateSearch(filter: { type: { eq: "issue" }, team: { null: false } }');
+  // One team's: asked for by its ID.
+  replies.push({ body: { data: { templateSearch: [{ id: "tpl-bug", name: "Bug report", team: eng }] } } });
+  expect(await linearAdapter({ baseUrl }).templates!(key, "team-eng")).toEqual([{ destination: eng, templates: [{ id: "tpl-bug", name: "Bug report" }] }]);
+  expect(sentQuery(1).variables).toEqual({ team: "team-eng" });
+  // An answer without the list is Linear's problem, said in words.
+  replies.push({ body: { data: { templateSearch: null } } });
+  expect((await refusal(linearAdapter({ baseUrl }).templates!(key))).message).toContain("(no templates)");
+});
+
+test("a template is read with its Markdown text and team; one Linear no longer has is null", async () => {
+  requests.length = 0;
+  replies.push({ body: { data: { templateSearch: [{ id: "tpl-bug", name: "Bug report", team: { id: "team-eng", name: "Engineering", key: "ENG" }, content: "## Summary\n\n## Steps\n" }] } } });
+  expect(await linearAdapter({ baseUrl }).template!(key, "tpl-bug")).toEqual({ id: "tpl-bug", name: "Bug report", destinationId: "team-eng", body: "## Summary\n\n## Steps\n" });
+  expect(sentQuery(0).variables).toEqual({ id: "tpl-bug" });
+  // No body in Linear: an empty one.
+  replies.push({ body: { data: { templateSearch: [{ id: "tpl-empty", name: "Empty", team: { id: "team-eng", name: "Engineering" }, content: null }] } } });
+  expect((await linearAdapter({ baseUrl }).template!(key, "tpl-empty"))?.body).toBe("");
+  replies.push({ body: { data: { templateSearch: [] } } });
+  expect(await linearAdapter({ baseUrl }).template!(key, "gone")).toBeNull();
+});
+
+test("labels are the team's and the workspace's, without label groups, as Linear names them, each with its single-select group", async () => {
+  requests.length = 0;
+  const nodes = [
+    { id: "label-bug", name: "Bug", parent: null },
+    { id: "label-x", name: "" },
+    { id: "label-web", name: "Web", parent: { id: "group-platform", groupType: null } },
+    { id: "label-ios", name: "iOS", parent: { id: "group-platform", groupType: "singleSelect" } },
+    { id: "label-copy", name: "Copy", parent: { id: "group-areas", groupType: "multiSelect" } },
+  ];
+  replies.push({ body: { data: { issueLabels: { nodes } } } });
+  expect(await linearAdapter({ baseUrl }).labels!(key, "team-eng")).toEqual([
+    { id: "label-bug", name: "Bug", exclusiveGroup: null },
+    // A group without a type is single-select, as Linear treats it.
+    { id: "label-web", name: "Web", exclusiveGroup: "group-platform" },
+    { id: "label-ios", name: "iOS", exclusiveGroup: "group-platform" },
+    { id: "label-copy", name: "Copy", exclusiveGroup: null },
+  ]);
+  expect(sentQuery(0).query).toContain("isGroup: { eq: false }");
+  expect(sentQuery(0).query).toContain("parent { id groupType }");
+  expect(sentQuery(0).variables).toEqual({ team: "team-eng" });
 });

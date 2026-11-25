@@ -38,7 +38,13 @@ import type {
   ThreadSummary,
   NewTicket,
   TicketDestination,
+  AiTicketDraft,
+  AiTicketDraftInput,
   TicketDraft,
+  TicketDraftFormat,
+  TicketDraftOptions,
+  TicketTemplateSettings,
+  TrackerTemplateGroup,
   TicketLinkInput,
   TicketLinkView,
   TicketSearchResult,
@@ -298,8 +304,22 @@ export interface TicketTransport {
   listTicketDestinations(tracker: TrackerId): Promise<TicketDestination[]>;
   /** Tickets the person can see in their tracker, by key (such as `ENG-123`) or words. */
   searchTickets(tracker: TrackerId, query: string): Promise<TicketSearchResult[]>;
-  /** A new ticket's title and text, filled from the thread, to edit before creating it. */
-  ticketDraft(threadId: string, tracker: TrackerId): Promise<TicketDraft>;
+  /**
+   * A new ticket's title and text, filled from the thread without AI, to edit
+   * before creating it: Critiqs's standard format, or, with `format` naming a
+   * template the project offers (on backends that report `drafting`), that template.
+   */
+  ticketDraft(threadId: string, tracker: TrackerId, format?: TicketDraftFormat): Promise<TicketDraft>;
+  /** What the Create dialog offers for a destination: the project's templates there, and labels matching the thread's tags. On backends that report `drafting`. */
+  ticketDraftOptions(threadId: string, tracker: TrackerId, destinationId: string): Promise<TicketDraftOptions>;
+  /** A draft by Critiqs AI, or, when it can't draft, one filled without AI that says why. On backends that report `drafting`. */
+  draftTicketWithAi(input: AiTicketDraftInput): Promise<AiTicketDraft>;
+  /** The project's ticket templates, for its owners; skipped while `projectId` is null. */
+  useTicketTemplateSettings(projectId: string | null): QueryState<TicketTemplateSettings>;
+  /** Turns the project's ticket templates on or off and sets which it offers; owners only. */
+  saveTicketTemplateSettings(projectId: string, settings: TicketTemplateSettings): Promise<TicketTemplateSettings>;
+  /** The templates of the owner's own teams in the tracker, to choose which the project offers. */
+  listTrackerTemplates(projectId: string, tracker: TrackerId): Promise<TrackerTemplateGroup[]>;
   /** Creates a ticket from a thread in the person's tracker; it then shows on the thread. */
   createTicket(input: NewTicket): Promise<TicketLinkView>;
   /** Links a thread to an existing ticket; linking one it already links to changes nothing. */
