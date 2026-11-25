@@ -460,10 +460,11 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
   test(`${name}: a setup link shows the project to the developer it was sent to, and to no one else`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
-    const notInstallable = await create(backend, dana, { name: "Nuxt app", stack: "nuxt" });
+    const nuxt = await create(backend, dana, { name: "Nuxt app", stack: "nuxt" });
     const unknown = await create(backend, dana, { name: "Unknown", stack: undefined, reviewUrl: null });
+    const laravel = await create(backend, dana, { name: "Laravel app", stack: "laravel" });
     const sendIds: string[] = [];
-    for (const each of [projectId, notInstallable, unknown]) sendIds.push((await send(backend, each, ["sam@example.com"])).reserved[0]!.sendId);
+    for (const each of [projectId, nuxt, unknown, laravel]) sendIds.push((await send(backend, each, ["sam@example.com"])).reserved[0]!.sendId);
     const sam = reviewer("Sam");
     const shown = (who: Identity, sendId: string) => backend.run((store) => getDeveloperSetup(store, who, { sendId }));
     expect(await shown(sam, sendIds[0]!)).toEqual({
@@ -471,11 +472,12 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       projectName: "Acme prototype",
       address: "https://acme-proto.vercel.app/",
       stack: { id: "next", label: "Next.js", installable: true },
-      installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`],
+      installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`],
       inviterName: "Dana",
     });
-    expect(await shown(sam, sendIds[1]!)).toMatchObject({ stack: { id: "nuxt", installable: false }, installCommands: null });
-    expect(await shown(sam, sendIds[2]!)).toMatchObject({ address: null, stack: null, installCommands: ["npm install critiqs-react", `npx critiqs-react init ${unknown}`] });
+    expect(await shown(sam, sendIds[1]!)).toMatchObject({ stack: { id: "nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
+    expect(await shown(sam, sendIds[2]!)).toMatchObject({ address: null, stack: null, installCommands: [`npx critiqs init ${unknown}`] });
+    expect(await shown(sam, sendIds[3]!)).toMatchObject({ stack: { id: "laravel", installable: false }, installCommands: null });
     // The project's owners see it too.
     expect((await shown(dana, sendIds[0]!)).projectName).toBe("Acme prototype");
     // Anyone else, and a send that doesn't exist, get the same answer.
@@ -498,19 +500,19 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       projectName: "Acme prototype",
       address: "https://acme-proto.vercel.app/",
       stack: { id: "next", label: "Next.js", installable: true },
-      installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`],
+      installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`],
     });
-    expect(await shown(dana, nuxt)).toMatchObject({ projectName: "Nuxt app", stack: { id: "nuxt", label: "Nuxt", installable: false }, installCommands: null });
-    expect(await shown(dana, unknown)).toMatchObject({ address: null, stack: null, installCommands: ["npm install critiqs-react", `npx critiqs-react init ${unknown}`] });
+    expect(await shown(dana, nuxt)).toMatchObject({ projectName: "Nuxt app", stack: { id: "nuxt", label: "Nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
+    expect(await shown(dana, unknown)).toMatchObject({ address: null, stack: null, installCommands: [`npx critiqs init ${unknown}`] });
     // Anyone else signed in with the project's ID, like `getProject`, sees it as if its stack were unknown.
     expect(await shown(lee, projectId)).toEqual({
       projectId,
       projectName: "Acme prototype",
       address: "https://acme-proto.vercel.app/",
       stack: null,
-      installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`],
+      installCommands: [`npx critiqs init ${projectId}`],
     });
-    expect(await shown(lee, nuxt)).toMatchObject({ stack: null, installCommands: ["npm install critiqs-react", `npx critiqs-react init ${nuxt}`] });
+    expect(await shown(lee, nuxt)).toMatchObject({ stack: null, installCommands: [`npx critiqs init ${nuxt}`] });
     await expect(shown(null, projectId)).rejects.toThrow("Sign in");
     await expect(shown({ ...lee, emailVerified: false }, projectId)).rejects.toThrow("Verify");
     await expect(shown(lee, "not-a-project")).rejects.toThrow("This project does not exist.");
@@ -546,7 +548,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       idempotencyKey: reserved[0]!.idempotencyKey,
     });
     expect(email!.text).toContain("They said someone else changes its code");
-    expect(email!.text).toContain(`npm install critiqs-react\nnpx critiqs-react init ${projectId}`);
+    expect(email!.text).toContain(`npm install critiqs-react\nnpx critiqs init ${projectId}`);
     expect(email!.text).toContain(`Setup steps: ${links.setupUrl}`);
     expect(email!.text).toContain(`Report it: ${links.reportUrl}`);
     expect(email!.html).not.toContain("<b>");

@@ -4,6 +4,28 @@
 
 Critiqs works in any React 18 or 19 application, including Vite, Next.js (App Router or Pages Router), Remix, and Create React App. React and React DOM are its only peer dependencies. The setup CLI requires Node.js 20 or later.
 
+## Other frameworks
+
+Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask each have their own Critiqs package. Install it, then run setup in the app's folder:
+
+| Framework | Install |
+| --- | --- |
+| Vue | `npm install critiqs-vue` |
+| Nuxt | `npm install critiqs-nuxt` |
+| Svelte, SvelteKit | `npm install critiqs-svelte` |
+| Angular | `npm install critiqs-angular` |
+| Astro | `npm install critiqs-astro` |
+| Solid | `npm install critiqs-solid` |
+| Ruby on Rails | `bundle add critiqs-rails` |
+| Django | `pip install django-critiqs` |
+| Flask | `pip install flask-critiqs` |
+
+```sh
+npx critiqs init
+```
+
+Setup finds the framework, adds Critiqs where the app renders, signs you in, and connects the app to a new project on Critiqs Cloud, as it does for React. `npx critiqs init <projectId>` connects a project you already have. A site with no Critiqs package, such as WordPress or Laravel, can add Critiqs with [one script tag](https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag). The rest of this page covers React.
+
 ## 1. Install the package
 
 Install `critiqs-react` with your project's package manager:

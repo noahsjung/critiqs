@@ -172,6 +172,55 @@
             <p class="doc-lede title-2">Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.</p>
           </header>
 <p>Critiqs works in any React 18 or 19 application, including Vite, Next.js (App Router or Pages Router), Remix, and Create React App. React and React DOM are its only peer dependencies. The setup CLI requires Node.js 20 or later.</p>
+<h2 id="other-frameworks">Other frameworks<a class="anchor" href="#other-frameworks"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask each have their own Critiqs package. Install it, then run setup in the app&#39;s folder:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Framework</th>
+<th>Install</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Vue</td>
+<td><code>npm install critiqs-vue</code></td>
+</tr>
+<tr>
+<td>Nuxt</td>
+<td><code>npm install critiqs-nuxt</code></td>
+</tr>
+<tr>
+<td>Svelte, SvelteKit</td>
+<td><code>npm install critiqs-svelte</code></td>
+</tr>
+<tr>
+<td>Angular</td>
+<td><code>npm install critiqs-angular</code></td>
+</tr>
+<tr>
+<td>Astro</td>
+<td><code>npm install critiqs-astro</code></td>
+</tr>
+<tr>
+<td>Solid</td>
+<td><code>npm install critiqs-solid</code></td>
+</tr>
+<tr>
+<td>Ruby on Rails</td>
+<td><code>bundle add critiqs-rails</code></td>
+</tr>
+<tr>
+<td>Django</td>
+<td><code>pip install django-critiqs</code></td>
+</tr>
+<tr>
+<td>Flask</td>
+<td><code>pip install flask-critiqs</code></td>
+</tr>
+</tbody></table>
+</div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init</code></pre></div>
+<p>Setup finds the framework, adds Critiqs where the app renders, signs you in, and connects the app to a new project on Critiqs Cloud, as it does for React. <code>npx critiqs init &lt;projectId&gt;</code> connects a project you already have. A site with no Critiqs package, such as WordPress or Laravel, can add Critiqs with <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag">one script tag</a>. The rest of this page covers React.</p>
 <h2 id="1-install-the-package">1. Install the package<a class="anchor" href="#1-install-the-package"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>Install <code>critiqs-react</code> with your project&#39;s package manager:</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh"><span class="hljs-comment"># npm</span>
@@ -279,6 +328,7 @@ root.<span class="hljs-title function_">render</span>(
         <nav class="toc" aria-labelledby="toc-title">
           <p class="toc-title title-4" id="toc-title">On this page</p>
           <ul class="body-6">
+            <li class="toc-h2"><a href="#other-frameworks">Other frameworks</a></li>
             <li class="toc-h2"><a href="#1-install-the-package">1. Install the package</a></li>
             <li class="toc-h2"><a href="#2-run-setup">2. Run setup</a></li>
             <li class="toc-h2"><a href="#vite-and-nextjs-setup">Vite and Next.js setup</a></li>

@@ -1,8 +1,8 @@
-import { PROJECT_ID_PATTERN } from "@critiqs/core";
+import { installCommands, PROJECT_ID_PATTERN } from "@critiqs/core";
 import { type Backend, type SetupInfo, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import type { QueryState } from "../shared.ts";
-import { BackendStep, Command, Heading, SignInButton } from "./parts.tsx";
+import { BackendStep, Command, Heading, ScriptTagStep, SignInButton } from "./parts.tsx";
 
 /**
  * The developer's setup page at /setup/<id>: after sign-in, the project, its
@@ -59,6 +59,8 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
     );
   }
   const setup = state.data;
+  // Worked out here rather than taken from the answer, so a backend from before a framework's package still shows its commands.
+  const commands = installCommands(setup.projectId, setup.stack?.id ?? null);
   const facts: [string, string][] = [
     [copy.setup.project, setup.projectName],
     [copy.setup.address, setup.address ?? copy.setup.notGiven],
@@ -75,12 +77,12 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
           </div>
         ))}
       </dl>
-      {setup.installCommands === null ? (
-        <p className="caution">{copy.install.notInstallable(setup.stack?.label ?? "")}</p>
+      {commands === null ? (
+        <ScriptTagStep label={setup.stack?.label ?? ""} projectId={setup.projectId} />
       ) : (
         <div className="stacked">
           <p className="note">{setup.stack === null ? `${copy.setup.commandLabel} ${copy.install.unknownStack}` : copy.setup.commandLabel}</p>
-          <Command commands={setup.installCommands} />
+          <Command commands={commands} />
           {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" />}
         </div>
       )}

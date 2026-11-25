@@ -1,3 +1,4 @@
+import { SCRIPT_TAG_GUIDE } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAuth } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
@@ -153,6 +154,24 @@ export function BackendStep({ backend, whose }: { backend: string; whose: string
       <div className="property">
         <code>{property}</code>
         <CopyButton text={property} label={copy.install.copyProperty} copiedLabel={copy.install.propertyCopied} className="btn small" shown />
+      </div>
+    </div>
+  );
+}
+
+/** For a stack with no Critiqs package: the script tag's guide and the project ID to give it. */
+export function ScriptTagStep({ label, projectId, onCopied }: { label: string; projectId: string; onCopied?: () => void }) {
+  return (
+    <div className="stacked">
+      <p className="note">{copy.install.scriptTag(label)}</p>
+      <div>
+        <a className="btn" href={SCRIPT_TAG_GUIDE} target="_blank" rel="noopener noreferrer">
+          {copy.install.scriptTagGuide}
+        </a>
+      </div>
+      <div className="property">
+        <code>{projectId}</code>
+        <CopyButton text={projectId} label={copy.install.copyProjectId} copiedLabel={copy.install.projectIdCopied} className="btn small" shown onCopied={onCopied} />
       </div>
     </div>
   );

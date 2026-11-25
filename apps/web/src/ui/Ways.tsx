@@ -14,7 +14,7 @@ import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
 import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand } from "./parts.tsx";
+import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand, ScriptTagStep } from "./parts.tsx";
 
 // The two ways to add Critiqs to the prototype: run one command, or send the
 // steps to a developer.
@@ -25,24 +25,25 @@ export function projectSetupUrl(projectId: string, origin = window.location.orig
 }
 
 /**
- * "I will": one command, one Copy, and what happens next. A stack Critiqs
- * can't be installed in yet says so in place of the command. `onDone` runs
- * once the command or the agent's instructions are copied.
+ * "I will": the commands, one Copy, and what happens next. A stack with no
+ * Critiqs package gets the script tag's guide and the project ID instead.
+ * `onDone` runs once the command, the agent's instructions, or the project ID
+ * is copied.
  */
 export function InstallPanel({ project, onDone }: { project: CreatedProject; onDone?: () => void }) {
   const { componentBackend } = useBackend();
   const stack = STACKS.find((candidate) => candidate.id === project.stack) ?? null;
-  const commands = installCommands(project.id);
-  const command = oneCommand(commands);
+  const commands = installCommands(project.id, stack?.id ?? null);
   const host = project.reviewUrl === null ? null : shownHost(project.reviewUrl);
-  if (stack !== null && !stack.installable) {
+  if (commands === null) {
     return (
       <>
         <Heading title={copy.install.title} />
-        <p className="caution">{copy.install.notInstallable(stack.label)}</p>
+        <ScriptTagStep label={stack?.label ?? ""} projectId={project.id} onCopied={onDone} />
       </>
     );
   }
+  const command = oneCommand(commands);
   return (
     <>
       <Heading title={copy.install.title} lead={copy.install.lead} />

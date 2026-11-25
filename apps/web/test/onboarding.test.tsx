@@ -112,7 +112,7 @@ describe("the second screen: who adds Critiqs", () => {
     await settle();
     expect(created(backend)).toEqual([{ name: "acme-proto", reviewUrl: "https://acme-proto.vercel.app/", organizationId: null, answers: { codeAccess: "self" }, stack: "next" }]);
     expect(title(page)).toBe("Add Critiqs to your prototype");
-    expect(text(page)).toContain(`npx critiqs-react init ${PROJECT_ID}`);
+    expect(text(page)).toContain(`npx critiqs init ${PROJECT_ID}`);
   });
 
   test("My developer will saves that someone else adds it, and shows the email", async () => {

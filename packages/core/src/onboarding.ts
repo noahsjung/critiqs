@@ -63,39 +63,47 @@ export function parseOnboardingAnswers(value: unknown): OnboardingAnswers {
 // Stacks.
 
 /**
- * Every stack someone can pick, installable ones first. Installable means
- * Critiqs can be installed there today, with `installCommands`: `critiqs init`
- * supports React apps built with Vite or Next.js. The others turn installable
- * as their framework packages ship.
+ * Every stack someone can pick, the ones with a Critiqs package first.
+ * `install` adds the stack's Critiqs package; `npx critiqs init` then adds
+ * Critiqs where the app renders (see `installCommands`). A stack with no
+ * package (`install: null`) adds Critiqs with the `critiqs` script tag.
  */
 const STACK_LIST = [
-  { id: "react", label: "React (Vite)", installable: true },
-  { id: "next", label: "Next.js", installable: true },
-  { id: "angular", label: "Angular", installable: false },
-  { id: "astro", label: "Astro", installable: false },
-  { id: "django", label: "Django", installable: false },
-  { id: "flask", label: "Flask", installable: false },
-  { id: "gatsby", label: "Gatsby", installable: false },
-  { id: "laravel", label: "Laravel", installable: false },
-  { id: "nuxt", label: "Nuxt", installable: false },
-  { id: "rails", label: "Rails", installable: false },
-  { id: "remix", label: "Remix or React Router", installable: false },
-  { id: "solid", label: "Solid", installable: false },
-  { id: "svelte", label: "Svelte", installable: false },
-  { id: "sveltekit", label: "SvelteKit", installable: false },
-  { id: "vue", label: "Vue", installable: false },
-  { id: "wordpress", label: "WordPress", installable: false },
-] as const satisfies readonly { id: string; label: string; installable: boolean }[];
+  { id: "react", label: "React (Vite)", install: "npm install critiqs-react" },
+  { id: "next", label: "Next.js", install: "npm install critiqs-react" },
+  { id: "vue", label: "Vue", install: "npm install critiqs-vue" },
+  { id: "nuxt", label: "Nuxt", install: "npm install critiqs-nuxt" },
+  { id: "svelte", label: "Svelte", install: "npm install critiqs-svelte" },
+  { id: "sveltekit", label: "SvelteKit", install: "npm install critiqs-svelte" },
+  { id: "angular", label: "Angular", install: "npm install critiqs-angular" },
+  { id: "astro", label: "Astro", install: "npm install critiqs-astro" },
+  { id: "solid", label: "Solid", install: "npm install critiqs-solid" },
+  { id: "rails", label: "Rails", install: "bundle add critiqs-rails" },
+  { id: "django", label: "Django", install: "pip install django-critiqs" },
+  { id: "flask", label: "Flask", install: "pip install flask-critiqs" },
+  { id: "gatsby", label: "Gatsby", install: null },
+  { id: "laravel", label: "Laravel", install: null },
+  { id: "remix", label: "Remix or React Router", install: null },
+  { id: "wordpress", label: "WordPress", install: null },
+] as const satisfies readonly { id: string; label: string; install: string | null }[];
 
 export type StackId = (typeof STACK_LIST)[number]["id"];
 
+/** A stack as backends send it. */
 export interface StackInfo {
   id: StackId;
   label: string;
+  /** Whether it has a Critiqs package that `critiqs init` sets up; otherwise Critiqs goes in with the script tag. */
   installable: boolean;
 }
 
-export const STACKS: readonly StackInfo[] = STACK_LIST;
+export const STACKS: readonly StackInfo[] = STACK_LIST.map(({ id, label, install }) => ({ id, label, installable: install !== null }));
+
+/** The stacks with a Critiqs package, as people say them, for "works with …". */
+export const PACKAGE_STACK_NAMES: readonly string[] = ["React", "Next.js", "Vue", "Nuxt", "Svelte", "SvelteKit", "Angular", "Astro", "Solid", "Rails", "Django", "Flask"];
+
+/** Where the script tag is explained, for stacks with no Critiqs package. */
+export const SCRIPT_TAG_GUIDE = "https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag";
 
 /** A stack someone picked or confirmed, as sent to the server; anything else is no stack. */
 export function parseStack(value: unknown): StackId | undefined {
@@ -612,7 +620,7 @@ export interface ProjectSetup {
   /** The project's review address, shown as text. */
   address: string | null;
   stack: StackInfo | null;
-  /** `installCommands` for an installable or unknown stack; null when the stack isn't installable yet. */
+  /** `installCommands` for the stack. Newer clients work them out from `stack` instead, so older backends' answers show today's commands. */
   installCommands: readonly string[] | null;
 }
 
@@ -621,12 +629,25 @@ export interface DeveloperSetup extends ProjectSetup {
   inviterName: string;
 }
 
-/** The commands, in order, that install Critiqs in an installable stack, for a project ID the backend issued. */
-export function installCommands(projectId: string): readonly string[] {
+/**
+ * The commands, in order, that add Critiqs to an app built with `stack`, for
+ * a project ID the backend issued: the stack's Critiqs package, then
+ * `critiqs init`, which adds Critiqs where the app renders. For an unknown
+ * stack only `critiqs init`, which finds the framework and names its
+ * package. Null for a stack with no package, which uses the script tag.
+ */
+export function installCommands(projectId: string, stack: StackId | null): readonly string[] | null {
   // The commands are pasted into a terminal, so only a real project ID goes in them.
   if (!PROJECT_ID_PATTERN.test(projectId)) throw new Error(`Not a Critiqs project ID: ${JSON.stringify(projectId)}`);
-  // `init` adds <Critiqs /> and writes the project ID but doesn't add the dependency.
-  return ["npm install critiqs-react", `npx critiqs-react init ${projectId}`];
+  const init = `npx critiqs init ${projectId}`;
+  if (stack === null) return [init];
+  const install = STACK_LIST.find((candidate) => candidate.id === stack)?.install ?? null;
+  return install === null ? null : [install, init];
+}
+
+/** "A, B, or C". */
+export function listOr(items: readonly string[]): string {
+  return items.length < 3 ? items.join(" or ") : `${items.slice(0, -1).join(", ")}, or ${items.at(-1)}`;
 }
 
 /** Project IDs from either backend: Convex IDs, or SQLite's `p_` IDs. Matches critiqs-react's `PROJECT_ID_PATTERN`. */
@@ -634,23 +655,22 @@ export const PROJECT_ID_PATTERN = /^([a-z0-9]{16,64}|p_[0-9a-f]{32})$/;
 
 /**
  * The message someone copies to ask their developer to install Critiqs, for
- * example over Slack. Plain text. A stack Critiqs can't be installed in yet
- * gets no command, only the setup page.
+ * example over Slack. Plain text. A stack with no Critiqs package gets the
+ * script tag's guide and the project ID instead of commands.
  */
 export function developerMessage(args: { projectName: string; address: string | null; stack: StackId | null; projectId: string; setupUrl: string }): string {
   const name = args.projectName.trim() || "our prototype";
   const where = args.address === null ? "" : ` at ${args.address.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
   const ask = `Can you add Critiqs to ${name}${where}? It lets us comment right on the prototype.`;
-  const commands = installCommands(args.projectId).join("\n");
   const stack = STACKS.find((candidate) => candidate.id === args.stack) ?? null;
+  const commands = installCommands(args.projectId, stack?.id ?? null);
   let how: string;
-  if (stack === null) {
-    const installable = STACKS.filter((candidate) => candidate.installable).map((candidate) => candidate.label);
-    how = `If it's built with ${installable.join(" or ")}, run these in its folder:\n${commands}`;
-  } else if (stack.installable) {
-    how = `It's built with ${stack.label}, so run these in its folder:\n${commands}`;
+  if (commands === null) {
+    how = `It's built with ${stack!.label}, which has no Critiqs package, so add Critiqs with a script tag on every page: ${SCRIPT_TAG_GUIDE}\nProject ID: ${args.projectId}`;
+  } else if (stack === null) {
+    how = `Run this in its folder. It finds the framework (${listOr(PACKAGE_STACK_NAMES)}) and adds Critiqs:\n${commands.join("\n")}`;
   } else {
-    how = `It's built with ${stack.label}, and Critiqs can't be added to ${stack.label} apps yet.`;
+    how = `It's built with ${stack.label}, so run these in its folder:\n${commands.join("\n")}`;
   }
   return [ask, how, `Setup page: ${args.setupUrl}`].join("\n\n");
 }

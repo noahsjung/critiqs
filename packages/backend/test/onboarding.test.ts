@@ -78,7 +78,7 @@ test("a setup email goes out from a scheduled action as the inviter via Critiqs,
     projectName: "Acme",
     address: "https://acme.example/",
     stack: null,
-    installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`],
+    installCommands: [`npx critiqs init ${projectId}`],
   });
   expect(await dana.query(api.onboarding.projectSetup, { projectId })).toMatchObject({ stack: { id: "next", label: "Next.js", installable: true } });
   await expect(t.query(api.onboarding.projectSetup, { projectId })).rejects.toThrow("Sign in");

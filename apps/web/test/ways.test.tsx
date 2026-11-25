@@ -10,7 +10,7 @@ import { button, click, fakeBackend, fakeClipboard, labelled, refusingClipboard,
 // every answer to sending setup emails.
 
 const PROJECT_ID = "n579b6w6641phdvxeymddfn1zd8jwjxw";
-const COMMAND = `npm install critiqs-react && npx critiqs-react init ${PROJECT_ID}`;
+const COMMAND = `npm install critiqs-react && npx critiqs init ${PROJECT_ID}`;
 const project = (overrides: Partial<CreatedProject> = {}): CreatedProject => ({
   id: PROJECT_ID,
   name: "Acme prototype",
@@ -25,7 +25,7 @@ describe("I will: the command", () => {
     let done = 0;
     const page = await render(<InstallPanel project={project()} onDone={() => done++} />);
     expect(page.querySelector("h1")?.textContent).toBe("Add Critiqs to your prototype");
-    expect(page.querySelector(".command")?.textContent).toBe(`npm install critiqs-react &&\nnpx critiqs-react init ${PROJECT_ID}`);
+    expect(page.querySelector(".command")?.textContent).toBe(`npm install critiqs-react &&\nnpx critiqs init ${PROJECT_ID}`);
     expect(page.querySelectorAll(".command").length).toBe(1);
     await click(button(page, "Copy command"));
     expect(clipboard.text).toBe(COMMAND);
@@ -45,26 +45,47 @@ describe("I will: the command", () => {
     expect(done).toBe(1);
   });
 
-  test("no address: says to open the prototype; an unknown stack says which apps it works with", async () => {
+  test("no address: says to open the prototype; an unknown stack runs init alone, which finds the framework", async () => {
     const page = await render(<InstallPanel project={project({ reviewUrl: null, stack: null })} />);
     expect(text(page)).toContain("Then open your prototype.");
-    expect(text(page)).toContain("Works with React apps built with Vite or Next.js.");
+    expect(page.querySelector(".command")?.textContent).toBe(`npx critiqs init ${PROJECT_ID}`);
+    expect(text(page)).toContain("It finds your framework (React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Rails, Django, or Flask) and adds Critiqs.");
   });
 
-  test("a project on a backend other than Critiqs Cloud: a step that gives <Critiqs /> its backend, also in the agent's instructions", async () => {
+  test("every framework with a Critiqs package gets its package and init, never coming soon", async () => {
+    const cases: [CreatedProject["stack"], string][] = [
+      ["vue", "npm install critiqs-vue"],
+      ["sveltekit", "npm install critiqs-svelte"],
+      ["rails", "bundle add critiqs-rails"],
+      ["flask", "pip install flask-critiqs"],
+    ];
+    for (const [stack, install] of cases) {
+      const page = await render(<InstallPanel project={project({ stack })} />);
+      expect([stack, page.querySelector(".command")?.textContent]).toEqual([stack, `${install} &&\nnpx critiqs init ${PROJECT_ID}`]);
+      expect([stack, text(page).includes("coming soon")]).toEqual([stack, false]);
+    }
+  });
+
+  test("a project on a backend other than Critiqs Cloud: a step that gives Critiqs its backend, also in the agent's instructions", async () => {
     const clipboard = fakeClipboard();
     const page = await render(<InstallPanel project={project()} />, { backend: fakeBackend({ componentBackend: "https://team-backend.convex.cloud" }) });
     expect(text(page)).toContain("This project is on your team's own Critiqs backend, not Critiqs Cloud.");
     await click(button(page, "Copy property"));
     expect(clipboard.text).toBe('backend="https://team-backend.convex.cloud"');
     await click(button(page, "Copy for a coding agent"));
-    expect(clipboard.text).toContain('Then add `backend="https://team-backend.convex.cloud"` to the <Critiqs /> component init added');
+    expect(clipboard.text).toContain("Then set Critiqs's backend to https://team-backend.convex.cloud where init added Critiqs (`backend=\"https://team-backend.convex.cloud\"` on the component)");
   });
 
-  test("a stack Critiqs can't install in yet: says so, with no command", async () => {
-    const page = await render(<InstallPanel project={project({ stack: "vue" })} />);
-    expect(text(page)).toContain("Critiqs works with React apps built with Vite or Next.js today. Vue support is coming soon.");
+  test("a stack with no Critiqs package: the script tag's guide and the project ID to copy, with no command", async () => {
+    const clipboard = fakeClipboard();
+    let done = 0;
+    const page = await render(<InstallPanel project={project({ stack: "laravel" })} onDone={() => done++} />);
+    expect(text(page)).toContain("Laravel has no Critiqs package, so add Critiqs with a script tag on every page. The guide shows the tag; give it this project ID.");
+    expect(page.querySelector("a")?.getAttribute("href")).toBe("https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag");
     expect(page.querySelector(".command")).toBeNull();
+    await click(button(page, "Copy project ID"));
+    expect(clipboard.text).toBe(PROJECT_ID);
+    expect(done).toBe(1);
   });
 
   test("when the browser won't copy the command, it asks to select it; no extra field, since it's on the page", async () => {
@@ -135,7 +156,7 @@ describe("My developer will: the email", () => {
     expect(clipboard.text).toBe(
       [
         "Can you add Critiqs to Acme prototype at acme-proto.vercel.app? It lets us comment right on the prototype.",
-        `It's built with Next.js, so run these in its folder:\nnpm install critiqs-react\nnpx critiqs-react init ${PROJECT_ID}`,
+        `It's built with Next.js, so run these in its folder:\nnpm install critiqs-react\nnpx critiqs init ${PROJECT_ID}`,
         `Setup page: ${window.location.origin}/setup/${PROJECT_ID}`,
       ].join("\n\n"),
     );
@@ -143,11 +164,11 @@ describe("My developer will: the email", () => {
     expect(done).toBe(1);
   });
 
-  test("on a backend other than Critiqs Cloud, the copied message says to give <Critiqs /> that backend", async () => {
+  test("on a backend other than Critiqs Cloud, the copied message says to give Critiqs that backend", async () => {
     const clipboard = fakeClipboard();
     const page = await render(<Panel initial={["dev@acme.com"]} />, { backend: fakeBackend({ componentBackend: "https://team-backend.convex.cloud" }) });
     await click(button(page, "Copy a message to send yourself"));
-    expect(clipboard.text).toContain('This project is on our own Critiqs backend, not Critiqs Cloud. Then add this property to the <Critiqs /> component that init adds, so it connects there:\nbackend="https://team-backend.convex.cloud"');
+    expect(clipboard.text).toContain('This project is on our own Critiqs backend, not Critiqs Cloud. Then add this setting where init added Critiqs, so it connects there:\nbackend="https://team-backend.convex.cloud"');
   });
 
   test("Send emails each address that has none yet; once every one is sent, the form gives way to what was sent", async () => {
