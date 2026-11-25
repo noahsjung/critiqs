@@ -1,0 +1,6 @@
+1. Signed in: {"stored":true,"signInButtonVisible":false}
+2. Reload with a valid token: 0 refresh request(s)
+3. Refresh sent {"refreshToken":"pcCcSE…","nextRefreshToken":"ekgNrs…"}; backend answered 200; page closed before the answer arrived
+4. Reopened: refreshes [{"refreshToken":"pcCcSE…","nextRefreshToken":"ekgNrs…"}], answers [200]
+   {"stored":true,"signInButtonVisible":false}; refresh token changed: true
+5. Later renewal answers [200]; {"stored":true,"signInButtonVisible":false}

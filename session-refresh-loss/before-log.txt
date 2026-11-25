@@ -1,0 +1,5 @@
+1. Signed in: {"stored":true,"signInButtonVisible":false}
+2. Reload with a valid token: 1 refresh request(s)
+3. Refresh sent {"refreshToken":"TWFzR-…","nextRefreshToken":"(none)"}; backend answered 200; page closed before the answer arrived
+4. Reopened: refreshes [{"refreshToken":"TWFzR-…","nextRefreshToken":"(none)"}], answers [401]
+   {"stored":false,"signInButtonVisible":true}; refresh token changed: false
