@@ -121,7 +121,7 @@ nothing to anyone else; invited people join when they sign in. The default
 stays **Anyone who signs in**, so sharing a prototype's link with a client
 keeps working ([technical direction](technical-direction.md#hosting-and-access)).
 
-**Agreed (2026-11-23), not built:** projects belong to organizations. An
+**Built:** projects belong to organizations. An
 organization holds the people who build prototypes and pay for Critiqs Cloud,
 not its reviewers:
 
@@ -249,7 +249,7 @@ so, and the project's owner can connect it in AI settings. Details are in
 
 ## Plans and payment
 
-**Agreed (2026-11-23), not built.** Critiqs Cloud has three plans. Each
+**Built; Critiqs Cloud doesn't run it yet.** Critiqs Cloud has three plans. Each
 organization has one, and its admins choose it and pay for it by card through
 checkout. Self-hosted deployments have no plans.
 
@@ -291,8 +291,8 @@ version need not remain runnable for its feedback to remain readable.
   integrations, project configuration, and tools to switch services.
 - A browser extension and standalone URL-based review. Opening arbitrary sites
   requires a separate approach to browser access and embedding. Frameworks
-  beyond React are in progress: a shared `critiqs` package with a package per
-  framework, all released at one version
+  beyond React are built, not published yet: a shared `critiqs` package with a
+  package per framework, all released at one version
   ([what is released](releasing.md#what-is-released)).
 - Scrollable historical page snapshots and element/source tracking to help
   locate threads after redesigns.
@@ -333,7 +333,7 @@ made for open questions are listed in [technical direction](technical-direction.
 | F11 | Built: the four default tags plus free tags and hashtags, derived on the server from every new message, reply, and edit on Convex and SQLite; typing `#` opens suggestions, with inline draft highlighting and filled posted tags; shared tag groups organized by the project's owner, with Copy & wording as a starter group, and group filters. Existing feedback gains its hashtags through SQLite's migration or Convex's `tags:backfill`. Selected threads export as Markdown or JSON with full discussions loaded in bounded pages; a failed page blocks the entire export. Editing a project's preset tags is not built. |
 | F12 | Built for any Convex deployment, and beyond the first release's scope, for self-hosting on SQLite inside the host app's server (`critiqs-react/server`). The component defaults to Critiqs Cloud's deployment, which still runs an earlier backend until the current one is deployed with approval; `critiqs init --own-convex` deploys to a team's own Convex. |
 | F13 | Built: mention suggestions from project participants, highlighted mentions, mention emails through Resend with retries, mute and unsubscribe links, and the project's review address. Beyond the first release's scope, replies also email everyone in their thread (a setting turns this off), and coding agents can reply as the signed-in reviewer, marked "via coding agent". Emails embed the thread's capture as an inline attachment and show its whole discussion. Real inbox delivery, and how each mail client shows the inline image, are untested until Critiqs's sending domain is set up. |
-| F14 | Built: configurable plans and limits, counted transactionally, with usage shown to project owners in setup. Agreed (2026-11-23), not built: organizations, the Free, Plus, and Pro plans, per-token Critiqs AI credits with an overage cap and alert emails, the storage add-on, and payment through Autumn on Stripe. |
+| F14 | Built: configurable plans and limits, counted transactionally, with usage shown to project owners in setup; organizations with admins, members, and email invitations; the Free, Plus, and Pro plans; per-token Critiqs AI credits with an overage cap and alert emails; the storage add-on; and payment through Autumn on Stripe, with a **Plan and billing** page for admins. Tested against a stand-in for Autumn's API; live payments need Stripe connected in Autumn and the backend deployed to Critiqs Cloud. |
 | F15 | Built: `critiqs init` adds the component where a React, Next.js App Router, or Pages Router app renders, creates or reuses a project on Critiqs Cloud (the default, with no questions), an existing backend, or the team's own Convex, writes its settings, and reports readiness, including missing review addresses and ones that only open on one computer or private network; sign-in from another device with a setup code; `critiqs doctor`, which separates configuration from observed behavior; JSON output; the optional `critiqs mcp` server; and `AGENT_SETUP.md`. Beyond the first release's scope, coding agents read feedback with its context through `critiqs_comments`, `critiqs_thread`, and `critiqs_screenshot`, after the computer signs in once with `critiqs sign-in`. Tested against local backends and real Vite and Next.js builds; deploying with a real Convex deploy key, Critiqs Cloud sign-in, remote approval on Cloud, and the two-reviewer pilot over HTTPS are untested until Cloud runs the current backend. |
 | F16 | Built: automatic grouping, natural-language search with cited insights and labeled basic search, owner AI settings with both connection modes, encrypted keys, an endpoint allowlist, and a connection test, on Convex and SQLite. Tested against local stand-ins for each provider's API; real providers' answers, and Critiqs-managed AI, are untested until an operator configures credentials. See [tags, tag groups, and AI](tags-and-ai.md). |
 | Mockup mode | Built beyond the first release's scope, on Convex: one panel listing every page's mockup threads, each its own mockup with page copies at several widths and versions with restore, answered by Critiqs AI; opening another page's thread asks to go there; comments added with "+ Add existing comment"; Hold to compare. Tested against a local Convex deployment with a stand-in model; answers from real providers depend on the project's AI connection. |

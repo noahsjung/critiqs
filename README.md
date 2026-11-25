@@ -38,17 +38,17 @@ build on the shared `critiqs` package:
 
 | Package | Registry | For | Status |
 | --- | --- | --- | --- |
-| `critiqs` | npm | Any web app: `mountCritiqs` and the `<critiqs-app>` element; the base of every framework package | Not on npm yet |
+| `critiqs` | npm | Any web app: `mountCritiqs` and the `<critiqs-app>` element; the base of every framework package | Built, not published yet |
 | `critiqs-react` | npm | React and Next.js | On npm (0.3.0) |
-| `critiqs-vue` | npm | Vue | In progress |
-| `critiqs-nuxt` | npm | Nuxt | In progress |
-| `critiqs-svelte` | npm | Svelte and SvelteKit | In progress |
-| `critiqs-angular` | npm | Angular | In progress |
-| `critiqs-astro` | npm | Astro | In progress |
-| `critiqs-solid` | npm | Solid and SolidStart | In progress |
-| `critiqs-rails` | RubyGems | Rails | In progress |
-| `django-critiqs` | PyPI | Django | In progress |
-| `flask-critiqs` | PyPI | Flask | In progress |
+| `critiqs-vue` | npm | Vue | Built, not published yet |
+| `critiqs-nuxt` | npm | Nuxt | Built, not published yet |
+| `critiqs-svelte` | npm | Svelte and SvelteKit | Built, not published yet |
+| `critiqs-angular` | npm | Angular | Built, not published yet |
+| `critiqs-astro` | npm | Astro | Built, not published yet |
+| `critiqs-solid` | npm | Solid and SolidStart | Built, not published yet |
+| `critiqs-rails` | RubyGems | Rails | Built, not published yet |
+| `django-critiqs` | PyPI | Django | Built, not published yet |
+| `flask-critiqs` | PyPI | Flask | Built, not published yet |
 
 | Path | Contents |
 | --- | --- |

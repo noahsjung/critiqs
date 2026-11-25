@@ -645,7 +645,8 @@ function backfillTags(sql: SqlDriver): void {
   }
 }
 
-const PREFIX = {
+/** Each table's ID prefix. Exported for the schema guard test. */
+export const PREFIX = {
   users: "u",
   projects: "p",
   threads: "t",
@@ -674,7 +675,7 @@ const PREFIX = {
   projectAddresses: "e",
   openedProjects: "z",
 } as const;
-const ID_PATTERN = /^[uptmrsfacdnqghkxwjyobilvezE]_[0-9a-f]{32}$/;
+export const ID_PATTERN = /^[uptmrsfacdnqghkxwjyobilvezE]_[0-9a-f]{32}$/;
 
 function newId(table: keyof typeof PREFIX): string {
   return `${PREFIX[table]}_${crypto.randomUUID().replace(/-/g, "")}`;
