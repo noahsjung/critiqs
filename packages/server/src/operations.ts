@@ -48,7 +48,7 @@ import {
   validateMentions,
   checkMentionReach,
 } from "./notify.ts";
-import type { Identity, ProjectOnboarding, ProjectRecord, StoredCapture, StoredMention, Store, ThreadRecord, UserRecord } from "./store.ts";
+import type { Identity, ProjectOnboarding, ProjectRecord, StoredCapture, StoredMention, Store, ThreadRecord, TicketLinkRecord, UserRecord } from "./store.ts";
 import {
   explicitTags,
   messageHashtags,
@@ -81,10 +81,17 @@ export const UPLOAD_MINUTES = 60;
 export const MAX_MESSAGES = 500;
 export const MAX_EXPORT_THREADS = 200;
 /**
- * The most tickets one thread can link to. Creating or linking past it is
- * refused where links are made, so the tickets a thread shows are all of them.
+ * The most tickets one thread can link to, counting creations still under
+ * way; a new creation or link past it is refused. A creation set aside
+ * (parked) doesn't count, and may still finish past it.
  */
 export const MAX_THREAD_TICKETS = 20;
+/**
+ * The most ticket links one thread holds, linked or pending of any kind. A new
+ * creation or link past it is refused, so a thread's linked tickets, read up to
+ * this many, are always all of them.
+ */
+export const MAX_THREAD_TICKET_ROWS = 40;
 
 // ---------------------------------------------------------------------------
 // Reviewers
@@ -563,25 +570,35 @@ export async function threadSummary(store: Store, user: UserRecord | null, threa
 
 /** A thread's linked tickets, oldest first, leaving out tickets still being created. */
 async function linkedTickets(tickets: NonNullable<Store["tickets"]>, threadId: string) {
-  return await tickets.links.listForThread(threadId, "linked", MAX_THREAD_TICKETS);
+  return await tickets.links.listForThread(threadId, "linked", MAX_THREAD_TICKET_ROWS);
 }
 
-async function ticketViews(store: Store, tickets: NonNullable<Store["tickets"]>, threadId: string): Promise<TicketLinkView[]> {
-  return await Promise.all(
-    (await linkedTickets(tickets, threadId)).map(async (link) => ({
-      _id: link._id,
-      threadId: link.threadId,
-      tracker: link.tracker,
-      key: link.key,
-      url: link.url,
-      title: link.title,
-      status: link.status ?? null,
-      statusCheckedAt: link.statusCheckedAt ?? null,
-      createdFromCritiqs: link.createdFromCritiqs,
-      linkedByName: (await store.users.get(link.linkedBy))?.name ?? "Unknown",
-      linkedAt: link.linkedAt,
-    })),
-  );
+async function ticketViews(store: Store, tickets: NonNullable<Store["tickets"]>, project: ProjectRecord, threadId: string, user: UserRecord | null): Promise<TicketLinkView[]> {
+  const links = await linkedTickets(tickets, threadId);
+  // Project owners may unlink anyone's; read only when someone else linked one.
+  const owner = user !== null && links.some((link) => link.linkedBy !== user._id) && (await projectAccess(store, project, user._id)) === "manage";
+  return await Promise.all(links.map((link) => ticketView(store, link, { userId: user?._id ?? null, owner })));
+}
+
+/** A linked ticket as the thread window shows it, to `viewer`: the person asking, and whether they own the project. */
+export async function ticketView(store: Store, link: TicketLinkRecord, viewer: { userId: string | null; owner: boolean }): Promise<TicketLinkView> {
+  const mine = viewer.userId !== null && link.linkedBy === viewer.userId;
+  return {
+    _id: link._id,
+    threadId: link.threadId,
+    tracker: link.tracker,
+    externalId: link.externalId,
+    key: link.key,
+    url: link.url,
+    title: link.title,
+    status: link.status ?? null,
+    statusCheckedAt: link.statusCheckedAt ?? null,
+    createdFromCritiqs: link.createdFromCritiqs,
+    linkedByName: (await store.users.get(link.linkedBy))?.name ?? "Unknown",
+    linkedAt: link.linkedAt,
+    canUnlink: mine || (viewer.userId !== null && viewer.owner),
+    canAddLinkBack: mine && link.linkBack?.added === false,
+  };
 }
 
 /** A bounded discussion page. Metadata and read state accompany every page. */
@@ -628,7 +645,7 @@ async function threadDetail(
     readState: readState === null ? null : { lastReadAt: readState.lastReadAt, manualUnread: readState.manualUnread },
     ...(thread.mockup === undefined ? {} : { mockup: thread.mockup }),
     canDelete: await canDeleteThread(store, project, thread, user?._id ?? null),
-    ...(store.tickets === undefined ? {} : { tickets: await ticketViews(store, store.tickets, thread._id) }),
+    ...(store.tickets === undefined ? {} : { tickets: await ticketViews(store, store.tickets, project, thread._id, user) }),
     isDone: result.isDone,
     continueCursor: result.continueCursor,
     page: await Promise.all(

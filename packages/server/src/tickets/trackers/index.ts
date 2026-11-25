@@ -1,5 +1,6 @@
-import { isPrivateHost, type TicketDestination, type TicketRef, type TicketStatus, TRACKER_LIMITS } from "@critiqs/core";
+import { isPrivateHost, type TicketDestination, type TicketRef, type TicketStatus, TRACKER_LIMITS, type TrackerId } from "@critiqs/core";
 import { CritiqsError } from "../../errors.ts";
+import { linearAdapter } from "./linear.ts";
 
 // What Critiqs asks of each tracker. Each adapter calls one tracker's API with
 // the person's own token, parses its answers where they arrive, and turns its
@@ -178,22 +179,64 @@ export function checkedAdapter<T extends Partial<TrackerAdapter>>(adapter: T): T
   return checked;
 }
 
+/** A ticket Critiqs created, as the tracker reports it. */
+export interface CreatedTicket extends TicketRef {
+  status: TicketStatus;
+  /** The tracker's workspace, organization, or site the ticket is in, to match status updates; null where the tracker has none. */
+  site: string | null;
+}
+
+/** An image to put in a ticket, such as a thread's capture. */
+export interface TicketImage {
+  data: Blob;
+  contentType: string;
+  name: string;
+}
+
+/**
+ * A refusal the tracker answered with, so it did nothing: a token it doesn't
+ * accept, a rate limit, or input it turned down, such as a team that no longer
+ * exists. Any other failure (no answer, a server error, an answer Critiqs
+ * can't read) may have done what was asked.
+ */
+export class TrackerRefusal extends CritiqsError {}
+
+/** How a creation ended, as far as Critiqs can tell. */
+export type CreateOutcome =
+  | { status: "created"; ticket: CreatedTicket }
+  /** The tracker answered that it created nothing. */
+  | { status: "refused"; error: CritiqsError }
+  /** The tracker may have created it: no answer, a server error, or an answer Critiqs couldn't read. */
+  | { status: "unknown"; error: CritiqsError };
+
 /** One tracker's API, as Critiqs uses it. */
 export interface TrackerAdapter {
   /** Who the token belongs to; refuses a token the tracker doesn't accept. */
   verify(token: TrackerToken): Promise<TrackerIdentity>;
   /** Where the person can create tickets: Linear teams, GitHub repositories, or Jira projects. */
   destinations(token: TrackerToken): Promise<TicketDestination[]>;
-  /** Tickets the person can see, by key or words, optionally in one destination. */
+  /** Tickets the person can see, by key (such as `ENG-123`) or words, optionally in one destination. */
   search(token: TrackerToken, query: string, destinationId?: string): Promise<(TicketRef & { status: TicketStatus })[]>;
-  create(
-    token: TrackerToken,
-    input: { destinationId: string; title: string; body: string; labels: string[] },
-  ): Promise<TicketRef & { status: TicketStatus; site: string | null }>;
-  /** Adds a link back to the thread: a Linear attachment, a Jira remote link, or a GitHub comment. */
+  /** One ticket, by the tracker's permanent ID; refused when the person can't see it. */
+  get(token: TrackerToken, externalId: string): Promise<CreatedTicket>;
+  /**
+   * Creates a ticket. `creationId` (a UUID v4) names the creation and stays
+   * the same across its attempts: a tracker that lets callers choose the new
+   * ticket's ID takes it, so one creation can't make two tickets.
+   */
+  create(token: TrackerToken, input: { destinationId: string; title: string; body: string; labels: string[]; creationId: string }): Promise<CreateOutcome>;
+  /**
+   * The ticket a creation made, when an attempt's outcome is unknown: found by
+   * `creationId` where the tracker took it as the ticket's ID, else by the
+   * thread's link. Null when the creation made no ticket.
+   */
+  findCreated(token: TrackerToken, created: { creationId: string; link: string }): Promise<CreatedTicket | null>;
+  /** Adds a link back to the thread: a Linear attachment, a Jira remote link, or a GitHub comment. Safe to repeat: the ticket keeps one link to the thread. */
   linkBack(token: TrackerToken, ticket: TicketRef, link: { url: string; title: string }): Promise<void>;
   comment(token: TrackerToken, ticket: TicketRef, body: string): Promise<void>;
   status(token: TrackerToken, ticket: TicketRef): Promise<TicketStatus>;
+  /** Uploads an image for a new ticket's text and returns the address to embed; absent where the tracker can't take images (GitHub). */
+  uploadImage?(token: TrackerToken, image: TicketImage): Promise<string>;
   /** The destination's own ticket templates, where the tracker has them. */
   templates?(token: TrackerToken, destinationId: string): Promise<{ id: string; name: string; body: string }[]>;
 }
@@ -203,4 +246,37 @@ export interface SignInTokens {
   access: string;
   refresh: string | null;
   expiresAt: number | null;
+}
+
+/** Each tracker's adapter, at the given address; trackers not built yet are missing. */
+export const TRACKER_ADAPTERS: Partial<Record<TrackerId, (endpoint: TrackerEndpointOptions) => TrackerAdapter>> = {
+  linear: linearAdapter,
+};
+
+/**
+ * `fetchFn` for calls that must finish by `deadline` (a time from `now`): a
+ * request isn't started at or after it, and one still running then is
+ * aborted. An attempt that holds a lease calls trackers through it, so none
+ * of its requests outlives the lease.
+ */
+export function fetchUntil(fetchFn: typeof fetch, deadline: number, now: () => number): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const left = deadline - now();
+    if (left <= 0) throw new Error("The attempt's time ran out before this request.");
+    const controller = new AbortController();
+    // Left running after the answer arrives, so reading its body is cut off at the deadline too.
+    const timer = setTimeout(() => controller.abort(new Error("The attempt's time ran out.")), left);
+    (timer as { unref?: () => void }).unref?.();
+    const outer = init?.signal;
+    if (outer) {
+      if (outer.aborted) controller.abort(outer.reason);
+      else outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
+    }
+    try {
+      return await fetchFn(input, { ...init, signal: controller.signal });
+    } catch (error) {
+      clearTimeout(timer);
+      throw error;
+    }
+  }) as typeof fetch;
 }

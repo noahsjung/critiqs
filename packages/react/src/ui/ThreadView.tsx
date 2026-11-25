@@ -7,6 +7,7 @@ import { MentionInput, MessageBody, type MentionText, mentionsInText } from "./M
 import { describeBrowser, describeViewState, fullTime, relativeTime } from "./format.ts";
 import { useHidden } from "./hidden.ts";
 import { CloseIcon, EmojiIcon, MoreIcon, ResolveIcon } from "./icons.tsx";
+import { connectedTrackers, CreateTicketDialog, LinkTicketDialog, TicketChips, type TicketsOffer, trackerLabel } from "./Tickets.tsx";
 
 /** How revealing a thread's target in the prototype went. */
 export type RevealState =
@@ -51,6 +52,8 @@ export interface ThreadViewProps {
    * opens there instead of here.
    */
   onOpenMockup?: (mockupId: string, threadId: string | null) => void;
+  /** Creating and linking tickets, where the backend offers them; absent elsewhere. */
+  tickets?: TicketsOffer;
 }
 
 export function ThreadView(props: ThreadViewProps) {
@@ -144,10 +147,35 @@ function Header({ onClose, title, children }: { onClose: () => void; title: stri
 function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
   const { thread } = props;
   const threadId = thread._id;
-  const { setStatus, remove, markRead, markUnread } = useTransport();
+  const transport = useTransport();
+  const { setStatus, remove, markRead, markUnread } = transport;
   const overflow = useMenu();
   const moreButton = useRef<HTMLButtonElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Tickets are offered from threads that aren't mockup threads, with the person's connected trackers.
+  const ticketsOffer = thread.mockup === undefined ? props.tickets : undefined;
+  const accounts = transport.tickets?.useTrackerAccounts(ticketsOffer !== undefined);
+  const connected = ticketsOffer !== undefined && accounts?.status === "ready" ? connectedTrackers(ticketsOffer.offered, accounts.data) : [];
+  const [ticketDialog, setTicketDialog] = useState<"create" | "link" | null>(null);
+  const openTicketDialog = (kind: "create" | "link") => {
+    overflow.close();
+    if (connected.length === 0) ticketsOffer?.onYourTrackers();
+    else setTicketDialog(kind);
+  };
+  const addLinkBack = async (ticket: { _id: string; key: string }) => {
+    try {
+      await transport.tickets?.addTicketLinkBack(ticket._id);
+      props.notify(`Added the link back to ${ticket.key}`);
+    } catch (failure) {
+      props.notify(errorMessage(failure));
+    }
+  };
+  const unlink = (ticket: { _id: string; key: string }) => {
+    transport.tickets?.unlinkTicket(ticket._id).then(
+      () => props.notify(`Unlinked ${ticket.key}`),
+      (failure) => props.notify(errorMessage(failure)),
+    );
+  };
   const { draft, sending, error } = props.reply;
 
   // Where "New" starts is fixed when the thread opens, so it stays put while the reviewer reads.
@@ -254,6 +282,13 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
             >
               Mark unread
             </MenuItem>
+            {ticketsOffer !== undefined && (
+              <>
+                <hr />
+                <MenuItem onSelect={() => openTicketDialog("create")}>Create ticket…</MenuItem>
+                <MenuItem onSelect={() => openTicketDialog("link")}>Link ticket…</MenuItem>
+              </>
+            )}
             {/* Only its author or the project's owners may delete it; older backends don't say, and let anyone. */}
             {thread.canDelete !== false && (
               <>
@@ -279,6 +314,7 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
             {thread.statusChangedAt ? `, ${fullTime(thread.statusChangedAt)}` : ""}. Resolved threads stay as an archive.
           </div>
         )}
+        {thread.tickets !== undefined && <TicketChips tickets={thread.tickets} onUnlink={unlink} onAddLinkBack={addLinkBack} />}
         {props.onOpenMockup !== undefined && <LinkedMockups threadId={threadId} onOpen={props.onOpenMockup} />}
         {props.targetShown ? (
           <details className="saved-context">
@@ -333,6 +369,37 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
           </button>
         </div>
       </form>
+      {ticketDialog === "create" && ticketsOffer !== undefined && connected.length > 0 && (
+        <CreateTicketDialog
+          threadId={threadId}
+          projectId={props.projectId}
+          personId={ticketsOffer.personId}
+          accounts={connected}
+          returnFocus={moreButton.current}
+          onClose={() => setTicketDialog(null)}
+          onCreated={(ticket) => {
+            setTicketDialog(null);
+            if (ticket.canAddLinkBack) {
+              props.notify(`Created ${ticket.key}, but ${trackerLabel(ticket.tracker)} didn't add the link back to this thread.`, { label: "Add link back", run: () => void addLinkBack(ticket) });
+            } else {
+              props.notify(`Created ${ticket.key}`, { label: "Open", run: () => window.open(ticket.url, "_blank", "noopener,noreferrer") });
+            }
+          }}
+        />
+      )}
+      {ticketDialog === "link" && connected.length > 0 && (
+        <LinkTicketDialog
+          threadId={threadId}
+          accounts={connected}
+          linked={thread.tickets ?? []}
+          returnFocus={moreButton.current}
+          onClose={() => setTicketDialog(null)}
+          onLinked={(ticket) => {
+            setTicketDialog(null);
+            props.notify(`Linked ${ticket.key}`);
+          }}
+        />
+      )}
       {confirmDelete && (
         <Dialog label="Delete thread" onClose={() => setConfirmDelete(false)} returnFocus={moreButton.current}>
           <h3>Delete this thread?</h3>

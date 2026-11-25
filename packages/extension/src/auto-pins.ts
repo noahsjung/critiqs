@@ -13,7 +13,7 @@ export function pinsDisplay(threads: ThreadSummary[]): PageDisplay {
     hidden: false,
     exposedRight: null,
     watch: shown.map((thread) => ({ threadId: thread._id, location: locationOf(thread) })),
-    pins: shown.map((thread) => ({ threadId: thread._id, authorName: thread.preview?.authorName ?? "Unknown", unread: thread.unread, resolved: false })),
+    pins: shown.map((thread) => ({ threadId: thread._id, authorName: thread.preview?.authorName ?? "Unknown", unread: thread.unread, resolved: false, tickets: thread.tickets ?? [] })),
     selected: null,
     highlight: null,
     picking: null,

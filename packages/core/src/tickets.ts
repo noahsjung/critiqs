@@ -70,6 +70,8 @@ export interface TicketLinkView {
   _id: string;
   threadId: string;
   tracker: TrackerId;
+  /** The tracker's permanent ID for the ticket; its key can change, such as when it moves to another team. */
+  externalId: string;
   key: string;
   url: string;
   title: string;
@@ -81,6 +83,59 @@ export interface TicketLinkView {
   createdFromCritiqs: boolean;
   linkedByName: string;
   linkedAt: number;
+  /** Whether the person asking may unlink it: they linked it, or they own the project. */
+  canUnlink: boolean;
+  /** Whether the person asking created it and the tracker didn't add its link back to the thread, so they can add it. */
+  canAddLinkBack: boolean;
+}
+
+/** A ticket found by searching a tracker, to link a thread to. */
+export interface TicketSearchResult extends TicketRef {
+  status: TicketStatus;
+}
+
+/** A new ticket's title and text, filled from the thread, for the person to edit before creating it. */
+export interface TicketDraft {
+  title: string;
+  /** Markdown, without the line saying it came from Critiqs, which `createdFromCritiqs` adds when the ticket is created. */
+  body: string;
+  /** The person's default for saying the ticket came from Critiqs (Your trackers). */
+  createdFromCritiqs: boolean;
+  /**
+   * The submission ID of a ticket the person started on this thread, with
+   * this tracker account, that isn't linked yet: its answer was lost, or the
+   * tracker refused their connection while Critiqs checked it. The Create
+   * dialog submits under this ID, which finishes that ticket instead of
+   * starting another; null when there is none.
+   */
+  resumeSubmissionId: string | null;
+}
+
+/** What creating a ticket from a thread sends. */
+export interface NewTicket {
+  threadId: string;
+  /**
+   * Names this submission: a UUID v4 the Create dialog makes when it opens
+   * and sends with each of its tries. The new ticket takes it as its ID where
+   * the tracker allows, so a retry never creates a second ticket.
+   */
+  submissionId: string;
+  tracker: TrackerId;
+  destinationId: string;
+  title: string;
+  body: string;
+  /** Whether the ticket says it came from Critiqs, with the thread's link. */
+  createdFromCritiqs: boolean;
+}
+
+/** What linking a thread to an existing ticket sends. */
+export interface TicketLinkInput {
+  threadId: string;
+  tracker: TrackerId;
+  /** The tracker's permanent ID for the ticket, from a search result. */
+  externalId: string;
+  /** Also add a comment with the thread's summary to the ticket. */
+  comment: boolean;
 }
 
 /** A linked ticket in short, on a thread's row in the list and its pin. */
@@ -116,6 +171,11 @@ export type TrackerDisconnected = "ended" | "kept" | "failed" | "none";
 /** The trackers a backend offers, and how each one connects; from `/critiqs/config`. */
 export interface TicketsConfig {
   trackers: { id: TrackerId; signIn: "oauth" | "token" }[];
+  /**
+   * Whether threads can create and link tickets. A backend that offers only
+   * Your trackers, from before creating and linking were built, leaves it out.
+   */
+  threadTickets?: boolean;
 }
 
 /**
@@ -160,12 +220,60 @@ export function ticketText(thread: ExportThread, options: TicketTextOptions): { 
     "## Discussion",
     ...discussionLines(thread, TICKET_STYLE),
   ];
-  if (options.attribution !== null) {
-    lines.push("", "---", "", `Created from Critiqs by ${markdownText(options.attribution.name)}: ${markdownLink("open the thread", options.link)}`);
-  }
+  if (options.attribution !== null) lines.push("", ...attributionLines(options.attribution.name, options.link));
   return {
     // The title is the reviewer's text too, which a tracker shows as text: it mentions no one and references no issue.
     title: first === undefined ? "(no messages)" : unresolvedText(summarize(first.body)),
     body: `${lines.join("\n")}\n`,
   };
+}
+
+function attributionLines(name: string, link: string): string[] {
+  return ["---", "", `Created from Critiqs by ${markdownText(name)}: ${markdownLink("open the thread", link)}`];
+}
+
+export interface TicketBodyOptions {
+  /**
+   * The thread's capture: the address of the copy uploaded into the ticket,
+   * `missing` when the tracker takes images but this one couldn't be
+   * added, or null to add nothing.
+   */
+  capture: { url: string } | "missing" | null;
+  /** Who is creating the ticket; null when they turned attribution off. */
+  attribution: { name: string } | null;
+  link: string;
+}
+
+/**
+ * The text a ticket is created with: the person's draft, as they edited it
+ * (`ticketText` without attribution), then the capture, then, unless turned
+ * off, the line saying it came from Critiqs.
+ */
+export function ticketBody(draft: string, options: TicketBodyOptions): string {
+  const lines = [draft.trimEnd()];
+  if (options.capture !== null) {
+    lines.push(
+      "",
+      "## Capture",
+      "",
+      options.capture === "missing" ? `Critiqs couldn't add the capture to this ticket; ${markdownLink("open the thread", options.link)} to view it.` : `!${markdownLink("Capture", options.capture.url)}`,
+    );
+  }
+  if (options.attribution !== null) lines.push("", ...attributionLines(options.attribution.name, options.link));
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The comment a person may add when linking a ticket to a thread: the
+ * thread's first message, quoted, and its link; unless they turned it off, it
+ * says it came from Critiqs.
+ */
+export function ticketLinkComment(summary: string, options: { link: string; attribution: { name: string } | null }): string {
+  const link = markdownLink("open the thread", options.link);
+  return [
+    ...quoted(TICKET_STYLE.lines(summary.trim())),
+    "",
+    options.attribution === null ? `Thread: ${link}` : `Linked from Critiqs by ${options.attribution.name}: ${link}`,
+    "",
+  ].join("\n");
 }

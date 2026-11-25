@@ -27,14 +27,19 @@ import type {
   SearchScope,
   ThreadDetail,
   ThreadSummary,
+  NewTicket,
+  TicketDestination,
+  TicketDraft,
+  TicketLinkInput,
+  TicketLinkView,
+  TicketSearchResult,
   TrackerAccountView,
   TrackerId,
   TrackerSignInStart,
 } from "@critiqs/core";
 import { type ReactNode, useState } from "react";
-import { loadExport } from "../src/export-pages.ts";
 import type { BillingTransport, CritiqsTransport, InviteAnswer, MockupReply, MockupTransport, PagedList, QueryState, TicketTransport } from "../src/transport.ts";
-import type { MockupListScope } from "@critiqs/core";
+import { loadExport, type MockupListScope } from "@critiqs/core";
 
 /** Data a fake backend serves; `undefined` means still loading. Tests may change it between renders. */
 export interface FakeBackend {
@@ -117,6 +122,39 @@ export interface FakeTrackers {
   signIn?: () => Promise<TrackerSignInStart>;
   /** What disconnecting did at the tracker; by default it ended a sign-in there and kept a pasted token. */
   disconnected?: TrackerDisconnected;
+  /** Where tickets go; by default two Linear teams. */
+  destinations?: (tracker: TrackerId) => Promise<TicketDestination[]>;
+  /** Search results; by default none. */
+  search?: (tracker: TrackerId, query: string) => Promise<TicketSearchResult[]>;
+  /** A thread's draft; by default a short one, attribution on. */
+  draft?: (threadId: string, tracker: TrackerId) => Promise<TicketDraft>;
+  /** Answers creating a ticket; by default ENG-1 in Triage. */
+  create?: (input: NewTicket) => Promise<TicketLinkView>;
+  /** Answers linking a ticket; by default the chosen ticket, linked. */
+  link?: (input: TicketLinkInput) => Promise<TicketLinkView>;
+  /** Answers adding a ticket's link back; by default the ticket, with its link back. */
+  addLinkBack?: (linkId: string) => Promise<TicketLinkView>;
+}
+
+/** A linked ticket as a fake backend answers it. */
+export function fakeTicketView(changes: Partial<TicketLinkView> = {}): TicketLinkView {
+  return {
+    _id: "link-1",
+    threadId: "thread",
+    tracker: "linear",
+    externalId: "issue-1",
+    key: "ENG-1",
+    url: "https://linear.app/acme/issue/eng-1",
+    title: "Department is wrong",
+    status: { label: "Triage", category: "open" },
+    statusCheckedAt: 1,
+    createdFromCritiqs: true,
+    linkedByName: "Dana",
+    linkedAt: 1,
+    canUnlink: true,
+    canAddLinkBack: false,
+    ...changes,
+  };
 }
 
 /** An in-memory transport, so interface tests need no backend client. */
@@ -299,6 +337,31 @@ function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknow
     setTrackerAttribution: async (tracker, on) => {
       record("setTrackerAttribution", { tracker, on });
       trackers.accounts = (trackers.accounts ?? []).map((each) => (each.tracker === tracker ? { ...each, attribution: on } : each));
+    },
+    listTicketDestinations: async (tracker) =>
+      (await trackers.destinations?.(tracker)) ?? [
+        { id: "team-des", name: "Design", key: "DES" },
+        { id: "team-eng", name: "Engineering", key: "ENG" },
+      ],
+    searchTickets: async (tracker, query) => {
+      record("searchTickets", { tracker, query });
+      return (await trackers.search?.(tracker, query)) ?? [];
+    },
+    ticketDraft: async (threadId, tracker) => (await trackers.draft?.(threadId, tracker)) ?? { title: "Department is wrong", body: "> Department is wrong\n", createdFromCritiqs: true, resumeSubmissionId: null },
+    createTicket: async (input) => {
+      record("createTicket", input);
+      return (await trackers.create?.(input)) ?? fakeTicketView({ threadId: input.threadId });
+    },
+    linkTicket: async (input) => {
+      record("linkTicket", input);
+      return (await trackers.link?.(input)) ?? fakeTicketView({ threadId: input.threadId, createdFromCritiqs: false });
+    },
+    addTicketLinkBack: async (linkId) => {
+      record("addTicketLinkBack", { linkId });
+      return (await trackers.addLinkBack?.(linkId)) ?? fakeTicketView({ _id: linkId });
+    },
+    unlinkTicket: async (linkId) => {
+      record("unlinkTicket", { linkId });
     },
   };
 }

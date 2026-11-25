@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Rect, TargetLocation } from "@critiqs/core";
+import type { Rect, TargetLocation, TicketBadge } from "@critiqs/core";
 import { locateShown } from "../model.ts";
 import { useFrameValue } from "../hooks.ts";
 import { initials } from "./format.ts";
+import { TicketIcon } from "./icons.tsx";
+import { ticketText, trackerLabel } from "./Tickets.tsx";
 
 export interface PinTarget {
   threadId: string;
@@ -10,6 +12,8 @@ export interface PinTarget {
   authorName: string;
   unread: boolean;
   resolved: boolean;
+  /** Linked tickets, shown as a small mark with their keys and status in the pin's name. */
+  tickets?: TicketBadge[];
 }
 
 const PIN_SPACING = 22;
@@ -74,18 +78,26 @@ export function Pins({
         if (target === undefined) return null;
         const open = pin.threadId === selectedThreadId && pin.element === selectedElement;
         const classes = ["pin", target.unread && "unread", target.resolved && "resolved", open && "selected"];
+        const tickets = target.tickets ?? [];
+        const ticketNames = tickets.map((ticket) => `${trackerLabel(ticket.tracker)} ${ticketText(ticket)}`).join(", ");
+        const name = `comment by ${target.authorName}${target.unread ? ", unread" : ""}${ticketNames === "" ? "" : `, ticket ${ticketNames}`}`;
         return (
           <button
             key={pin.key}
             type="button"
             className={classes.filter(Boolean).join(" ")}
             style={{ left: Math.min(pin.x, exposedRight - 16), top: Math.max(pin.y, 16) }}
-            title={`Comment by ${target.authorName}${target.unread ? " (unread)" : ""}`}
-            aria-label={`Open comment by ${target.authorName}${target.unread ? ", unread" : ""}`}
+            title={`Comment by ${target.authorName}${target.unread ? " (unread)" : ""}${ticketNames === "" ? "" : `\n${tickets.map(ticketText).join("\n")}`}`}
+            aria-label={`Open ${name}`}
             aria-expanded={open}
             onClick={() => onSelect(pin.threadId, pin.element)}
           >
             {initials(target.authorName)}
+            {tickets.length > 0 && (
+              <span className="pin-ticket" aria-hidden="true">
+                <TicketIcon size={9} />
+              </span>
+            )}
           </button>
         );
       })}

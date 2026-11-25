@@ -1,11 +1,10 @@
 import { api } from "@critiqs/backend/api";
-import type { Page, ReactionRow, ThreadDetail, ThreadDetailPage } from "@critiqs/core";
+import { loadExport, type Page, type ReactionRow, type ThreadDetail, type ThreadDetailPage } from "@critiqs/core";
 import { ConvexProviderWithAuth, type ConvexReactClient, useConvexAuth, usePaginatedQuery } from "convex/react";
 import { ConvexError, type GenericId as Id } from "convex/values";
 import { type ReactNode, useCallback, useSyncExternalStore } from "react";
 import { creditsArg, type Deployment, madeWithArg, mentionThreadArg } from "../deployment.ts";
 import { uploadCapture, uploadFile } from "../capture-upload.ts";
-import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
 import type { TokenSession } from "../session.ts";
 import type { NewCapture } from "@critiqs/core";
@@ -243,6 +242,13 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       startTrackerSignIn: (tracker) => client.action(api.trackers.startSignIn, { tracker }),
       disconnectTracker: (tracker) => client.action(api.trackers.disconnect, { tracker }),
       setTrackerAttribution: (tracker, attribution) => change(mutation(api.trackers.setAttribution, { tracker, attribution })),
+      listTicketDestinations: (tracker) => client.action(api.tickets.destinations, { tracker }),
+      searchTickets: (tracker, query) => client.action(api.tickets.search, { tracker, query }),
+      ticketDraft: (threadId, tracker) => client.action(api.tickets.draft, { threadId: threadId as Id<"threads">, tracker }),
+      createTicket: ({ threadId, ...input }) => client.action(api.tickets.create, { threadId: threadId as Id<"threads">, ...input }),
+      linkTicket: ({ threadId, ...input }) => client.action(api.tickets.link, { threadId: threadId as Id<"threads">, ...input }),
+      addTicketLinkBack: (linkId) => client.action(api.tickets.addLinkBack, { linkId }),
+      unlinkTicket: (linkId) => change(mutation(api.tickets.unlink, { linkId })),
     },
   };
 }

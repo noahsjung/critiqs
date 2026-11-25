@@ -591,8 +591,23 @@ export interface TicketLinkRecord {
   /** The tracker's workspace, organization, or site ID, to match webhooks. */
   site?: string;
   state: "pending" | "linked";
-  /** Names the attempt that created a pending link, so only it finalizes the link. */
-  pendingToken?: string;
+  /**
+   * For a ticket Critiqs creates: the creation's ID, which the ticket takes in
+   * the tracker (Linear accepts it as the issue's ID). It is the Create
+   * dialog's submission ID, the same across the creation's attempts and kept
+   * once it is linked, so a retry never makes a second ticket.
+   */
+  creationId?: string;
+  /** For a ticket Critiqs creates: the tracker account (the tracker's ID for it) its creator submitted it with. Only that account recovers it. */
+  creatorAccountId?: string;
+  /** For a ticket Critiqs creates: the link back to the thread, as recorded when it was submitted, and whether the tracker has it. */
+  linkBack?: { url: string; title: string; added: boolean };
+  /** The attempt working on a pending link, and until when it may: only it calls the tracker for this creation, and only it may finish or release it. */
+  claimToken?: string;
+  /** When the attempt's lease ends; after an attempt ends without a ticket, when it ended. */
+  leaseUntil?: number;
+  /** A pending link set aside at once, without waiting to sit idle, because the tracker refused its creator's token while checking it. */
+  parked?: boolean;
   /** The last status Critiqs knew, when it last read it, and when the tracker says it last changed. */
   status?: TicketStatus;
   statusCheckedAt?: number;
@@ -714,7 +729,7 @@ export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" 
 };
 /** Changes to a ticket link; `null` clears an optional field. */
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
-  [K in "site" | "pendingToken" | "status" | "statusCheckedAt" | "statusChangedAt"]?: TicketLinkRecord[K] | null;
+  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt"]?: TicketLinkRecord[K] | null;
 };
 export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
 
@@ -1006,6 +1021,8 @@ export interface Store {
       listForThread(threadId: string, state: TicketLinkRecord["state"], limit: number): Promise<TicketLinkRecord[]>;
       /** Every link to one ticket, in any thread, as status updates find them. */
       findByExternal(tracker: TrackerId, externalId: string): Promise<TicketLinkRecord[]>;
+      /** The link a creation made or is making, in any thread, by its creation ID; null when there is none. */
+      findByCreation(creationId: string): Promise<TicketLinkRecord | null>;
       insert(link: New<TicketLinkRecord>): Promise<string>;
       patch(id: string, changes: TicketLinkChanges): Promise<void>;
       delete(id: string): Promise<void>;

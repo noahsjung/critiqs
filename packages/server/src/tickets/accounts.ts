@@ -4,7 +4,7 @@ import { CritiqsError, fail } from "../errors.ts";
 import { normalizeEmail } from "../signin.ts";
 import { currentReviewer, requireUser } from "../operations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
-import type { SignInTokens, TrackerAdapter, TrackerEndpointOptions, TrackerIdentity, TrackerToken } from "./trackers/index.ts";
+import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken } from "./trackers/index.ts";
 import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
@@ -43,23 +43,28 @@ export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>
 /** The trackers people can connect so far. */
 export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
 
-/** What `/critiqs/config` reports: the trackers offered and how each connects; null, so tickets aren't offered, without an encryption key. */
+/**
+ * What `/critiqs/config` reports: the trackers offered and how each connects,
+ * and that threads can create and link tickets; null, so tickets aren't
+ * offered, without an encryption key.
+ */
 export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
   if (deployment.encryptionKey === null) return null;
-  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })) };
+  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true };
 }
 
 /** The adapter that talks to a tracker, at the deployment's addresses. */
-export function trackerAdapter(tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): Pick<TrackerAdapter, "verify"> {
-  if (tracker !== "linear") fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
-  return linearAdapter({ fetch: fetchFn, baseUrl: deployment.linearApiUrl });
+export function trackerAdapter(tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): TrackerAdapter {
+  const adapter = TRACKER_ADAPTERS[tracker];
+  if (adapter === undefined || !OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
+  return adapter({ fetch: fetchFn, baseUrl: deployment.linearApiUrl });
 }
 
 export function trackerLabel(tracker: TrackerId): string {
   return TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
 }
 
-function ticketStore(store: Store): NonNullable<Store["tickets"]> {
+export function ticketStore(store: Store): NonNullable<Store["tickets"]> {
   if (store.tickets === undefined) fail("unavailable", "This Critiqs backend doesn't keep tracker accounts.");
   return store.tickets;
 }
@@ -71,7 +76,7 @@ function requireKey(deployment: TicketsDeployment): string {
   return deployment.encryptionKey;
 }
 
-function requireOffered(tracker: TrackerId) {
+export function requireOffered(tracker: TrackerId) {
   if (!OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
 }
 
@@ -445,6 +450,8 @@ export const REFRESH_SAVE_MS = 10 * 1000;
 
 export type RefreshClaim =
   | { status: "missing" }
+  /** The person's account for the tracker is another tracker account than the one asked for: they reconnected meanwhile. */
+  | { status: "changed" }
   /** The access token is good as it is. */
   | { status: "ready"; method: "oauth" | "token"; access: StoredToken }
   /** Another refresh is running; ask again shortly. */
@@ -454,11 +461,17 @@ export type RefreshClaim =
   /** The access token expired and there's no refresh token. */
   | { status: "ended" };
 
-/** Reads a person's account for a tracker and, when its access token is due, takes the refresh lease under `leaseId`. One transaction. */
-export async function claimTokenRefresh(store: Store, args: { userId: string; tracker: TrackerId; leaseId: string }, now: number): Promise<RefreshClaim> {
+/**
+ * Reads a person's account for a tracker, only when it is still the tracker
+ * account `accountId` (the tracker's ID for it) that the caller checked, and,
+ * when its access token is due, takes the refresh lease under `leaseId`. One
+ * transaction.
+ */
+export async function claimTokenRefresh(store: Store, args: { userId: string; tracker: TrackerId; accountId: string; leaseId: string }, now: number): Promise<RefreshClaim> {
   const accounts = ticketStore(store).accounts;
   const account = await accounts.find(args.userId, args.tracker);
   if (account === null) return { status: "missing" };
+  if (account.accountId !== args.accountId) return { status: "changed" };
   if (account.expiresAt === undefined || account.expiresAt > now + REFRESH_MARGIN_MS) return { status: "ready", method: account.method, access: account.access };
   if (account.refreshLease !== undefined && account.refreshLease.until > now && account.refreshLease.id !== args.leaseId) return { status: "busy" };
   if (account.refresh === undefined) return { status: "ended" };
@@ -525,8 +538,14 @@ export interface AccessSteps {
 
 const BUSY_WAIT_MS = 500;
 
-/** A person's working token for a tracker, refreshed first when it has expired; while another refresh runs, waits for it. */
-export async function trackerAccessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId }): Promise<TrackerToken> {
+/**
+ * A person's working token for a tracker, refreshed first when it has expired;
+ * while another refresh runs, waits for it. Only the token of the tracker
+ * account `accountId` that the caller checked: when the person has since
+ * connected another account, it is refused, so nothing is asked of the
+ * tracker as an account the caller didn't check.
+ */
+export async function trackerAccessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string }): Promise<TrackerToken> {
   const key = requireKey(deployment);
   const binding = trackerTokenBinding(args.tracker, args.userId);
   const label = trackerLabel(args.tracker);
@@ -538,6 +557,8 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
     switch (claim.status) {
       case "missing":
         fail("not-found", `Connect ${label} in Your trackers first.`);
+      case "changed":
+        fail("unavailable", `Your ${label} connection changed. Try again.`);
       case "ended":
         fail("invalid", `Your ${label} sign-in has ended. Connect ${label} again in Your trackers.`);
       case "ready": {

@@ -2284,8 +2284,12 @@ using their own tracker accounts. Behavior and order of work are in
 encryption, and Your trackers for Linear on Convex: Linear's adapter checks
 whose token it is, Linear sign-in (OAuth with PKCE) runs in a window served by
 the backend, refreshes run one at a time, and `/critiqs/config` reports
-`tickets`. The storage, token, sign-in, and compatibility items below describe
-them.
+`tickets`. Also built, for Linear on Convex: creating a ticket from a thread,
+linking an existing one, and unlinking, with the rules in
+`packages/server/src/tickets/links.ts` and the adapter's search, create, link
+back (a URL attachment), comment, status, and capture upload (Linear's signed
+upload). The storage, token, sign-in, calls to trackers, and compatibility
+items below describe them.
 
 **Proposed:** the technical choices.
 
@@ -2332,9 +2336,54 @@ them.
   creation was started. When the outcome is unknown, such as a timeout or a
   server stopping before it saved the ticket's ID, Critiqs must find out
   whether the ticket exists before trying again; whether by the tracker's own
-  duplicate protection or by searching for the thread's link is open. A
-  self-hosted server, which may run on a serverless host with no background
-  work, makes the call within the request, with the same handling.
+  duplicate protection or by searching for the thread's link is open. Built
+  for Linear: each creation is named by the Create dialog's submission ID, a
+  UUID v4 the dialog sends with each of its tries. Linear takes it as the new
+  issue's ID, and the link keeps it once linked, so a retry of a submission
+  that already finished returns its link. A submission belongs to one person,
+  thread, and tracker account, and a person has at most one unfinished
+  creation per thread and account: the draft names it, the dialog submits
+  under its ID instead of a new one, and a new submission is refused while it
+  is unfinished. One attempt
+  at a time holds a creation, under a 60-second lease taken in a mutation;
+  another attempt meanwhile is told it is still being created and doesn't
+  call Linear. The holder's requests stop 10 seconds before the lease ends and
+  never start after, and only the holder finishes or releases the creation.
+  The adapter reads a write's own answer before its errors, so a write Linear
+  says it made is never a refusal, and an issue made with errors in the answer
+  is an unknown outcome. It tells a refusal Linear answered with (input it
+  turned down, sign-in, rate limit, or `success: false`), which removes the
+  creation and shows Linear's reason, from an unknown outcome (no answer, a
+  server error), which leaves it idle. Only the creator's own requests
+  recover a creation, with their own token and the tracker account and link
+  back recorded when they submitted it, and another connected account is
+  refused. Every call to a tracker names the tracker account its first step
+  checked, and the token is read only for that account, in the transaction
+  that reads it; a person who connected another account meanwhile is told
+  their connection changed, and the tracker isn't called. Whether the person
+  may create tickets from the thread is checked before anything calls Linear.
+  The submission's next try, a retry or the reopened dialog, looks the issue
+  up by its ID, archived issues included: found, it is linked, even past the
+  thread's 20 tickets, with its link back added again (Linear keeps one
+  attachment per address), or dropped into the thread's link to that issue if
+  it has one; not found, it is created under the same ID, which Linear won't
+  take twice. A creation idle for 10 minutes is parked: it stops counting
+  toward the thread's 20 tickets but keeps its ID until its creator finishes
+  it. A lookup Linear refuses for the creator's token parks it at once, with a
+  message to connect Linear again. A thread
+  holds at most 40 ticket links of any kind, which is also how many of its
+  tickets are read, so all of them show. A link back Linear doesn't add when
+  the ticket is created is saved as missing, and its creator can add it again
+  (`tickets:addLinkBack`), with the recorded address and title. Linking holds
+  the thread's place for the ticket in a mutation before anything is written
+  to Linear: a pending link to that ticket, one per ticket, counted toward the
+  20 as a creation is, so two links can't both write to Linear for the last
+  place. It then adds the link back and saves the link; a refusal frees the
+  place, and a link back with no answer keeps it, idle then parked, until the
+  ticket is linked again. Only the call that saved the link adds the optional
+  summary comment, so a repeated or retried link comments at most once. A self-hosted server, which may run on
+  a serverless host with no background work, makes the call within the
+  request, with the same handling.
 - **Webhooks.** New HTTP routes on Convex and the self-hosted server, each
   checking that a call came from the tracker (a signature, or a secret in the
   registered address, as each tracker allows) before using it. Convex renews
@@ -2343,9 +2392,13 @@ them.
   webhook can arrive, opening a thread checks its tickets' status, at most once
   every few minutes.
 - **Compatibility.** The backend reports `tickets` in `/critiqs/config`, with
-  which trackers it offers and whether each uses sign-in or a pasted token.
-  The component shows ticket features only then, through an optional
-  `tickets` part of its transport, as Mockup mode does with `mockups`.
+  which trackers it offers and whether each uses sign-in or a pasted token,
+  and `threadTickets: true` where threads can create and link tickets; a
+  backend with only Your trackers leaves that out. The component shows Your
+  trackers only with `tickets`, and **Create ticket…** and **Link ticket…**
+  only with `threadTickets`, through an optional `tickets` part of its
+  transport, as Mockup mode does with `mockups`. Linked tickets show wherever
+  thread answers carry them.
 
 Settings for tickets on a Convex deployment (built: Linear):
 

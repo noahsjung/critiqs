@@ -1,4 +1,4 @@
-import { isPrivateReviewAddress, MAX_REVIEW_URL_LENGTH, reviewLink, threadPageLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
+import { isPrivateReviewAddress, type LinkTarget, MAX_REVIEW_URL_LENGTH, reviewLink, threadPageLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { useQuota } from "./limits.ts";
 import { canOpenThreadPage, canReview, projectQuota, projectTeam } from "./organizations.ts";
@@ -841,8 +841,16 @@ async function send(attempt: () => Promise<void>): Promise<DeliveryOutcome> {
  * its path. Null without a usable review address.
  */
 function messageLink(project: ProjectRecord, messageId: string, threadId: string): string | null {
+  return reviewAddressLink(project, { threadId, messageId });
+}
+
+/**
+ * A thread's or message's link on the project's review address, as emails and
+ * tickets use it, shortened as `messageLink` describes; null without a usable
+ * review address.
+ */
+export function reviewAddressLink(project: ProjectRecord, target: LinkTarget): string | null {
   if (project.reviewUrl === undefined) return null;
-  const target = { threadId, messageId };
   try {
     const link = reviewLink(project.reviewUrl, target);
     if (link.length <= MAX_LINK_LENGTH) return link;

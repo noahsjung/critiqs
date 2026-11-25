@@ -451,6 +451,40 @@ button.hashtag { cursor: pointer; }
 .mockup-banner.hint { background: var(--warning-bg); color: var(--warning-text); border-bottom-color: #f3e1b0; }
 .mockup-banner .link-btn { font-size: 12px; }
 .linked-mockups { margin: 10px 14px 0; }
+
+/* Tickets linked to threads: chips in the thread window, badges on list rows and pins, and their dialogs. */
+.ticket-chips { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) 6px; margin: 10px 14px 0; padding: 0; }
+.ticket-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: var(--text-s); }
+.ticket-chip a { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 2px var(--space-2); border-radius: 999px; color: var(--text); text-decoration: none; }
+.ticket-chip a:hover { background: var(--hover); }
+.ticket-chip a svg { flex: none; color: var(--muted); }
+.ticket-chip .key { font-weight: 600; white-space: nowrap; }
+.ticket-chip .status { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ticket-chip .icon-btn { width: 20px; height: 20px; margin: 0 2px 0 -4px; border-radius: 50%; }
+.ticket-chip .icon-btn svg { width: 12px; height: 12px; }
+.ticket-chip .link-btn { padding: 2px var(--space-2) 2px 2px; font-size: var(--text-s); white-space: nowrap; }
+.ticket-chip .link-btn:disabled { color: var(--muted); text-decoration: none; }
+.ticket-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--faint); }
+.ticket-dot.open { box-shadow: inset 0 0 0 1.5px var(--muted); }
+.ticket-dot.started { background: var(--accent); box-shadow: none; }
+.ticket-dot.done { background: var(--success); box-shadow: none; }
+.ticket-badge { display: inline-flex; align-items: center; gap: 3px; font-weight: 500; white-space: nowrap; }
+.ticket-badge svg { flex: none; }
+.pin-ticket { position: absolute; right: -6px; bottom: -6px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; color: #1f2023; box-shadow: 0 1px 2px rgb(0 0 0 / 0.35); }
+.ticket-dialog .ticket-body { min-height: 168px; font-size: var(--text-s); line-height: 1.45; resize: vertical; }
+.ticket-check { display: flex; align-items: center; gap: var(--space-2); }
+.ticket-check input { margin: 0; accent-color: var(--accent); }
+.ticket-results { display: flex; flex-direction: column; max-height: 232px; overflow-y: auto; margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; }
+.ticket-result { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); min-height: var(--row-height);
+  padding: 0 var(--space-2); border-radius: var(--radius-m); cursor: pointer; }
+.ticket-result:hover { background: var(--hover); }
+.ticket-result.chosen { background: var(--accent-soft); }
+.ticket-result input { margin: 0; accent-color: var(--accent); }
+.ticket-result .key { font-weight: 600; white-space: nowrap; }
+.ticket-result .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-result .status { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--muted); font-size: var(--text-s); white-space: nowrap; }
+@media (forced-colors: active) { .ticket-dot { border: 1px solid CanvasText; } }
 .note.pad { padding: 4px 16px 10px; }
 .list-more { padding: 2px 10px 8px; }
 .mockup-entry .page-label { font-weight: 500; }
@@ -461,6 +495,8 @@ button.hashtag { cursor: pointer; }
 .composer-context .chip { height: 24px; max-width: 100%; padding: 0 2px 0 8px; font-size: var(--text-s); }
 .composer-context .chip.comment-chip { gap: var(--space-1); background: var(--accent-soft); border-color: var(--tag-border); color: var(--accent-strong); font-weight: 500; }
 .composer-context .chip.comment-chip svg { flex: none; width: 13px; height: 13px; }
+.composer-context .chip.comment-chip .chip-tickets { display: inline-flex; align-items: center; gap: 3px; flex: none; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.composer-context .chip.comment-chip .chip-tickets svg { width: 12px; height: 12px; }
 .composer-context .chip.add-comment { padding: 0 8px; margin-right: var(--space-2); background: var(--surface); border: 1px dashed var(--border); color: var(--muted); }
 .composer-context .chip.add-comment:hover { color: var(--text); border-color: var(--faint); }
 .composer-context .chip-remove { color: var(--accent-strong); }

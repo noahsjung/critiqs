@@ -11,8 +11,12 @@ Status words: **Agreed** means the owner asked for it; **Proposed** means it
 still needs agreement; **built** means it is in this repository with local
 tests. **Built:** the core ticket types, ticket text filled from a thread
 without AI, encrypted tracker tokens, ticket storage on Convex with shared
-backend tests, and **Your trackers** on Convex for Linear, through Linear's
-sign-in or a pasted API key. People can't create, link, or see tickets yet.
+backend tests, **Your trackers** on Convex for Linear, through Linear's
+sign-in or a pasted API key, and, on Convex for Linear, creating a ticket from
+a thread (with the capture uploaded into it) or linking an existing one, and
+showing linked tickets on pins, the thread list, the thread window, and
+comments added to a mockup. Not built yet: AI drafting, templates, labels, a
+project's default destination, status updates, GitHub Issues, and Jira.
 
 ## Outcomes
 
@@ -123,7 +127,11 @@ What this settles:
 ## Creating or linking a ticket
 
 **Proposed:** the flows in this section. The agreed outcomes are in the table
-above.
+above. **Built for Linear:** the menu items, Create ticket with its team
+(remembered per person and project), title, text filled without AI, and
+**Created from Critiqs**; and Link ticket with search and the optional
+comment. Templates, labels, and the project's default destination are not
+built.
 
 The thread window's **⋯** menu offers **Create ticket…** and **Link ticket…**.
 Each shows the trackers the person has connected; with none, it offers to
@@ -164,6 +172,17 @@ goes to the tracker as they wrote it. The thread's link is the only
 link Critiqs writes. The page's address leaves out its query
 and fragment, which can carry a prototype's sign-in token. The Markdown
 export, a file the team downloads, keeps comments' own Markdown.
+
+Built for Linear: each draft creates at most one ticket, however often the
+person retries it. When a ticket the person started didn't finish, such as
+when its answer was lost or Linear stopped accepting their connection, the
+next **Create ticket** on that thread finishes it: the dialog says
+"Finishing the ticket you started earlier", and Critiqs links the ticket if
+Linear made it, even if it was archived since, instead of creating another.
+Until it is finished, they can't start another ticket on that thread with
+that Linear account. When Linear creates the ticket but doesn't add the link
+back to the thread, Critiqs says so, and the ticket's chip offers **Add link
+back** to the person who created it.
 
 **Link ticket** searches the person's tracker by key or words and links the
 chosen ticket. On Linear and Jira, Critiqs adds a link back to the thread on
@@ -212,15 +231,23 @@ Drafting is an AI request like search or a mockup change:
 
 A linked ticket shows its tracker, key, and status, such as `ENG-123 · In
 Progress`, to everyone who can see the thread, on its pin, its row in the
-thread list, the thread window, and mockup threads (agreed). **Proposed:** how
-each place shows it:
+thread list, the thread window, and mockup threads (agreed). **Proposed, and
+built as listed:** how each place shows it:
 
 - **Pin:** a small tracker mark, with the key and status on hover or focus.
 - **Thread list:** the key and status on the thread's row.
 - **Thread window:** the ticket chip under the header, which opens the ticket.
 - **Mockup threads:** the chip for tickets linked to the mockup thread, and to
   comments added to the mockup. Whether tickets can be created or linked from
-  inside a mockup thread, and how their text is built, is open.
+  inside a mockup thread, and how their text is built, is open. Built: the
+  keys and status on the chips of comments added to a mockup; Critiqs refuses
+  to create or link tickets from a mockup thread until that is decided.
+
+A thread links to at most 20 tickets. A ticket being created or linked holds
+its place before anything is written to the tracker. One whose creation or
+link Critiqs couldn't confirm stops counting toward that after 10 minutes, and
+can still be finished later, so a thread can show a few more. A thread holds
+at most 40, and all of them always show.
 
 **Proposed:** a **Has ticket** filter in the thread list, and the ticket's
 key, status, and link in notification emails, the Markdown and JSON export,

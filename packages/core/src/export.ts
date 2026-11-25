@@ -1,3 +1,4 @@
+import type { ExportedThread } from "./protocol.ts";
 import { contextLines, discussionLines, EXPORT_STYLE, formatTime, summarize } from "./thread-markdown.ts";
 import type { Revision, Scope, ThreadStatus, ViewState } from "./types.ts";
 
@@ -44,6 +45,42 @@ export interface FeedbackCollection {
   projectName: string;
   exportedAt: number;
   threads: ExportThread[];
+}
+
+/**
+ * One exported thread as a collection holds it: where it is now (its
+ * replacement target when reattached) and each message, with links from
+ * `linkFor` (null for the thread as a whole).
+ */
+export function exportThread(thread: ExportedThread, linkFor: (messageId: string | null) => string): ExportThread {
+  const { evidence } = thread.anchor;
+  const { screen, viewState, scope, target } = thread.location ?? thread.anchor;
+  return {
+    id: thread._id,
+    link: linkFor(null),
+    status: thread.status === "resolved" ? "resolved" : "open",
+    tags: thread.tags,
+    screen,
+    viewState,
+    scope,
+    target: { purposeId: target.purposeId, recordKey: target.recordKey, label: target.clues.label },
+    revision: evidence.revision,
+    pageUrl: evidence.url,
+    viewport: evidence.viewport,
+    persona: evidence.persona,
+    reattached: thread.location !== null,
+    hasCapture: thread.hasCapture,
+    messages: thread.messages.map((message) => ({
+      id: message._id,
+      link: linkFor(message._id),
+      author: message.author,
+      createdAt: message.createdAt,
+      editedAt: message.editedAt,
+      body: message.body,
+      revision: message.revision,
+      ...(message.via === undefined ? {} : { via: message.via }),
+    })),
+  };
 }
 
 /** Structured JSON for coding agents and tools. Contains feedback only, never credentials. */

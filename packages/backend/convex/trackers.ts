@@ -187,7 +187,7 @@ export const saveSignedIn = internalMutation({
 });
 
 export const claimRefresh = internalMutation({
-  args: { userId: v.string(), tracker: trackerValidator, leaseId: v.string() },
+  args: { userId: v.string(), tracker: trackerValidator, accountId: v.string(), leaseId: v.string() },
   handler: async (ctx, args) => await claimTokenRefresh(convexStore(ctx), args, Date.now()),
 });
 
@@ -206,6 +206,6 @@ export const finishRefresh = internalMutation({
  * has expired (`trackerToken`), as a function for tests; actions call `trackerToken` directly.
  */
 export const accessToken = internalAction({
-  args: { userId: v.string(), tracker: trackerValidator },
-  handler: async (ctx, args): Promise<TrackerToken> => run(() => trackerToken(ctx, args.userId, args.tracker)),
+  args: { userId: v.string(), accountId: v.string(), tracker: trackerValidator },
+  handler: async (ctx, args): Promise<TrackerToken> => run(() => trackerToken(ctx, args, args.tracker)),
 });

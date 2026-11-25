@@ -48,6 +48,7 @@ import type * as signIn from "../signIn.js";
 import type * as tags from "../tags.js";
 import type * as threads from "../threads.js";
 import type * as uploads from "../uploads.js";
+import type * as tickets from "../tickets.js";
 import type * as trackerHttp from "../trackerHttp.js";
 import type * as trackers from "../trackers.js";
 import type * as users from "../users.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   tags: typeof tags;
   threads: typeof threads;
   uploads: typeof uploads;
+  tickets: typeof tickets;
   trackerHttp: typeof trackerHttp;
   trackers: typeof trackers;
   users: typeof users;

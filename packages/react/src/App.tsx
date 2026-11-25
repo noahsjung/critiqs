@@ -986,7 +986,7 @@ function PanelApp({
         // The open thread keeps its pin, such as a resolved thread opened from a link or search.
         const open = summary._id === selected?.threadId;
         if (filters.status !== "all" && summary.status !== filters.status && !open) return [];
-        return [{ threadId: summary._id, authorName: summary.preview?.authorName ?? "Unknown", unread: summary.unread, resolved: summary.status === "resolved" }];
+        return [{ threadId: summary._id, authorName: summary.preview?.authorName ?? "Unknown", unread: summary.unread, resolved: summary.status === "resolved", tickets: summary.tickets ?? [] }];
       }),
     [pageSummaries, filters.status, selected?.threadId],
   );
@@ -1355,6 +1355,11 @@ function PanelApp({
               notify={notify}
               onTag={filterByTag}
               onOpenMockup={mockupsAvailable ? openMockup : undefined}
+              tickets={
+                trackersOffered?.threadTickets === true && openYourTrackers !== null && reviewerId !== null
+                  ? { offered: trackersOffered, onYourTrackers: openYourTrackers, personId: reviewerId }
+                  : undefined
+              }
             />
           )}
         </ThreadWindow>

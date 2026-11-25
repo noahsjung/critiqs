@@ -17,7 +17,9 @@
     "./contract-ai": "./test/contract-ai.ts",
     "./contract-onboarding": "./test/contract-onboarding.ts",
     "./contract-addresses": "./test/contract-addresses.ts",
-    "./contract-tickets": "./test/contract-tickets.ts"
+    "./contract-tickets": "./test/contract-tickets.ts",
+    "./contract-ticket-links": "./test/contract-ticket-links.ts",
+    "./linear-standin": "./test/linear-standin.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ExportThread } from "../src/export.ts";
-import { TRACKERS, ticketText } from "../src/tickets.ts";
+import { TRACKERS, ticketBody, ticketLinkComment, ticketText } from "../src/tickets.ts";
 
 const thread: ExportThread = {
   id: "t1",
@@ -126,4 +126,31 @@ test("where the tracker can't take images, the text says to open the thread's li
 test("a reply a coding agent wrote keeps that mark in the ticket", () => {
   const agent = { ...thread, messages: [...thread.messages, { ...thread.messages[1]!, id: "m3", body: "Fixed in abc124", via: "agent" as const }] };
   expect(ticketText(agent, { attribution: null, link: review, captureNote: "uploaded" }).body).toContain("**Lee** via coding agent,");
+});
+
+test("a created ticket's text is the edited draft, then the uploaded capture, then attribution when chosen", () => {
+  const draft = ticketText(thread, { attribution: null, link: review, captureNote: "uploaded" }).body;
+  const edited = `${draft}\nAlso check the Support team.\n`;
+  const full = ticketBody(edited, { capture: { url: "https://uploads.linear.app/a/b(1).png" }, attribution: { name: "Dana" }, link: review });
+  expect(full.startsWith(`${edited.trimEnd()}\n\n## Capture\n\n![Capture](`)).toBe(true);
+  expect(Bun.markdown.html(full)).toContain('<img src="https://uploads.linear.app/a/b(1).png" alt="Capture"');
+  expect(full.trimEnd().endsWith("Created from Critiqs by Dana: [open the thread](<https://review.example/?critiqs=t1>)")).toBe(true);
+  // Turned off: no Critiqs text, and the draft's own link to the thread stays.
+  const off = ticketBody(edited, { capture: null, attribution: null, link: review });
+  expect(off).toBe(`${edited.trimEnd()}\n`);
+  expect(off).not.toContain("Critiqs");
+});
+
+test("a capture the tracker should have taken but couldn't says to open the thread instead", () => {
+  const body = ticketBody("Text", { capture: "missing", attribution: null, link: review });
+  expect(body).toContain("Critiqs couldn't add the capture to this ticket");
+  expect(renderedLinks(body)).toEqual([review]);
+});
+
+test("a link comment quotes the thread's first message and links the thread, naming Critiqs only with attribution", () => {
+  const on = ticketLinkComment("Department is wrong\n```\nunclosed", { link: review, attribution: { name: "Dana" } });
+  expect(on).toBe("> Department is wrong\n> \\`\\`\\`\n> unclosed\n\nLinked from Critiqs by Dana: [open the thread](<https://review.example/?critiqs=t1>)\n");
+  const off = ticketLinkComment("Department is wrong", { link: review, attribution: null });
+  expect(off).not.toContain("Critiqs");
+  expect(renderedLinks(off)).toEqual([review]);
 });

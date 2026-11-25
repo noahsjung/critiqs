@@ -116,9 +116,9 @@ test("/critiqs/config offers Linear only with an encryption key: by API key, or 
   delete process.env.CRITIQS_AI_ENCRYPTION_KEY;
   expect(await config(t)).not.toHaveProperty("tickets");
   process.env.CRITIQS_AI_ENCRYPTION_KEY = KEY;
-  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }] });
+  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true });
   withSignIn();
-  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }] });
+  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true });
 });
 
 test("a pasted Linear API key is checked with Linear, stored encrypted, and shown only to its person, never as a token", async () => {
@@ -462,11 +462,13 @@ test("an expired sign-in token is refreshed with Linear before use, and the rota
   tokenReplies.push({ body: { access_token: "access-1", expires_in: 1, refresh_token: "refresh-1" } });
   await callback(f, { code: "code-1", state }, cookie);
   const danaId = await userId(f.t, "Dana");
+  const [connected] = await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect());
+  const accountId = connected!.accountId;
   tokenReplies.push({ body: { access_token: "access-2", expires_in: 86_399, refresh_token: "refresh-2" } });
-  expect(await f.t.action(internal.trackers.accessToken, { userId: danaId, tracker: "linear" })).toEqual({ method: "oauth", value: "access-2" });
+  expect(await f.t.action(internal.trackers.accessToken, { userId: danaId, accountId, tracker: "linear" })).toEqual({ method: "oauth", value: "access-2" });
   expect(sent.filter((request) => request.path === "/oauth/token").at(-1)!.form).toMatchObject({ grant_type: "refresh_token", refresh_token: "refresh-1" });
   // Fresh now: used as it is.
-  expect(await f.t.action(internal.trackers.accessToken, { userId: danaId, tracker: "linear" })).toEqual({ method: "oauth", value: "access-2" });
+  expect(await f.t.action(internal.trackers.accessToken, { userId: danaId, accountId, tracker: "linear" })).toEqual({ method: "oauth", value: "access-2" });
   expect(sent.filter((request) => request.path === "/oauth/token")).toHaveLength(2);
   const [row] = await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect());
   expect(await decryptToken(KEY, trackerTokenBinding("linear", danaId), row!.refresh!)).toBe("refresh-2");

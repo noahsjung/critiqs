@@ -36,6 +36,12 @@ import type {
   TargetLocation,
   ThreadDetail,
   ThreadSummary,
+  NewTicket,
+  TicketDestination,
+  TicketDraft,
+  TicketLinkInput,
+  TicketLinkView,
+  TicketSearchResult,
   TrackerAccountView,
   TrackerDisconnected,
   TrackerId,
@@ -268,7 +274,11 @@ export interface BillingTransport {
   loadPrices(): Promise<void>;
 }
 
-/** Each person's own tracker accounts (Your trackers). Tokens go to the backend once and never come back. */
+/**
+ * Each person's own tracker accounts (Your trackers), and tickets linked to
+ * threads. Tokens go to the backend once and never come back; tracker calls
+ * use the person's own account.
+ */
 export interface TicketTransport {
   /** The signed-in person's tracker accounts; skipped while `enabled` is false. */
   useTrackerAccounts(enabled: boolean): QueryState<TrackerAccountView[]>;
@@ -284,6 +294,20 @@ export interface TicketTransport {
   disconnectTracker(tracker: TrackerId): Promise<TrackerDisconnected>;
   /** Whether the person's new tickets in the tracker say they came from Critiqs, by default. */
   setTrackerAttribution(tracker: TrackerId, on: boolean): Promise<void>;
+  /** Where the person can create tickets in a tracker, such as their Linear teams. */
+  listTicketDestinations(tracker: TrackerId): Promise<TicketDestination[]>;
+  /** Tickets the person can see in their tracker, by key (such as `ENG-123`) or words. */
+  searchTickets(tracker: TrackerId, query: string): Promise<TicketSearchResult[]>;
+  /** A new ticket's title and text, filled from the thread, to edit before creating it. */
+  ticketDraft(threadId: string, tracker: TrackerId): Promise<TicketDraft>;
+  /** Creates a ticket from a thread in the person's tracker; it then shows on the thread. */
+  createTicket(input: NewTicket): Promise<TicketLinkView>;
+  /** Links a thread to an existing ticket; linking one it already links to changes nothing. */
+  linkTicket(input: TicketLinkInput): Promise<TicketLinkView>;
+  /** Adds the link back to the thread that the tracker didn't add when the person created the ticket; safe to repeat. */
+  addTicketLinkBack(linkId: string): Promise<TicketLinkView>;
+  /** Removes a ticket's link from its thread, in Critiqs only. */
+  unlinkTicket(linkId: string): Promise<void>;
 }
 
 /** A page copy's layout as frozen, with its uploaded file. */

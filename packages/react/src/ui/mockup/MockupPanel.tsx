@@ -6,8 +6,9 @@ import type { LiveThread } from "../../model.ts";
 import type { MockupTransport, PagedList } from "../../transport.ts";
 import { Avatar, Dialog } from "../common.tsx";
 import { describeViewState, fullTime, relativeTime } from "../format.ts";
-import { BackIcon, CloseIcon, CommentIcon } from "../icons.tsx";
+import { BackIcon, CloseIcon, CommentIcon, TicketIcon } from "../icons.tsx";
 import { SidebarResizer, useSidebarWidth } from "../sidebar-width.tsx";
+import { ticketText } from "../Tickets.tsx";
 import { AI_NAME } from "./MockupThread.tsx";
 
 /** The Mockup panel's frame: in the right-hand place the comments sidebar takes. */
@@ -477,11 +478,20 @@ export function CommentChips({
   return (
     <>
       {ids.map((id) => {
-        const text = comments.find((thread) => thread.summary._id === id)?.summary.preview?.body ?? "Comment";
+        const summary = comments.find((thread) => thread.summary._id === id)?.summary;
+        const text = summary?.preview?.body ?? "Comment";
+        // The comment's linked tickets, from the summary the page already has.
+        const tickets = (summary?.tickets ?? []).map(ticketText).join(", ");
         return (
-          <span key={id} className="chip comment-chip" title={text}>
+          <span key={id} className="chip comment-chip" title={tickets === "" ? text : `${text}\n${tickets}`}>
             <CommentIcon />
             <span className="chip-text">{text}</span>
+            {tickets !== "" && (
+              <span className="chip-tickets">
+                <TicketIcon size={12} />
+                {tickets}
+              </span>
+            )}
             <button type="button" className="chip-remove" aria-label={`Remove comment: ${text}`} onClick={() => onRemove(id)}>
               ×
             </button>

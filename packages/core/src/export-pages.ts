@@ -1,4 +1,4 @@
-import type { ExportData, ExportedThread, ExportPage, PageRequest } from "@critiqs/core";
+import type { ExportData, ExportedThread, ExportPage, PageRequest } from "./protocol.ts";
 
 /** Requests one page of one selected thread's export. */
 export type ExportPageLoader = (request: {

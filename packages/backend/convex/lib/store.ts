@@ -803,6 +803,13 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .collect();
           return rows.map(withoutCreationTime);
         },
+        findByCreation: async (creationId) => {
+          const row = await db
+            .query("ticketLinks")
+            .withIndex("by_creation", (q) => q.eq("creationId", creationId))
+            .first();
+          return row === null ? null : withoutCreationTime(row);
+        },
         insert: async (link) =>
           await writer().insert(
             "ticketLinks",

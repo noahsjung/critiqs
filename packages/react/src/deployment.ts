@@ -161,7 +161,11 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
   };
 }
 
-/** The trackers a backend offers, kept only where Critiqs knows the tracker and how it connects; null when none are. */
+/**
+ * The trackers a backend offers, kept only where Critiqs knows the tracker and
+ * how it connects, and whether threads can create and link tickets; null when
+ * no tracker is offered.
+ */
 function ticketsOf(value: unknown): TicketsConfig | null {
   if (typeof value !== "object" || value === null || !Array.isArray((value as { trackers?: unknown }).trackers)) return null;
   const known = new Set<string>(TRACKERS.map((tracker) => tracker.id));
@@ -169,7 +173,8 @@ function ticketsOf(value: unknown): TicketsConfig | null {
     const { id, signIn } = (typeof entry === "object" && entry !== null ? entry : {}) as { id?: unknown; signIn?: unknown };
     return typeof id === "string" && known.has(id) && (signIn === "oauth" || signIn === "token") ? [{ id: id as TrackerId, signIn: signIn as "oauth" | "token" }] : [];
   });
-  return trackers.length === 0 ? null : { trackers };
+  if (trackers.length === 0) return null;
+  return (value as { threadTickets?: unknown }).threadTickets === true ? { trackers, threadTickets: true } : { trackers };
 }
 
 /**

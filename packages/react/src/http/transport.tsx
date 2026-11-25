@@ -1,7 +1,6 @@
-import type { ExportPage, PageRequest } from "@critiqs/core";
+import { type ExportPage, loadExport, type PageRequest } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { creditsArg, type Deployment, madeWithArg, mentionThreadArg } from "../deployment.ts";
-import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
 import { CritiqsRequestError, type CritiqsTransport, describeError, type QueryState } from "../transport.ts";
 import { type CookieSession, REQUEST_HEADER } from "./session.ts";

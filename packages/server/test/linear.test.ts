@@ -1,13 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { CritiqsError } from "../src/errors.ts";
-import { exchangeLinearCode, linearAdapter, linearAuthorizeUrl, refreshLinearToken } from "../src/tickets/trackers/linear.ts";
+import { fetchUntil } from "../src/tickets/trackers/index.ts";
+import { exchangeLinearCode, linearAdapter, linearAuthorizeUrl, linearStatusCategory, refreshLinearToken } from "../src/tickets/trackers/linear.ts";
 
 // Linear's adapter against a local stand-in for Linear's API: what it sends,
 // how it reads Linear's answers, and the errors people see when Linear refuses.
 
 type Reply = { status?: number; body: unknown } | "garbage";
 const replies: Reply[] = [];
-const requests: { path: string; authorization: string | null; contentType: string | null; body: string }[] = [];
+const requests: { method: string; path: string; authorization: string | null; contentType: string | null; headers: Record<string, string>; body: string }[] = [];
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl = "";
 beforeAll(() => {
@@ -15,7 +16,14 @@ beforeAll(() => {
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
-      requests.push({ path: new URL(request.url).pathname, authorization: request.headers.get("Authorization"), contentType: request.headers.get("Content-Type"), body: await request.text() });
+      requests.push({
+        method: request.method,
+        path: new URL(request.url).pathname,
+        authorization: request.headers.get("Authorization"),
+        contentType: request.headers.get("Content-Type"),
+        headers: Object.fromEntries(request.headers),
+        body: await request.text(),
+      });
       const next = replies.shift() ?? { status: 500, body: {} };
       if (next === "garbage") return new Response("<html>oops</html>", { status: 200 });
       return Response.json(next.body, { status: next.status ?? 200 });
@@ -123,4 +131,205 @@ test("a used or expired code or refresh token is refused in words; an unknown ap
   expect((await refusal(exchangeLinearCode({ baseUrl }, app, { code: "c", redirectUri: "r", verifier: "v" }, 0))).code).toBe("invalid");
   replies.push({ status: 401, body: { error: "invalid_client" } });
   expect((await refusal(exchangeLinearCode({ baseUrl }, app, { code: "c", redirectUri: "r", verifier: "v" }, 0))).message).toContain("CRITIQS_LINEAR_CLIENT_ID");
+});
+
+// ---------------------------------------------------------------------------
+// Tickets: teams, search, issues, links back, comments, and the capture.
+
+const key = { method: "token" as const, value: "lin_api_123" };
+const issue = (id: string, identifier: string, state = { name: "In Progress", type: "started" }) => ({
+  id,
+  identifier,
+  title: `Issue ${identifier}`,
+  url: `https://linear.app/acme/issue/${identifier.toLowerCase()}`,
+  state,
+  team: { organization: { id: "org-1" } },
+});
+const sentQuery = (index: number) => JSON.parse(requests[index]!.body) as { query: string; variables: Record<string, unknown> };
+
+test("destinations are the person's teams by name, with their keys", async () => {
+  requests.length = 0;
+  replies.push({ body: { data: { teams: { nodes: [{ id: "t2", name: "Mobile", key: "MOB" }, { id: "t1", name: "Engineering", key: "ENG" }, { id: "", name: "Broken" }] } } } });
+  expect(await linearAdapter({ baseUrl }).destinations(key)).toEqual([
+    { id: "t1", name: "Engineering", key: "ENG" },
+    { id: "t2", name: "Mobile", key: "MOB" },
+  ]);
+  expect(sentQuery(0).query).toContain("teams(first: 250)");
+});
+
+test("search finds an issue by its key first, then by words, reading each issue's status", async () => {
+  requests.length = 0;
+  const linear = linearAdapter({ baseUrl });
+  replies.push({ body: { data: { issues: { nodes: [issue("i1", "ENG-123")] } } } });
+  expect(await linear.search(key, " eng-123 ")).toEqual([
+    { tracker: "linear", externalId: "i1", key: "ENG-123", url: "https://linear.app/acme/issue/eng-123", title: "Issue ENG-123", status: { label: "In Progress", category: "started" } },
+  ]);
+  expect(sentQuery(0).variables).toEqual({ team: "eng", number: 123 });
+  expect(sentQuery(0).query).toContain("eqIgnoreCase: $team");
+  // No issue with that key: the words are searched instead.
+  replies.push({ body: { data: { issues: { nodes: [] } } } }, { body: { data: { searchIssues: { nodes: [issue("i9", "ENG-9", { name: "Todo", type: "unstarted" }), { id: "bad" }] } } } });
+  expect((await linear.search(key, "ENG-404")).map((found) => [found.key, found.status.category])).toEqual([["ENG-9", "open"]]);
+  expect(sentQuery(2).query).toContain("searchIssues(term: $term, teamId: $teamId, first: 10)");
+  replies.push({ body: { data: { searchIssues: { nodes: [] } } } });
+  await linear.search(key, "department label", "team-1");
+  expect(sentQuery(3).variables).toEqual({ term: "department label", teamId: "team-1" });
+});
+
+test("Linear's state types become Critiqs's status categories", () => {
+  expect(["triage", "backlog", "unstarted", "started", "completed", "canceled", "duplicate", "paused"].map(linearStatusCategory)).toEqual([
+    "open",
+    "open",
+    "open",
+    "started",
+    "done",
+    "canceled",
+    "canceled",
+    "unknown",
+  ]);
+});
+
+test("create sends the team, title, and Markdown text, using the creation's ID as the issue's, and reads the issue back", async () => {
+  requests.length = 0;
+  const creationId = "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b";
+  replies.push({ body: { data: { issueCreate: { success: true, issue: issue(creationId, "ENG-7", { name: "Triage", type: "triage" }) } } } });
+  const created = await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "Department is wrong", body: "> Text\n", labels: [], creationId });
+  expect(created.status === "created" && created.ticket).toEqual({
+    tracker: "linear",
+    externalId: creationId,
+    key: "ENG-7",
+    url: "https://linear.app/acme/issue/eng-7",
+    title: "Issue ENG-7",
+    status: { label: "Triage", category: "open" },
+    site: "org-1",
+  });
+  expect(sentQuery(0).variables).toEqual({ input: { id: creationId, teamId: "t1", title: "Department is wrong", description: "> Text\n" } });
+  // An ID Linear wouldn't accept isn't sent; Linear picks one.
+  replies.push({ body: { data: { issueCreate: { success: true, issue: issue("x", "ENG-8") } } } });
+  await linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: "", labels: [], creationId: "not-a-uuid" });
+  expect(sentQuery(1).variables.input).not.toHaveProperty("id");
+});
+
+test("create says whether Linear refused, so nothing was made, or the outcome is unknown", async () => {
+  const create = () => linearAdapter({ baseUrl }).create(key, { destinationId: "t1", title: "T", body: "", labels: [], creationId: "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b" });
+  const outcome = async (reply: Reply) => {
+    replies.push(reply);
+    const result = await create();
+    return result.status === "created" ? ["created"] : [result.status, result.error.code, result.error.message];
+  };
+  // Refused: Linear answered that it did nothing, with its reason.
+  expect(await outcome({ status: 400, body: { errors: [{ message: "Entity not found: Team", extensions: { code: "INPUT_ERROR", type: "invalid input", userError: true, userPresentableMessage: "The team doesn't exist" } }] } })).toEqual([
+    "refused",
+    "invalid",
+    "Linear turned this down: The team doesn't exist.",
+  ]);
+  expect(await outcome({ status: 200, body: { errors: [{ message: "You can't create issues in this team", extensions: { code: "FORBIDDEN" } }], data: null } })).toEqual([
+    "refused",
+    "forbidden",
+    "Linear turned this down: You can't create issues in this team.",
+  ]);
+  expect((await outcome({ status: 429, body: { errors: [{ message: "Rate limited", extensions: { code: "RATELIMITED" } }] } }))[0]).toBe("refused");
+  expect((await outcome({ status: 401, body: {} }))[0]).toBe("refused");
+  expect((await outcome({ body: { data: { issueCreate: { success: false, issue: null } } } }))[0]).toBe("refused");
+  // Unknown: Linear may have made it.
+  expect((await outcome({ status: 500, body: { errors: [{ message: "Internal error" }] } }))[0]).toBe("unknown");
+  expect((await outcome({ status: 504, body: {} }))[0]).toBe("unknown");
+  expect((await outcome({ status: 200, body: { errors: [{ message: "Something broke", extensions: { code: "INTERNAL_SERVER_ERROR" } }] } }))[0]).toBe("unknown");
+  expect((await outcome("garbage"))[0]).toBe("unknown");
+  expect((await outcome({ body: { data: { issueCreate: { success: true, issue: null } } } }))[0]).toBe("unknown");
+  // Linear made the issue but reported an error reading part of it back: made, so never a refusal, and unknown until the next attempt finds it by its ID.
+  const fieldError = { message: "Cannot return null for non-nullable field Issue.url", path: ["issueCreate", "issue", "url"], extensions: { code: "INPUT_ERROR", userError: true } };
+  const made = issue("6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b", "ENG-7");
+  expect((await outcome({ body: { data: { issueCreate: { success: true, issue: { ...made, url: null } } }, errors: [fieldError] } }))[0]).toBe("unknown");
+  expect((await outcome({ body: { data: { issueCreate: { success: true, issue: made } }, errors: [fieldError] } }))[0]).toBe("unknown");
+  expect((await outcome({ body: { data: { issueCreate: { success: null, issue: made } }, errors: [fieldError] } }))[0]).toBe("unknown");
+  const unreachable = await linearAdapter({ baseUrl: "http://127.0.0.1:9" }).create(key, { destinationId: "t1", title: "T", body: "", labels: [], creationId: "x" });
+  expect(unreachable.status).toBe("unknown");
+});
+
+test("an unknown creation's issue is found by the creation's ID, and get refuses an issue the person can't see", async () => {
+  requests.length = 0;
+  const creationId = "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b";
+  const linear = linearAdapter({ baseUrl });
+  replies.push({ body: { data: { issues: { nodes: [issue(creationId, "ENG-7")] } } } });
+  expect((await linear.findCreated(key, { creationId, link: "https://review.example/?critiqs=t1" }))?.key).toBe("ENG-7");
+  expect(sentQuery(0).variables).toEqual({ id: creationId });
+  // Archived issues too, which Linear's lists leave out unless asked.
+  expect(sentQuery(0).query).toContain("includeArchived: true");
+  replies.push({ body: { data: { issues: { nodes: [] } } } });
+  expect(await linear.findCreated(key, { creationId, link: "https://review.example/?critiqs=t1" })).toBeNull();
+  replies.push({ body: { data: { issues: { nodes: [] } } } });
+  const missing = await refusal(linear.get(key, "i404"));
+  expect(missing.code).toBe("not-found");
+  expect(missing.message).toBe("Linear can't find this issue, or you can't see it.");
+  replies.push({ body: { data: { issues: { nodes: [issue("i1", "ENG-1", { name: "Done", type: "completed" })] } } } });
+  expect(await linear.status(key, { tracker: "linear", externalId: "i1", key: "ENG-1", url: "u", title: "t" })).toEqual({ label: "Done", category: "done" });
+});
+
+test("the link back is a URL attachment on the issue, which Linear keeps one of per address, and a comment is Markdown on it", async () => {
+  requests.length = 0;
+  const linear = linearAdapter({ baseUrl });
+  const ticket = { tracker: "linear" as const, externalId: "i1", key: "ENG-1", url: "u", title: "t" };
+  replies.push({ body: { data: { attachmentCreate: { success: true } } } }, { body: { data: { commentCreate: { success: true } } } });
+  await linear.linkBack(key, ticket, { url: "https://review.example/?critiqs=t1", title: "Department is wrong" });
+  await linear.comment(key, ticket, "> Department is wrong\n");
+  expect(sentQuery(0).query).toContain("attachmentCreate(input: $input)");
+  expect(sentQuery(0).variables).toEqual({ input: { issueId: "i1", url: "https://review.example/?critiqs=t1", title: "Department is wrong" } });
+  expect(sentQuery(1).variables).toEqual({ input: { issueId: "i1", body: "> Department is wrong\n" } });
+  // Linear answered that it made nothing: a refusal.
+  replies.push({ body: { data: { attachmentCreate: { success: false } } } }, { body: { data: { commentCreate: { success: false } } } });
+  expect((await refusal(linear.linkBack(key, ticket, { url: "u", title: "t" }))).code).toBe("invalid");
+  expect((await refusal(linear.comment(key, ticket, "Text"))).code).toBe("invalid");
+  // Made, with an error elsewhere in the answer: done.
+  const fieldError = { message: "Cannot read field", path: ["attachmentCreate", "attachment"], extensions: { code: "INPUT_ERROR", userError: true } };
+  replies.push({ body: { data: { attachmentCreate: { success: true } }, errors: [fieldError] } }, { body: { data: { commentCreate: { success: true } }, errors: [fieldError] } });
+  await linear.linkBack(key, ticket, { url: "u", title: "t" });
+  await linear.comment(key, ticket, "Text");
+  // No answer to read: Critiqs can't tell.
+  replies.push({ status: 502, body: {} });
+  expect((await refusal(linear.comment(key, ticket, "Text"))).code).toBe("unavailable");
+});
+
+test("an image is uploaded to the address Linear signs, with the headers it names, and its asset address returned", async () => {
+  requests.length = 0;
+  const upload = `${baseUrl}upload/signed?sig=1`;
+  replies.push(
+    { body: { data: { fileUpload: { success: true, uploadFile: { uploadUrl: upload, assetUrl: "https://uploads.linear.app/asset-1", headers: [{ key: "x-goog-meta-id", value: "abc" }] } } } } },
+    { body: {} },
+  );
+  const data = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
+  expect(await linearAdapter({ baseUrl }).uploadImage!(key, { data, contentType: "image/png", name: "critiqs-capture.png" })).toBe("https://uploads.linear.app/asset-1");
+  expect(sentQuery(0).variables).toEqual({ contentType: "image/png", filename: "critiqs-capture.png", size: 4 });
+  expect(requests[1]).toMatchObject({ method: "PUT", path: "/upload/signed", contentType: "image/png" });
+  expect(requests[1]!.headers["x-goog-meta-id"]).toBe("abc");
+  expect(requests[1]!.authorization).toBeNull();
+  replies.push(
+    { body: { data: { fileUpload: { success: true, uploadFile: { uploadUrl: upload, assetUrl: "https://uploads.linear.app/asset-2", headers: [] } } } } },
+    { status: 403, body: {} },
+  );
+  expect((await refusal(linearAdapter({ baseUrl }).uploadImage!(key, { data, contentType: "image/png", name: "c.png" }))).code).toBe("unavailable");
+});
+
+test("calls bounded by a deadline: none starts at or after it, and one still running then is aborted", async () => {
+  let started = 0;
+  const slow = (async (_input: string | URL | Request, init?: RequestInit) => {
+    started++;
+    return await new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(Response.json({})), 1_000);
+      init?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(init.signal!.reason);
+      });
+    });
+  }) as typeof fetch;
+  let now = 5_000;
+  await expect(fetchUntil(slow, 5_000, () => now)("https://linear.test/graphql")).rejects.toThrow("ran out before this request");
+  expect(started).toBe(0);
+  now = Date.now();
+  const began = Date.now();
+  await expect(fetchUntil(slow, now + 50, () => Date.now())("https://linear.test/graphql")).rejects.toThrow("ran out");
+  expect(started).toBe(1);
+  expect(Date.now() - began).toBeLessThan(500);
+  // Through the adapter, a request cut off by the deadline is an unknown outcome: Linear may have acted.
+  const outcome = await linearAdapter({ baseUrl, fetch: fetchUntil(slow, Date.now() + 50, () => Date.now()) }).create(key, { destinationId: "t1", title: "T", body: "", labels: [], creationId: "x" });
+  expect(outcome.status).toBe("unknown");
 });

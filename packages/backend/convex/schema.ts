@@ -622,7 +622,12 @@ export default defineSchema({
     /** The tracker's workspace, organization, or site ID, to match webhooks. */
     site: v.optional(v.string()),
     state: v.union(v.literal("pending"), v.literal("linked")),
-    pendingToken: v.optional(v.string()),
+    creationId: v.optional(v.string()),
+    creatorAccountId: v.optional(v.string()),
+    linkBack: v.optional(v.object({ url: v.string(), title: v.string(), added: v.boolean() })),
+    claimToken: v.optional(v.string()),
+    leaseUntil: v.optional(v.number()),
+    parked: v.optional(v.boolean()),
     status: v.optional(ticketStatusValidator),
     statusCheckedAt: v.optional(v.number()),
     statusChangedAt: v.optional(v.number()),
@@ -632,6 +637,7 @@ export default defineSchema({
   })
     .index("by_thread_state", ["threadId", "state"])
     .index("by_tracker_external", ["tracker", "externalId"])
+    .index("by_creation", ["creationId"])
     .index("by_project", ["projectId"]),
 
   /** A project's ticket settings. No record means templates off and Resolve when done off. */
