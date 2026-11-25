@@ -274,6 +274,21 @@ checkout. Self-hosted deployments have no plans.
 - **Existing projects.** A Free organization that already has more projects
   than Free allows keeps them; only new projects are refused.
 
+## Tickets
+
+**Agreed (2026-11-25), not built.** Beyond the first release's scope. From a
+thread, a reviewer creates a ticket in Linear, GitHub Issues, or Jira, or links
+the thread to an existing one, using their own tracker account connected in
+**Your trackers**. Critiqs AI drafts the ticket from the thread, filling the
+team's own ticket template when templates are turned on (they are off by
+default), and counts credits; without AI, Critiqs fills it from the
+thread. The ticket's key and status then show on the thread's pin, in the
+thread list, in the thread window, and in mockup threads, to everyone in the
+project; the status follows the tracker, and a project can resolve threads
+when their tickets are done. Tickets say they came from Critiqs by default,
+which the person can turn off. Every plan
+includes tickets. Details are in [tickets](tickets.md).
+
 ## Changes to the prototype
 
 Keep the original image, context, and version when a new version is deployed.
@@ -286,7 +301,7 @@ version need not remain runnable for its feedback to remain readable.
 - Restrict a project to reviewers with a verified email at the same company domain.
 - Enterprise sign-in (SSO), such as Okta, as a Critiqs Cloud add-on through
   WorkOS, when a customer needs it.
-- Additional storage, such as Postgres hosts including Supabase, if teams ask.
+- Postgres replaces SQLite for self-hosting (agreed 2026-11-23, not built).
 - Additional storage integrations, such as GitHub Issues/Discussions, sign-in
   integrations, project configuration, and tools to switch services.
 - A browser extension and standalone URL-based review. Opening arbitrary sites
@@ -298,7 +313,8 @@ version need not remain runnable for its feedback to remain readable.
   locate threads after redesigns.
 - Richer attachments and reactions; separate archiving only if needed.
 
-Jira and Figma integrations are possibilities to validate, not scheduled scope.
+A Figma integration is a possibility to validate, not scheduled scope. Jira,
+Linear, and GitHub Issues are agreed as [tickets](#tickets).
 
 ## Pilot scenarios
 

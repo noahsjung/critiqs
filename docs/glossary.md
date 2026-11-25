@@ -82,6 +82,11 @@ These definitions describe the intended product, not completed features.
 | Basic search | Search by the question's own words and `#tags`, used without AI or when AI fails, and labeled so. |
 | Insight | A short finding from search results that cites the threads supporting it. |
 | Hidden (Critiqs) | Critiqs's interface removed from view with Ctrl or Cmd + `\`, keeping drafts and open windows for when it is shown again. |
+| Tracker | A team's issue tracker that Critiqs sends tickets to: Linear, GitHub Issues, or Jira Cloud. |
+| Ticket | An issue in a tracker, such as `ENG-123`. Different from a thread, which stays in Critiqs. |
+| Ticket link | That a thread refers to a ticket, created from the thread or linked to it, with the ticket's key and last known status. |
+| Your trackers | A person's own connections to trackers. Tickets they create are theirs, and they search only tickets they can already see. Only that person sees or changes them. |
+| Ticket template | A team's own template for new tickets in its tracker, which Critiqs can fill. Off until templates are turned on. |
 | Feedback collection | Selected threads grouped for a handoff, preserving each discussion. |
 | Shareable link (deep link) | A URL that opens a specific thread or reply after sign-in and access checks. It may restore a live view or show saved context. |
 | Reattachment | Connecting an existing thread to a replacement target while preserving its original context and evidence. |

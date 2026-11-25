@@ -39,6 +39,20 @@ defineOnboardingContract("SQLite", () => sqliteBackend());
 defineDeveloperEmailContract("SQLite", () => sqliteBackend());
 defineAddressContract("SQLite", () => sqliteBackend());
 
+test("SQLite: stores no tickets, so threads list and open without a tickets field", async () => {
+  const backend = sqliteBackend();
+  const dana = reviewer("Dana");
+  const projectId = await backend.run((store) => operations.createProject(store, dana, { name: "Admin prototype" }));
+  const threadId = await backend.run((store) =>
+    operations.createThread(store, dana, { projectId, anchor, body: "Department is wrong", tags: [], capture: { status: "failed", failureReason: "Blocked" } }),
+  );
+  expect(await backend.run(async (store) => store.tickets)).toBeUndefined();
+  const listed = await backend.run((store) => operations.listThreads(store, dana, { projectId }, { numItems: 40, cursor: null }));
+  expect(listed.page[0]).not.toHaveProperty("tickets");
+  const opened = await backend.run((store) => operations.getThread(store, dana, { threadId }, { numItems: 40, cursor: null }));
+  expect(opened).not.toHaveProperty("tickets");
+});
+
 test("SQLite: operations on one database run one at a time", async () => {
   const store = new SqliteStore(bunDriver(new Database(":memory:")));
   const order: string[] = [];

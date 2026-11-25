@@ -13,7 +13,10 @@ import {
   storedMailValidator,
   teamSizeValidator,
   revisionValidator,
+  storedTokenValidator,
   threadMockupValidator,
+  ticketStatusValidator,
+  trackerValidator,
 } from "./lib/validators";
 
 /** The fields every AI connection has, a project's or a person's. */
@@ -586,6 +589,66 @@ export default defineSchema({
     userId: v.id("users"),
     ...aiConnectionFields,
   }).index("by_user", ["userId"]),
+
+  /** A person's connected tracker account, one per person and tracker. Tokens are stored only encrypted (AES-GCM), bound to the person and tracker, never returned. */
+  trackerAccounts: defineTable({
+    userId: v.id("users"),
+    tracker: trackerValidator,
+    method: v.union(v.literal("oauth"), v.literal("token")),
+    accountId: v.string(),
+    accountName: v.string(),
+    /** The workspace, organization, or Jira site the account is in, where the tracker has one. */
+    site: v.optional(v.object({ id: v.string(), name: v.string() })),
+    access: storedTokenValidator,
+    refresh: v.optional(storedTokenValidator),
+    expiresAt: v.optional(v.number()),
+    /** Whether the person's new tickets say they came from Critiqs, by default. */
+    attribution: v.boolean(),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_tracker", ["userId", "tracker"]),
+
+  /** A ticket linked to a thread. A pending link, saved before the tracker is called, has empty `externalId`, `key`, and `url`. */
+  ticketLinks: defineTable({
+    projectId: v.id("projects"),
+    threadId: v.id("threads"),
+    tracker: trackerValidator,
+    externalId: v.string(),
+    key: v.string(),
+    url: v.string(),
+    title: v.string(),
+    /** The tracker's workspace, organization, or site ID, to match webhooks. */
+    site: v.optional(v.string()),
+    state: v.union(v.literal("pending"), v.literal("linked")),
+    pendingToken: v.optional(v.string()),
+    status: v.optional(ticketStatusValidator),
+    statusCheckedAt: v.optional(v.number()),
+    statusChangedAt: v.optional(v.number()),
+    linkedBy: v.id("users"),
+    linkedAt: v.number(),
+    createdFromCritiqs: v.boolean(),
+  })
+    .index("by_thread_state", ["threadId", "state"])
+    .index("by_tracker_external", ["tracker", "externalId"])
+    .index("by_project", ["projectId"]),
+
+  /** A project's ticket settings. No record means templates off and Resolve when done off. */
+  ticketSettings: defineTable({
+    projectId: v.id("projects"),
+    templates: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string() })),
+    resolveWhenDone: v.boolean(),
+    defaults: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), name: v.string() })),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  /** A tracker sign-in in progress, found by the OAuth state the tracker returns. */
+  trackerSignIns: defineTable({
+    state: v.string(),
+    userId: v.id("users"),
+    tracker: trackerValidator,
+    expiresAt: v.number(),
+  }).index("by_state", ["state"]),
 
   /** Critiqs AI credits held while a request's model answers, per payer's counter scope. */
   creditHolds: defineTable({ scope: v.string(), credits: v.number(), expiresAt: v.number() }).index("by_scope_expiry", ["scope", "expiresAt"]),

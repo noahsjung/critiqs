@@ -1,3 +1,4 @@
+import { contextLines, discussionLines, formatTime, summarize } from "./thread-markdown.ts";
 import type { Revision, Scope, ThreadStatus, ViewState } from "./types.ts";
 
 /** Bumped when the JSON export shape changes incompatibly. */
@@ -68,52 +69,12 @@ export function exportMarkdown(collection: FeedbackCollection): string {
 function threadMarkdown(thread: ExportThread): string[] {
   const [first] = thread.messages;
   const heading = first === undefined ? "(no messages)" : summarize(first.body);
-  const lines = [
+  return [
     `## ${heading}`,
     "",
-    `- Link: ${thread.link}`,
-    `- Status: ${thread.status}`,
-    `- Tags: ${thread.tags.length > 0 ? thread.tags.join(", ") : "none"}`,
-    `- Screen: ${thread.screen}`,
-    `- Target: ${describeTarget(thread)}${thread.reattached ? " (reattached)" : ""}`,
-    `- Scope: ${thread.scope === "shared" ? "shared across records" : "this record only"}`,
-    `- Revision: ${thread.revision ?? "unknown"}`,
-    `- Page: ${thread.pageUrl} at ${thread.viewport.width}×${thread.viewport.height}`,
+    ...contextLines(thread, { link: thread.link, status: true, capture: thread.hasCapture ? "saved; open the link to view it" : "none" }),
+    "",
+    "### Discussion",
+    ...discussionLines(thread),
   ];
-  if (thread.persona !== null) lines.push(`- Demo persona: ${thread.persona}`);
-  const viewState = Object.entries(thread.viewState);
-  if (viewState.length > 0) {
-    lines.push(`- View state: ${viewState.map(([key, value]) => `${key}=${String(value)}`).join(", ")}`);
-  }
-  lines.push(`- Capture: ${thread.hasCapture ? "saved; open the link to view it" : "none"}`);
-  lines.push("", "### Discussion");
-  for (const message of thread.messages) {
-    const edited = message.editedAt === null ? "" : " (edited)";
-    const via = message.via === "agent" ? " via coding agent" : "";
-    lines.push(
-      "",
-      `**${message.author}**${via}, ${formatTime(message.createdAt)}${edited}, revision ${message.revision ?? "unknown"}:`,
-      "",
-      ...message.body.split("\n").map((line) => `> ${line}`),
-    );
-  }
-  return lines;
-}
-
-function describeTarget(thread: ExportThread): string {
-  const parts = [
-    thread.target.purposeId === null ? null : `\`${thread.target.purposeId}\``,
-    thread.target.label === null ? null : `"${thread.target.label}"`,
-    thread.target.recordKey === null ? null : `record ${thread.target.recordKey}`,
-  ].filter((part) => part !== null);
-  return parts.length > 0 ? parts.join(", ") : "unknown";
-}
-
-function summarize(body: string): string {
-  const firstLine = body.split("\n")[0]?.trim() ?? "";
-  return firstLine.length > 72 ? `${firstLine.slice(0, 71)}…` : firstLine || "(empty comment)";
-}
-
-function formatTime(timestamp: number): string {
-  return new Date(timestamp).toISOString();
 }

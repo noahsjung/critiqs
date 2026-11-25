@@ -19,7 +19,8 @@ Node or Bun server, storing feedback in a SQLite file
 4. [Glossary](docs/glossary.md): shared product terms.
 5. [Releasing](docs/releasing.md): release notes on every pull request and the generated release pull request.
 6. [Tags, tag groups, and AI](docs/tags-and-ai.md): plan and status for hashtags, tag groups, AI search and insights, and shortcuts.
-7. [Verifying setup](docs/setup-verification.md): automated checks of installation in React apps, and the live checks that need people.
+7. [Tickets](docs/tickets.md): plan for creating and linking Linear, GitHub Issues, and Jira tickets from threads.
+8. [Verifying setup](docs/setup-verification.md): automated checks of installation in React apps, and the live checks that need people.
 
 These are working definitions. Proposed choices remain open.
 

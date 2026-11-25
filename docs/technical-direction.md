@@ -21,8 +21,8 @@ pilot** are implemented in this repository but not yet agreed. Choices marked
 | WorkOS AuthKit | No longer used for sign-in. Agreed for later: enterprise sign-in (SSO) such as Okta, on Critiqs Cloud only, when a customer needs it ([Sign-in and organizations](#sign-in-and-organizations)). |
 | Autumn | Built, off unless turned on: Critiqs Cloud's billing on Stripe. Holds the plans, prices, checkout, and the `ai_credits` meter. Unused elsewhere. |
 
-Supabase and other Postgres hosts are not planned; they can be added later as
-another backend if teams ask. Supported React/browser versions and routing
+**Agreed (2026-11-23), not built:** Postgres replaces SQLite as the
+self-hosted database inside the host app's server. Supported React/browser versions and routing
 support remain open. The package builds browser ES modules and public
 TypeScript declarations, with React and React DOM as peer dependencies.
 
@@ -2271,6 +2271,65 @@ and can fail when elements it owns are removed.
   5. `/critiqs/config` reports `mockups: true`; components hide Mockup mode
   without it, so the embedded SQLite server, which doesn't build mockups yet,
   keeps working unchanged.
+
+## Tickets
+
+**Agreed (2026-11-25), partly built.** Reviewers create tickets in Linear, GitHub
+Issues, or Jira Cloud from a thread, or link a thread to an existing ticket,
+using their own tracker accounts. Behavior and order of work are in
+[tickets](tickets.md).
+
+**Built:** the ticket types and ticket text in `@critiqs/core`, the optional
+`tickets` part of `Store` on Convex with its contract tests, and tracker token
+encryption, as the storage and token items below describe.
+
+**Proposed:** the technical choices.
+
+- **One interface per tracker.** `@critiqs/core` defines the ticket-link type
+  and builds the ticket text from the thread's export (`ExportThread`), as
+  Markdown, with links on the project's review address when it has one.
+  `@critiqs/server` holds each tracker's adapter, since they run only on
+  servers: search, create, link, read status, and read a webhook. Jira's
+  adapter converts the text to Atlassian Document Format.
+- **Storage.** Three new records behind the shared `Store` interface, with
+  matching contract tests: a person's tracker accounts, a thread's ticket links
+  (tracker, ticket ID, key, URL, title, last known status and when, who linked
+  it, and whether Critiqs created it), and a project's ticket settings
+  (templates turned on, default destinations, **Resolve when done**). They are
+  an optional part of `Store`, so the SQLite store needn't implement them
+  before Postgres replaces it. Convex first; Postgres with the Postgres store.
+- **Tokens.** Stored only encrypted, as AI provider keys are
+  (`packages/server/src/ai/secrets.ts`), under the same operator key but with
+  their own derivation and a binding to the person and tracker, so a token
+  can't move to anyone else. Connecting a tracker needs that operator key to be
+  set, as saving an AI key does. Linear, Jira, and GitHub Apps replace the
+  refresh token on each use, so refreshes for one person and tracker run one at
+  a time.
+- **Sign-in to trackers.** OAuth pages served by the backend open in a window,
+  as Critiqs sign-in does. Critiqs Cloud registers one Linear app, one
+  Atlassian app, and one GitHub App. On GitHub, creating and searching use the
+  app's user access token, so the issue is the person's and they reach only
+  repositories both they and the app can. Self-hosted operators may register
+  their own apps; without them, people paste personal tokens.
+- **Calls to trackers.** On Convex they run in actions, never mutations. A
+  pending link is saved before the tracker is called, so a retry knows a
+  creation was started. When the outcome is unknown, such as a timeout or a
+  server stopping before it saved the ticket's ID, Critiqs must find out
+  whether the ticket exists before trying again; whether by the tracker's own
+  duplicate protection or by searching for the thread's link is open. A
+  self-hosted server, which may run on a serverless host with no background
+  work, makes the call within the request, with the same handling.
+- **Webhooks.** New HTTP routes on Convex and the self-hosted server, each
+  checking that a call came from the tracker (a signature, or a secret in the
+  registered address, as each tracker allows) before using it. Convex renews
+  Jira's registered webhooks on a schedule before they expire; a self-hosted
+  server without background work renews them when tickets are used. Where no
+  webhook can arrive, opening a thread checks its tickets' status, at most once
+  every few minutes.
+- **Compatibility.** The backend reports `tickets` in `/critiqs/config`, with
+  which trackers it offers and whether each uses sign-in or a pasted token.
+  The component shows ticket features only then, through an optional
+  `tickets` part of its transport, as Mockup mode does with `mockups`.
 
 ## Shareable links
 

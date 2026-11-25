@@ -26,6 +26,7 @@ import {
   parseOnboardingAnswers,
   parseStack,
   startingTags,
+  type TicketLinkView,
   validReviewUrl,
 } from "@critiqs/core";
 import { fail } from "./errors.ts";
@@ -79,6 +80,11 @@ export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"
 export const UPLOAD_MINUTES = 60;
 export const MAX_MESSAGES = 500;
 export const MAX_EXPORT_THREADS = 200;
+/**
+ * The most tickets one thread can link to. Creating or linking past it is
+ * refused where links are made, so the tickets a thread shows are all of them.
+ */
+export const MAX_THREAD_TICKETS = 20;
 
 // ---------------------------------------------------------------------------
 // Reviewers
@@ -549,7 +555,33 @@ export async function threadSummary(store: Store, user: UserRecord | null, threa
     unread: isUnread(thread.lastMessageAt, readState),
     preview: first === null ? null : { body: first.body, authorName: author?.name ?? "Unknown", authorImageUrl: author?.imageUrl ?? null },
     ...(thread.mockup === undefined ? {} : { mockup: thread.mockup }),
+    ...(store.tickets === undefined
+      ? {}
+      : { tickets: (await linkedTickets(store.tickets, thread._id)).map((link) => ({ tracker: link.tracker, key: link.key, status: link.status ?? null })) }),
   };
+}
+
+/** A thread's linked tickets, oldest first, leaving out tickets still being created. */
+async function linkedTickets(tickets: NonNullable<Store["tickets"]>, threadId: string) {
+  return await tickets.links.listForThread(threadId, "linked", MAX_THREAD_TICKETS);
+}
+
+async function ticketViews(store: Store, tickets: NonNullable<Store["tickets"]>, threadId: string): Promise<TicketLinkView[]> {
+  return await Promise.all(
+    (await linkedTickets(tickets, threadId)).map(async (link) => ({
+      _id: link._id,
+      threadId: link.threadId,
+      tracker: link.tracker,
+      key: link.key,
+      url: link.url,
+      title: link.title,
+      status: link.status ?? null,
+      statusCheckedAt: link.statusCheckedAt ?? null,
+      createdFromCritiqs: link.createdFromCritiqs,
+      linkedByName: (await store.users.get(link.linkedBy))?.name ?? "Unknown",
+      linkedAt: link.linkedAt,
+    })),
+  );
 }
 
 /** A bounded discussion page. Metadata and read state accompany every page. */
@@ -596,6 +628,7 @@ async function threadDetail(
     readState: readState === null ? null : { lastReadAt: readState.lastReadAt, manualUnread: readState.manualUnread },
     ...(thread.mockup === undefined ? {} : { mockup: thread.mockup }),
     canDelete: await canDeleteThread(store, project, thread, user?._id ?? null),
+    ...(store.tickets === undefined ? {} : { tickets: await ticketViews(store, store.tickets, thread._id) }),
     isDone: result.isDone,
     continueCursor: result.continueCursor,
     page: await Promise.all(
