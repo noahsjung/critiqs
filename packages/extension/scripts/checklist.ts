@@ -691,6 +691,18 @@ await step("20", "Comment, then choose ⋯ → Copy link on the comment: with a 
   await panel.type({ css: ".tag-field" }, "Share this with the client");
   await panel.click(button("Comment"));
   await panel.waitFor({ css: ".thread-window" });
+  // The comment's window grows upward when its screenshot loads, moving ⋯ to where the screenshot then is.
+  await waitUntil("the comment's screenshot", () =>
+    panel.evaluate(() => {
+      const images: HTMLImageElement[] = [];
+      const walk = (root: Document | ShadowRoot) => {
+        for (const element of Array.from(root.querySelectorAll("*"))) if (element.shadowRoot !== null) walk(element.shadowRoot);
+        images.push(...(Array.from(root.querySelectorAll(".thread-window img")) as HTMLImageElement[]));
+      };
+      walk(document);
+      return images.some((image) => image.complete && image.naturalWidth > 0);
+    }),
+  );
   await devtools.send("Browser.grantPermissions", { origin: `chrome-extension://${EXTENSION_ID}`, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
   await panel.click(button("More actions"));
   await panel.click(button("Copy link"));
