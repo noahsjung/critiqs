@@ -777,8 +777,14 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .collect();
           return rows.map(withoutCreationTime);
         },
-        withAccountId: async (tracker, accountId, limit) =>
-          (await db.query("trackerAccounts").withIndex("by_tracker_account", (q) => q.eq("tracker", tracker).eq("accountId", accountId)).take(limit)).map(withoutCreationTime),
+        withAccountId: async (tracker, accountId, method, limit) =>
+          (
+            await db
+              .query("trackerAccounts")
+              .withIndex("by_tracker_account", (q) => q.eq("tracker", tracker).eq("accountId", accountId))
+              .filter((q) => q.eq(q.field("method"), method))
+              .take(limit)
+          ).map(withoutCreationTime),
         insert: async (account) => await writer().insert("trackerAccounts", defined({ ...account, userId: account.userId as Id<"users"> })),
         patch: async (id, changes) => await writer().patch(ticketTableId("trackerAccounts", id), clearingNulls(changes) as Partial<Doc<"trackerAccounts">>),
         delete: async (id) => await writer().delete(ticketTableId("trackerAccounts", id)),

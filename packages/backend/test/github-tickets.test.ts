@@ -211,6 +211,24 @@ test("disconnecting GitHub while another Critiqs account is connected to the sam
   expect(grantDeletions()).toBe(1);
 });
 
+test("GitHub's grant stays while another Critiqs account signed in to that GitHub account, however many others pasted a token for it first", async () => {
+  withApp();
+  const { t, dana } = await project();
+  await signIn(t, dana);
+  const [danas] = await t.run(async (ctx) => await ctx.db.query("trackerAccounts").collect());
+  // Ten other Critiqs accounts pasted a token for Dana's GitHub account before Pat signed in: their tokens aren't GitHub's grant.
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 10; index++) {
+      const userId = await ctx.db.insert("users", { tokenIdentifier: `pasted|${index}`, name: `Pasted ${index}`, email: null, imageUrl: null });
+      await ctx.db.insert("trackerAccounts", { ...danas!, _id: undefined, _creationTime: undefined, userId, method: "token", refresh: undefined, expiresAt: undefined } as never);
+    }
+  });
+  const pat = await patOnDanasGithub(t);
+  expect(await dana.action(api.trackers.disconnect, { tracker: "github" })).toBe("shared");
+  expect(grantDeletions()).toBe(0);
+  expect((await pat.action(api.tickets.destinations, { tracker: "github" })).length).toBeGreaterThan(0);
+});
+
 test("a disconnect's retry never deletes GitHub's grant once another Critiqs account is connected to that GitHub account, or the person is signing in to GitHub again", async () => {
   withApp();
   const { t, dana } = await project();

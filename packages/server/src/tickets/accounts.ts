@@ -387,7 +387,8 @@ export async function trackerGrantInUse(store: Store, args: { userId: string; tr
   if ((await tickets.signIns.listForUser(args.userId, args.tracker)).length > 0) return true;
   // A retry scheduled before the account's ID was kept knows only its person.
   if (args.accountId === undefined) return (await tickets.accounts.find(args.userId, args.tracker)) !== null;
-  return (await tickets.accounts.withAccountId(args.tracker, args.accountId, 10)).some((account) => account.method === "oauth");
+  // Only a sign-in holds the grant; any number of pasted tokens for the same account may come first.
+  return (await tickets.accounts.withAccountId(args.tracker, args.accountId, "oauth", 1)).length > 0;
 }
 
 /**
