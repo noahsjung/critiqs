@@ -1243,9 +1243,9 @@ function PanelApp({
         }
         footer={
           selecting ? (
-            <div className="row between">
-              <span className="note">{checked.size} selected</span>
+            <div className="selection-footer">
               <div className="row">
+                <span className="note">{checked.size} selected</span>
                 <button
                   type="button"
                   className="link-btn"
@@ -1256,6 +1256,8 @@ function PanelApp({
                 <button type="button" className="link-btn" onClick={() => setChecked(new Set())}>
                   Clear
                 </button>
+              </div>
+              <div className="row selection-actions">
                 {trackersOffered?.threadTickets === true && openYourTrackers !== null && reviewerId !== null && (
                   <button type="button" className="btn small" disabled={checked.size === 0} onClick={startBulkTickets}>
                     Create tickets…

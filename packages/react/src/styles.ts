@@ -146,6 +146,10 @@ textarea.field:focus, input.field:focus, .tag-field.field:focus { outline: none;
 .row { display: flex; align-items: center; gap: 8px; }
 .row.end { justify-content: flex-end; }
 .row.between { justify-content: space-between; }
+/* The selection's footer: the count and its links on one line, the actions beside them, or on the next line, right-aligned, when the sidebar is narrow; no label wraps. */
+.selection-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.selection-footer > .row { white-space: nowrap; }
+.selection-actions { margin-left: auto; }
 .wrap { flex-wrap: wrap; }
 .grow { flex: 1; min-width: 0; }
 .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
