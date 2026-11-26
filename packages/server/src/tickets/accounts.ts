@@ -718,6 +718,8 @@ export type RefreshClaim =
  *   with the token, such as a webhook, which reads nothing of any project.
  */
 export type TokenUse = { by: "person" } | { by: "job"; projects: string[] } | { by: "cleanup" };
+/** A use a token may be returned for: a token read for `cleanup` is only ever held as a `WebhookRemoval` (webhooks.ts). */
+export type TokenRead = Exclude<TokenUse, { by: "cleanup" }>;
 
 /** Whether a token may be used as `use` says, for the person `userId`. */
 async function mayUseToken(store: Store, userId: string, use: TokenUse, identity: Identity | null): Promise<boolean> {

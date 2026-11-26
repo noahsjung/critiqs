@@ -212,3 +212,5 @@ export const tokenUseValidator = v.union(
   v.object({ by: v.literal("job"), projects: v.array(v.string()) }),
   v.object({ by: v.literal("cleanup") }),
 );
+/** A use a token may be returned for (`TokenRead`): never `cleanup`, whose token only removes what Critiqs registered. */
+export const tokenReadValidator = v.union(v.object({ by: v.literal("person") }), v.object({ by: v.literal("job"), projects: v.array(v.string()) }));

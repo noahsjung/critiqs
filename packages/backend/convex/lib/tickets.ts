@@ -1,5 +1,5 @@
 import type { ExportPageLoader, TrackerId } from "@critiqs/core";
-import { type TicketsDeployment, trackerSignIn, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken } from "@critiqs/server";
+import { type TicketsDeployment, type TokenRead, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken, trackerAdapter, trackerSignIn, type WebhookRemoval, webhookRemoval } from "@critiqs/server";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -21,12 +21,30 @@ export function siteUrl(): string {
  * A person's working token for a tracker, refreshed first when their sign-in's
  * has expired, one refresh at a time; only while they are still connected as
  * the tracker account `accountId`, and only as `use` says: in that person's
- * own request (`person`, the default), for a job in projects they may still
- * review (`job`), or to remove what Critiqs registered with it (`cleanup`).
- * The step that reads the token checks `use` first, so every caller, a
- * scheduled job above all, checks before it holds the token.
+ * own request (`person`, the default), or for a job in projects they may
+ * still review (`job`). The step that reads the token checks `use` first, so
+ * every caller, a scheduled job above all, checks before it holds the token.
+ * A token read only to remove what Critiqs registered is never returned:
+ * `trackerRemoval` holds it.
  */
-export async function trackerToken(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse = { by: "person" }): Promise<TrackerToken> {
+export async function trackerToken(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenRead = { by: "person" }): Promise<TrackerToken> {
+  // Checked here too, for callers the types don't reach.
+  if ((use as TokenUse).by === "cleanup") throw new Error("A token read only to remove what Critiqs registered is held by trackerRemoval, never returned.");
+  return await readToken(ctx, person, tracker, use);
+}
+
+/**
+ * A person's token for a tracker, read only to remove webhooks Critiqs
+ * registered there (`cleanup`), as a `WebhookRemoval`, which can do that and
+ * nothing else: the token never leaves it.
+ */
+export async function trackerRemoval(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId): Promise<WebhookRemoval> {
+  const webhooks = trackerAdapter(tracker, ticketsDeployment()).webhooks;
+  if (webhooks === undefined) throw new Error(`${tracker} has no webhooks for Critiqs to remove.`);
+  return webhookRemoval(webhooks, await readToken(ctx, person, tracker, { by: "cleanup" }));
+}
+
+async function readToken(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse): Promise<TrackerToken> {
   const { userId, accountId } = person;
   return await trackerAccessToken(
     {

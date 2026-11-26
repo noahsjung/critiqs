@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { ticketsDeploymentFromEnv } from "../src/tickets/accounts.ts";
+import { trackerAdapter, ticketsDeploymentFromEnv } from "../src/tickets/accounts.ts";
 import { exchangeJiraCode } from "../src/tickets/trackers/jira.ts";
 import type { TrackerToken } from "../src/tickets/trackers/index.ts";
-import { followTicketScope, renewTicketWebhook } from "../src/tickets/webhooks.ts";
+import { followTicketScope, renewTicketWebhook, webhookRemoval } from "../src/tickets/webhooks.ts";
 import { JIRA_STANDIN_CLIENT_ID, JIRA_STANDIN_SECRET, jiraStandIn } from "./jira-standin.ts";
 
 // The steps of a person's Jira status webhook (registering, renewing,
@@ -34,7 +34,7 @@ async function signedIn() {
 }
 
 /** Webhook steps whose store answers are given, recording each step and what the token was read for. */
-function steps(token: TrackerToken, answers: { claim: Record<string, unknown>; save?: boolean }) {
+function steps(token: TrackerToken, answers: { claim: Record<string, unknown>; save?: boolean }, fetchFn?: typeof fetch) {
   const calls: unknown[][] = [];
   return {
     calls,
@@ -42,6 +42,10 @@ function steps(token: TrackerToken, answers: { claim: Record<string, unknown>; s
       token: async (...args: unknown[]) => {
         calls.push(["token", ...args]);
         return token;
+      },
+      removal: async (...args: unknown[]) => {
+        calls.push(["removal", ...args]);
+        return webhookRemoval(trackerAdapter("jira", deployment, fetchFn).webhooks!, token);
       },
       claim: async (...args: unknown[]) => {
         calls.push(["claim"]);
@@ -84,10 +88,11 @@ test("a webhook Jira refuses to remove is kept on record, so a later run removes
   const { standIn, site, token } = await signedIn();
   const registered = await (await import("../src/tickets/accounts.ts")).trackerAdapter("jira", deployment, standIn.fetchFn).webhooks!.register(token, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001"], now: 1_000 });
   standIn.intercept = (method, path) => (method === "DELETE" && path === "/rest/api/3/webhook" ? new Response("unavailable", { status: 503 }) : undefined);
-  const { calls, steps: given } = steps(token, { claim: { status: "retire", previous: registered.id, site } });
+  const { calls, steps: given } = steps(token, { claim: { status: "retire", previous: registered.id, site } }, standIn.fetchFn);
   expect(await followTicketScope(given as never, deployment, { tracker: "jira" }, standIn.fetchFn)).toBe("failed");
-  // Only to remove what Critiqs registered: no project is read.
-  expect(calls.find((call) => call[0] === "token")).toEqual(["token", { by: "cleanup" }]);
+  // Only to remove what Critiqs registered: no project is read, and no token is handed out, only a removal.
+  expect(calls.find((call) => call[0] === "token")).toBeUndefined();
+  expect(calls.find((call) => call[0] === "removal")).toEqual(["removal"]);
   expect(calls.filter((call) => call[0] === "save")).toEqual([["save", null]]);
   expect(standIn.webhooks).toHaveLength(1);
 });
@@ -102,6 +107,9 @@ test("a renewal that registers again but lost its lease removes the new webhook 
         calls.push(["token", ...args]);
         return token;
       },
+      removal: async () => {
+        throw new Error("Not read: the webhook still follows projects.");
+      },
       finish: (async (_leaseId: string, result: unknown) => {
         calls.push(["finish", result]);
         return false;
@@ -115,5 +123,19 @@ test("a renewal that registers again but lost its lease removes the new webhook 
   );
   expect(calls[0]).toEqual(["token", { userId: "u", accountId: "a" }, "jira", { by: "job", projects: ["project-1"] }]);
   expect(outcome).not.toBe("renewed");
+  expect(standIn.webhooks).toEqual([]);
+});
+
+test("a token read only to remove what Critiqs registered can do nothing else: its holder gets a removal that never shows the token", async () => {
+  const { standIn, site, token } = await signedIn();
+  const webhooks = trackerAdapter("jira", deployment, standIn.fetchFn).webhooks!;
+  const registered = await webhooks.register(token, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001"], now: 1_000 });
+  const removal = webhookRemoval(webhooks, token);
+  // What the holder can see: the sign-in's kind and site, to check it is for the webhook's site, and remove.
+  expect(Object.keys(removal).sort()).toEqual(["method", "remove", "site"]);
+  expect(removal).toMatchObject({ method: "oauth", site });
+  expect(JSON.stringify(removal)).not.toContain(token.value);
+  expect(Object.values(removal).some((value) => value === token || value === token.value)).toBe(false);
+  await removal.remove([registered.id]);
   expect(standIn.webhooks).toEqual([]);
 });

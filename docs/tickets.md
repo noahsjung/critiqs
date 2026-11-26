@@ -423,7 +423,9 @@ Critiqs keeps each linked ticket's status and when it last changed:
   token (the check above, and later webhook upkeep) names the projects it
   works in, and the step that reads the token checks first, in the same
   transaction, that the person may still review every one of them; a job
-  that only removes what Critiqs registered at the tracker names none. In a
+  that only removes what Critiqs registered at the tracker names none, and
+  gets no token at all: only a removal, which holds the token and can do
+  nothing but remove those webhooks. In a
   person's own request, only that person's token is read.
 - **Last known.** When that person has disconnected, connected another
   account, can no longer see the ticket, or may no longer review the project

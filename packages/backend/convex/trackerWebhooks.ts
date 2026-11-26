@@ -15,7 +15,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import { convexStore } from "./lib/store";
-import { siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
+import { siteUrl, ticketsDeployment, trackerRemoval, trackerToken } from "./lib/tickets";
 import { randomSecret } from "./lib/tokens";
 import { ticketStatusValidator, trackerValidator } from "./lib/validators";
 
@@ -41,6 +41,7 @@ export const follow = internalAction({
       {
         // Read only after `claim` worked out what the webhook follows, and only as `use` allows.
         token: (use) => trackerToken(ctx, { userId, accountId }, tracker, use),
+        removal: () => trackerRemoval(ctx, { userId, accountId }, tracker),
         claim: (leaseId: string): Promise<WebhookClaim> => ctx.runMutation(internal.trackerWebhooks.claim, { userId, accountId, tracker, leaseId }),
         save: (siteId, leaseId, hook): Promise<boolean> => ctx.runMutation(internal.trackerWebhooks.save, { userId, accountId, tracker, siteId, leaseId, hook }),
         sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
@@ -87,6 +88,7 @@ export const renew = internalAction({
       {
         claim: (leaseId): Promise<WebhookRenewal> => ctx.runMutation(internal.trackerWebhooks.claimRenewal, { ...args, leaseId }),
         token: (who, tracker, use) => trackerToken(ctx, who, tracker, use),
+        removal: (who, tracker) => trackerRemoval(ctx, who, tracker),
         finish: (leaseId, result): Promise<boolean> => ctx.runMutation(internal.trackerWebhooks.finishRenewal, { ...args, leaseId, result }),
         leaseId: () => randomSecret(16),
         now: () => Date.now(),

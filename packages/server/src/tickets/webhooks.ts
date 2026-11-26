@@ -2,12 +2,33 @@ import type { TrackerId } from "@critiqs/core";
 import { CritiqsError } from "../errors.ts";
 import { canReview } from "../organizations.ts";
 import type { Store, TrackerWebhookRecord } from "../store.ts";
-import { type TicketsDeployment, ticketStore, type TokenUse, trackerAdapter, trackerSignIn } from "./accounts.ts";
+import { type TicketsDeployment, ticketStore, type TokenRead, trackerAdapter, trackerSignIn } from "./accounts.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
 import { webhookRoom } from "./status.ts";
 import type { JiraWebhook } from "./trackers/jira.ts";
 import { jiraId } from "./trackers/jira.ts";
-import type { TrackerSite, TrackerToken } from "./trackers/index.ts";
+import type { TrackerSite, TrackerToken, TrackerWebhooks } from "./trackers/index.ts";
+
+/** What a person's stored token is read for when a job uses it: a job's projects (`job`). Removing what Critiqs registered reads it as a `WebhookRemoval`. */
+export type JobTokenUse = Extract<TokenRead, { by: "job" }>;
+
+/**
+ * A person's token read only to remove webhooks Critiqs registered at the
+ * tracker (`{ by: "cleanup" }`): it can do that and nothing else, since the
+ * token never leaves it. It tells the sign-in's kind and site, so the caller
+ * can check it is for the webhook's site.
+ */
+export interface WebhookRemoval {
+  readonly method: TrackerToken["method"];
+  readonly site: TrackerToken["site"];
+  remove(hookIds: string[]): Promise<void>;
+}
+
+/** Holds a token read to remove webhooks as a `WebhookRemoval`: the one place such a token is given to. */
+export function webhookRemoval(webhooks: TrackerWebhooks, token: TrackerToken): WebhookRemoval {
+  const removal: WebhookRemoval = { method: token.method, site: token.site, remove: async (hookIds) => await webhooks.remove(token, hookIds) };
+  return Object.freeze(removal);
+}
 
 // Status webhooks that people's sign-ins register, for trackers that send
 // webhooks only to those their users register, and expire them (Jira:
@@ -146,8 +167,10 @@ export async function saveWebhookUpdate(
 export interface WebhookSteps {
   /** The person's webhook to update, worked out before their token is read. */
   claim(leaseId: string): Promise<WebhookClaim>;
-  /** The person's token for the account they linked the ticket with, read only as `use` allows (`claimTokenRefresh`). */
-  token(use: TokenUse): Promise<TrackerToken>;
+  /** The person's token for the account they linked the ticket with, for the projects the webhook follows (`claimTokenRefresh`). */
+  token(use: JobTokenUse): Promise<TrackerToken>;
+  /** The same token, read only to remove what Critiqs registered: it can do nothing else. */
+  removal(): Promise<WebhookRemoval>;
   save(siteId: string, leaseId: string, hook: { hookId: string; scopes: string[]; expiresAt: number } | null | "retired"): Promise<boolean>;
   sleep(ms: number): Promise<void>;
   leaseId(): string;
@@ -189,7 +212,9 @@ export async function followTicketScope(
     if (claim.status === "retire") {
       if (claim.previous !== null) {
         try {
-          await webhooks.remove(await siteToken(steps, { by: "cleanup" }, claim.site), [claim.previous]);
+          const removal = await steps.removal();
+          if (!onSite(removal, claim.site)) throw new CritiqsError("unavailable", "Your Jira connection changed. Try again.");
+          await removal.remove([claim.previous]);
         } catch {
           // Still at Jira: the record stays, so the next run (or its renewal) removes it.
           await release();
@@ -218,10 +243,15 @@ export async function followTicketScope(
   }
 }
 
+/** Whether a token is a sign-in on the site the webhook is on, the only kind that registers or removes it. */
+function onSite(token: Pick<TrackerToken, "method" | "site">, site: TrackerSite): boolean {
+  return token.method === "oauth" && token.site?.id === site.id;
+}
+
 /** The person's token, only for a sign-in on the site the webhook is on. */
-async function siteToken(steps: { token(use: TokenUse): Promise<TrackerToken> }, use: TokenUse, site: TrackerSite): Promise<TrackerToken> {
+async function siteToken(steps: { token(use: JobTokenUse): Promise<TrackerToken> }, use: JobTokenUse, site: TrackerSite): Promise<TrackerToken> {
   const token = await steps.token(use);
-  if (token.method !== "oauth" || token.site?.id !== site.id) throw new CritiqsError("unavailable", "Your Jira connection changed. Try again.");
+  if (!onSite(token, site)) throw new CritiqsError("unavailable", "Your Jira connection changed. Try again.");
   return token;
 }
 
@@ -298,8 +328,10 @@ export async function finishWebhookRenewal(
 /** The steps of renewing one webhook; each store step is its own transaction. */
 export interface RenewSteps {
   claim(leaseId: string): Promise<WebhookRenewal>;
-  /** The person's token, read only as `use` allows (`claimTokenRefresh`). */
-  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse): Promise<TrackerToken>;
+  /** The person's token, for the projects the webhook follows (`claimTokenRefresh`). */
+  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: JobTokenUse): Promise<TrackerToken>;
+  /** The same token, read only to remove what Critiqs registered: it can do nothing else. */
+  removal(person: { userId: string; accountId: string }, tracker: TrackerId): Promise<WebhookRemoval>;
   finish(leaseId: string, result: { hookId: string; expiresAt: number; scopes: string[] } | "gone" | "failed"): Promise<boolean>;
   leaseId(): string;
   now(): number;
@@ -322,29 +354,43 @@ export async function renewTicketWebhook(steps: RenewSteps, deployment: TicketsD
   const claim = await steps.claim(leaseId);
   if (claim.status === "skip") return "skipped";
   const adapter = trackerAdapter(claim.tracker, deployment, fetchFn);
-  const use: TokenUse = claim.followed.length === 0 ? { by: "cleanup" } : { by: "job", projects: claim.projects };
-  let token: TrackerToken;
-  try {
-    token = await steps.token(claim.person, claim.tracker, use);
-  } catch (error) {
-    // Not connected as that account any more: nothing can renew it.
-    if (error instanceof CritiqsError && (error.code === "not-found" || error.code === "invalid")) {
-      await steps.finish(leaseId, "gone");
-      return "gone";
+  // Not connected as that account any more: nothing can renew it.
+  const gone = async (error: unknown) => {
+    const missing = error instanceof CritiqsError && (error.code === "not-found" || error.code === "invalid");
+    await steps.finish(leaseId, missing ? "gone" : "failed");
+    return missing ? ("gone" as const) : ("failed" as const);
+  };
+  if (claim.followed.length === 0) {
+    // Nothing it may follow: removed with the person's own token, read only for that, not renewed. Jira refusing keeps the record (below).
+    let removal: WebhookRemoval;
+    try {
+      removal = await steps.removal(claim.person, claim.tracker);
+    } catch (error) {
+      return await gone(error);
     }
-    await steps.finish(leaseId, "failed");
-    return "failed";
-  }
-  try {
-    if (adapter.webhooks === undefined || token.method !== "oauth" || token.site?.id !== claim.site.id) {
-      await steps.finish(leaseId, "gone");
-      return "gone";
-    }
-    if (claim.followed.length === 0) {
-      // Nothing it may follow: removed with the person's own token, not renewed. Jira refusing keeps the record (below).
-      await adapter.webhooks.remove(token, [claim.hookId]);
+    try {
+      if (adapter.webhooks === undefined || !onSite(removal, claim.site)) {
+        await steps.finish(leaseId, "gone");
+        return "gone";
+      }
+      await removal.remove([claim.hookId]);
       await steps.finish(leaseId, "gone");
       return "retired";
+    } catch {
+      await steps.finish(leaseId, "failed");
+      return "failed";
+    }
+  }
+  let token: TrackerToken;
+  try {
+    token = await steps.token(claim.person, claim.tracker, { by: "job", projects: claim.projects });
+  } catch (error) {
+    return await gone(error);
+  }
+  try {
+    if (adapter.webhooks === undefined || !onSite(token, claim.site)) {
+      await steps.finish(leaseId, "gone");
+      return "gone";
     }
     if (claim.expired || !sameScopes(claim.scopes, claim.followed)) {
       const hook = await adapter.webhooks.register(token, { url: steps.url, scopes: claim.followed, now: steps.now() });

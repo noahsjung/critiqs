@@ -166,3 +166,11 @@ test("Jira attack: the webhook route reads at most 256 KB of a delivery", async 
   const response = await t.fetch("/trackers/jira/webhook", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer a.b.c" }, body: "x".repeat(2 * 1024 * 1024) });
   expect(response.status).toBe(413);
 });
+
+test("the token reader never hands out a token read only to remove what Critiqs registered: that use is refused, by type and when called", async () => {
+  const { trackerToken } = await import("../convex/lib/tickets");
+  const refuse = () =>
+    // @ts-expect-error A cleanup read is held by trackerRemoval, never returned.
+    trackerToken({} as never, { userId: "u", accountId: "a" }, "jira", { by: "cleanup" });
+  await expect(refuse()).rejects.toThrow("held by trackerRemoval, never returned");
+});

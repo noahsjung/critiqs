@@ -3,7 +3,7 @@ import { CritiqsError, fail } from "../errors.ts";
 import { currentReviewer, MAX_THREAD_TICKET_ROWS, requireProject, requireThread, requireUser } from "../operations.ts";
 import { projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketLinkChanges, TicketLinkRecord } from "../store.ts";
-import { type TicketsDeployment, ticketStore, type TokenUse, trackerAdapter } from "./accounts.ts";
+import { type TicketsDeployment, ticketStore, type TokenRead, trackerAdapter } from "./accounts.ts";
 import { lastKnownStatus, linkerAccount } from "./current.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
 import { checkedStatus, type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken, trackerId } from "./trackers/index.ts";
@@ -318,7 +318,7 @@ export async function markStatusStale(store: Store, args: { linkId: string; star
 export interface StatusCheckSteps {
   prepare(): Promise<StatusCheck>;
   /** The linker's token, only while they are connected as the account they linked the ticket with, and may review `use`'s project. */
-  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse): Promise<TrackerToken>;
+  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenRead): Promise<TrackerToken>;
   /** Saves the status read on the checked link only. */
   save(reading: TicketStatusReading): Promise<unknown>;
   /** Marks the status stale, unless a reading was saved after `startedAt`. */
