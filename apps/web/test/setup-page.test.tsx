@@ -51,12 +51,21 @@ describe("the setup page", () => {
   test("a project on a backend other than Critiqs Cloud: a step that gives Critiqs its backend", async () => {
     const backend = fakeBackend({ componentBackend: "https://team-backend.convex.cloud" });
     const page = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />, { backend });
-    expect(text(page)).toContain("This project is on your team's own Critiqs backend, not Critiqs Cloud. Then add this setting where init added Critiqs, so it connects there:");
+    expect(text(page)).toContain("This project is on your team's own Critiqs backend, not Critiqs Cloud. Add this on the <Critiqs /> component init added, so Critiqs connects there:");
     expect([...page.querySelectorAll("code")].map((code) => code.textContent)).toEqual([SETUP.installCommands!.join(" &&\n"), 'backend="https://team-backend.convex.cloud"']);
-    // No commands, no step.
+    // Django's package reads its settings.
+    const django = STACKS.find((stack) => stack.id === "django")!;
+    const python = await render(<SetupView state={{ status: "ready", data: { ...SETUP, stack: django, installCommands: null } }} email="dev@acme.com" onSignOut={noop} />, { backend });
+    expect(text(python)).toContain("Add this to the settings module (settings.py), so Critiqs connects there:");
+    expect([...python.querySelectorAll("code")].map((code) => code.textContent).at(-1)).toBe('CRITIQS = {"BACKEND": "https://team-backend.convex.cloud"}');
+    // With no package, the script tag takes it.
     const laravel = STACKS.find((stack) => stack.id === "laravel")!;
-    const none = await render(<SetupView state={{ status: "ready", data: { ...SETUP, stack: laravel, installCommands: null } }} email="dev@acme.com" onSignOut={noop} />, { backend });
-    expect(text(none)).not.toContain("backend=");
+    const tag = await render(<SetupView state={{ status: "ready", data: { ...SETUP, stack: laravel, installCommands: null } }} email="dev@acme.com" onSignOut={noop} />, { backend });
+    expect(text(tag)).toContain("Add this to the script tag, so Critiqs connects there:");
+    expect([...tag.querySelectorAll("code")].map((code) => code.textContent)).toEqual([PROJECT_ID, 'data-backend="https://team-backend.convex.cloud"']);
+    // On Critiqs Cloud, no step.
+    const cloud = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />);
+    expect(text(cloud)).not.toContain("own Critiqs backend");
   });
 
   test("a project with no saved stack: no one named, the stack not confirmed, and init alone, which finds the framework", async () => {

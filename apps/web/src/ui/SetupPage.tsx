@@ -78,12 +78,15 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
         ))}
       </dl>
       {commands === null ? (
-        <ScriptTagStep label={setup.stack?.label ?? ""} projectId={setup.projectId} />
+        <div className="stacked">
+          <ScriptTagStep label={setup.stack?.label ?? ""} projectId={setup.projectId} />
+          {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" stack={setup.stack?.id ?? null} />}
+        </div>
       ) : (
         <div className="stacked">
           <p className="note">{setup.stack === null ? `${copy.setup.commandLabel} ${copy.install.unknownStack}` : copy.setup.commandLabel}</p>
           <Command commands={commands} />
-          {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" />}
+          {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" stack={setup.stack?.id ?? null} />}
         </div>
       )}
       <p className="note">{copy.setup.noApproval}</p>

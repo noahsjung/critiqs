@@ -62,30 +62,34 @@ export function parseOnboardingAnswers(value: unknown): OnboardingAnswers {
 
 // Stacks.
 
+/** The forms a backend other than Critiqs Cloud takes, by package (see `backendSetting`). */
+type BackendForm = "component" | "nuxt" | "astro" | "angular" | "rails" | "django" | "flask" | "script";
+
 /**
  * Every stack someone can pick, the ones with a Critiqs package first.
  * `install` adds the stack's Critiqs package; `npx critiqs init` then adds
  * Critiqs where the app renders (see `installCommands`). A stack with no
  * package (`install: null`) adds Critiqs with the `critiqs` script tag.
+ * `backend` is how it takes a backend other than Critiqs Cloud.
  */
 const STACK_LIST = [
-  { id: "react", label: "React (Vite)", install: "npm install critiqs-react" },
-  { id: "next", label: "Next.js", install: "npm install critiqs-react" },
-  { id: "vue", label: "Vue", install: "npm install critiqs-vue" },
-  { id: "nuxt", label: "Nuxt", install: "npm install critiqs-nuxt" },
-  { id: "svelte", label: "Svelte", install: "npm install critiqs-svelte" },
-  { id: "sveltekit", label: "SvelteKit", install: "npm install critiqs-svelte" },
-  { id: "angular", label: "Angular", install: "npm install critiqs-angular" },
-  { id: "astro", label: "Astro", install: "npm install critiqs-astro" },
-  { id: "solid", label: "Solid", install: "npm install critiqs-solid" },
-  { id: "rails", label: "Rails", install: "bundle add critiqs-rails" },
-  { id: "django", label: "Django", install: "pip install django-critiqs" },
-  { id: "flask", label: "Flask", install: "pip install flask-critiqs" },
-  { id: "gatsby", label: "Gatsby", install: null },
-  { id: "laravel", label: "Laravel", install: null },
-  { id: "remix", label: "Remix or React Router", install: null },
-  { id: "wordpress", label: "WordPress", install: null },
-] as const satisfies readonly { id: string; label: string; install: string | null }[];
+  { id: "react", label: "React (Vite)", install: "npm install critiqs-react", backend: "component" },
+  { id: "next", label: "Next.js", install: "npm install critiqs-react", backend: "component" },
+  { id: "vue", label: "Vue", install: "npm install critiqs-vue", backend: "component" },
+  { id: "nuxt", label: "Nuxt", install: "npm install critiqs-nuxt", backend: "nuxt" },
+  { id: "svelte", label: "Svelte", install: "npm install critiqs-svelte", backend: "component" },
+  { id: "sveltekit", label: "SvelteKit", install: "npm install critiqs-svelte", backend: "component" },
+  { id: "angular", label: "Angular", install: "npm install critiqs-angular", backend: "angular" },
+  { id: "astro", label: "Astro", install: "npm install critiqs-astro", backend: "astro" },
+  { id: "solid", label: "Solid", install: "npm install critiqs-solid", backend: "component" },
+  { id: "rails", label: "Rails", install: "bundle add critiqs-rails", backend: "rails" },
+  { id: "django", label: "Django", install: "pip install django-critiqs", backend: "django" },
+  { id: "flask", label: "Flask", install: "pip install flask-critiqs", backend: "flask" },
+  { id: "gatsby", label: "Gatsby", install: null, backend: "script" },
+  { id: "laravel", label: "Laravel", install: null, backend: "script" },
+  { id: "remix", label: "Remix or React Router", install: null, backend: "script" },
+  { id: "wordpress", label: "WordPress", install: null, backend: "script" },
+] as const satisfies readonly { id: string; label: string; install: string | null; backend: BackendForm }[];
 
 export type StackId = (typeof STACK_LIST)[number]["id"];
 
@@ -643,6 +647,44 @@ export function installCommands(projectId: string, stack: StackId | null): reado
   if (stack === null) return [init];
   const install = STACK_LIST.find((candidate) => candidate.id === stack)?.install ?? null;
   return install === null ? null : [install, init];
+}
+
+/**
+ * How an app built with `stack` is told to use a backend other than Critiqs
+ * Cloud, which `npx critiqs init <projectId>` doesn't write: `setting`, the
+ * code to add, and `where`, completing "add this …". Each is the form the
+ * stack's Critiqs package reads: a property on the component, an option in
+ * the framework's config, `critiqs_tag`'s argument, Django's `CRITIQS`
+ * setting, Flask's config, or the script tag's `data-backend`. For an
+ * unknown stack, the backend's address on its own.
+ */
+export function backendSetting(stack: StackId | null, backend: string): { where: string; setting: string } {
+  const url = JSON.stringify(backend);
+  const form = STACK_LIST.find((candidate) => candidate.id === stack)?.backend ?? null;
+  switch (form) {
+    case "component":
+      return { where: "on the <Critiqs /> component init added", setting: `backend=${url}` };
+    case "nuxt":
+      return { where: "to nuxt.config, beside the critiqs-nuxt module init added", setting: `critiqs: { backend: ${url} }` };
+    case "astro":
+      return { where: "in astro.config, as the option of the critiqs() integration init added", setting: `critiqs({ backend: ${url} })` };
+    case "angular":
+      return { where: "inside the provideCritiqs({ … }) call init added", setting: `backend: ${url},` };
+    case "rails":
+      return { where: "in the layout, in place of the <%= critiqs_tag %> init added", setting: `<%= critiqs_tag(backend: ${url}) %>` };
+    case "django":
+      return { where: "to the settings module (settings.py)", setting: `CRITIQS = {"BACKEND": ${url}}` };
+    case "flask":
+      return { where: "after app = Flask(__name__), where init added Critiqs(app)", setting: `app.config["CRITIQS_BACKEND"] = ${url}` };
+    case "script":
+      return { where: "to the script tag", setting: `data-backend=${url}` };
+    case null:
+      return { where: "as Critiqs's backend where init added it (its framework package's README shows the setting)", setting: backend };
+    default: {
+      const exhaustive: never = form;
+      return exhaustive;
+    }
+  }
 }
 
 /** "A, B, or C". */

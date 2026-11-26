@@ -69,11 +69,33 @@ describe("I will: the command", () => {
   test("a project on a backend other than Critiqs Cloud: a step that gives Critiqs its backend, also in the agent's instructions", async () => {
     const clipboard = fakeClipboard();
     const page = await render(<InstallPanel project={project()} />, { backend: fakeBackend({ componentBackend: "https://team-backend.convex.cloud" }) });
-    expect(text(page)).toContain("This project is on your team's own Critiqs backend, not Critiqs Cloud.");
-    await click(button(page, "Copy property"));
+    expect(text(page)).toContain("This project is on your team's own Critiqs backend, not Critiqs Cloud. Add this on the <Critiqs /> component init added, so Critiqs connects there:");
+    await click(button(page, "Copy setting"));
     expect(clipboard.text).toBe('backend="https://team-backend.convex.cloud"');
     await click(button(page, "Copy for a coding agent"));
-    expect(clipboard.text).toContain("Then set Critiqs's backend to https://team-backend.convex.cloud where init added Critiqs (`backend=\"https://team-backend.convex.cloud\"` on the component)");
+    expect(clipboard.text).toContain('Then set Critiqs\'s backend to https://team-backend.convex.cloud: add `backend="https://team-backend.convex.cloud"` on the <Critiqs /> component init added');
+  });
+
+  test("on its own backend, each framework gets the setting its package reads, and a stack with no package the script tag's", async () => {
+    const clipboard = fakeClipboard();
+    const backend = fakeBackend({ componentBackend: "https://team-backend.convex.cloud" });
+    const cases = [
+      ["rails", "in the layout, in place of the <%= critiqs_tag %> init added", '<%= critiqs_tag(backend: "https://team-backend.convex.cloud") %>'],
+      ["django", "to the settings module (settings.py)", 'CRITIQS = {"BACKEND": "https://team-backend.convex.cloud"}'],
+      ["flask", "after app = Flask(__name__), where init added Critiqs(app)", 'app.config["CRITIQS_BACKEND"] = "https://team-backend.convex.cloud"'],
+      ["nuxt", "to nuxt.config, beside the critiqs-nuxt module init added", 'critiqs: { backend: "https://team-backend.convex.cloud" }'],
+      ["wordpress", "to the script tag", 'data-backend="https://team-backend.convex.cloud"'],
+    ] as const;
+    for (const [stack, where, setting] of cases) {
+      const page = await render(<InstallPanel project={project({ stack })} />, { backend });
+      expect([stack, text(page)]).toEqual([stack, expect.stringContaining(`not Critiqs Cloud. Add this ${where}, so Critiqs connects there:`)]);
+      await click(button(page, "Copy setting"));
+      expect([stack, clipboard.text]).toEqual([stack, setting]);
+      if (stack !== "wordpress") {
+        await click(button(page, "Copy for a coding agent"));
+        expect(clipboard.text).toContain(`add \`${setting}\` ${where}`);
+      }
+    }
   });
 
   test("a stack with no Critiqs package: the script tag's guide and the project ID to copy, with no command", async () => {
@@ -168,7 +190,7 @@ describe("My developer will: the email", () => {
     const clipboard = fakeClipboard();
     const page = await render(<Panel initial={["dev@acme.com"]} />, { backend: fakeBackend({ componentBackend: "https://team-backend.convex.cloud" }) });
     await click(button(page, "Copy a message to send yourself"));
-    expect(clipboard.text).toContain('This project is on our own Critiqs backend, not Critiqs Cloud. Then add this setting where init added Critiqs, so it connects there:\nbackend="https://team-backend.convex.cloud"');
+    expect(clipboard.text).toContain('This project is on our own Critiqs backend, not Critiqs Cloud. Add this on the <Critiqs /> component init added, so Critiqs connects there:\nbackend="https://team-backend.convex.cloud"');
   });
 
   test("Send emails each address that has none yet; once every one is sent, the form gives way to what was sent", async () => {

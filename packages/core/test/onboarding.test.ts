@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AVAILABLE_WAYS,
+  backendSetting,
   type AddressCheck,
   classifyAddress,
   detectStack,
@@ -788,5 +789,31 @@ describe("sending to a developer", () => {
       ],
     ];
     for (const [name, args, expected] of cases) expect([name, developerMessage(args)]).toEqual([name, expected]);
+  });
+});
+
+describe("backendSetting", () => {
+  test("every stack gets the form its package reads, and an unknown stack the address alone", () => {
+    const url = "https://team.example.com";
+    const forms = Object.fromEntries(STACKS.map((stack) => [stack.id, backendSetting(stack.id, url).setting]));
+    expect(forms).toEqual({
+      react: `backend="${url}"`,
+      next: `backend="${url}"`,
+      vue: `backend="${url}"`,
+      nuxt: `critiqs: { backend: "${url}" }`,
+      svelte: `backend="${url}"`,
+      sveltekit: `backend="${url}"`,
+      angular: `backend: "${url}",`,
+      astro: `critiqs({ backend: "${url}" })`,
+      solid: `backend="${url}"`,
+      rails: `<%= critiqs_tag(backend: "${url}") %>`,
+      django: `CRITIQS = {"BACKEND": "${url}"}`,
+      flask: `app.config["CRITIQS_BACKEND"] = "${url}"`,
+      gatsby: `data-backend="${url}"`,
+      laravel: `data-backend="${url}"`,
+      remix: `data-backend="${url}"`,
+      wordpress: `data-backend="${url}"`,
+    });
+    expect(backendSetting(null, url)).toEqual({ where: expect.stringContaining("README"), setting: url });
   });
 });

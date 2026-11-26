@@ -1,4 +1,4 @@
-import { SCRIPT_TAG_GUIDE } from "@critiqs/core";
+import { backendSetting, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAuth } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
@@ -143,14 +143,15 @@ export function Command({ commands, onCopied, after }: { commands: readonly stri
 }
 
 /**
- * The step for a backend other than Critiqs Cloud: `init <projectId>`
- * doesn't write the component's `backend` property, so it is added by hand.
+ * The step for a backend other than Critiqs Cloud: `init <projectId>` and
+ * the script tag's guide don't set it, so it is added by hand, in the form
+ * the stack's package reads.
  */
-export function BackendStep({ backend, whose }: { backend: string; whose: string }) {
-  const property = copy.install.backendProperty(backend);
+export function BackendStep({ backend, whose, stack }: { backend: string; whose: string; stack: StackId | null }) {
+  const { where, setting: property } = backendSetting(stack, backend);
   return (
     <div className="stacked">
-      <p className="note">{copy.install.customBackend(whose)}</p>
+      <p className="note">{copy.install.customBackend(whose, where)}</p>
       <div className="property">
         <code>{property}</code>
         <CopyButton text={property} label={copy.install.copyProperty} copiedLabel={copy.install.propertyCopied} className="btn small" shown />
