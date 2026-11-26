@@ -22,7 +22,7 @@ import { close, listen, PUBLIC_A, PUBLIC_B, PUBLIC_C, recordingServer, testWeb, 
 // - F-H2-3: a third-party or owner-approved response's file type is checked
 //   whatever its status;
 // - F-H2-4: every response on a frame host may be framed only by the website;
-// - Opus N1, N2, N4 and N9, Gemini notes 9 and 11, and the smaller notes.
+// - N1, N2, N4 and N9, notes 9 and 11, and the smaller notes.
 
 const LABEL = `v-${"a".repeat(26)}`;
 const label = (index: number) => `v-${"abcdefghijklmnopqrstuvwxyz234567"[index]!.repeat(26)}`;
@@ -265,14 +265,15 @@ describe("F-H2-4: every response may be framed only by the website", () => {
   });
 });
 
-describe("Opus N1: one slow link or site can't hold every upstream read", () => {
+describe("N1: one slow link or site can't hold every upstream read", () => {
   test("eight leases of one link reading a slow site leave room for another link", async () => {
     const leases = [...Array.from({ length: 8 }, (_, index) => lease({ label: label(index), leaseId: `evil-${index}`, linkId: "evil-link", origin: "http://slow.example", assetOrigins: [] })), lease({ label: label(20), leaseId: "victim", linkId: "victim-link", origin: "http://victim.example", assetOrigins: [] })];
     const { proxy } = setup({ leases });
     const held = new AbortController();
     const reads: Promise<Response>[] = [];
     for (let index = 0; index < 8; index++) for (let file = 0; file < 8; file++) reads.push(ask(proxy, `/s${file}.js`, { host: `${label(index)}.${DOMAIN}`, dest: "script", signal: held.signal }));
-    await Promise.allSettled(reads);
+    // The reads past each share wait their turn; those that got one are held by the slow site.
+    await Bun.sleep(300);
     try {
       expect(proxy.inFlight).toBeLessThanOrEqual(DEFAULT_LIMITS.concurrentPerProcess - DEFAULT_LIMITS.concurrentPerLease);
       const victim = await ask(proxy, "/", { host: `${label(20)}.${DOMAIN}` });
@@ -295,7 +296,8 @@ describe("Opus N1: one slow link or site can't hold every upstream read", () => 
         reads.push(ask(proxy, path, { host: `${label(index)}.${DOMAIN}`, dest: file % 5 === 0 ? "script" : "empty", signal: held.signal }));
       }
     }
-    await Promise.allSettled(reads);
+    // The reads past each share wait their turn; those that got one are held by the slow site.
+    await Bun.sleep(300);
     try {
       expect(proxy.inFlight).toBeLessThanOrEqual(DEFAULT_LIMITS.concurrentPerLink);
       const victim = await ask(proxy, "/", { host: `${label(20)}.${DOMAIN}` });
@@ -312,7 +314,8 @@ describe("Opus N1: one slow link or site can't hold every upstream read", () => 
     const held = new AbortController();
     const reads: Promise<Response>[] = [];
     for (let index = 0; index < 8; index++) for (let file = 0; file < 8; file++) reads.push(ask(proxy, `/s${file}.js`, { host: `${label(index)}.${DOMAIN}`, dest: "script", signal: held.signal }));
-    await Promise.allSettled(reads);
+    // The reads past each share wait their turn; those that got one are held by the slow site.
+    await Bun.sleep(300);
     try {
       expect(proxy.inFlight).toBeLessThan(DEFAULT_LIMITS.concurrentPerProcess / 2);
     } finally {
@@ -322,7 +325,7 @@ describe("Opus N1: one slow link or site can't hold every upstream read", () => 
   });
 });
 
-describe("Opus N4: unknown frame hosts are bounded per client before the backend", () => {
+describe("N4: unknown frame hosts are bounded per client before the backend", () => {
   test("a client asking for random hosts stops reaching the directory", async () => {
     const { proxy, lookups } = setup();
     for (let index = 0; index < 200; index++) {
@@ -335,7 +338,7 @@ describe("Opus N4: unknown frame hosts are bounded per client before the backend
   });
 });
 
-describe("Opus N9: the rewritten page's size is capped", () => {
+describe("N9: the rewritten page's size is capped", () => {
   test("a page that grows past htmlOutputBytes when rewritten gets the too-large notice", async () => {
     const small = { ...config, limits: { ...DEFAULT_LIMITS, htmlOutputBytes: 64 * 1024 } };
     const { proxy } = setup({ config: small });
@@ -345,7 +348,7 @@ describe("Opus N9: the rewritten page's size is capped", () => {
   });
 });
 
-describe("Gemini note 9: third-party @import chains stop at depth 2", () => {
+describe("note 9: third-party @import chains stop at depth 2", () => {
   test("a chain of imported stylesheets stops being signed after two hops", async () => {
     const { proxy } = setup();
     let path = assetPath(CTX, "style", new URL("http://cdn.example.net/0.css"))!;
@@ -363,7 +366,7 @@ describe("Gemini note 9: third-party @import chains stop at depth 2", () => {
   });
 });
 
-describe("Gemini note 11: every SVG link attribute is mapped", () => {
+describe("note 11: every SVG link attribute is mapped", () => {
   test("href and xlink:href on one element", () => {
     const html = rewriteHtml(CTX, '<svg><image href="http://cdn.example.net/a.png" xlink:href="http://169.254.169.254/latest"></image></svg>', BASE, { runtime: "r.js", layer: "l.js", panelOrigins: [], finalPath: null });
     expect(html).not.toContain('href="http://');
@@ -372,13 +375,13 @@ describe("Gemini note 11: every SVG link attribute is mapped", () => {
 });
 
 describe("smaller notes", () => {
-  test("Gemini, Next.js headers: a protocol-relative next-url never passes", async () => {
+  test("Next.js headers: a protocol-relative next-url never passes", async () => {
     const { frameworkHeaders } = await import("../src/headers.ts");
     expect(frameworkHeaders(new Headers({ "next-url": "//evil.example/x" }))).toEqual({});
     expect(frameworkHeaders(new Headers({ "next-url": "/blog" }))).toEqual({ "next-url": "/blog" });
     for (const name of ["x-middleware-subrequest", "x-invoke-path", "x-nextjs-data", "x-forwarded-host", "next-action"]) expect(frameworkHeaders(new Headers({ [name]: "1" }))).toEqual({});
   });
-  test("Opus: a top-level open spelled Document still gets the notice", async () => {
+  test("a top-level open spelled Document still gets the notice", async () => {
     const { proxy, lookups } = setup();
     const response = await ask(proxy, "/", { dest: "Document" });
     expect(response.status).toBe(403);
@@ -386,9 +389,12 @@ describe("smaller notes", () => {
   });
 });
 
-describe("Opus N2: no developer error page on any method or malformed request", () => {
+describe("N2: no developer error page on any method or malformed request", () => {
   const serve = async () => {
-    const port = 6460 + Math.floor(Math.random() * 20);
+    // A free port this computer picks, so runs in parallel don't collide.
+    const probe = net.createServer();
+    const port = await new Promise<number>((resolve) => probe.listen(0, "127.0.0.1", () => resolve((probe.address() as net.AddressInfo).port)));
+    await new Promise((resolve) => probe.close(resolve));
     const child = Bun.spawn(["bun", "--max-http-header-size=65536", "bin/serve.ts"], {
       cwd: `${import.meta.dir}/..`,
       env: {

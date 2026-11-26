@@ -188,6 +188,8 @@ describe("AT-3: the proxy never fetches itself or Critiqs's own services", () =>
         CRITIQS_PROXY_SECRET: "a-test-secret-that-is-long-enough-to-pass",
         CRITIQS_WEB_RISK_API_KEY: "test",
         CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+        CRITIQS_PROXY_SIGNING_KEY: "a-signing-key-that-is-long-enough-to-pass",
+        CRITIQS_PROXY_CLIENT_IP_HEADER: "cf-connecting-ip",
       }),
     );
     for (const address of ["https://critiqs-review.net/", "https://v-x.critiqs-review.net/", "https://critiqs.app/r/key", "https://brazen-snail-591.convex.site/internal/review/v1/resolve", "https://CRITIQS.APP./"]) {

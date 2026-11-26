@@ -14,7 +14,10 @@ export class ConfigError extends Error {
 
 /** How much one lease, one process and one response may use. Every number can be lowered per deployment. */
 export interface ProxyLimits {
-  /** Upstream reads at once for one lease, and for the whole process. Past either, 503 at once: there is no queue. */
+  /**
+   * Upstream reads at once for one lease, and for the whole process. A read
+   * past a share waits its turn for up to `queueTimeoutMs`, then gets 503.
+   */
   concurrentPerLease: number;
   /** Of a lease's reads at once, how many may be prefetches, so what the reviewer opens always has room. */
   concurrentPrefetchPerLease: number;
@@ -33,6 +36,22 @@ export interface ProxyLimits {
    */
   lookupMissesPerClient: number;
   lookupWindowMs: number;
+  /**
+   * How long a read waits for its turn when its lease, link, upstream host or
+   * the process has no room, and how many reads may wait per lease and in
+   * all; past either count a read is refused at once. A browser over HTTP/2
+   * asks for every image of a page at once, so a page with more images than
+   * a lease's share loads in turns instead of failing.
+   */
+  queueTimeoutMs: number;
+  queuedPerLease: number;
+  queuedPerProcess: number;
+  /**
+   * How long a response may wait for the browser to read on before it is
+   * ended: a client that stops reading would otherwise hold its reads (and so
+   * its link's and upstream host's shares) until the body's own deadline.
+   */
+  clientStallMs: number;
   /** Requests and bytes one lease may use per window. */
   windowMs: number;
   requestsPerWindow: number;
@@ -73,6 +92,10 @@ export const DEFAULT_LIMITS: ProxyLimits = {
   concurrentPerUpstreamHost: 24,
   lookupMissesPerClient: 30,
   lookupWindowMs: 60_000,
+  queueTimeoutMs: 8_000,
+  queuedPerLease: 256,
+  queuedPerProcess: 4_096,
+  clientStallMs: 3_000,
   windowMs: 10 * 60_000,
   requestsPerWindow: 300,
   prefetchRequestsPerWindow: 600,
@@ -109,8 +132,9 @@ export interface ProxyConfig {
   /**
    * The key for signed asset and leave addresses (CRITIQS_PROXY_SIGNING_KEY,
    * 32 bytes or more), which only the proxy holds, so the backend's copy of
-   * the shared secret can't sign them. Without the setting it is derived from
-   * the shared secret under its own label.
+   * the shared secret can't sign them. Required on a public domain; on a
+   * `.localhost` one it may be derived from the shared secret under its own
+   * label.
    */
   signingKey: string;
   /** The previous signing key during a rotation (CRITIQS_PROXY_SIGNING_KEY_PREVIOUS): addresses it signed are still accepted, never written. */
@@ -119,7 +143,9 @@ export interface ProxyConfig {
    * The request header the server in front of the proxy sets to the viewer's
    * address (CRITIQS_PROXY_CLIENT_IP_HEADER, such as `cf-connecting-ip`), or
    * null to use the connection's own address. Behind an ingress without it,
-   * every viewer looks like one client.
+   * every viewer looks like one client, so one client's lookups could use up
+   * everyone's: on a public domain the setting is required, and `connection`
+   * says the proxy faces viewers directly.
    */
   clientIpHeader: string | null;
   /** The proxy's own outbound address blocks (CRITIQS_PROXY_EGRESS): published for Allow Critiqs, and refused as destinations. */
@@ -229,12 +255,21 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
 
   const signingKey = env.CRITIQS_PROXY_SIGNING_KEY ?? "";
   if (signingKey !== "" && new TextEncoder().encode(signingKey).byteLength < MIN_SECRET_BYTES) throw new ConfigError(`CRITIQS_PROXY_SIGNING_KEY must be at least ${MIN_SECRET_BYTES} bytes.`);
+  if (signingKey === "" && !local) {
+    throw new ConfigError(`Set CRITIQS_PROXY_SIGNING_KEY (${MIN_SECRET_BYTES} bytes or more, held only by the proxy): without it, the backend's copy of CRITIQS_PROXY_SECRET could sign asset addresses.`);
+  }
   const previousSigningKey = env.CRITIQS_PROXY_SIGNING_KEY_PREVIOUS ?? "";
   if (previousSigningKey !== "" && new TextEncoder().encode(previousSigningKey).byteLength < MIN_SECRET_BYTES) {
     throw new ConfigError(`CRITIQS_PROXY_SIGNING_KEY_PREVIOUS must be at least ${MIN_SECRET_BYTES} bytes.`);
   }
-  const clientIpHeader = env.CRITIQS_PROXY_CLIENT_IP_HEADER?.trim().toLowerCase() || null;
-  if (clientIpHeader !== null && !/^[a-z0-9-]{1,64}$/.test(clientIpHeader)) throw new ConfigError("CRITIQS_PROXY_CLIENT_IP_HEADER must be a header name, such as cf-connecting-ip.");
+  const clientIpText = env.CRITIQS_PROXY_CLIENT_IP_HEADER?.trim().toLowerCase() || null;
+  if (clientIpText === null && !local) {
+    throw new ConfigError(
+      "Set CRITIQS_PROXY_CLIENT_IP_HEADER to the header the server in front sets to the viewer's address (such as cf-connecting-ip), or to connection when viewers connect to the proxy directly: otherwise every viewer looks like one client, and one client's lookups use up everyone's.",
+    );
+  }
+  const clientIpHeader = clientIpText === "connection" ? null : clientIpText;
+  if (clientIpHeader !== null && !/^[a-z0-9-]{1,64}$/.test(clientIpHeader)) throw new ConfigError("CRITIQS_PROXY_CLIENT_IP_HEADER must be a header name, such as cf-connecting-ip, or connection.");
 
   const isolationText = env.CRITIQS_PROXY_COOKIE_ISOLATION?.trim() ?? "";
   let cookieIsolation: CookieIsolation;

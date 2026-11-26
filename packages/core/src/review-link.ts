@@ -9,11 +9,37 @@ import { isRecord } from "./page-layer/check.ts";
 
 export const REVIEW_FRAME_TAG = "critiqs:review-frame";
 
+/**
+ * Set on a review frame's window by the proxy's runtime, before any of the
+ * prototype's own scripts run. A copy of Critiqs the prototype installed
+ * (`mountCritiqs`) sees it and stays out: in a review frame the proxy's page
+ * layer is the one that runs, and an installed copy could only fail to reach
+ * its backend. A global symbol, so separately built copies agree on it.
+ */
+export const REVIEW_FRAME_MARK: unique symbol = Symbol.for("critiqs.review-frame");
+
+/** Whether this window is a review link's frame (`REVIEW_FRAME_MARK`). */
+export function inReviewFrame(scope: object = globalThis): boolean {
+  return (scope as Record<symbol, unknown>)[REVIEW_FRAME_MARK] === true;
+}
+
+/**
+ * The Server-Timing entry the proxy puts on a file it refused (too busy,
+ * unsafe, the wrong type, unreachable), so the frame's runtime can tell it
+ * from the prototype's own errors.
+ */
+export const REVIEW_REFUSED_TIMING = "critiqs-refused";
+
 /** Why the proxy couldn't show a page. */
 export type ReviewFailure = "unreachable" | "blocked" | "needs-sign-in" | "too-large" | "timeout" | "unsafe" | "unsupported" | "busy" | "not-found";
 
-/** Something the prototype tried that review links don't support. */
-export type ReviewUnsupported = "form" | "password";
+/**
+ * Something the prototype tried that review links don't support: a form, a
+ * password field, or `load`: part of the page couldn't load through the
+ * review link (a web socket, another site the frame's policy refuses, a file
+ * the proxy refused or the browser couldn't read).
+ */
+export type ReviewUnsupported = "form" | "password" | "load";
 
 export type ReviewFrameMessage =
   | { tag: typeof REVIEW_FRAME_TAG; v: 1; kind: "failed"; reason: ReviewFailure }
@@ -22,7 +48,7 @@ export type ReviewFrameMessage =
   | { tag: typeof REVIEW_FRAME_TAG; v: 1; kind: "unsupported"; feature: ReviewUnsupported };
 
 const FAILURES: readonly ReviewFailure[] = ["unreachable", "blocked", "needs-sign-in", "too-large", "timeout", "unsafe", "unsupported", "busy", "not-found"];
-const UNSUPPORTED: readonly ReviewUnsupported[] = ["form", "password"];
+const UNSUPPORTED: readonly ReviewUnsupported[] = ["form", "password", "load"];
 
 /** An `http:` or `https:` origin, at most 512 characters, or null. */
 function webOrigin(value: unknown): string | null {

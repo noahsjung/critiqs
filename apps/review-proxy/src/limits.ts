@@ -1,6 +1,7 @@
 // In-memory limits for one proxy process: how many upstream reads run at once
 // (per lease and in all), and how many requests and bytes a lease may use per
-// window. Nothing waits in a queue: past a limit a request is refused at once.
+// window. A read with no room waits its turn in a bounded line for a bounded
+// time (`slotLine`); past a window's count a request is refused at once.
 // Per-account, per-link and creation limits live in the backend; these keep
 // one process and one lease from being overrun between its reports.
 
@@ -47,6 +48,102 @@ export function keyedSlots(max: number): { take(key: string): (() => void) | nul
       };
     },
     used: (key) => byKey.get(key)?.used ?? 0,
+  };
+}
+
+/** A slot to take now, or null when its pool is full. */
+export type Claim = () => (() => void) | null;
+
+interface Waiter {
+  claims: readonly Claim[];
+  line: string;
+  done: (release: (() => void) | null) => void;
+}
+
+/**
+ * Reads that need a slot in several pools at once (the process, a link, an
+ * upstream host, a lease), all or none. One that can't have them all now
+ * waits, first come first served, until every pool has room: each release
+ * hands its room to the oldest waiter that can now take all of its slots. A
+ * wait ends after `timeoutMs`, or when `signal` aborts, with null. At most
+ * `maxPerLine` reads wait per line (a lease) and `maxWaiting` in all; past
+ * either a read gets null at once. The pools' own sizes are the shares: a
+ * line only decides who goes next, never how many run.
+ */
+export function slotLine(options: { maxWaiting: number; maxPerLine: number }) {
+  const waiting: Waiter[] = [];
+  const perLine = new Map<string, number>();
+  const takeAll = (claims: readonly Claim[]): (() => void) | null => {
+    const taken: (() => void)[] = [];
+    for (const claim of claims) {
+      const release = claim();
+      if (release === null) {
+        for (const undo of taken) undo();
+        return null;
+      }
+      taken.push(release);
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const release of taken) release();
+      pump();
+    };
+  };
+  const leave = (waiter: Waiter) => {
+    const index = waiting.indexOf(waiter);
+    if (index === -1) return false;
+    waiting.splice(index, 1);
+    const count = (perLine.get(waiter.line) ?? 1) - 1;
+    if (count === 0) perLine.delete(waiter.line);
+    else perLine.set(waiter.line, count);
+    return true;
+  };
+  function pump() {
+    for (let index = 0; index < waiting.length; ) {
+      const waiter = waiting[index]!;
+      const release = takeAll(waiter.claims);
+      if (release === null) {
+        index++;
+        continue;
+      }
+      leave(waiter);
+      waiter.done(release);
+    }
+  }
+  return {
+    /** Every claim's slot, as one release; null when the wait ran out, was aborted, or the line was full. */
+    async take(claims: readonly Claim[], line: string, timeoutMs: number, signal: AbortSignal): Promise<(() => void) | null> {
+      const now = takeAll(claims);
+      if (now !== null) return now;
+      if (signal.aborted || timeoutMs <= 0 || waiting.length >= options.maxWaiting || (perLine.get(line) ?? 0) >= options.maxPerLine) return null;
+      return await new Promise<(() => void) | null>((resolve) => {
+        const giveUp = () => {
+          if (!leave(waiter)) return;
+          clearTimeout(timer);
+          signal.removeEventListener("abort", giveUp);
+          resolve(null);
+        };
+        const waiter: Waiter = {
+          claims,
+          line,
+          done: (release) => {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", giveUp);
+            resolve(release);
+          },
+        };
+        const timer = setTimeout(giveUp, timeoutMs);
+        signal.addEventListener("abort", giveUp, { once: true });
+        waiting.push(waiter);
+        perLine.set(line, (perLine.get(line) ?? 0) + 1);
+      });
+    },
+    /** Reads waiting now, for tests and health checks. */
+    get waiting() {
+      return waiting.length;
+    },
   };
 }
 

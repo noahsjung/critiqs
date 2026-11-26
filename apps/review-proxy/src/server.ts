@@ -1,12 +1,12 @@
-import { canonicalHost, classifyAddress, type ReviewFailure } from "@critiqs/core";
+import { canonicalHost, classifyAddress, REVIEW_REFUSED_TIMING, type ReviewFailure } from "@critiqs/core";
 import type { ProxyConfig } from "./config.ts";
 import { rewriteCss } from "./css.ts";
 import { BodyError, boundedChunks, readDecoded } from "./decompress.ts";
 import { FRAME_LABEL, type ReviewDirectory, type ReviewResolution, type ReviewUsageReport } from "./directory.ts";
 import type { Egress, EgressOutcome } from "./egress.ts";
-import { charsetOf, frameworkHeaders, inboundHeaders, isPrefetch, mediaType, type RequestClass, requestHeaderBytes } from "./headers.ts";
+import { type ContentType, charsetOf, contentType, contentTypeHeader, frameworkHeaders, inboundHeaders, isPrefetch, type RequestClass, requestHeaderBytes } from "./headers.ts";
 import { decodeHtml, rewriteHtml } from "./html.ts";
-import { keyedSlots, slots, windowCounter } from "./limits.ts";
+import { type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
 import { failurePage, frameCsp, inertCsp, leavePage, topLevelPage } from "./pages.ts";
 import { framePath } from "./paths.ts";
 import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from "./urls.ts";
@@ -18,12 +18,14 @@ import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from 
 // (cookies aside, which are never read); only GET and HEAD, never an upgrade
 // or a service worker; a top-level open gets a notice, not the prototype;
 // the lease must resolve now (a client asking about hosts that serve nothing
-// is bounded before the backend is asked); and the lease's request window and
-// read slots, its link's and its upstream host's, must have room. Then the
-// path picks the route (urls.ts), and every upstream read goes through an
-// egress (egress.ts) within the body limits. How a response is served is
-// decided by `handlingOf`, from the route and the response itself, never from
-// what the client says a request is for.
+// is bounded before the backend is asked, except for hosts it has seen live);
+// and the lease's request window must have room, and a read slot of its own,
+// its link's and its upstream host's, waited for briefly when there is none.
+// Then the path picks the route (urls.ts), and every upstream read goes
+// through an egress (egress.ts) within the body limits. How a response is
+// served is decided by `handlingOf`, from the route and the response's type
+// as a browser reads it, never from what the client says a request is for:
+// the only documents a frame host serves are the proxy's own pages.
 
 /** The two scripts put in every page, built by `scripts/build-assets.ts`. */
 export interface ProxyAssets {
@@ -54,6 +56,7 @@ function slotMime(type: string): boolean {
 }
 
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+
 
 /**
  * What the browser says a request on the prototype's own origin is for. Only
@@ -99,16 +102,20 @@ function destination(request: Request): string {
 /**
  * How a response is served, from what the proxy itself knows: the route
  * (the proxy wrote every signed asset's class) and the response's own type
- * and status. A page is any HTML on the prototype's origin, however it was
- * asked for, so it is always capped, checked for a sign-in or bot wall and
- * rewritten. Another site's file must have its class's type at any status,
- * and only a success carries a body; an owner-approved origin's answer must
- * be data or a static file at any status.
+ * and status, read as a browser reads it (`contentType`). A page is any HTML
+ * on the prototype's origin, however it was asked for and however its type is
+ * spelled, so it is always capped, checked for a sign-in or bot wall and
+ * rewritten. Everything else passed through is served so that it can never
+ * be a document in the frame (`passHeaders`): XML, SVG, a type the proxy
+ * doesn't know, or none. Another site's file must have its class's type at
+ * any status, and only a success carries a body; an owner-approved origin's
+ * answer must be data or a static file at any status.
  */
 type Handling = { kind: "page" } | { kind: "style"; imports: "style" | "import" | null } | { kind: "pass"; cap: number } | { kind: "refuse"; status: number };
 
-function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }>, status: number, type: string, limits: ProxyConfig["limits"]): Handling {
+function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }>, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
   const ok = status >= 200 && status < 300;
+  const type = parsed?.essence ?? "";
   if (route.kind === "primary") {
     if (HTML_TYPES.has(type)) return { kind: "page" };
     if (type === "text/css" && ok) return { kind: "style", imports: "style" };
@@ -161,6 +168,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   const hostSlots = keyedSlots(limits.concurrentPerUpstreamHost);
   const lookupMisses = windowCounter({ windowMs: limits.lookupWindowMs, requests: limits.lookupMissesPerClient, bytes: Number.POSITIVE_INFINITY }, now);
   const prefetchSlots = keyedSlots(Math.min(limits.concurrentPrefetchPerLease, limits.concurrentPerLease));
+  const line = slotLine({ maxWaiting: limits.queuedPerProcess, maxPerLine: limits.queuedPerLease });
   const windows = windowCounter({ windowMs: limits.windowMs, requests: limits.requestsPerWindow, bytes: limits.bytesPerWindow }, now);
   // Prefetches have their own count, so a framework prefetching every link
   // can't use up what the reviewer opens; their bytes count in `windows`.
@@ -177,6 +185,12 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   };
   const plain = (status: number, text: string, extra: Record<string, string> = {}) =>
     new Response(text, { status, headers: common(new Headers({ "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...extra })) });
+  /**
+   * A file the proxy refused (busy, too many requests, unsafe, the wrong type,
+   * unreachable), marked so the frame's runtime can tell it from the
+   * prototype's own errors and say that part of the page didn't load.
+   */
+  const refusedFile = (status: number, extra: Record<string, string> = {}) => plain(status, "", { "server-timing": REVIEW_REFUSED_TIMING, ...extra });
   const document = (status: number, html: string, head = false) =>
     new Response(head ? null : html, {
       status,
@@ -202,7 +216,12 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     }
     const chunks = boundedChunks(body, { wireBytes, idleMs: limits.idleTimeoutMs, totalMs: limits.bodyTimeoutMs }, signal, (bytes) => count(lease, bytes))[Symbol.asyncIterator]();
     let done = false;
+    // Armed while a chunk waits for the browser to read it: a browser that
+    // stops reading gives its read back after `clientStallMs`, not at the
+    // body's own deadline.
+    let stall: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
+      clearTimeout(stall);
       if (done) return;
       done = true;
       release();
@@ -210,12 +229,21 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     return new Response(
       new ReadableStream<Uint8Array>({
         async pull(controller) {
+          clearTimeout(stall);
           try {
             const step = await chunks.next();
             if (step.done) {
               finish();
               controller.close();
-            } else controller.enqueue(step.value);
+              return;
+            }
+            controller.enqueue(step.value);
+            stall = setTimeout(() => {
+              if (done) return;
+              finish();
+              void chunks.return?.(undefined)?.catch(() => undefined);
+              controller.error(new Error("The browser stopped reading."));
+            }, limits.clientStallMs);
           } catch (error) {
             finish();
             controller.error(error);
@@ -230,9 +258,20 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     );
   };
 
-  /** Response headers for a file passed through unchanged: allowed upstream headers, its encoding, and inert as a page. */
-  const passHeaders = (upstream: Record<string, string>) => {
-    const headers = common(inboundHeaders(upstream));
+  /**
+   * Response headers for anything served that isn't one of the proxy's pages:
+   * allowed upstream headers, its encoding, only the type the proxy read, and
+   * never a document. `Content-Disposition: attachment` makes a navigation to
+   * it a download, which the frame's sandbox refuses, while the page's own
+   * images, scripts, styles, fonts, media and fetches ignore it; the inert
+   * policy and nosniff (from `common`) cover any other way of opening it.
+   */
+  const passHeaders = (upstream: Record<string, string>, type: ContentType | null) => {
+    const headers = inboundHeaders(upstream);
+    headers.delete("content-type");
+    if (type !== null) headers.set("content-type", contentTypeHeader(type));
+    headers.set("content-disposition", "attachment");
+    common(headers);
     const encoding = upstream["content-encoding"];
     if (encoding !== undefined && /^(?:gzip|br)$/i.test(encoding.trim())) headers.set("content-encoding", encoding.trim().toLowerCase());
     return headers;
@@ -244,7 +283,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
 
   /** What a request that got no upstream response is answered with: a notice in the frame for a navigation, a bare status otherwise. */
   const refused = (outcome: Exclude<EgressOutcome, { kind: "response" }>, asPage: boolean, head: boolean): Response => {
-    if (!asPage) return plain(outcome.kind === "refused" && outcome.reason === "unsafe" ? 403 : 502, "");
+    if (!asPage) return refusedFile(outcome.kind === "refused" && outcome.reason === "unsafe" ? 403 : 502);
     if (outcome.kind === "left") return document(200, leavePage(outcome.url, outcome.signIn, config.webOrigins), head);
     return failure(refusal(outcome), head);
   };
@@ -285,9 +324,8 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
 
   /** A stylesheet that `handlingOf` accepted: decompressed, rewritten, capped. */
   async function serveStyle(ctx: UrlContext, lease: ReviewResolution, outcome: Extract<EgressOutcome, { kind: "response" }>, imports: "style" | "import" | null, signal: AbortSignal, head: boolean): Promise<Response> {
-    const headers = passHeaders(outcome.headers);
+    const headers = passHeaders(outcome.headers, { essence: "text/css", charset: "utf-8" });
     headers.delete("content-encoding");
-    headers.set("content-type", "text/css; charset=utf-8");
     if (head) {
       void outcome.body[Symbol.asyncIterator]().return?.()?.catch(() => undefined);
       return new Response(null, { status: outcome.status, headers });
@@ -296,55 +334,82 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     try {
       bytes = await readDecoded(outcome.body, outcome.headers["content-encoding"], { wireBytes: limits.cssInputBytes, decodedBytes: limits.cssInputBytes, idleMs: limits.idleTimeoutMs, totalMs: limits.bodyTimeoutMs }, signal);
     } catch {
-      return plain(502, "");
+      return refusedFile(502);
     }
     count(lease, bytes.byteLength);
     let text: string;
     try {
       text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      return plain(502, "");
+      return refusedFile(502);
     }
     const css = new TextEncoder().encode(rewriteCss(ctx, text, outcome.url, imports));
-    if (css.byteLength > limits.cssOutputBytes) return plain(502, "");
+    if (css.byteLength > limits.cssOutputBytes) return refusedFile(502);
     return new Response(css, { status: outcome.status, headers });
   }
 
-  /** Takes a read slot from every pool a request counts against, or none. */
-  const takeSlots = (lease: ReviewResolution, upstreamHost: string, prefetch: boolean): (() => void) | null => {
-    const taken: (() => void)[] = [];
-    const take = (release: (() => void) | null) => {
-      if (release !== null) taken.push(release);
-      return release !== null;
-    };
-    const all =
-      take(processSlots.take()) &&
-      take(linkSlots.take(lease.linkId)) &&
-      take(hostSlots.take(upstreamHost)) &&
-      (!prefetch || take(prefetchSlots.take(lease.leaseId))) &&
-      take(leaseSlots.take(lease.leaseId));
-    if (!all) {
-      for (const release of taken) release();
-      return null;
-    }
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      for (const release of taken) release();
-    };
+  /**
+   * A read slot from every pool a request counts against, all or none:
+   * waited for in line, briefly, when one has no room (`slotLine`). The
+   * shares stay what they were: a lease 8, a link and an upstream host 24, the
+   * process 64; waiting only lets a page with more files than its share load
+   * them in turns.
+   */
+  const takeSlots = (lease: ReviewResolution, upstreamHost: string, prefetch: boolean, signal: AbortSignal): Promise<(() => void) | null> => {
+    const claims: Claim[] = [() => processSlots.take(), () => linkSlots.take(lease.linkId), () => hostSlots.take(upstreamHost), () => leaseSlots.take(lease.leaseId)];
+    if (prefetch) claims.push(() => prefetchSlots.take(lease.leaseId));
+    return line.take(claims, lease.leaseId, limits.queueTimeoutMs, signal);
   };
 
-  /** The lease a frame host stands for, asking the backend only while this client's misses are within their limit. */
+  /**
+   * Frame hosts that resolved to a live lease, until that lease's end: their
+   * lookups never count against a client's misses, so a viewer whose address
+   * someone else uses up (a shared office or carrier address) keeps the
+   * frames it has open. They are still asked about every time, so a revoked
+   * lease stops serving as soon as the directory says so.
+   */
+  const live = new Map<string, number>();
+  const MAX_LIVE = 100_000;
+  /**
+   * Frame hosts each client key is asking about now, with how many requests
+   * wait on each. A host in flight counts as a miss until it answers, so a
+   * burst of random hosts can't pass the limit before any miss is counted;
+   * many requests for one host (a page's files, before its first answer)
+   * count once.
+   */
+  const pending = new Map<string, Map<string, number>>();
+
+  /** The lease a frame host stands for. The backend is asked about a host not seen live only while this client's misses, with the hosts it is asking about, are within their limit. */
   const leaseFor = async (label: string, client: string, signal: AbortSignal): Promise<ReviewResolution | null> => {
+    const seenUntil = live.get(label);
+    const known = seenUntil !== undefined && seenUntil > now();
     const key = clientKey(client);
-    if (lookupMisses.usage(key).requests >= limits.lookupMissesPerClient) {
-      // Over the limit, only hosts the directory already knows still answer; it is asked only after the window.
-      return null;
+    const asking = pending.get(key) ?? new Map<string, number>();
+    const first = !asking.has(label);
+    if (!known) {
+      if (first && lookupMisses.usage(key).requests + asking.size >= limits.lookupMissesPerClient) return null;
+      asking.set(label, (asking.get(label) ?? 0) + 1);
+      pending.set(key, asking);
     }
-    const lease = await deps.directory.resolve(label, signal);
-    if (lease === null) lookupMisses.admit(key);
-    return lease;
+    try {
+      const lease = await deps.directory.resolve(label, signal);
+      if (lease === null) {
+        live.delete(label);
+        if (!known && first) lookupMisses.admit(key);
+      } else {
+        live.delete(label);
+        live.set(label, lease.expiresAt);
+        if (live.size > MAX_LIVE) live.delete(live.keys().next().value!);
+      }
+      return lease;
+    } finally {
+      if (!known) {
+        const left = (asking.get(label) ?? 1) - 1;
+        if (left > 0) asking.set(label, left);
+        else asking.delete(label);
+        if (asking.size === 0 && pending.get(key) === asking) pending.delete(key);
+      }
+    }
   };
 
   async function handle(request: Request, info: RequestInfo = { client: "" }): Promise<Response> {
@@ -381,7 +446,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       const asset = route.file === deps.assets.runtime.file ? deps.assets.runtime : route.file === deps.assets.layer.file ? deps.assets.layer : null;
       if (asset === null) return notFound();
       return new Response(request.method === "HEAD" ? null : asset.body, {
-        headers: common(new Headers({ "content-type": "text/javascript; charset=utf-8", "cache-control": "private, max-age=86400, immutable" })),
+        headers: common(new Headers({ "content-type": "text/javascript; charset=utf-8", "content-disposition": "attachment", "cache-control": "private, max-age=86400, immutable" })),
       });
     }
     const head = request.method === "HEAD";
@@ -397,13 +462,13 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const prefetch = !asPage && isPrefetch(request.headers);
     if (prefetch) {
       // Out of prefetches, or out of bytes: refused without fetching; the framework fetches again when the reviewer navigates.
-      if (windows.usage(lease.leaseId).bytes >= limits.bytesPerWindow || !prefetchWindows.admit(lease.leaseId)) return plain(429, "Too many prefetches");
-    } else if (!windows.admit(lease.leaseId)) return asPage ? failure("busy", head) : plain(429, "Too many requests");
+      if (windows.usage(lease.leaseId).bytes >= limits.bytesPerWindow || !prefetchWindows.admit(lease.leaseId)) return refusedFile(429);
+    } else if (!windows.admit(lease.leaseId)) return asPage ? failure("busy", head) : refusedFile(429);
     const entry = usage.get(lease.linkId) ?? { requests: 0, bytes: 0 };
     entry.requests++;
     usage.set(lease.linkId, entry);
-    const release = takeSlots(lease, canonicalHost(route.upstream.hostname) ?? route.upstream.hostname, prefetch);
-    if (release === null) return asPage ? failure("busy", head) : plain(503, "Busy", { "retry-after": "2" });
+    const release = await takeSlots(lease, canonicalHost(route.upstream.hostname) ?? route.upstream.hostname, prefetch, request.signal);
+    if (release === null) return asPage ? failure("busy", head) : refusedFile(503, { "retry-after": "2" });
 
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(limits.headersTimeoutMs + limits.bodyTimeoutMs)]);
     const method = head ? "HEAD" : "GET";
@@ -415,18 +480,19 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       const origin = route.kind === "primary" ? lease.origin : route.upstream.origin;
       const outcome = await egress.fetch({ url: route.upstream, method, class: hint, origin, framework, signal });
       if (outcome.kind !== "response") return refused(outcome, asPage, head);
-      const handling = handlingOf(route, outcome.status, mediaType(outcome.headers["content-type"]), limits);
+      const type = contentType(outcome.headers["content-type"]);
+      const handling = handlingOf(route, outcome.status, type, limits);
       if (handling.kind === "page") return await servePage(ctx, lease, outcome, framePath(new URL(`${url.pathname}${url.search}`, url)), signal, head);
       if (handling.kind === "style") return await serveStyle(ctx, lease, outcome, handling.imports, signal, head);
       if (handling.kind === "refuse") {
         // Never a page, JSON or text from another site's address, whatever it claims or answers.
         void outcome.body[Symbol.asyncIterator]().return?.()?.catch(() => undefined);
-        return plain(handling.status, "");
+        return refusedFile(handling.status);
       }
       streaming = true;
-      return stream(outcome.status, passHeaders(outcome.headers), outcome.body, handling.cap, signal, lease, release, head);
+      return stream(outcome.status, passHeaders(outcome.headers, type), outcome.body, handling.cap, signal, lease, release, head);
     } catch (error) {
-      return asPage ? failure(bodyFailure(error), head) : plain(502, "");
+      return asPage ? failure(bodyFailure(error), head) : refusedFile(502);
     } finally {
       if (!streaming) release();
     }

@@ -158,15 +158,92 @@ export function lowercaseHeaders(raw: Readonly<Record<string, string | readonly 
   return Object.fromEntries(headers);
 }
 
-/** The media type of a Content-Type value, lowercased, without parameters; "" when there is none. */
-export function mediaType(contentType: string | undefined | null): string {
-  return (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+/** A Content-Type as a browser reads it: its essence (`type/subtype`, lowercased) and its charset, if any. */
+export interface ContentType {
+  essence: string;
+  charset: string | null;
 }
 
-/** The charset a Content-Type names, lowercased, or null. */
-export function charsetOf(contentType: string | undefined | null): string | null {
-  const match = /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType ?? "");
-  return match === null ? null : match[1]!.toLowerCase();
+const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/** A Content-Type header's values: split at commas that aren't inside a quoted string. */
+function headerValues(text: string): string[] {
+  const values: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (quoted && char === "\\" && index + 1 < text.length) {
+      current += char + text[++index]!;
+      continue;
+    }
+    if (char === '"') quoted = !quoted;
+    if (char === "," && !quoted) {
+      values.push(current);
+      current = "";
+    } else current += char;
+  }
+  values.push(current);
+  return values;
+}
+
+/** One MIME type, as the MIME Sniffing standard parses it: its essence and charset, or null when it isn't one. */
+function parseMimeType(text: string): ContentType | null {
+  const value = text.trim();
+  const slash = value.indexOf("/");
+  if (slash <= 0) return null;
+  const type = value.slice(0, slash);
+  const semicolon = value.indexOf(";", slash);
+  const subtype = (semicolon === -1 ? value.slice(slash + 1) : value.slice(slash + 1, semicolon)).trimEnd();
+  if (!TOKEN.test(type) || subtype === "" || !TOKEN.test(subtype)) return null;
+  let charset: string | null = null;
+  if (semicolon !== -1) {
+    for (const parameter of value.slice(semicolon + 1).split(";")) {
+      const equals = parameter.indexOf("=");
+      if (equals === -1) continue;
+      if (parameter.slice(0, equals).trim().toLowerCase() !== "charset" || charset !== null) continue;
+      const raw = parameter.slice(equals + 1).trim();
+      const unquoted = raw.startsWith('"') ? raw.slice(1, raw.indexOf('"', 1) === -1 ? undefined : raw.indexOf('"', 1)).replace(/\\(.)/g, "$1") : raw;
+      if (unquoted !== "") charset = unquoted.toLowerCase();
+    }
+  }
+  return { essence: `${type}/${subtype}`.toLowerCase(), charset };
+}
+
+/**
+ * A response's Content-Type the way a browser reads it (Fetch's "extract a
+ * MIME type"): of a comma-separated list, the last valid type other than
+ * the wildcard wins, any case, with the charset carried over from an earlier value
+ * of the same type. Null when no value is a type. The proxy decides how to
+ * serve a response from this, and sends the browser only this, so the two
+ * can't read one header differently.
+ */
+export function contentType(header: string | undefined | null): ContentType | null {
+  if (header === undefined || header === null) return null;
+  let result: ContentType | null = null;
+  for (const value of headerValues(header)) {
+    const parsed = parseMimeType(value);
+    if (parsed === null || parsed.essence === "*/*") continue;
+    if (result === null || parsed.essence !== result.essence) result = parsed;
+    else if (parsed.charset === null) result = { essence: parsed.essence, charset: result.charset };
+    else result = parsed;
+  }
+  return result;
+}
+
+/** The media type of a Content-Type value, as a browser reads it; "" when there is none. */
+export function mediaType(header: string | undefined | null): string {
+  return contentType(header)?.essence ?? "";
+}
+
+/** The charset a Content-Type names, as a browser reads it, or null. */
+export function charsetOf(header: string | undefined | null): string | null {
+  return contentType(header)?.charset ?? null;
+}
+
+/** The Content-Type the proxy sends for a type it read: the essence and charset only. */
+export function contentTypeHeader(type: ContentType): string {
+  return type.charset === null ? type.essence : `${type.essence}; charset=${type.charset}`;
 }
 
 /**

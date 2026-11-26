@@ -3,12 +3,15 @@
 // this covers addresses scripts build while running: fetch, XHR, history,
 // element properties and attributes, inserted HTML, and navigations. It
 // keeps cookies in memory for this document only and refuses service
-// workers. It holds nothing secret: everything it knows is in the page.
+// workers. It marks the window as a review frame, so a copy of Critiqs the
+// prototype installed stays out, and tells the review page, once, when part
+// of the page couldn't load through the review link. It holds nothing
+// secret: everything it knows is in the page.
 //
 // Third-party addresses can't be signed in the browser, so they are left as
 // they are and the frame's Content-Security-Policy refuses them.
 
-import { REVIEW_FRAME_TAG, type ReviewFrameMessage, type ReviewUnsupported } from "@critiqs/core";
+import { REVIEW_FRAME_MARK, REVIEW_FRAME_TAG, REVIEW_REFUSED_TIMING, type ReviewFrameMessage, type ReviewUnsupported } from "@critiqs/core";
 import { framePath } from "../src/paths.ts";
 
 export interface RuntimeMap {
@@ -57,9 +60,20 @@ export function memoryCookies() {
   };
 }
 
+/** Marks `scope` as a review frame (`REVIEW_FRAME_MARK`), for good: a page's script can't take it back. */
+export function markReviewFrame(scope: object): void {
+  if (!Object.prototype.hasOwnProperty.call(scope, REVIEW_FRAME_MARK)) Object.defineProperty(scope, REVIEW_FRAME_MARK, { value: true, enumerable: false, configurable: false, writable: false });
+}
+
+/** Whether a resource timing entry is a file the proxy refused (`REVIEW_REFUSED_TIMING`). */
+export function refusedByProxy(entry: { serverTiming?: readonly { name: string }[] }): boolean {
+  return entry.serverTiming?.some((timing) => timing.name === REVIEW_REFUSED_TIMING) ?? false;
+}
+
 function install(script: HTMLScriptElement): void {
   const map = JSON.parse(script.dataset.critiqsMap ?? "null") as RuntimeMap | null;
   if (map === null) return;
+  markReviewFrame(window);
   const here = location.origin;
   const mapped = (raw: string | URL) => runtimeUrl(map, String(raw), document.baseURI, here);
   const tell = (message: ReviewFrameMessage) => {
@@ -73,6 +87,62 @@ function install(script: HTMLScriptElement): void {
     }
   };
   const unsupported = (feature: ReviewUnsupported) => tell({ tag: REVIEW_FRAME_TAG, v: 1, kind: "unsupported", feature });
+
+  // Part of the page couldn't load through the review link: the review page
+  // hears it once per page, whatever and however many things failed.
+  let missed = false;
+  const missing = () => {
+    if (missed) return;
+    missed = true;
+    unsupported("load");
+  };
+  // Another site, a data: script, a worker or a frame the frame's policy refused.
+  document.addEventListener("securitypolicyviolation", (event) => {
+    if (event.disposition === "enforce" && event.effectiveDirective !== "form-action") missing();
+  });
+  // Web sockets never connect through a review link.
+  if (typeof window.WebSocket === "function") {
+    window.WebSocket = new Proxy(window.WebSocket, {
+      construct(target, args, newTarget) {
+        missing();
+        return Reflect.construct(target, args, newTarget) as object;
+      },
+    });
+  }
+  // A file the proxy refused, marked by its Server-Timing entry.
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) if (refusedByProxy(entry as PerformanceResourceTiming)) missing();
+    }).observe({ type: "resource", buffered: true });
+  } catch {
+    // No resource timing: refused files go unnoticed.
+  }
+  // A file that got no answer the browser could use: a connection cut, or a
+  // body that isn't what its encoding says. The prototype's own errors (a 404)
+  // have an answer and are left alone.
+  window.addEventListener(
+    "error",
+    (event) => {
+      const target = event.target;
+      const raw =
+        target instanceof HTMLImageElement || target instanceof HTMLMediaElement
+          ? target.currentSrc || target.src
+          : target instanceof HTMLScriptElement || target instanceof HTMLSourceElement
+            ? target.src
+            : target instanceof HTMLLinkElement
+              ? target.href
+              : "";
+      if (!raw) return;
+      const address = new URL(raw, document.baseURI);
+      if (address.origin !== here) return;
+      setTimeout(() => {
+        const entries = performance.getEntriesByName(address.href, "resource") as PerformanceResourceTiming[];
+        const last = entries.at(-1) as (PerformanceResourceTiming & { responseStatus?: number }) | undefined;
+        if (last === undefined || refusedByProxy(last) || last.responseStatus === 0) missing();
+      }, 100);
+    },
+    true,
+  );
 
   // Show the path the proxy reached, so the app's router reads where it really is.
   if (map.path !== null) history.replaceState(history.state, "", map.path);

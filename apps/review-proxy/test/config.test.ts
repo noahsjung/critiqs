@@ -42,7 +42,15 @@ describe("parseProxyConfig", () => {
   test("the cookie isolation refusal names every browser and the front servers that can't help", () => {
     let message = "";
     try {
-      parseProxyConfig({ ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site", CRITIQS_WEB_RISK_API_KEY: "k" });
+      parseProxyConfig({
+        ...LOCAL,
+        CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net",
+        CRITIQS_WEB_ORIGINS: "https://critiqs.app",
+        CRITIQS_PROXY_BACKEND: "https://x.convex.site",
+        CRITIQS_WEB_RISK_API_KEY: "k",
+        CRITIQS_PROXY_SIGNING_KEY: "a-signing-key-that-is-long-enough-to-pass",
+        CRITIQS_PROXY_CLIENT_IP_HEADER: "cf-connecting-ip",
+      });
     } catch (error) {
       message = (error as Error).message;
     }
@@ -60,6 +68,8 @@ describe("parseProxyConfig", () => {
       CRITIQS_PROXY_EGRESS: "203.0.113.10/32, 2001:db8::/48",
       CRITIQS_WEB_RISK_API_KEY: "key",
       CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+      CRITIQS_PROXY_SIGNING_KEY: "a-signing-key-that-is-long-enough-to-pass",
+      CRITIQS_PROXY_CLIENT_IP_HEADER: "cf-connecting-ip",
     });
     expect(config.local).toBe(false);
     expect(config.cookieIsolation).toBe("public-suffix-list");

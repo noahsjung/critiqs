@@ -8,7 +8,9 @@ import {
   type PageTransport,
   panelEndpoint,
   parsePageMessage,
+  inReviewFrame,
   parseReviewFrameMessage,
+  REVIEW_FRAME_MARK,
   REVIEW_FRAME_TAG,
   UNTRUSTED_PAGE_LIMITS,
 } from "../src/index.ts";
@@ -38,7 +40,7 @@ describe("AT-16: untrusted page limits", () => {
     ["a 5,000-character address", { ...STATE, url: `https://prototype.example/${"a".repeat(5_000)}` }],
     ["3,000 located targets", { ...STATE, located: Object.fromEntries(Array.from({ length: 3_000 }, (_, index) => [`t${index}`, null])) }],
     ["3,000 occurrences", { ...STATE, located: { t1: { status: "found", occurrences: Array.from({ length: 3_000 }, (_, index) => ({ ref: `e${index}`, recordKey: null })) } } }],
-    // Gemini F-H2-5: keys were unbounded, occurrences were bounded per target only, and file: or about: addresses passed.
+    // F-H2-5: keys were unbounded, occurrences were bounded per target only, and file: or about: addresses passed.
     ["a 20 MB view-state key", { ...STATE, context: { ...STATE.context, viewState: { ["k".repeat(20_000_000)]: 1 } } }],
     ["a 20 MB located key", { ...STATE, located: { ["t".repeat(20_000_000)]: null } }],
     [
@@ -109,5 +111,20 @@ describe("review frame messages", () => {
     ]) {
       expect(parseReviewFrameMessage(raw)).toBeNull();
     }
+  });
+});
+
+describe("a review frame's own messages and mark", () => {
+  test("part of the page couldn't load: one message the review page understands", () => {
+    expect(parseReviewFrameMessage({ tag: REVIEW_FRAME_TAG, v: 1, kind: "unsupported", feature: "load" })).toEqual({ tag: REVIEW_FRAME_TAG, v: 1, kind: "unsupported", feature: "load" });
+    expect(parseReviewFrameMessage({ tag: REVIEW_FRAME_TAG, v: 1, kind: "unsupported", feature: "load", url: "https://evil.example" })).toBeNull();
+  });
+  test("a window is a review frame only when the proxy's runtime marked it", () => {
+    const scope = {};
+    expect(inReviewFrame(scope)).toBe(false);
+    Object.defineProperty(scope, REVIEW_FRAME_MARK, { value: true });
+    expect(inReviewFrame(scope)).toBe(true);
+    // The mark is one global symbol, so separately built copies of Critiqs agree on it.
+    expect(REVIEW_FRAME_MARK === Symbol.for("critiqs.review-frame")).toBe(true);
   });
 });

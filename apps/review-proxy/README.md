@@ -17,22 +17,38 @@ are read-only and credential-free (GET and HEAD only, no cookies or
   request's target is even parsed), the Host is the domain or one label under
   it (421 otherwise), header and URL sizes (Cookie aside), no upgrade, a
   top-level open (a notice, never the prototype), the lease (a client whose
-  lookups keep finding nothing stops reaching the backend for a minute), the
-  lease's request window, and read slots for the lease, its link and the
-  upstream host, each a share of the process so one slow site can't hold
-  every read. How a response is served is decided in one place,
-  `handlingOf`, from the route and the response's own type and status, never
-  from what the browser says a request is for: any HTML on the prototype's
-  origin is a page (capped, checked, rewritten), and another site's file must
-  have its class's type at any status.
-- Every response carries `frame-ancestors` with the website's origins: pages
-  get the frame policy, everything else an inert one.
+  lookups keep finding nothing stops reaching the backend for a minute; hosts
+  in flight count as misses until they answer, and a host the proxy has seen
+  live is always asked about), the lease's request window, and read slots for
+  the lease, its link and the upstream host, each a share of the process so
+  one slow site can't hold every read. A read with no room waits its turn
+  for up to 8 seconds (a browser over HTTP/2 asks for every image of a page
+  at once), and a browser that stops reading gives its read back after 3
+  seconds.
+- How a response is served is decided in one place, `handlingOf`, from the
+  route and the response's own type and status, never from what the browser
+  says a request is for. The type is read as a browser reads it (the last
+  valid type of a comma list, any case; `contentType` in `src/headers.ts`),
+  and the browser is sent only that. Any HTML on the prototype's origin is a
+  page (capped, checked, rewritten); everything else passed through, XML, SVG,
+  an unknown type or none included, is sent with
+  `Content-Disposition: attachment`, so the frame can't open it as its
+  document (the sandbox refuses the download) while the page's own images,
+  scripts and fetches still load it. Another site's file must have its
+  class's type at any status.
+- Every response carries `X-Content-Type-Options: nosniff` and
+  `frame-ancestors` with the website's origins: pages get the frame policy,
+  everything else an inert one. A file the proxy refuses carries
+  `Server-Timing: critiqs-refused`, which the runtime reads to tell the review
+  page that part of the page couldn't load.
 - Signed addresses use `CRITIQS_PROXY_SIGNING_KEY`, which only the proxy
-  holds (derived from the shared secret when unset), and still accept
-  `CRITIQS_PROXY_SIGNING_KEY_PREVIOUS` during a rotation.
-- Behind a server that terminates TLS, set `CRITIQS_PROXY_CLIENT_IP_HEADER`
-  to the header it overwrites with the viewer's address, or every viewer is
-  one client to the lookup limit.
+  holds (required on a public domain; derived from the shared secret on
+  `.localhost`), and still accept `CRITIQS_PROXY_SIGNING_KEY_PREVIOUS` during
+  a rotation.
+- `CRITIQS_PROXY_CLIENT_IP_HEADER` names the header the server in front
+  overwrites with the viewer's address. It is required on a public domain:
+  without it every viewer is one client to the lookup limit. Set it to
+  `connection` when viewers connect to the proxy directly.
 - `src/html.ts` parses pages with parse5, maps every address, removes
   `<base>`, CSP and refresh `<meta>` tags, nested frames, `srcdoc`, `ping` and
   `download`, and puts the runtime shim and the page layer first in `<head>`.
@@ -49,8 +65,13 @@ are read-only and credential-free (GET and HEAD only, no cookies or
 - `src/pages.ts` holds the proxy's own notices and the frame's
   Content-Security-Policy.
 - `runtime/shim.ts` maps addresses scripts build at run time, keeps cookies
-  in the document's memory, refuses service workers and follows GET forms;
-  `runtime/layer.ts` runs the page layer for the review page around the frame.
+  in the document's memory, refuses service workers and follows GET forms.
+  It marks the window as a review frame before the prototype's scripts run,
+  so a copy of Critiqs the prototype installed stays out, and tells the
+  review page once when part of the page couldn't load (a web socket,
+  another site the frame's policy refused, a file the proxy refused or the
+  browser couldn't read). `runtime/layer.ts` runs the page layer for the
+  review page around the frame.
 
 `bun run serve` starts it (with `--max-http-header-size=65536`, so cookies a
 sibling frame host planted can't make it refuse requests).
@@ -88,8 +109,9 @@ sibling frame host planted can't make it refuse requests).
   egress (`reputationScope`), never of a request: the egress for a link's own
   and owner-approved origins checks every path, the one for third-party
   static files checks each host.
-- `src/limits.ts` caps reads in flight per lease and per process, and
-  requests and bytes per lease per window. Prefetches (Next.js's router, the
+- `src/limits.ts` caps reads in flight per lease and per process, keeps the
+  bounded line reads wait in (`slotLine`), and counts requests and bytes per
+  lease per window. Prefetches (Next.js's router, the
   browser's own) have a window of their own and at most half the reads in
   flight, so a page prefetching every link never locks the reviewer out of
   what they open; their bytes count in the lease's byte window.

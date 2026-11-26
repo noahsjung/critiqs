@@ -421,15 +421,27 @@ describe("limits", () => {
     expect(await page.text()).toContain("Critiqs is busy");
   });
 
-  test("past the lease's reads in flight, 503 at once, and the slot frees when the body ends", async () => {
+  test("past the lease's reads in flight, a read waits for the slot, which frees when the body ends", async () => {
     const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, concurrentPerLease: 1 } };
     const { proxy } = setup({ config });
     const first = await ask(proxy, "/api/items", { dest: "empty" });
     expect(proxy.inFlight).toBe(1);
+    const second = ask(proxy, "/api/items", { dest: "empty" });
+    await Bun.sleep(50);
+    expect(proxy.inFlight).toBe(1);
+    await first.text();
+    const waited = await second;
+    expect(waited.status).toBe(200);
+    await waited.text();
+    expect(proxy.inFlight).toBe(0);
+  });
+
+  test("past the lease's reads in flight and its time to wait, 503", async () => {
+    const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, concurrentPerLease: 1, queueTimeoutMs: 100 } };
+    const { proxy } = setup({ config });
+    const first = await ask(proxy, "/api/items", { dest: "empty" });
     expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(503);
     await first.text();
-    expect(proxy.inFlight).toBe(0);
-    expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(200);
   });
 
   test("oversized URLs and headers are refused; a large Cookie header is ignored, not refused (AT-15)", async () => {
@@ -546,7 +558,7 @@ describe("prefetches", () => {
   });
 
   test("prefetches can't take every read in flight", async () => {
-    const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, concurrentPerLease: 2, concurrentPrefetchPerLease: 1 } };
+    const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, concurrentPerLease: 2, concurrentPrefetchPerLease: 1, queueTimeoutMs: 100 } };
     const { proxy } = setup({ config });
     const held = await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS });
     expect((await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS })).status).toBe(503);

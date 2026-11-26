@@ -30,6 +30,8 @@ const PUBLIC = {
   CRITIQS_PROXY_SECRET: "a-test-secret-that-is-long-enough-to-pass",
   CRITIQS_WEB_RISK_API_KEY: "test-key",
   CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+  CRITIQS_PROXY_SIGNING_KEY: "a-signing-key-that-is-long-enough-to-pass",
+  CRITIQS_PROXY_CLIENT_IP_HEADER: "cf-connecting-ip",
 };
 
 const config = parseProxyConfig(LOCAL);
