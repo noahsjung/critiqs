@@ -42,11 +42,12 @@ Frame hosts run other people's pages with same-origin scripts. Until the
 proxy's domain is on the [Public Suffix List](https://publicsuffix.org/), a
 page on one frame host can set cookies on the whole domain from a child
 `about:blank` frame, which the runtime shim can't cover. Firefox keeps well
-over a megabyte of them in the review page's partition and sends them with
-every other frame's requests; any server refuses a request that large, so
-every other review link stops loading for that viewer until the cookies
-expire. The proxy never reads or sets cookies, so nothing is read or stolen,
-but the links stop working.
+over a megabyte of them in the review page's partition, and Chrome keeps as
+many when they are marked `SameSite=None; Secure`; both send them (measured:
+about 594 KB) with every other frame's requests. Any server refuses a
+request that large, so every other review link stops loading for that viewer
+until the cookies expire. The proxy never reads or sets cookies, so nothing
+is read or stolen, but the links stop working.
 
 On any domain that isn't `.localhost`, the proxy refuses to start until
 `CRITIQS_PROXY_COOKIE_ISOLATION` says how this is handled:
@@ -55,5 +56,9 @@ On any domain that isn't `.localhost`, the proxy refuses to start until
   section, so browsers refuse cookies for the whole domain. This is the fix.
 - `ingress-drops-cookies`: the server in front of the proxy accepts request
   headers of at least 2 MiB and removes `Cookie` before passing the request
-  on. Use it until the listing is live.
+  on. Use it until the listing is live, and only with a front server you
+  configure yourself (such as nginx, Envoy or Caddy with large header
+  buffers). Many managed front servers and CDNs refuse a request with that
+  much header (often above 32 KiB, with a 400 or 431) before any rule that
+  removes a header runs, so the attack still works through them.
 

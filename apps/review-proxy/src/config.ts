@@ -90,9 +90,9 @@ export interface ProxyConfig {
    * (CRITIQS_PROXY_COOKIE_ISOLATION), required on a public domain. Frame hosts
    * run other people's pages with same-origin scripts, and until the domain is
    * on the Public Suffix List those scripts can set cookies on the whole
-   * domain; a browser that keeps a megabyte of them (Firefox does) then sends
-   * them with every other frame's requests, which a server refuses for their
-   * size. `public-suffix-list`: the domain is listed, so browsers refuse such
+   * domain; the browser (Firefox, and Chrome for cookies marked
+   * `SameSite=None; Secure`) then sends up to a megabyte of them with every
+   * other frame's requests, which a server refuses for their size. `public-suffix-list`: the domain is listed, so browsers refuse such
    * cookies. `ingress-drops-cookies`: the server in front accepts request
    * headers of at least 2 MiB and removes Cookie before the proxy. `local`: a
    * `.localhost` test stack.
@@ -187,7 +187,7 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
   else if ((COOKIE_ISOLATION as readonly string[]).includes(isolationText)) cookieIsolation = isolationText as CookieIsolation;
   else {
     throw new ConfigError(
-      `Set CRITIQS_PROXY_COOKIE_ISOLATION to public-suffix-list once ${domain.hostname} is on the Public Suffix List, or to ingress-drops-cookies when the server in front removes Cookie headers: until then one frame host's cookies can stop every other review link in Firefox.`,
+      `Set CRITIQS_PROXY_COOKIE_ISOLATION to public-suffix-list once ${domain.hostname} is on the Public Suffix List, or to ingress-drops-cookies when the server in front accepts request headers of 2 MiB and removes Cookie: until then one frame host's cookies can stop every other review link for its viewer, in Chrome and Firefox alike. Many managed front servers refuse such large headers before any rule can remove them; check yours first.`,
     );
   }
 

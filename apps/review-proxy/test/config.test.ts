@@ -39,6 +39,18 @@ describe("parseProxyConfig", () => {
   ];
   for (const [name, env] of refused) test(`refuses ${name}`, () => expect(() => parseProxyConfig(env)).toThrow(ConfigError));
 
+  test("the cookie isolation refusal names every browser and the front servers that can't help", () => {
+    let message = "";
+    try {
+      parseProxyConfig({ ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site", CRITIQS_WEB_RISK_API_KEY: "k" });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("Chrome");
+    expect(message).toContain("Firefox");
+    expect(message).toMatch(/managed|before .*rule/i);
+  });
+
   test("a production stack", () => {
     const config = parseProxyConfig({
       CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net",

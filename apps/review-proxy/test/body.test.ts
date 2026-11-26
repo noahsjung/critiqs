@@ -72,6 +72,10 @@ const server = http.createServer((request, response) => {
       const timer = setInterval(() => (response.destroyed ? clearInterval(timer) : response.write("a")), 100);
       return;
     }
+    case "/lying-gzip":
+      // Labelled gzip, but plain bytes: a misconfigured server, not an attack.
+      response.writeHead(200, { "Content-Type": "text/html", "Content-Encoding": "gzip" });
+      return void response.end(page);
     case "/zstd":
       response.writeHead(200, { "Content-Type": "text/html", "Content-Encoding": "zstd" });
       return void response.end("not really");
@@ -146,6 +150,13 @@ describe("AT-6: bounded decompression", () => {
   test("an encoding the proxy didn't ask for is refused and the connection closed", async () => {
     const response = await open("/zstd");
     expect(await failure(readDecoded(response.body, response.headers["content-encoding"], limits, AbortSignal.timeout(5_000)))).toBe("unsupported");
+  });
+
+  test("a body whose encoding is a lie fails at once instead of hanging", async () => {
+    const response = await open("/lying-gzip");
+    const started = performance.now();
+    expect(await failure(readDecoded(response.body, response.headers["content-encoding"], { ...limits, idleMs: 5_000, totalMs: 10_000 }, AbortSignal.timeout(20_000)))).toBe("unsupported");
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("a body without an encoding counts against the smaller of the two limits", async () => {

@@ -3,7 +3,7 @@ import { isIdentityProvider, isLocalAddress } from "@critiqs/core";
 import { acceptableAddress, isBlockedHost } from "@critiqs/server/public-web";
 import { ConfigError, DEFAULT_LIMITS, parseProxyConfig, proxyPolicy } from "../src/config.ts";
 import { createEgress, type EgressRequest, refusedLocally } from "../src/egress.ts";
-import { cachedReputation, fixtureReputation, type ReputationProvider } from "../src/reputation.ts";
+import { cachedReputation, fixtureReputation, type ReputationProvider, reputationKey } from "../src/reputation.ts";
 import { close, listen, PUBLIC_A, recordingServer, testWeb, v4 } from "./fixtures.ts";
 
 // Attacks the two security reviews of the network layer found, each one
@@ -58,7 +58,7 @@ const get = (url: string, overrides: Partial<EgressRequest> = {}): EgressRequest
   return { url: parsed, method: "GET", class: "document", origin: parsed.origin, signal: AbortSignal.timeout(5_000), ...overrides };
 };
 
-describe("one host, however it is written (F-H1-2, Gemini note 7)", () => {
+describe("one host, however it is written (F-H1-2, note 7)", () => {
   test("a trailing dot doesn't get past an unsafe verdict on the host", async () => {
     const outcome = await egress(fixtureReputation(["https://evil.example"])).fetch(get("https://evil.example./page"));
     expect(outcome).toEqual({ kind: "refused", reason: "unsafe" });
@@ -85,6 +85,10 @@ describe("one host, however it is written (F-H1-2, Gemini note 7)", () => {
   });
   test("the proxy's own hosts written with two trailing dots are refused", () => {
     expect(isBlockedHost("v-aaaaaaaaaaaaaaaaaaaaaaaaaa.review.localhost..", policy)).toBe(true);
+  });
+  test("the reputation key is the same for every spelling of a host, asked directly", async () => {
+    expect(reputationKey(new URL("https://Evil.Example./page"))).toBe(reputationKey(new URL("https://evil.example/page")));
+    expect(await cachedReputation(fixtureReputation(["https://evil.example"])).allows(new URL("https://evil.example./page"), AbortSignal.timeout(1_000))).toBe(false);
   });
   test("an identity provider's host with a trailing dot is one", () => {
     expect(isIdentityProvider(new URL("https://accounts.google.com./x"))).toBe(true);
@@ -114,7 +118,7 @@ describe("a public deployment's settings (F-H1-3)", () => {
   });
 });
 
-describe("the backend under both of Convex's names (Opus N3)", () => {
+describe("the backend under both of Convex's names (N3)", () => {
   test("a .convex.site backend also refuses its .convex.cloud name", () => {
     const deployed = proxyPolicy(parseProxyConfig(PUBLIC));
     expect(isBlockedHost("brazen-snail-591.convex.site", deployed)).toBe(true);

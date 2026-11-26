@@ -121,8 +121,10 @@ export async function readDecoded(body: AsyncIterable<Uint8Array>, encoding: str
   try {
     for await (const chunk of boundedChunks(body, limits, signal)) {
       if (failure !== null) throw failure;
-      // Waits for the decoder to take the chunk, so a bomb can't queue unbounded input.
-      await new Promise<void>((resolve, reject) => stream.write(chunk, (error) => (error ? reject(failure ?? new BodyError("unsupported")) : resolve())));
+      // Waits for the decoder to take the chunk, so a bomb can't queue unbounded
+      // input. A body that isn't what its encoding says fails the decoder, which
+      // then never calls back: its failure ends the wait instead.
+      await Promise.race([new Promise<void>((resolve, reject) => stream.write(chunk, (error) => (error ? reject(failure ?? new BodyError("unsupported")) : resolve()))), done]);
       if (failure !== null) throw failure;
     }
     stream.end();

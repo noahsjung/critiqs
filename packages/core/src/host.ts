@@ -14,6 +14,8 @@
 export function canonicalHost(text: string): string | null {
   const raw = text.trim();
   if (raw === "" || /[/\\?#@\s]/.test(raw)) return null;
+  // A bracketed address followed by a port: the parser drops a default port, so it is refused here.
+  if (/^\[[^\]]*\]./.test(raw)) return null;
   let url: URL;
   try {
     url = new URL(`http://${raw.startsWith("[") || !raw.includes(":") ? raw : `[${raw}]`}/`);

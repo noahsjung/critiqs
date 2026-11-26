@@ -17,7 +17,7 @@ describe("canonicalHost", () => {
   ];
   for (const [given, expected] of same) test(`${given} is ${expected}`, () => expect(canonicalHost(given)).toBe(expected));
 
-  for (const bad of ["", "localhost..", "example.com..", "a..b", ".example.com", "example.com:443", "user@example.com", "example.com/path", "exa mple.com"]) {
+  for (const bad of ["", "localhost..", "example.com..", "a..b", ".example.com", "example.com:443", "[::1]:80", "[::1]:8080", "127.0.0.1:80", "user@example.com", "example.com/path", "exa mple.com"]) {
     test(`${JSON.stringify(bad)} isn't a plain host`, () => expect(canonicalHost(bad)).toBeNull());
   }
 });

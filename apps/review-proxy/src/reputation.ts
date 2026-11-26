@@ -1,3 +1,4 @@
+import { hostOf } from "@critiqs/core";
 // URL reputation: before the proxy serves a page or fetches an asset host, a
 // reputation provider says whether the address is known for phishing,
 // malware or unwanted software. Only the normalized origin and path are sent,
@@ -11,9 +12,15 @@ export interface ReputationProvider {
   lookup(keys: readonly string[], signal: AbortSignal): Promise<ReadonlyMap<string, Verdict>>;
 }
 
-/** What the proxy asks about a URL: its origin and path, without query or fragment. */
+/**
+ * What the proxy asks about a URL: its origin, with the host in canonical
+ * form (so `evil.example.` is `evil.example`), and its path, without query or
+ * fragment.
+ */
 export function reputationKey(url: URL): string {
-  return `${url.origin}${url.pathname}`;
+  const host = hostOf(url);
+  if (host === null || url.hostname.startsWith("[")) return `${url.origin}${url.pathname}`;
+  return `${url.protocol}//${host}${url.port === "" ? "" : `:${url.port}`}${url.pathname}`;
 }
 
 export interface ReputationCheck {
