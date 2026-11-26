@@ -555,10 +555,12 @@ tokens, avoiding the host's domain and third-party cookies.
   in-flight refresh that completes after sign-out revokes its replacement.
   If a rotation response is lost after the server consumes the old token,
   retrying cannot reuse that token; the reviewer signs in again.
-- **Start limits.** Transactional one-minute counters allow 20 sign-in starts per
-  requesting origin and 200 across the deployment. Rejected starts return HTTP
-  429 and `Retry-After`, create no attempt, and do not trust client-supplied IP
-  headers. Scheduled cleanup removes expired counters in bounded batches.
+- **Start limits.** Transactional one-minute counters allow 20 popup sign-in
+  starts per requesting origin, Critiqs's own included, and 200 starts of any
+  kind across the deployment; panel starts count differently (see **Panel
+  start limits** below). Rejected starts return HTTP 429 and `Retry-After`,
+  create no attempt, and do not trust client-supplied IP headers. Scheduled
+  cleanup removes expired counters in bounded batches.
 - **Trust.** Every deployment trusts `CRITIQS_AUTH_ISSUER`, the sign-in
   service's address. Critiqs Cloud names itself; team-owned Convex deployments
   either name Critiqs Cloud's issuer or run their own sign-in.
@@ -612,8 +614,10 @@ only. No panel uses it yet.
 - **Same rules as the popup.** Codes, digests, the 30-minute attempt, the
   10-minute code, five wrong codes per attempt across its codes, three codes
   per attempt, five codes per address in 15 minutes (counted together with
-  popup sign-ins), 300 an hour per deployment, and 20 starts a minute per
-  origin and 200 across the deployment. A malformed code uses up no try. A
+  popup sign-ins), 300 an hour per deployment, and 200 starts a minute
+  across the deployment. Starts count differently (see **Panel start
+  limits**). A
+  malformed code uses up no try. A
   name is chosen only after the code matches. Request bodies over 4 KB are
   refused before they are read in full.
 - **No consent.** The panel origins are Critiqs's own, so they never see the
@@ -649,9 +653,29 @@ only. No panel uses it yet.
   own site and refuses API calls from other origins. It issues no tokens, so a
   panel on another origin couldn't use a sign-in there; panels sign in with
   Critiqs Cloud or a Convex deployment.
-- **Limits.** 20 starts a minute is shared by everyone signing in from one
-  panel origin, as for any site; Critiqs's website and the extension may need
-  a higher limit once many people use them.
+- **Panel start limits.** Every panel start counts toward the deployment's
+  200 a minute, but not toward a per-origin allowance: everyone uses
+  Critiqs's website and extension, and a script can claim their origin with a
+  forged `Origin` header, so a shared allowance would let anyone lock every
+  user out. A panel starts with an email address, so its start is refused
+  while that address can't receive another code (five in 15 minutes, counted
+  with popup sign-ins), or the deployment can't send one (300 an hour). The
+  start reads the same counters its code then uses, so the limits agree, and
+  a refused start stores and counts nothing. The check and the send are two
+  steps, so another sign-in that takes the address's or the deployment's
+  last code between them still leaves an attempt whose code is refused, and
+  its start counted. When several limits refuse, `Retry-After` is the
+  longest wait; the message names no wait, so the panel shows that one. The popup starts before an
+  address is known, so it keeps each origin's 20 a minute, Critiqs's own
+  included; Critiqs's website and extension sign in with the panel routes.
+  Nothing counts by network address: Convex reports a client IP to functions,
+  but documents no guarantee that a client can't set it through forwarding
+  headers (the open-source backend takes it from `X-Forwarded-For` first),
+  and `X-Forwarded-For` or `X-Real-IP` from the request is ignored. The
+  deployment sends at most 300 codes an hour, five a minute on average;
+  200 starts a minute leaves room for bursts well above that, and caps the
+  attempts a script can store. Someone flooding starts can still use up that
+  ceiling for a minute at a time, as before.
 
 **Proposed, built:** approving setup from another device, following RFC 8628's
 device flow, as routes beside the sign-in service on the same Convex

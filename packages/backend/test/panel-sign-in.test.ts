@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, expect, spyOn, test } from "bun:test"
 import { panelSignIn, PanelSignInError } from "@critiqs/core";
 import { hashSecret } from "../convex/lib/tokens";
 import { internal } from "../convex/_generated/api";
+import { START_GLOBAL_LIMIT, START_WINDOW_MS } from "../convex/signIn";
 import { setup } from "./harness";
 
 // Signing in inside Critiqs's own panels (its website and its extension's side
@@ -321,24 +322,121 @@ test("an address receives at most five codes in fifteen minutes, counting popup 
   await sendCode(t, "lee@example.com");
 });
 
-test("each panel origin starts at most twenty sign-ins a minute, like any site", async () => {
+test("Critiqs's own origins have no shared per-origin allowance: many people start sign-ins from one in a minute", async () => {
+  const t = setup();
+  // More than a third-party site's 20 a minute, from the website and from the extension.
+  for (let i = 0; i < 30; i++) await sendCode(t, `person${i}@example.com`);
+  for (let i = 0; i < 30; i++) await sendCode(t, `member${i}@example.com`, EXTENSION);
+  // Spoofed forwarding headers neither add nor take away an allowance.
+  const forwarded = await t.fetch("/auth/panel/email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: WEB, "X-Forwarded-For": "192.0.2.1", "X-Real-IP": "192.0.2.1" },
+    body: JSON.stringify({ email: "forwarded@example.com" }),
+  });
+  expect(forwarded.status).toBe(200);
+});
+
+test("a panel start for an address that can't receive another code is refused, stores nothing, and works again once it can", async () => {
   const t = setup();
   let now = Date.now();
   const clock = spyOn(Date, "now").mockImplementation(() => now);
   try {
-    for (let i = 0; i < 20; i++) await sendCode(t, `person${i}@example.com`);
-    const refused = await call(t, "/auth/panel/email", { email: "late@example.com" });
-    expect(refused.status).toBe(429);
-    expect(refused.headers.get("Access-Control-Allow-Origin")).toBe(WEB);
-    expect(Number(refused.headers.get("Retry-After"))).toBeGreaterThan(0);
-    expect(await json(refused)).toMatchObject({ error: "rate-limited" });
-    // Another origin has its own allowance; this one recovers after the minute.
-    await sendCode(t, "late@example.com", EXTENSION);
-    now += 60_001;
-    await sendCode(t, "later@example.com");
+    // One code through the popup, then four through panels ten minutes later: the address's five in 15 minutes.
+    await popupSignIn(t, PROTOTYPE);
+    now += 10 * 60_000;
+    for (let i = 0; i < 4; i++) await sendCode(t, "dana@example.com", i % 2 === 0 ? WEB : EXTENSION);
+    const attempts = async () => (await t.run(async (ctx) => await ctx.db.query("signInAttempts").collect())).length;
+    const before = await attempts();
+    for (const origin of [WEB, EXTENSION]) {
+      const refused = await call(t, "/auth/panel/email", { email: "Dana@Example.com" }, origin);
+      expect(refused.status).toBe(429);
+      expect(refused.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+      const body = await json(refused);
+      expect(body).toMatchObject({ error: "rate-limited" });
+      expect(body.message).toContain("this address");
+      // The latest code may belong to another panel's sign-in, and the wait can be long: the panel shows Retry-After.
+      expect(body.message).not.toMatch(/latest code|a few minutes/);
+      // Until the popup's code leaves the window, five minutes on.
+      expect(body.retryAfter).toBe(5 * 60);
+      expect(Number(refused.headers.get("Retry-After"))).toBe(body.retryAfter);
+    }
+    expect(await attempts()).toBe(before);
+    // Other addresses are unaffected, and this one starts again as soon as it can receive a code.
+    await sendCode(t, "lee@example.com");
+    now += 5 * 60_000 + 1;
+    await sendCode(t, "dana@example.com");
   } finally {
     clock.mockRestore();
   }
+});
+
+test("a panel start while the deployment can send no more codes is refused, and stores and counts nothing", async () => {
+  const t = setup();
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    await t.run(async (ctx) => ctx.db.insert("signInLimits", { key: "send:global", count: 300, expiresAt: now + 30 * 60_000 }));
+    const refused = await call(t, "/auth/panel/email", { email: "dana@example.com" });
+    expect(refused.status).toBe(429);
+    const body = await json(refused);
+    expect(body).toMatchObject({ error: "rate-limited", retryAfter: 30 * 60 });
+    expect(body.message).not.toContain("a few minutes");
+    expect(Number(refused.headers.get("Retry-After"))).toBe(30 * 60);
+    expect(await t.run(async (ctx) => await ctx.db.query("signInAttempts").collect())).toEqual([]);
+    const counters = await t.run(async (ctx) => (await ctx.db.query("signInLimits").collect()).map(({ key, count }) => [key, count]));
+    expect(counters).toEqual([["send:global", 300]]);
+    now += 30 * 60_000 + 1;
+    await sendCode(t, "dana@example.com");
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("when several limits refuse a panel start, Retry-After is the longest wait", async () => {
+  const t = setup();
+  const now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("signInLimits", { key: "global", count: START_GLOBAL_LIMIT, expiresAt: now + 60_000 });
+      await ctx.db.insert("signInLimits", { key: "send:dana@example.com", count: 5, expiresAt: now + 14 * 60_000 });
+    });
+    const refused = await call(t, "/auth/panel/email", { email: "dana@example.com" });
+    expect(refused.status).toBe(429);
+    expect(await json(refused)).toMatchObject({ error: "rate-limited", retryAfter: 14 * 60 });
+    expect(Number(refused.headers.get("Retry-After"))).toBe(14 * 60);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("Critiqs's own origins still share the deployment's ceiling of starts a minute with every site", async () => {
+  const t = setup();
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const start = (key: string, origin: string, email?: string) =>
+    t.mutation(internal.signIn.startAttempt, { key, origin, clientState: "panel", bindingHash: key, panel: true, ...(email === undefined ? {} : { email }) });
+  try {
+    for (let i = 0; i < START_GLOBAL_LIMIT; i++) expect((await start(`k${i}`, i % 2 === 0 ? WEB : EXTENSION, `p${i}@example.com`)).allowed).toBe(true);
+    expect(await start("over", WEB, "new@example.com")).toMatchObject({ allowed: false, retryAfter: 60 });
+    expect((await t.fetch(`/auth/start?origin=${encodeURIComponent(PROTOTYPE)}&state=s`)).status).toBe(429);
+    now += START_WINDOW_MS;
+    expect((await start("next", WEB, "new@example.com")).allowed).toBe(true);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("the popup keeps each origin's twenty starts a minute, Critiqs's own included, and panel starts don't count toward it", async () => {
+  const t = setup();
+  const popupStart = (origin: string, state: string) => t.fetch(`/auth/start?origin=${encodeURIComponent(origin)}&state=${state}`);
+  for (let i = 0; i < 20; i++) expect((await popupStart(WEB, `s${i}`)).status).toBe(200);
+  expect((await popupStart(WEB, "blocked")).status).toBe(429);
+  for (let i = 0; i < 20; i++) expect((await popupStart(PROTOTYPE, `p${i}`)).status).toBe(200);
+  expect((await popupStart(PROTOTYPE, "blocked")).status).toBe(429);
+  // Panels on the same origin still start sign-ins.
+  await sendCode(t, "dana@example.com");
+  await sendCode(t, "lee@example.com", EXTENSION);
 });
 
 test("an invalid email starts no attempt", async () => {

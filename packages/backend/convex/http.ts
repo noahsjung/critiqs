@@ -1028,10 +1028,14 @@ panelRoute("/auth/panel/email", async (ctx, origin, body, mode) => {
   if (body.attempt === undefined) {
     token = randomSecret();
     const { key, binding } = await panelAttempt(origin, token);
-    const start = await ctx.runMutation(internal.signIn.startAttempt, { key, origin, clientState: "panel", bindingHash: binding, panel: true });
+    const start = await ctx.runMutation(internal.signIn.startAttempt, { key, origin, clientState: "panel", bindingHash: binding, panel: true, email });
     if (!start.allowed) {
-      return panelError(origin, 429, "rate-limited", "Too many sign-in requests. Wait a minute and try again.",
-        { retryAfter: start.retryAfter }, { "Retry-After": String(start.retryAfter) });
+      const message = start.scope === "email"
+        ? "Too many codes were sent to this address recently. Try again later."
+        : start.scope === "codes"
+          ? "Too many codes were sent recently. Try again later."
+          : "Too many sign-in requests. Wait a minute and try again.";
+      return panelError(origin, 429, "rate-limited", message, { retryAfter: start.retryAfter }, { "Retry-After": String(start.retryAfter) });
     }
   } else {
     const given = attemptToken(body);
