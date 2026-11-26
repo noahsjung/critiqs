@@ -37,6 +37,20 @@ export interface EnvConvention {
   localFile: string | null;
   /** One or two sentences for the person: what each deployment sets, and when it takes effect. */
   deploymentAdvice: string;
+  /**
+   * Every `.env` file the framework loads during development, relative to the
+   * app, highest precedence first, when there are several (such as Vite's
+   * `.env.development.local`, `.env.local`, `.env.development`, `.env`).
+   * Setup keeps a value already set in one of them that ends in `.local`, and
+   * doctor reads them in this order. Default: `[localFile]`.
+   */
+  loads?: string[];
+  /**
+   * Why setup can't use this convention in this app, with what to do instead,
+   * such as a build setting that renames public variables. Setup changes
+   * nothing and shows it. Default: none.
+   */
+  problem?: string | null;
 }
 
 /** A setting as the code gives it. */
@@ -102,6 +116,15 @@ export type Plan =
 export interface PlanOptions {
   /** A file the person chose, relative to the app, overriding where setup would put Critiqs. */
   entry: string | null;
+  /** An element in that file to add Critiqs beside, such as `App`, for frameworks whose code names elements (`--mount`). Default: none. */
+  mount?: string | null;
+  /** The folder the person ran setup in; messages name files relative to it. Default: the app's folder. */
+  cwd?: string;
+}
+
+export interface EnvOptions {
+  /** A `.env` file the person named for this app, relative to it (`--project-env-file`), or null. */
+  envFile: string | null;
 }
 
 export interface FrameworkAdapter {
@@ -116,7 +139,7 @@ export interface FrameworkAdapter {
    */
   detect(root: string): boolean;
   /** The public setting this app reads its project ID from, or null when it has no convention setup can use. `suffix` names one app of a workspace, such as `_WEB`, or is "". */
-  env(root: string, suffix: string): EnvConvention | null;
+  env(root: string, suffix: string, options?: EnvOptions): EnvConvention | null;
   /** Critiqs already in the app's code, most often zero or one. */
   find(root: string): Usage[];
   /** Adds Critiqs where the app renders, or updates the one already there. Writes nothing. */

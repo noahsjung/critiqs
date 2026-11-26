@@ -150,7 +150,7 @@ export function App({
   const projectError = projectQuery.status === "error";
   useEffect(() => {
     if (required && projectError) {
-      console.warn(`Critiqs: the project ${configuredProject} isn't available on the Critiqs backend at ${deployment.backendUrl}. Check this app's project ID setting, or run npx critiqs-react doctor.`);
+      console.warn(`Critiqs: the project ${configuredProject} isn't available on the Critiqs backend at ${deployment.backendUrl}. Check this app's project ID setting, or run npx critiqs doctor.`);
     }
   }, [required, projectError, configuredProject, deployment.backendUrl]);
   const threadsQuery = transport.useThreads(signedIn && projectQuery.status === "ready" ? projectId : null);

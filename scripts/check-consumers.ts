@@ -1,5 +1,5 @@
-// Builds real React applications against the packed critiqs-react, after
-// `critiqs init` adds the component to each: a Vite single-page app on React
+// Builds real React applications against the packed critiqs-react (with the
+// packed critiqs it depends on), after `critiqs init` adds the component to each: a Vite single-page app on React
 // 18 and on React 19, and Next.js with the App Router (a server layout) and
 // with the Pages Router. Init wires each to its framework's public project ID
 // variable and sets it in .env.local; each is built for production, and some
@@ -24,11 +24,14 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const packageDir = join(root, "packages/react");
+const sharedDir = join(root, "packages/critiqs");
 const scratch = await mkdtemp(join(tmpdir(), "critiqs-consumers-"));
 const PROJECT = "j12345678901234567890123456789012";
 /** Another deployment's project. */
 const OTHER = "k12345678901234567890123456789012";
+/** critiqs-react's command, as apps that already use it run it; the workspace uses `npx critiqs`. */
 const CLI = ["node", "node_modules/critiqs-react/bin/critiqs.mjs"];
+const SHARED_CLI = ["npx", "--no-install", "critiqs"];
 const timings: Record<string, number> = {};
 
 async function run(command: string[], cwd: string, env: Record<string, string | undefined> = process.env): Promise<string> {
@@ -56,7 +59,7 @@ async function app(name: string, files: Record<string, string>, dependencies: st
   const dir = join(scratch, name);
   await mkdir(dir);
   for (const [path, text] of Object.entries(files)) await Bun.write(join(dir, path), text);
-  await timed(`${name}: npm install`, () => run(["npm", "install", "--no-audit", "--no-fund", tarball, ...dependencies], dir));
+  await timed(`${name}: npm install`, () => run(["npm", "install", "--no-audit", "--no-fund", sharedTarball, tarball, ...dependencies], dir));
   const before = await Bun.file(join(dir, entry)).text();
   await timed(`${name}: critiqs init`, () => run([...CLI, "init", PROJECT], dir));
   const after = await Bun.file(join(dir, entry)).text();
@@ -115,7 +118,7 @@ function chrome(): string {
 }
 
 const viteApp = (name: string, base: string, config = "") => ({
-  [`apps/${name}/package.json`]: JSON.stringify({ name: `@acme/${name}`, private: true, type: "module", dependencies: { "critiqs-react": `file:${tarball}`, react: "^19", "react-dom": "^19" }, devDependencies: { vite: "^8", "@vitejs/plugin-react": "^6" } }),
+  [`apps/${name}/package.json`]: JSON.stringify({ name: `@acme/${name}`, private: true, type: "module", dependencies: { critiqs: `file:${sharedTarball}`, "critiqs-react": `file:${tarball}`, react: "^19", "react-dom": "^19" }, devDependencies: { vite: "^8", "@vitejs/plugin-react": "^6" } }),
   [`apps/${name}/index.html`]: `<!doctype html><html><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>\n`,
   [`apps/${name}/vite.config.js`]: `import { defineConfig } from "vite";\nimport react from "@vitejs/plugin-react";\nexport default defineConfig({ base: "${base}", plugins: [react()]${config} });\n`,
   [`apps/${name}/src/App.jsx`]: `export default function App() {\n  return <main><h1>${name}</h1><button>Continue</button></main>;\n}\n`,
@@ -170,15 +173,15 @@ async function workspace() {
 
   try {
     // At the workspace root, init names each app and changes nothing.
-    const refused = Bun.spawnSync([...CLI, "init", adminProject], { cwd: ws, stdout: "pipe", stderr: "pipe" });
+    const refused = Bun.spawnSync([...SHARED_CLI, "init", adminProject], { cwd: ws, stdout: "pipe", stderr: "pipe" });
     assert.equal(refused.exitCode, 1, "workspace: init at the root should refuse");
-    assert(refused.stdout.toString().includes(`--dir apps/admin\n  npx critiqs-react init ${adminProject} --dir apps/shop`), `workspace: ${refused.stdout}`);
+    assert(refused.stdout.toString().includes(`--dir apps/admin\n  npx critiqs init ${adminProject} --dir apps/shop`), `workspace: ${refused.stdout}`);
     assert(!existsSync(join(ws, ".env.local")), "workspace: init at the root wrote a setting");
 
-    await run([...CLI, "init", adminProject, "--dir", "apps/admin"], ws);
+    await run([...SHARED_CLI, "init", adminProject, "--dir", "apps/admin"], ws);
     const shopBefore = await Bun.file(join(ws, "apps/shop/src/main.jsx")).text();
     assert(!shopBefore.includes("projectId"), "workspace: setting up admin changed shop");
-    await run([...CLI, "init", shopProject, "--dir", "apps/shop"], ws);
+    await run([...SHARED_CLI, "init", shopProject, "--dir", "apps/shop"], ws);
     const adminSource = await Bun.file(join(ws, "apps/admin/src/main.jsx")).text();
     assert(adminSource.includes('<Critiqs projectId={import.meta.env.VITE_CRITIQS_PROJECT_ID_ADMIN} requireProjectId backend="/critiqs" />'), adminSource);
     assert((await Bun.file(join(ws, ".env.local")).text()).includes(`VITE_CRITIQS_PROJECT_ID_ADMIN=${adminProject}`), "workspace: admin's setting isn't in the root .env.local");
@@ -271,7 +274,11 @@ async function workspace() {
 }
 
 let tarball = "";
+let sharedTarball = "";
 try {
+  // critiqs isn't on the registry yet, so each app installs the packed one beside critiqs-react.
+  const [shared] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], sharedDir));
+  sharedTarball = join(scratch, shared.filename);
   const [packed] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], packageDir));
   tarball = join(scratch, packed.filename);
 
@@ -328,8 +335,8 @@ try {
   await timed("workspace: two apps in one browser", () => workspace());
 
   console.log(
-    "Consumer builds passed: Vite with React 18 and 19, Next.js App Router (built and served) and Pages Router, each set up by critiqs init with its project ID variable and unchanged by a second run; " +
-      "builds for another deployment and with Critiqs off; and a two-app workspace, set up one app at a time, checked in Chrome.",
+    "Consumer builds passed: Vite with React 18 and 19, Next.js App Router (built and served) and Pages Router, each set up by critiqs-react's critiqs init with its project ID variable and unchanged by a second run; " +
+      "builds for another deployment and with Critiqs off; and a two-app workspace, set up one app at a time with npx critiqs init, checked in Chrome.",
   );
   console.log(JSON.stringify({ timingsMs: timings }, null, 2));
 } finally {

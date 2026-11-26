@@ -75,7 +75,7 @@ export function mountCritiqs(initial: CritiqsProps = {}): CritiqsInstance {
       if (malformed !== null) {
         console.warn(
           `Critiqs: ${JSON.stringify(malformed.slice(0, 80))} is not a Critiqs project ID, so Critiqs stays hidden. ` +
-            "Set this app's project ID setting to the ID from project setup in the Critiqs sidebar, or run npx critiqs-react doctor.",
+            "Set this app's project ID setting to the ID from project setup in the Critiqs sidebar, or run npx critiqs doctor.",
         );
       }
     }
@@ -223,7 +223,7 @@ function Connect({ props, host }: { props: CritiqsProps; host: HTMLElement }) {
       .catch((error) => {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
-        if (required) console.warn(`Critiqs: ${message} Critiqs stays hidden; run npx critiqs-react doctor to check the setup.`);
+        if (required) console.warn(`Critiqs: ${message} Critiqs stays hidden; run npx critiqs doctor to check the setup.`);
         setDeployment({ error: message });
       });
     return () => {

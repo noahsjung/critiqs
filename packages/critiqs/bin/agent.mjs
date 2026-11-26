@@ -15,7 +15,7 @@ import { findElements } from "./markup.mjs";
 /** Raised when this computer has no usable sign-in; the message says how to sign in. */
 export class NotSignedInError extends SetupError {}
 
-const SIGN_IN_HINT = "Sign in once on this computer with the critiqs_sign_in tool, or run `npx critiqs-react sign-in`.";
+const SIGN_IN_HINT = "Sign in once on this computer with the critiqs_sign_in tool, or run `npx critiqs sign-in`.";
 
 // ---------------------------------------------------------------------------
 // The sign-in kept on this computer

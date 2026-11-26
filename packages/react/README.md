@@ -17,7 +17,9 @@ npm install critiqs-react          # or: pnpm add, yarn add, bun add
 npx critiqs-react init
 ```
 
-`npx critiqs-react init` runs the package's `critiqs` command. It adds `<Critiqs />` where your app renders, signs you in through
+`npx critiqs-react init` runs Critiqs's setup command, `critiqs`, from the
+shared `critiqs` package that `critiqs-react` installs (`npx critiqs init` is
+the same command). It adds `<Critiqs />` where your app renders, signs you in through
 your browser, creates a project on Critiqs Cloud, and connects the app to it.
 Critiqs Cloud runs storage, sign-in, and email, so there are no keys to enter.
 The project ID is public configuration, not a secret; reviewers never see or
@@ -130,16 +132,18 @@ its Critiqs along.
 
 Init edits one source file, and only when it can tell exactly where: it
 previews the change with `--dry-run`, and it refuses, changing nothing, when
-there are several roots, when Critiqs is already used under another name, or
-when the name `Critiqs` means something else there. It then prints the line to
-add by hand. It checks the source and `.env` files can be written before you
-sign in. Running init again keeps the project the code already names, through
-a literal ID or the variable's value in your `.env` files; a missing or
-malformed value doesn't count, so init connects one. It keeps your other
-`.env` lines and values, a component's other properties, and wiring you wrote
-yourself (`projectId={import.meta.env.VITE_MY_PROJECT}` is set as it is; other
-code is left alone). A retry after an interrupted run reuses your project with
-the same name rather than creating another. `--new-project` creates a new one.
+there are several roots, when Critiqs is already loaded another way
+(re-exported, as a namespace, or at run time), or when the name `Critiqs`
+means something else there. It then prints the line to add by hand. A
+`<Critiqs />` imported under another name is updated like any other. It checks
+the source and `.env` files can be written before you sign in. Running init
+again keeps the project the code already names, through a literal ID or the
+variable's value in your `.env` files; a missing or malformed value doesn't
+count, so init connects one. It keeps your other `.env` lines and values, a
+component's other properties, and wiring you wrote yourself
+(`projectId={import.meta.env.VITE_MY_PROJECT}` is set as it is; other code is
+left alone). A retry after an interrupted run reuses your project with the
+same name rather than creating another. `--new-project` creates a new one.
 
 ### Signing in from another device
 
@@ -184,7 +188,7 @@ it read configuration or something the backend has actually done; doctor never
 sends an email, uploads a screenshot, or posts a comment, so the first real
 comment is what proves those work. AI is optional and doctor reports it as
 information. `--json` prints init's and doctor's results for scripts and coding
-agents. Coding agents can follow [AGENT_SETUP.md](AGENT_SETUP.md); an optional
+agents. Coding agents can follow [AGENT_SETUP.md](../critiqs/AGENT_SETUP.md); an optional
 MCP server (`npx critiqs-react mcp`) offers the same steps.
 
 Coding agents can also read a project's feedback with its context, to act on
@@ -196,7 +200,7 @@ coding agent", to ask people to check a fix. `critiqs_mockups` and
 `critiqs_mockup` read mockups: each change Critiqs AI made to a page copy,
 with the original element's markup and `data-critiqs-id` to find it in the
 code, and the discussion behind it. The sign-in lasts until `npx critiqs-react sign-out`, 30
-days without use, or 90 days. See [AGENT_SETUP.md](AGENT_SETUP.md#7-reading-feedback).
+days without use, or 90 days. See [AGENT_SETUP.md](../critiqs/AGENT_SETUP.md#7-reading-feedback).
 
 ### Keeping feedback on your own backend
 
@@ -446,6 +450,8 @@ If your prototype has its own long-running Node or Bun server with a disk that
 survives restarts, Critiqs can run inside it and keep feedback in a SQLite file.
 No Critiqs service is involved. Static hosts and serverless platforms such as
 Vercel can't keep the file; use Critiqs Cloud or your own Convex there.
+`critiqs-react/server` is the shared package's `critiqs/server`; either import
+works.
 
 ```ts
 import { createCritiqsHandler, toNodeListener } from "critiqs-react/server";

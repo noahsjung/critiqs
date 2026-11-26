@@ -4,7 +4,9 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseCommand } from "../bin/cli.mjs";
-import { findCritiqsUsages, runInit } from "../bin/init.mjs";
+import { chooseWiring, readUsage, writeConnection } from "../bin/app.mjs";
+import { findCritiqsUsages } from "../bin/frameworks/jsx.mjs";
+import { runInit } from "../bin/init.mjs";
 import { createTools, handleMessage, serveMcp, TOOLS } from "../bin/mcp.mjs";
 import { PassThrough } from "node:stream";
 import {
@@ -18,15 +20,13 @@ import {
   isLocalAddress,
   listMyProjects,
   readiness,
-  readComponentProps,
   resolveBackend,
   SIGN_IN_PROTOCOL,
   startBrowserSignIn,
   startRemoteSignIn,
   targetDeployment,
-  writeComponentProps,
 } from "../bin/setup.mjs";
-import { HOSTED_BACKEND_URL, BACKEND_PROTOCOL as COMPONENT_PROTOCOL, SIGN_IN_PROTOCOL as COMPONENT_SIGN_IN_PROTOCOL } from "../src/deployment.ts";
+import { HOSTED_BACKEND_URL, BACKEND_PROTOCOL as COMPONENT_PROTOCOL, SIGN_IN_PROTOCOL as COMPONENT_SIGN_IN_PROTOCOL } from "../../react/src/deployment.ts";
 import { isPrivateReviewAddress } from "@critiqs/core";
 import { OTHER_ADDRESSES, PRIVATE_ADDRESSES } from "../../core/test/review-addresses.ts";
 
@@ -94,15 +94,16 @@ test("parses commands", () => {
 
 test("writes the project ID and backend into the component, in that order, or nothing", () => {
   const root = app("<Critiqs version=\"v1\" />");
-  const dry = writeComponentProps({ root, props: { projectId: PROJECT, backend: "https://team.convex.cloud" }, dryRun: true });
+  const connect = (dir: string, backend?: string, dryRun = false) => writeConnection({ root: dir, wiring: chooseWiring(dir), projectId: PROJECT, backend, dryRun });
+  const dry = connect(root, "https://team.convex.cloud", true);
   expect(dry).toMatchObject({ ok: true, changed: ["projectId", "backend"] });
   expect(appSource(root)).toContain('<Critiqs version="v1" />');
-  writeComponentProps({ root, props: { projectId: PROJECT, backend: "https://team.convex.cloud" } });
+  connect(root, "https://team.convex.cloud");
   expect(appSource(root)).toContain(`<Critiqs projectId="${PROJECT}" backend="https://team.convex.cloud" version="v1" />`);
-  expect(writeComponentProps({ root, props: { projectId: PROJECT } }).changed).toEqual([]);
+  expect(connect(root).changed).toEqual([]);
 
   const coded = app("<Critiqs projectId={process.env.ID} />");
-  const refused = writeComponentProps({ root: coded, props: { backend: "https://team.convex.cloud", projectId: PROJECT } });
+  const refused = connect(coded, "https://team.convex.cloud");
   expect(refused.ok).toBe(false);
   expect(refused.message).toContain("sets projectId from code, so nothing was changed");
   expect(appSource(coded)).toContain("<Critiqs projectId={process.env.ID} />");
@@ -145,7 +146,7 @@ test("doctor checks the component, backend, project, sign-in, and email", async 
   expect((await doctor({ root: missing, fetchFn: backend() })).find((check) => check.name === "Project")?.status).toBe("fail");
   const none = app();
   const unset = await doctor({ root: none, backendUrl: "https://team.convex.cloud", fetchFn: backend({ email: false }) });
-  expect(unset.find((check) => check.name === "Project")?.detail).toContain("has no projectId. Run critiqs init");
+  expect(unset.find((check) => check.name === "Project")?.detail).toContain("has no project ID. Run npx critiqs init");
   expect(unset.at(-1)?.status).toBe("warn");
 });
 
@@ -324,7 +325,7 @@ test("with spread props, Cloud setup names Cloud after them, and doctor doesn't 
   expect(appSource(root)).toContain(`<Critiqs {...settings} projectId="${PROJECT}" backend="${CLOUD_BACKEND_URL}" />`);
   const checks = await doctor({ root: app("<Critiqs {...settings} />"), fetchFn: backend() });
   expect(checks.find((check) => check.name === "Backend")?.detail).toContain("sets backend from code");
-  expect(checks.find((check) => check.name === "Project")?.detail).toContain("sets projectId from code");
+  expect(checks.find((check) => check.name === "Project")?.detail).toContain("sets its project ID from code");
 });
 
 test("the Convex deploy token alias never reaches the Convex CLI", () => {
@@ -394,25 +395,23 @@ test.each(["fresh", "mounted", "different backend"])("following HTTP recovery ke
   }
   expect(requests).toEqual([`${backendUrl}/critiqs/config`]);
   expect(readFileSync(file, "utf8")).toBe(before);
-  expect(advice).toContain("on the existing Critiqs component. If the app has none,");
-  expect(advice).toContain("on that same component, keeping its backend");
+  expect(advice).toContain(`the backend setting "${backendUrl}": on the existing one, or if the app has none, add Critiqs once with only that setting (React: critiqs-react)`);
+  expect(advice).toContain("then run npx critiqs init <projectId> to write its ID, keeping the backend");
 
-  // Follow the emitted instructions: update an existing component, or import
-  // and mount the supplied one only when absent, then set the sidebar's ID.
+  // Follow the emitted instructions: update an existing component, or add
+  // one with only the backend when absent, then set the sidebar's ID.
+  const backendSetting = advice.match(/the backend setting ("[^"]+")/)![1]!;
   let followed = before;
   if (kind === "fresh") {
-    const snippet = advice.match(/<Critiqs [^\n]+? \/>/)![0];
-    expect(advice).toContain('import { Critiqs } from "critiqs-react"');
-    followed = `import { Critiqs } from "critiqs-react";\n${before.replace("render(<App />)", `render(<><App />${snippet}</>)`)}`;
+    followed = `import { Critiqs } from "critiqs-react";\n${before.replace("render(<App />)", `render(<><App /><Critiqs backend=${backendSetting} /></>)`)}`;
   } else {
-    const backendSetting = advice.match(/Set (backend="[^"]+") on/)![1]!;
-    followed = before.replace(/backend="[^"]+"/, backendSetting);
+    followed = before.replace(/backend="[^"]+"/, `backend=${backendSetting}`);
   }
   followed = followed.replace(/<Critiqs\b/, `<Critiqs projectId="${PROJECT}"`);
   writeFileSync(file, followed);
   new Bun.Transpiler({ loader: "tsx" }).transformSync(followed);
   expect(findCritiqsUsages(root)).toHaveLength(1);
-  expect(readComponentProps(root)).toMatchObject({ projectId: { value: PROJECT }, backend: { value: backendUrl } });
+  expect(readUsage(root)).toMatchObject({ usage: { projectId: { value: PROJECT }, backend: { value: backendUrl } } });
   if (kind !== "fresh") expect(followed).toContain('version="v1"');
   expect(runInit(["init", PROJECT], { cwd: root, print: () => {} })).toBe(0);
   expect(readFileSync(file, "utf8")).toBe(followed);
@@ -473,6 +472,7 @@ test("remote setup adds Critiqs to the app's root after approval from another de
   expect(readiness(result).map((stage) => [stage.name, stage.status])).toEqual([
     ["Code", "pass"],
     ["Project", "pass"],
+    ["Finish setup", "next"],
     ["Try it locally", "next"],
     ["Reviewers elsewhere", "warn"],
   ]);
@@ -637,7 +637,7 @@ test("late unreadable source retains the project and a complete backend-aware re
     expect(snippet).toBe(`<Critiqs projectId="${PROJECT}" backend="https://team.convex.cloud" />`);
     // Follow the actual returned manual instructions: preserve both connection values.
     writeFileSync(file, 'import { Critiqs } from "critiqs-react";\n' + original.replace("<App />", `<><App />${snippet}</>`));
-    expect(readComponentProps(root)).toMatchObject({ projectId: { kind: "literal", value: PROJECT }, backend: { kind: "literal", value: "https://team.convex.cloud" } });
+    expect(readUsage(root)).toMatchObject({ usage: { projectId: { kind: "literal", value: PROJECT }, backend: { kind: "literal", value: "https://team.convex.cloud" } } });
   }
 });
 

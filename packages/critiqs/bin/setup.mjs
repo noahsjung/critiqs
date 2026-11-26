@@ -5,27 +5,14 @@
  */
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { accessSync, constants, cpSync, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyEnv, checkWritable, describeApp, envVariableOf, gitIgnored, planEnv, readEnvValue } from "./env.mjs";
-import {
-  applyPlan,
-  chooseWiring,
-  connectionProps,
-  deploymentAdvice,
-  findCritiqsUsages,
-  isValidProjectId,
-  MOUNT_KINDS,
-  planComponent,
-  propsText,
-  readProp,
-  refusal,
-  workspaceApps,
-  workspaceRefusal,
-} from "./init.mjs";
+import { chooseWiring, connectionSettings, envTargetOf, isFile, packageOf, quoted, readLocalValue, readUsage, shown, UNRECOGNIZED, workspaceApps, workspaceRefusal, writeConnection } from "./app.mjs";
+import { checkWritable, describeApp } from "./env.mjs";
+import { isValidProjectId } from "./init.mjs";
 
 /** Critiqs Cloud's deployment, the component's default backend. Matches `HOSTED_BACKEND_URL`. */
 export const CLOUD_BACKEND_URL = "https://brazen-snail-591.convex.cloud";
@@ -37,12 +24,6 @@ export const SIGN_IN_PROTOCOL = 4;
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export class SetupError extends Error {}
-
-/** A path as people read it: relative inside the current folder, absolute outside it. */
-function shown(cwd, path) {
-  const near = relative(cwd, path);
-  return near === "" ? "this folder" : near.startsWith("..") ? path : near;
-}
 
 /** The HTTP address Convex pairs with a deployment URL. */
 export function siteUrlOf(backendUrl) {
@@ -251,7 +232,7 @@ export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wa
   if (config.deviceSignIn !== true) {
     throw new SetupError(
       `Critiqs's sign-in service at ${signInUrl} doesn't support approving setup from another device yet. ` +
-        "Run setup where a browser can open on the same computer (with --browser), or create the project in the matching prototype's Critiqs sidebar and set its projectId on the existing component, keeping its backend.",
+        "Run setup where a browser can open on the same computer (with --browser), or create the project in the matching prototype's Critiqs sidebar, then run npx critiqs init <projectId> to write its ID, keeping the backend.",
     );
   }
   let response;
@@ -383,133 +364,6 @@ export async function signOut(signInUrl, refreshToken, { origin, fetchFn = fetch
 }
 
 // ---------------------------------------------------------------------------
-// The prototype's code
-
-/** The prototype's one `<Critiqs />` component, or a message saying why there isn't one. */
-export function locateComponent(root, cwd = root) {
-  let isDirectory = false;
-  try {
-    isDirectory = statSync(root).isDirectory();
-  } catch {}
-  if (!isDirectory) return { error: `${shown(cwd, root)} is not a folder.` };
-  const usages = findCritiqsUsages(root);
-  if (usages.length === 0) {
-    return {
-      error:
-        `No <Critiqs /> component found in ${shown(cwd, root)}. ` +
-        `Add it where the prototype renders, imported with import { Critiqs } from "critiqs-react": <Critiqs />`,
-    };
-  }
-  if (usages.length > 1) {
-    const list = usages.map(({ file, element }) => `${shown(cwd, file)}:${element.line}`).join(", ");
-    return { error: `Found ${usages.length} <Critiqs /> components (${list}), so nothing was changed. Keep one where the prototype renders.` };
-  }
-  return { usage: usages[0] };
-}
-
-/** Complete public connection values for manual recovery; no credentials. */
-function componentSnippet(props) {
-  return `<Critiqs${Object.entries(props).map(([key, value]) => (typeof value === "string" ? ` ${key}=${JSON.stringify(value)}` : propsText({ [key]: value }))).join("")} />`;
-}
-
-/**
- * Sets properties on the prototype's Critiqs component, adding it when
- * absent. Reads, planning and writes all return a recoverable failure; `also`
- * completes the recovery instructions with anything else the connection needs.
- */
-export function writeComponentProps({ root, cwd = root, props, dryRun = false, entry = null, mount = null, also = "" }) {
-  const snippet = componentSnippet(props);
-  const placement = entry === null ? "where the app renders" : `in ${shown(cwd, resolve(root, entry))}${mount === null ? "" : ` beside <${mount}>`}`;
-  try {
-    const plan = planComponent(root, props, { entry, mount });
-    const where = (file, line) => `${shown(cwd, file)}:${line}`;
-    if (!plan.ok) return { ok: false, message: `${refusal(plan, props, where, shown(cwd, root))}${also === "" ? "" : `\nThen${also}.`}` };
-    const at = where(plan.file, plan.line);
-    if (plan.action === "unchanged") return { ok: true, file: plan.file, line: plan.line, changed: [], installed: false, message: `${at} already has these settings.` };
-    if (!dryRun) applyPlan(plan);
-    const dry = dryRun ? " (dry run, nothing written)" : "";
-    if (plan.action === "install") {
-      return {
-        ok: true,
-        file: plan.file,
-        line: plan.line,
-        changed: plan.changed,
-        installed: true,
-        preview: plan.preview,
-        message: `${dryRun ? "Would add" : "Added"} <Critiqs /> with ${plan.changed.join(" and ")} to ${at} (${MOUNT_KINDS[plan.kind]})${plan.imported ? ", importing it from critiqs-react" : ""}${dry}.`,
-      };
-    }
-    return { ok: true, file: plan.file, line: plan.line, changed: plan.changed, installed: false, message: `${dryRun ? "Would set" : "Set"} ${plan.changed.join(" and ")} in ${at}${dry}.` };
-  } catch {
-    return { ok: false, message: `Couldn't read or write the app's source. Restore file access, then set this complete connection ${placement}: ${snippet}${also}. Update an existing Critiqs component instead of adding a second one.` };
-  }
-}
-
-/**
- * Connects the app to a project the way `wiring` says (see `chooseWiring`):
- * the component's properties, and for an environment-backed ID, its setting
- * in this computer's `.env` file. The component is written first, so a
- * failure leaves either nothing or a component whose setting is still to add;
- * both failures say exactly what remains.
- */
-export function writeConnection({ root, cwd = root, wiring, projectId, backend, dryRun = false, entry = null, mount = null }) {
-  const props = connectionProps(wiring, projectId, backend);
-  if (wiring.mode !== "env") return writeComponentProps({ root, cwd, props, dryRun, entry, mount });
-  const line = `${wiring.variable}=${projectId}`;
-  let env;
-  try {
-    env = planEnv(wiring.app, wiring.variable, projectId);
-  } catch {
-    const placement = entry === null ? "where the app renders" : `in ${shown(cwd, resolve(root, entry))}${mount === null ? "" : ` beside <${mount}>`}`;
-    return {
-      ok: false,
-      message: `Couldn't read this app's .env files. Restore access, then set this complete connection ${placement}: ${componentSnippet(props)}, and add ${line} to the .env.local file it loads. Update an existing Critiqs component instead of adding a second one.`,
-    };
-  }
-  const file = shown(cwd, env.file);
-  const setting = { name: wiring.variable, file: env.file, advice: deploymentAdvice(wiring) };
-  const component = writeComponentProps({ root, cwd, props, dryRun, entry, mount, also: `, and add ${line} to ${file}` });
-  if (!component.ok) return { ...component, env: setting };
-  if (dryRun) {
-    try {
-      if (env.changed) checkWritable(env.file);
-    } catch {
-      return { ok: false, message: `Can't write ${file}. Check its permissions (or choose another file with --project-env-file), then run setup again; no project was created.`, env: setting };
-    }
-    return { ...component, env: setting, message: `${component.message} Would set ${line} in ${file}.` };
-  }
-  if (env.changed) {
-    try {
-      applyEnv(env);
-    } catch {
-      return { ...component, ok: false, env: setting, message: `${component.message} Couldn't write ${file}: add this line to it yourself, keeping the component as it is:\n  ${line}` };
-    }
-  }
-  const ignored = gitIgnored(env.file);
-  const keepOut = ignored === false ? ` Keep ${file} out of Git (add it to .gitignore): it holds this computer's setting, and each deployment sets its own.` : "";
-  return {
-    ...component,
-    env: { ...setting, ignored },
-    message: `${component.message} ${env.changed ? "Set" : "Kept"} ${line} in ${file} for this computer.${keepOut}`,
-  };
-}
-
-/** The `projectId` and `backend` the prototype's code gives its `<Critiqs />`. */
-export function readComponentProps(root, cwd = root) {
-  const located = locateComponent(root, cwd);
-  if ("error" in located) return located;
-  const { file, source, element } = located.usage;
-  // Spread props may set or override a property unless it comes after them, so its value is then unknown.
-  const settled = (name) => {
-    const attribute = element.attributes.find((candidate) => candidate.name === name);
-    if (element.spreadEnd !== null && (attribute === undefined || attribute.start < element.spreadEnd)) return { kind: "expression" };
-    return readProp(source, element, name);
-  };
-  const required = element.attributes.some((attribute) => attribute.name === "requireProjectId");
-  return { file, line: element.line, projectId: settled("projectId"), backend: settled("backend"), requireProjectId: required };
-}
-
-// ---------------------------------------------------------------------------
 // A team's own Convex deployment
 
 /** The `convex` package this package depends on. */
@@ -584,7 +438,7 @@ export function convexEnv(target, base = process.env) {
 export async function deployOwnConvex({ env = process.env, signInUrl, resendApiKey, emailFrom, log = () => {} }) {
   const target = targetDeployment(env);
   const bundle = join(PACKAGE_ROOT, "dist", "backend", "convex");
-  if (!existsSync(bundle)) throw new SetupError("This copy of critiqs-react has no backend functions. Build the package first.");
+  if (!existsSync(bundle)) throw new SetupError("This copy of critiqs has no backend functions. Build the package first.");
   const issuer = (signInUrl ?? (await resolveBackend(CLOUD_BACKEND_URL)).signInUrl).replace(/\/$/, "");
   // Inside the package, so the functions resolve `convex` from its dependencies.
   const work = mkdtempSync(join(PACKAGE_ROOT, ".deploy-"));
@@ -675,17 +529,23 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
     apps = workspaceApps(root);
   } catch {}
   if (apps !== null && apps.length > 0) {
-    const commands = apps.map((dir) => `  npx critiqs-react doctor --dir ${shown(cwd, dir)}`).join("\n");
+    const commands = apps.map((dir) => `  npx critiqs doctor --dir ${quoted(shown(cwd, dir))}`).join("\n");
     add("fail", "Component", `${shown(cwd, root)} is a workspace; each app has its own Critiqs setup. Check one app:\n${commands}`, "code");
     return checks;
   }
-  const props = readComponentProps(root, cwd);
-  if ("error" in props) {
-    add("fail", "Component", `${props.error} Run critiqs init to add it.`, "code");
+  let located;
+  try {
+    located = readUsage(root, cwd);
+  } catch {
+    located = { error: `Couldn't read the code in ${shown(cwd, root)}.` };
+  }
+  if ("error" in located) {
+    add("fail", "Component", `${located.error}${located.missing ? " Run npx critiqs init to add it." : ""}`, "code");
     return checks;
   }
+  const props = located.usage;
   const at = `${shown(cwd, props.file)}:${props.line}`;
-  add("pass", "Component", `<Critiqs /> at ${at}.`, "code");
+  add("pass", "Component", `Critiqs is set up at ${at}.`, "code");
 
   let backendUrl = CLOUD_BACKEND_URL;
   if (chosenBackend !== undefined) {
@@ -707,22 +567,23 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
     return checks;
   }
 
-  // An environment-backed ID: what this computer's .env files set. Deployments set their own, which doctor can't see.
+  // An environment-backed ID: what this computer's .env files (or, where the framework loads none, this shell) set. Deployments set their own, which doctor can't see.
   let setting = null;
-  if (props.projectId?.kind === "expression") {
-    const app = describeApp(root, { envFile });
-    const variable = envVariableOf(props.projectId.text, app);
-    if (variable !== null) {
+  if (props.projectId?.kind === "env") {
+    const wiring = chooseWiring(root, { envFile, cwd });
+    if (wiring.mode === "env") {
+      const fromShell = envTargetOf(wiring).files.length === 0;
       let found = null;
-      let problem = app.problem;
+      let problem = wiring.problem;
       if (problem === null) {
         try {
-          found = readEnvValue(app, variable);
+          found = readLocalValue(wiring, shell);
         } catch (error) {
-          problem = error.message;
+          problem = error?.file === undefined ? error.message : `Couldn't read ${shown(cwd, error.file)}.`;
         }
       }
-      setting = { variable, found, problem, where: found === null ? null : shown(cwd, found.file) };
+      const where = found === null ? null : found.file === null ? "this shell's environment" : shown(cwd, found.file);
+      setting = { variable: wiring.env.variable, env: wiring.env, root, fromShell, found, problem, where };
     }
   }
   const projectId = props.projectId?.kind === "literal" ? props.projectId.value : setting?.found?.value ?? null;
@@ -736,33 +597,35 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
   }
 
   const hidden = props.requireProjectId ? "Critiqs stays hidden" : "Critiqs shows project setup";
-  if (props.projectId === null) add("fail", "Project", `${at} has no projectId. Run critiqs init to create a project and write its ID.`, "project");
+  if (props.projectId === null) add("fail", "Project", `${at} has no project ID. Run npx critiqs init to create a project and write its ID.`, "project");
   else if (setting !== null && setting.problem !== null) {
     add("warn", "Project", `${at} reads ${setting.variable}, but doctor can't determine its local value: ${setting.problem} Check with doctor --project-env-file <the .env file this app loads>.`, "project");
   } else if (setting !== null && setting.found === null) {
-    add("warn", "Project", `${at} reads projectId from ${setting.variable}, which no .env file here sets, so ${hidden} on this computer. Run critiqs init to create or connect a project and set it.`, "project");
+    add("warn", "Project", `${at} reads its project ID from ${setting.variable}, which ${setting.fromShell ? "this shell's environment doesn't set" : "no .env file here sets"}, so ${hidden} on this computer. Run npx critiqs init to create or connect a project and set it.`, "project");
   } else if (setting !== null && !isValidProjectId(projectId)) {
-    add("fail", "Project", `${setting.variable} in ${setting.where} is ${JSON.stringify(projectId.slice(0, 80))}, not a Critiqs project ID, so ${hidden} wherever it's used. Set it to the ID from project setup in the Critiqs sidebar, or run critiqs init.`, "project");
+    add("fail", "Project", `${setting.variable} in ${setting.where} is ${JSON.stringify(projectId.slice(0, 80))}, not a Critiqs project ID, so ${hidden} wherever it's used. Set it to the ID from project setup in the Critiqs sidebar, or run npx critiqs init.`, "project");
   } else if (setting !== null && health.project === "found") {
     add("pass", "Project", `${projectId} (${setting.variable} in ${setting.where}) exists on this backend.`, "project", "observed");
   } else if (setting !== null) {
     add("fail", "Project", `${projectId} (${setting.variable} in ${setting.where}) doesn't exist on this backend. Check the ID, or the backend it points to.`, "project", "observed");
-  } else if (props.projectId.kind === "expression") add("warn", "Project", `${at} sets projectId from code, so doctor can't check it.`, "project");
+  } else if (props.projectId.kind !== "literal") add("warn", "Project", `${at} sets its project ID from code, so doctor can't check it.`, "project");
   else if (!isValidProjectId(projectId)) add("fail", "Project", `"${projectId}" is not a Critiqs project ID.`, "project");
   else if (health.project === "found") add("pass", "Project", `${projectId} exists on this backend.`, "project", "observed");
   else add("fail", "Project", `${projectId} doesn't exist on this backend. Check the ID, or the backend it points to.`, "project", "observed");
 
   if (setting !== null) {
-    const committed = setting.found !== null && !/\.local$/.test(setting.found.file);
-    const overridden = typeof shell[setting.variable] === "string" && shell[setting.variable] !== setting.found?.value;
+    const local = setting.env.localFile === null ? null : resolve(setting.root, setting.env.localFile);
+    const committed = setting.found?.file != null && setting.found.file !== local && !/\.local$/.test(setting.found.file);
+    const overridden = !setting.fromShell && typeof shell[setting.variable] === "string" && shell[setting.variable] !== setting.found?.value;
+    const settings = setting.env.readsAt === "build" ? "build settings" : "environment";
     add(
       committed ? "warn" : "info",
       "Deployments",
       ((committed
-        ? `${setting.variable} is set in ${setting.where}, which is usually committed, so deployments built from this repository use it unless their build settings override it. Move it to .env.local and set it per deployment. `
-        : `Each deployment reads ${setting.variable} from its own build settings, which doctor can't see; where it's unset, ${hidden}. `) +
+        ? `${setting.variable} is set in ${setting.where}, which is usually committed, so deployments built from this repository use it unless their ${settings} override it. Move it to ${setting.env.localFile ?? "each deployment's settings"} and set it per deployment. `
+        : `Each deployment reads ${setting.variable} from its own ${settings}, which doctor can't see; where it's unset, ${hidden}. `) +
         (overridden ? `This shell also sets ${setting.variable}, which builds started here use instead of the .env files. ` : "") +
-        (props.requireProjectId ? "" : "Add requireProjectId to <Critiqs /> so copies without a project show nothing instead of project setup.")
+        (props.requireProjectId ? "" : "Turn on requireProjectId in the app's Critiqs setup so copies without a project show nothing instead of project setup.")
       ).trim(),
       "reviewers",
     );
@@ -770,9 +633,9 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
 
   if (health.project === "found") {
     if (health.reviewAddress === false) {
-      add("warn", "Review address", "The project has no review address, so mention emails can't link to comments. Run critiqs init --review-url https://<deployed address>, or add it in the Critiqs sidebar's Project setup.", "reviewers");
+      add("warn", "Review address", "The project has no review address, so mention emails can't link to comments. Run npx critiqs init --review-url https://<deployed address>, or add it in the Critiqs sidebar's Project setup.", "reviewers");
     } else if (health.reviewAddressLocal === true) {
-      add("warn", "Review address", "The project's review address only opens on one computer or private network (such as localhost or a Tailscale address), so reviewers elsewhere can't follow mention emails. If reviewers use a deployed copy, run critiqs init --review-url https://<deployed address>.", "reviewers");
+      add("warn", "Review address", "The project's review address only opens on one computer or private network (such as localhost or a Tailscale address), so reviewers elsewhere can't follow mention emails. If reviewers use a deployed copy, run npx critiqs init --review-url https://<deployed address>.", "reviewers");
     } else if (health.reviewAddressLocal === false) {
       add("pass", "Review address", "Mention emails link to the project's review address, which isn't a local or private address. Check reviewers can open it, and deploy the commit with this project ID there.", "reviewers");
     }
@@ -860,9 +723,10 @@ export function doctorReport(checks) {
 }
 
 /**
- * Where setup stands after init, in stages: the code, the project, trying it
- * locally, and reviewers on other computers. Each is pass, warn, fail, or
- * next (a step only the person can take, such as deploying).
+ * Where setup stands after init, in stages: the code, the project, finishing
+ * setup in the app (installing its framework's package), trying it locally,
+ * and reviewers on other computers. Each is pass, warn, fail, or next (a step
+ * only the person can take, such as deploying).
  */
 export function readiness({ written, projectId, projectName, backendUrl, reviewAddress, reused = false, connected = false }) {
   const stages = [];
@@ -871,12 +735,13 @@ export function readiness({ written, projectId, projectName, backendUrl, reviewA
   else add("fail", "Code", `${written.message}\nThe project ${projectId} already exists on ${backendUrl}. Preserve both its project ID and backend when reconnecting.`);
   const where = backendUrl === CLOUD_BACKEND_URL ? "Critiqs Cloud" : backendUrl;
   add("pass", "Project", `${connected ? "Already connected to" : reused ? "Reusing your project" : "Created"} "${projectName}" (${projectId}) on ${where}.`);
+  if (written.ok && written.next?.length > 0) add("next", "Finish setup", written.next.map((step) => `${step.replace(/\.$/, "")}.`).join(" "));
   add("next", "Try it locally", `Start the app's dev server${written.env ? " (restart it if it's running, so it reads the new setting)" : ""}, open it in a browser, and sign in from the Critiqs toolbar to leave a comment.`);
   if (written.env) add("next", "Deployments", written.env.advice);
   if (reviewAddress === null || reviewAddress === undefined) {
-    add("warn", "Reviewers elsewhere", "Commit and deploy this change. The project has no review address, so mention emails can't link to comments: once deployed, run critiqs init --review-url https://<deployed address>.");
+    add("warn", "Reviewers elsewhere", "Commit and deploy this change. The project has no review address, so mention emails can't link to comments: once deployed, run npx critiqs init --review-url https://<deployed address>.");
   } else if (isLocalAddress(reviewAddress)) {
-    add("warn", "Reviewers elsewhere", `Commit and deploy this change. The review address ${reviewAddress} only opens on this computer or a private network (such as a Tailscale network): if reviewers use a deployed copy, run critiqs init --review-url https://<deployed address>.`);
+    add("warn", "Reviewers elsewhere", `Commit and deploy this change. The review address ${reviewAddress} only opens on this computer or a private network (such as a Tailscale network): if reviewers use a deployed copy, run npx critiqs init --review-url https://<deployed address>.`);
   } else {
     add("next", "Reviewers elsewhere", `Commit and deploy this change to ${reviewAddress}; every copy with this project ID (local, preview, deployed) shares its feedback.`);
   }
@@ -897,28 +762,28 @@ export function defaultProjectName(root) {
 
 /**
  * The project the code already names: a literal ID, or for environment-backed
- * wiring (see `chooseWiring`), the ID this computer's `.env` files set, with
- * where. A missing or malformed setting names no project.
+ * wiring (see `chooseWiring`), the ID this computer gives it, with where: its
+ * `.env` files, or the shell's environment for a framework that loads none,
+ * as doctor reads it. A missing or malformed setting names no project.
  */
-function connectedProject(root, wiring) {
-  const settings = readComponentProps(root);
-  if ("error" in settings) return null;
-  const id = settings.projectId;
-  const backend = settings.backend;
+function connectedProject(root, wiring, shell) {
+  const located = readUsage(root);
+  if ("error" in located) return null;
+  const { projectId: id, backend } = located.usage;
   if (backend !== null && backend.kind !== "literal") return null;
   const backendUrl = backend?.value.replace(/\/$/, "") ?? CLOUD_BACKEND_URL;
   if (id?.kind === "literal") return isValidProjectId(id.value) ? { projectId: id.value, backendUrl } : null;
-  if (wiring.mode !== "env" || id?.kind !== "expression" || envVariableOf(id.text, wiring.app) !== wiring.variable) return null;
-  const found = readEnvValue(wiring.app, wiring.variable);
+  if (wiring.mode !== "env" || id?.kind !== "env" || id.variable !== wiring.env.variable) return null;
+  const found = readLocalValue(wiring, shell);
   if (found === null || !isValidProjectId(found.value)) return null;
-  return { projectId: found.value, backendUrl, env: { name: wiring.variable, file: found.file } };
+  return { projectId: found.value, backendUrl, env: { name: wiring.env.variable, file: found.file } };
 }
 
 /**
  * Sets up Critiqs for the prototype in `root`, in two halves so a coding agent
  * can hand the sign-in to a person between them:
- * - `beginSetup` checks the code can take the result (adding `<Critiqs />`
- *   where the app renders when it has none), deploys to the team's own Convex
+ * - `beginSetup` checks the code can take the result (adding Critiqs where
+ *   the app renders when it has none, through its framework's adapter), deploys to the team's own Convex
  *   when asked (`target: "own-convex"`), checks the backend, and starts
  *   sign-in: a page on this computer (`signIn: "browser"`), or approval from
  *   any device (`"remote"`); `"auto"` picks remote when this computer seems to
@@ -956,20 +821,21 @@ export async function beginSetup({
   try {
     apps = workspaceApps(root);
   } catch {}
-  if (apps !== null && apps.length > 0) throw new SetupError(workspaceRefusal(apps, shown(cwd, root), (dir) => shown(cwd, dir), "npx critiqs-react init"));
-  const wiring = chooseWiring(root, { envFile });
+  if (apps !== null && apps.length > 0) throw new SetupError(workspaceRefusal(apps, shown(cwd, root), (dir) => shown(cwd, dir), "npx critiqs init"));
+  const wiring = chooseWiring(root, { envFile, cwd, entry, mount });
   if (wiring.problem) throw new SetupError(wiring.problem);
   let configured;
   try {
-    configured = connectedProject(root, wiring);
-  } catch {
-    throw new SetupError("Couldn't read this app's .env files. Restore access, then run setup again; no project was created.");
+    configured = connectedProject(root, wiring, env);
+  } catch (error) {
+    throw new SetupError(`Couldn't read ${error?.file === undefined ? "this app's .env files" : shown(cwd, error.file)}. Restore access, then run setup again; no project was created.`);
   }
   const existing = newProject ? null : configured;
-  const settings = readComponentProps(root);
-  const configuredBackend = !("error" in settings) && settings.backend?.kind === "literal"
-    ? settings.backend.value.replace(/\/$/, "")
-    : null;
+  let usage = null;
+  try {
+    usage = readUsage(root).usage ?? null;
+  } catch {}
+  const configuredBackend = usage?.backend?.kind === "literal" ? usage.backend.value.replace(/\/$/, "") : null;
   // Without an explicit choice, a project the code names stays where it is, and a new one goes to Critiqs Cloud.
   const explicit = target !== null && target !== undefined;
   target = explicit ? target : (configuredBackend ?? "cloud");
@@ -983,23 +849,31 @@ export async function beginSetup({
     if (reviewUrl === undefined || reviewUrl === null) return { connected: existing, backendUrl: existing.backendUrl };
   }
 
-  // Check the component can take the settings before anyone signs in or anything is created.
+  // Check the code can take the settings before anyone signs in or anything is created.
   // Capture this before sign-in; source permissions may change while approval
   // is pending, and a later read failure must not discard a created project.
-  const named = !("error" in settings) && settings.backend !== null;
-  const backendProp = (backendUrl) => (backendUrl === CLOUD_BACKEND_URL && !named ? undefined : backendUrl);
-  const props = (projectId, backendUrl) => connectionProps(wiring, projectId, backendProp(backendUrl));
-  const connect = (projectId, backendUrl, placed = {}) => writeConnection({ root, cwd, wiring, projectId, backend: backendProp(backendUrl), ...placed });
+  const named = usage !== null && usage.backend !== null;
+  const backendSetting = (backendUrl) => (backendUrl === CLOUD_BACKEND_URL && !named ? undefined : backendUrl);
+  const settings = (projectId, backendUrl) => connectionSettings(wiring, projectId, backendSetting(backendUrl));
+  const connect = (projectId, backendUrl, placed = {}) => writeConnection({ root, cwd, wiring, projectId, backend: backendSetting(backendUrl), shell: env, ...placed });
   if (existing === null) {
+    // The entry only says where to add Critiqs, so code that has it already doesn't need one.
+    if (entry !== null && wiring.usages.length === 0 && !isFile(resolve(root, entry))) {
+      throw new SetupError(`${entry} is not a file in ${shown(cwd, root)}. Name the file where the app renders, relative to that folder.`);
+    }
     const planned = target === "cloud" ? CLOUD_BACKEND_URL : target === "own-convex" ? "https://example.convex.cloud" : target;
     const precheck = connect("p".repeat(32), planned, { dryRun: true, entry, mount });
-    if (!precheck.ok) throw new SetupError(precheck.message.replaceAll("p".repeat(32), "<the new project ID>"));
-    // Environment-backed wiring that is already in place leaves the source as it is.
-    if (wiring.mode !== "env" || precheck.changed.length > 0) {
+    if (!precheck.ok) {
+      const message = precheck.message.replaceAll("p".repeat(32), "<the new project ID>");
+      if (message.startsWith("Can't write")) throw new SetupError(message.replace(/\.$/, "; no project was created."));
+      throw new SetupError(precheck.reason === "manual" && !wiring.detected ? `${message}\n${UNRECOGNIZED}` : message);
+    }
+    // Wiring that is already in place leaves the source as it is.
+    for (const write of precheck.writes) {
       try {
-        accessSync(precheck.file, constants.W_OK);
+        checkWritable(write.file);
       } catch {
-        throw new SetupError(`Can't write ${shown(cwd, precheck.file)}. Check the file's permissions, then run setup again; no project was created.`);
+        throw new SetupError(`Can't write ${shown(cwd, write.file)}. Check the file's permissions, then run setup again; no project was created.`);
       }
     }
   }
@@ -1018,13 +892,14 @@ export async function beginSetup({
   } else backendUrl = target;
   if (backendUrl.startsWith("/")) {
     throw new SetupError(
-      `The app uses Critiqs inside its own server at ${backendUrl}. ${existing !== null ? "Change this project's review address" : "Create a new project"} in the Critiqs sidebar on the running app${existing !== null ? "." : `, then set its projectId on the existing component, keeping backend=${JSON.stringify(backendUrl)}.`} No Cloud project was created.`,
+      `The app uses Critiqs inside its own server at ${backendUrl}. ${existing !== null ? "Change this project's review address" : "Create a new project"} in the Critiqs sidebar on the running app${existing !== null ? "." : `, then run npx critiqs init <projectId> to write its ID, keeping the backend setting ${JSON.stringify(backendUrl)}.`} No Cloud project was created.`,
     );
   }
   const backend = await resolveBackend(backendUrl, { fetchFn });
   if (backend.transport === "http") {
     throw new SetupError(
-      `${backend.backendUrl} is Critiqs inside your app's own server. Set backend=${JSON.stringify(backend.backendUrl)} on the existing Critiqs component. If the app has none, import { Critiqs } from "critiqs-react" and add ${componentSnippet({ backend: backend.backendUrl })} once. Create the project in its Critiqs sidebar, then set its projectId on that same component, keeping its backend.`,
+      `${backend.backendUrl} is Critiqs inside your app's own server. Give the app's Critiqs the backend setting ${JSON.stringify(backend.backendUrl)}: on the existing one, or if the app has none, add Critiqs once with only that setting (${wiring.adapter.name}: ${packageOf(wiring.adapter)}). ` +
+        "Create the project in its Critiqs sidebar on the running app, then run npx critiqs init <projectId> to write its ID, keeping the backend.",
     );
   }
 
@@ -1068,17 +943,15 @@ export async function beginSetup({
             throw new SetupError("Couldn't check your existing projects. Run setup again when the backend is reachable; no new project was created.");
           }
           if (mine.length > 1) {
+            const placement = entry === null ? "where the app renders" : `in ${shown(cwd, resolve(root, entry))}${mount === null ? "" : ` beside <${mount}>`}`;
             throw new SetupError(
               `You already have ${mine.length} projects named "${projectName}". No project or source was changed. ` +
+                `Choose one and add Critiqs ${placement} with its ID, preserving the backend; update an existing Critiqs setup instead of adding another` +
+                (wiring.mode === "env" ? `, and set ${wiring.env.variable} to that project's ID in this app's ${envTargetOf(wiring).local === null ? "environment" : shown(cwd, envTargetOf(wiring).local)}` : "") +
+                ". Or pass --new-project to create another.\n" +
                 (wiring.mode === "env"
-                  ? `Choose one project below: add the import and component where the app renders (once; update an existing Critiqs component instead of adding another), preserving the backend, and set ${wiring.variable} to that project's ID in this app's .env.local. `
-                  : "Choose one complete connection below and add its import and component where the app renders, preserving the backend. Update an existing Critiqs component instead of adding another. ") +
-                (entry === null ? "" : `Use ${shown(cwd, resolve(root, entry))}${mount === null ? "" : ` beside <${mount}>`}. `) +
-                "Or pass --new-project to create another.\n" +
-                'import { Critiqs } from "critiqs-react";\n' +
-                (wiring.mode === "env"
-                  ? `${componentSnippet(props(mine[0]._id, backend.backendUrl))}\n${mine.map((project) => `${wiring.variable}=${project._id}`).join("\n")}`
-                  : mine.map((project) => componentSnippet(props(project._id, backend.backendUrl))).join("\n")),
+                  ? `${wiring.adapter.manual(settings(mine[0]._id, backend.backendUrl))}\n${mine.map((project) => `${wiring.env.variable}=${project._id}`).join("\n")}`
+                  : mine.map((project) => `For ${project._id}:\n${wiring.adapter.manual(settings(project._id, backend.backendUrl))}`).join("\n\n")),
             );
           }
           if (mine.length === 1) {

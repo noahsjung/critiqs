@@ -1,10 +1,24 @@
 # Setting up Critiqs: instructions for coding agents
 
-Critiqs lets reviewers comment directly on a running React prototype. It is one
-component, `<Critiqs />`, from the `critiqs-react` package, and works in any
-React 18 or 19 app: Vite, Create React App, Next.js (App Router or Pages
-Router), server-rendered apps, and custom setups. The command line is enough;
-the MCP server (step 5) is optional.
+Critiqs lets reviewers comment directly on a running prototype. Each framework
+has a small Critiqs package that builds on the shared `critiqs` package, and
+one setup command, `critiqs`, sets up any of them:
+
+| Framework | Package |
+| --- | --- |
+| React, Next.js | `critiqs-react` |
+| Vue | `critiqs-vue` |
+| Nuxt | `critiqs-nuxt` |
+| Svelte, SvelteKit | `critiqs-svelte` |
+| Angular | `critiqs-angular` |
+| Astro | `critiqs-astro` |
+| Solid | `critiqs-solid` |
+| Ruby on Rails | the `critiqs-rails` gem |
+| Django | `django-critiqs` on PyPI |
+| Flask | `flask-critiqs` on PyPI |
+
+A page with no build at all uses `<critiqs-app>` from `critiqs` itself; see its
+README. The command line is enough; the MCP server (step 5) is optional.
 
 The setup CLI supports Node.js 20 or later. For the optional embedded SQLite
 server use Node.js 22.13 or later, or Bun. Node.js 20 can build the browser
@@ -14,37 +28,44 @@ Never ask the person to paste keys, tokens, or sign-in codes into the
 conversation. Critiqs Cloud, the default, needs none. AI is optional: don't set
 it up unless asked.
 
-## 1. Install the package
+## 1. Run setup
 
-Use the project's own package manager, as its lockfile shows:
+Run the commands below in the app's folder (the one with its `package.json`,
+`Gemfile`, or `manage.py`), or pass `--dir <folder>`. Use `npx critiqs …` (or
+`pnpm dlx critiqs`, `yarn dlx critiqs`, `bunx critiqs`). In an app that already has `critiqs-react`,
+`npx critiqs-react …` runs the same command, so existing instructions keep
+working.
 
-```sh
-npm install critiqs-react      # pnpm add / yarn add / bun add critiqs-react
-```
-
-Run the commands below in the app's folder (the one with its `package.json`),
-or pass `--dir <folder>`. Use `npx critiqs-react …` (or `pnpm exec`, `yarn`,
-`bunx`); the command inside the package is named `critiqs`.
+Setup finds the app's framework from its `package.json`, `Gemfile`, or
+`manage.py` and `requirements.txt`. Critiqs the code already has comes first:
+setup updates it whatever the framework (such as `critiqs-react` in an Astro
+app's React island), and changes nothing when two framework packages each set
+it up. When the app doesn't list the framework's Critiqs package yet, setup
+says which one to install, with the command for the project's package manager
+(as its lockfile shows), naming the app when run from elsewhere in its
+workspace. Install it: setup adds the code that uses it, not the package.
 
 **Monorepos:** each app gets its own project. Run init once per app with
 `--dir apps/<app>`; at the workspace root, init lists the apps with these exact
 commands and changes nothing. Ask the person which apps should have Critiqs;
 never connect two apps to one project unless they ask for that.
 
-## 2. Add the component and create the project
+## 2. Add Critiqs and create the project
 
 ```sh
-npx critiqs-react init --json
+npx critiqs init --json
 ```
 
-Init adds `<Critiqs />` and its import where the app renders: beside `<App />`
-in a `createRoot(…).render(…)` or `ReactDOM.render(…)` call, inside `<body>` in
-a Next.js `app/layout.tsx` (the layout stays a server component; the package
-declares the client boundary), beside `<Component {...pageProps} />` in
-`pages/_app.tsx`, or beside the element `hydrateRoot` receives. For other
-structures, name the file and element:
-`npx critiqs-react init --entry src/Shell.tsx --mount Outlet`. Preview with
-`npx critiqs-react init <projectId> --dry-run` when the project already exists.
+Init adds the framework's Critiqs component or tag, and its import, where the
+app renders. In React it goes beside `<App />` in a `createRoot(…).render(…)`
+or `ReactDOM.render(…)` call, or beside the element `hydrateRoot` receives; in
+Next.js inside `<body>` in `app/layout.tsx` (the layout stays a server
+component; the package declares the client boundary), or beside
+`<Component {...pageProps} />` in `pages/_app.tsx`. Each framework package's
+README says where it goes there. For other structures, name the file:
+`npx critiqs init --entry src/Shell.tsx`, and in React and Next.js the element
+to add it beside: `--mount Outlet`. Preview with
+`npx critiqs init <projectId> --dry-run` when the project already exists.
 
 Then init signs the person in and creates the project:
 
@@ -58,22 +79,28 @@ Then init signs the person in and creates the project:
 
 With `--json`, standard output is one JSON object; progress, including the
 address and code, goes to standard error. The result's `stages` say where
-setup stands: `Code`, `Project`, `Try it locally`, and `Reviewers elsewhere`,
-each `pass`, `warn`, `fail`, or `next`. Report them to the person, including
-any `warn` (such as a missing review address) and every `next` step they must
-take themselves (run the dev server, deploy).
+setup stands: `Code`, `Project`, `Finish setup` (when the framework's package
+still needs installing, or the framework has another step), `Try it locally`,
+and `Reviewers elsewhere`, each `pass`, `warn`, `fail`, or `next`. Report them
+to the person, including any `warn` (such as a missing review address), and
+take or report every `next` step (install the package, run the dev server,
+deploy).
 
-In a Vite or Next.js app, init makes the component read the app's public
-variable, `<Critiqs projectId={import.meta.env.VITE_CRITIQS_PROJECT_ID} requireProjectId />`
-(`process.env.NEXT_PUBLIC_CRITIQS_PROJECT_ID` in Next.js; workspace apps get a
-name with the app's suffix, such as `VITE_CRITIQS_PROJECT_ID_ADMIN`), sets it
-in the app's `.env.local`, and lists it empty in `.env.example`. The result's
-`env` names the variable and file, and the `Deployments` stage says what to
-do: commit the code change but not `.env.local`, and tell the person to set the
-variable in the build settings of each deployment that should show Critiqs,
-leaving it unset where Critiqs shouldn't appear. The value is built into the
-app, so changing it needs a rebuild. Other builds get the ID written into the
-component; commit it. The project ID is public configuration, not a secret.
+Where the framework has a public environment variable, init makes Critiqs read
+its project ID from it, sets it in the app's local `.env` file, and lists it
+empty in `.env.example`. In a Vite app (React, Vue, Svelte, Solid) it is
+`VITE_CRITIQS_PROJECT_ID`, in Next.js `NEXT_PUBLIC_CRITIQS_PROJECT_ID`, and
+each framework's package README names its own; workspace apps get a name with
+the app's suffix, such as `VITE_CRITIQS_PROJECT_ID_ADMIN`. A React app then
+has `<Critiqs projectId={import.meta.env.VITE_CRITIQS_PROJECT_ID} requireProjectId />`.
+The result's `env` names the variable and file, and the `Deployments` stage
+says what to do: commit the code change but not the local `.env` file, and tell
+the person to set the variable in the settings of each deployment that should
+show Critiqs, leaving it unset where Critiqs shouldn't appear. A variable read
+when the app is built needs a rebuild after it changes. Server frameworks
+(Rails, Django, Flask) read it from the server's environment instead. Other
+apps get the ID written into the code; commit it. The project ID is public
+configuration, not a secret.
 
 Running init again is safe: it keeps the project the code names (a literal ID,
 or the variable's value in `.env` files), and after an interrupted run it
@@ -82,13 +109,13 @@ the person wants another project. Init never edits code that computes the ID,
 or a wrapper the person wrote; it prints what to set instead.
 
 If the person already has a project ID, connect it instead:
-`npx critiqs-react init <projectId>` (no sign-in needed). It sets the variable
-when the component reads one.
+`npx critiqs init <projectId>` (no sign-in needed). It sets the variable
+when Critiqs reads one.
 
 ## 3. Check the setup
 
 ```sh
-npx critiqs-react doctor --json
+npx critiqs doctor --json
 ```
 
 `ok` is false when any check `fail`s. Each check has a `stage` (`code`,
@@ -101,13 +128,13 @@ ID, doctor checks the value in this computer's `.env` files against the
 backend; it can't see a deployment's build settings, and says so in the
 `Deployments` check.
 If setup used `--project-env-file`, pass the same file to doctor, for example
-`npx critiqs-react doctor --project-env-file config/.env.local --json` (or `envFile`
+`npx critiqs doctor --project-env-file config/.env.local --json` (or `envFile`
 on `critiqs_doctor`). If the environment directory cannot be determined,
 doctor reports that uncertainty instead of saying the app is disabled.
 
 Once the prototype is deployed, record its address, including any path, so
 mention emails from every copy open it:
-`npx critiqs-react init --review-url https://<deployed address>`. Don't guess
+`npx critiqs init --review-url https://<deployed address>`. Don't guess
 it from a local, private, or Tailscale address; ask the person if unsure. Then ask
 the person to open the deployed prototype and leave a comment.
 
@@ -115,17 +142,20 @@ the person to open the deployed prototype and leave a comment.
 
 | Output | Do this |
 | --- | --- |
-| `Init didn't find where the app renders` | Find the file that renders the app's root and rerun with `--entry <file>` (and `--mount <Element>`), or add `<Critiqs />` there by hand and rerun init. |
+| `Init didn't find where the app renders` | Find the file that renders the app's root and rerun with `--entry <file>` (and in React, `--mount <Element>`), or add Critiqs there by hand as the printed instructions say and rerun init. |
+| `Setup didn't recognize this app's framework` | Check the app's folder (`--dir`) and that its `package.json`, `Gemfile`, or Python requirements list the framework. In a page without a build, use `<critiqs-app>` from `critiqs`. |
 | `Found several places the app could render Critiqs` | Ask which app this is; rerun with `--entry`, or in that app's folder. |
 | `is a workspace with … apps` | Ask which apps should have Critiqs; run the printed `--dir` command for each. |
 | `sets envDir in a way init can't follow` | Find the `.env.local` the app's Vite config loads and rerun with `--project-env-file <file>`, relative to the app. |
-| `sets envPrefix` | Give `<Critiqs />` `projectId={import.meta.env.<name with the app's prefix>} requireProjectId`, then rerun init. |
-| `Couldn't write .env.local` after the project was created | Add the printed `NAME=<project ID>` line to that file; the project and component already exist. |
+| `sets envPrefix` | In this Vite app, give `<Critiqs />` `projectId={import.meta.env.<name with the app's prefix>} requireProjectId`, then rerun init. |
+| `Couldn't write .env.local` after the project was created | Add the printed `NAME=<project ID>` line to that file; the project and the code change already exist. |
 | `uses Critiqs under another name` | Critiqs is already mounted there; set the printed properties on it by hand. |
+| `already loads … in a way setup can't read` | Critiqs is already on the page another way (a namespace import, a re-export, `mountCritiqs`, or a router helper). Ask whether to keep it: set its project ID by hand, or remove it and rerun init. |
+| `several … config files` | Ask which config file the app uses; remove the others, then rerun init. |
 | `sets projectId from code` | The code computes the ID (a wrapper or fallback); init leaves it alone. Put the printed ID where that code reads it, without making it secret. |
-| `doesn't support approving setup from another device yet` | Run init where a browser can open, using the chosen backend, or create the project in the matching prototype's Critiqs sidebar and update its existing component's projectId while keeping its backend. |
+| `doesn't support approving setup from another device yet` | Run init where a browser can open, using the chosen backend, or create the project in the matching prototype's Critiqs sidebar, then run `npx critiqs init <projectId>`, which keeps its backend. |
 | `Setup was denied` or `The setup code expired` | Run init again; nothing was created. |
-| Source became unreadable or unwritable after approval | Keep the returned project ID and backend. Restore access, then apply the complete snippet at its indicated entry/mount, and the `.env` line it names. Update an existing component; do not use an ID-only command that would lose the selected backend. |
+| Source became unreadable or unwritable after approval | Keep the returned project ID and backend. Restore access, then apply the complete instructions it printed, at the file it names, and the `.env` line. Update an existing Critiqs setup; do not use an ID-only command that would lose the selected backend. |
 | `The code already uses project …` | Nothing changed. Use `--review-url` to set its address, or `--new-project` only if asked. |
 | `Critiqs Cloud isn't ready for this version` | The hosted backend is older than the package; tell the person. Don't switch backends without asking. |
 
@@ -137,10 +167,13 @@ configuration, with any keys in its environment rather than in tool calls:
 ```json
 {
   "mcpServers": {
-    "critiqs": { "command": "npx", "args": ["critiqs-react", "mcp"] }
+    "critiqs": { "command": "npx", "args": ["critiqs", "mcp"] }
   }
 }
 ```
+
+A configuration with `"args": ["critiqs-react", "mcp"]` keeps working: it runs
+the same server.
 
 - `critiqs_setup_start` (`signIn`: `"auto"`, `"browser"`, or `"remote"`;
   `entry`, `mount`, `name`, `reviewUrl`, `newProject`, `dir`, `envFile`; `target`:
@@ -157,18 +190,20 @@ configuration, with any keys in its environment rather than in tool calls:
 
 These are separate from basic setup; skip them unless the person asks.
 
-- **Context:** `version`, `getContext`, and `restoreContext` properties record
-  and restore the prototype's view state; see the package README.
-- **The team's own Convex deployment:** `npx critiqs-react init --own-convex`.
+- **Context:** the `version`, `getContext`, and `restoreContext` settings
+  record and restore the prototype's view state; see the framework package's
+  README.
+- **The team's own Convex deployment:** `npx critiqs init --own-convex`.
   It needs `CONVEX_DEPLOY_KEY`, a production deploy key the person sets in the
   environment themselves; `RESEND_API_KEY` and `CRITIQS_EMAIL_FROM` are
-  optional and turn on mention emails. It also writes
-  `backend="https://<deployment>.convex.cloud"`.
-- **Inside the app's own Node or Bun server:** `critiqs-react/server` runs
-  Critiqs on SQLite; see the package README. Pass the mounted path as
-  `backend` (for example `backend="/critiqs"`), create the project in the
-  Critiqs sidebar, and write its ID with `npx critiqs-react init <projectId>`.
-  `npx critiqs-react doctor --backend http://localhost:<port>/critiqs` checks it.
+  optional and turn on mention emails. It also sets Critiqs's backend setting
+  to `https://<deployment>.convex.cloud` in the code.
+- **Inside the app's own Node or Bun server:** `critiqs/server` (also
+  `critiqs-react/server`) runs Critiqs on SQLite; see the `critiqs-react`
+  README. Set the mounted path as Critiqs's backend setting (for example
+  `/critiqs`), create the project in the
+  Critiqs sidebar, and write its ID with `npx critiqs init <projectId>`.
+  `npx critiqs doctor --backend http://localhost:<port>/critiqs` checks it.
 - **AI:** works without any setup in the host app. On the team's own Convex
   deployment, the person can set `CRITIQS_AI_ENCRYPTION_KEY` (32 or more random
   characters, such as from `openssl rand -base64 32`) with `npx convex env set
@@ -187,9 +222,9 @@ app's own server.
    also open the approval page on this computer, or `"remote"`; `backend` when
    not on Critiqs Cloud). Give the person the address and code exactly, as in
    setup, then call `critiqs_sign_in_finish` until it reports who signed in.
-   People can instead run `npx critiqs-react sign-in`. The sign-in is kept on the
+   People can instead run `npx critiqs sign-in`. The sign-in is kept on the
    computer, readable only by its user, and is reused by later sessions until
-   `critiqs_sign_out` (or `npx critiqs-react sign-out`), 30 days without use,
+   `critiqs_sign_out` (or `npx critiqs sign-out`), 30 days without use,
    or 90 days. Never ask for the code the person receives by email.
 2. **`critiqs_comments`** (`projectId`, required; `status`: `"open"` by
    default, `"resolved"`, or `"all"`; `author`: a display name or an author ID;
@@ -253,8 +288,8 @@ app's own server.
 
 ## What not to do
 
-- Don't add a second `<Critiqs />`, or wrap the app in Critiqs providers or
-  `"use client"` boundaries; the package handles its own.
+- Don't add a second Critiqs component or tag, or wrap the app in Critiqs
+  providers or `"use client"` boundaries; the package handles its own.
 - Don't put keys in source files, tool arguments, the conversation, or the
   prototype's browser code or build settings: AI and email keys belong on the
   backend only.
@@ -262,6 +297,6 @@ app's own server.
   which feedback a copy (local, preview, deployed) shows; a preview never
   changes the project's review address unless someone runs `--review-url` for
   it.
-- Don't commit `.env.local`, copy one app's project ID into another app's
+- Don't commit the local `.env` file (such as `.env.local`), copy one app's project ID into another app's
   variable, or set one generic `VITE_CRITIQS_PROJECT_ID` for a build that
   builds several apps.

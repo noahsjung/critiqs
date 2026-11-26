@@ -2,7 +2,7 @@ import { afterEach, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTools } from "../../react/bin/mcp.mjs";
+import { createTools } from "../../critiqs/bin/mcp.mjs";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { anchor, reviewer, setup } from "./harness";

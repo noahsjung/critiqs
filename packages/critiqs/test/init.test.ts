@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { findCritiqsElements, findSourceFiles, isValidProjectId, planProjectId, runInit } from "../bin/init.mjs";
+import { findCritiqsElements, findSourceFiles, planProjectId } from "../bin/frameworks/jsx.mjs";
+import { isValidProjectId, runInit } from "../bin/init.mjs";
 
 const ID = "k57a2b3c4d5e6f7g8h9j0k1m2n3p4q5r";
 const IMPORT = 'import { Critiqs } from "critiqs-react";\n';
@@ -257,7 +258,7 @@ test("adds Critiqs inside a Vite app's root, keeping its quotes and other code",
   const dir = project({ "src/main.tsx": VITE_MAIN, "src/App.tsx": "export default function App() { return <main />; }\n" });
   const { code, output } = run(dir);
   expect(code).toBe(0);
-  expect(output).toContain("(React root), importing it from critiqs-react:");
+  expect(output).toContain("Added Critiqs to src/main.tsx:10:");
   expect(read(dir, "src/main.tsx")).toBe(
     VITE_MAIN.replace("import App from './App.tsx'\n", "import { Critiqs } from 'critiqs-react'\nimport App from './App.tsx'\n")
       .replace("<StrictMode>", "<><StrictMode>")
@@ -288,7 +289,7 @@ test("adds Critiqs to a Next.js root layout's body, keeping it a server componen
   const dir = project({ "app/layout.tsx": layout, "app/page.tsx": "export default function Page() { return <h1>Hi</h1>; }\n", "app/blog/layout.tsx": layout });
   const { code, output } = run(dir);
   expect(code).toBe(0);
-  expect(output).toContain("(Next.js root layout)");
+  expect(output).toContain("Added Critiqs to app/layout.tsx:9:");
   const edited = read(dir, "app/layout.tsx");
   expect(edited).toContain(`        {children}\n        <Critiqs projectId="${ID}" />\n      </body>`);
   expect(edited).not.toContain("use client");
@@ -320,7 +321,7 @@ test("server-rendered roots, and a chosen entry and element for custom apps", ()
   expect(run(custom, "--entry", "src/missing.tsx")).toMatchObject({ code: 2, output: expect.stringContaining("is not a file") });
   const dry = run(custom, "--entry", "src/Shell.tsx", "--mount", "Outlet", "--dry-run");
   expect(dry.code).toBe(0);
-  expect(dry.output).toContain("Would add <Critiqs /> to src/Shell.tsx");
+  expect(dry.output).toContain("Would add Critiqs to src/Shell.tsx");
   expect(dry.output).toContain(`+       <><Outlet /><Critiqs projectId="${ID}" /></>`);
   expect(read(custom, "src/Shell.tsx")).toBe(shell);
   expect(run(custom, "--entry", "src/Shell.tsx", "--mount", "Outlet").code).toBe(0);
@@ -337,9 +338,9 @@ test("refuses, changing nothing, when where to add Critiqs is unclear", () => {
   expect(several.code).toBe(1);
   expect(several.output).toContain("Found 2 places the app could render Critiqs, so nothing was changed:\n  a/main.tsx:2 (React root)\n  b/main.tsx:2 (React root)");
   expect(read(two, "a/main.tsx")).toBe(main);
-  // Critiqs used under another name or re-exported: adding one would make two.
+  // Critiqs re-exported or loaded another way: adding one would make two.
   for (const other of [
-    `import { Critiqs as Feedback } from "critiqs-react";\nexport const F = () => <Feedback />;\n`,
+    `import { Critiqs as Feedback } from "critiqs-react";\nexport { Feedback };\n`,
     `export { Critiqs } from "critiqs-react";\n`,
     `import * as critiqs from "critiqs-react";\nexport const F = () => <critiqs.Critiqs />;\n`,
   ]) {
@@ -413,4 +414,24 @@ test("a non-self-closing app that ignores children still renders Critiqs as its 
   );
   expect(mounted).toBe(1);
   expect(markup).toBe("<main>Host</main><i>Critiqs mounted</i>");
+});
+
+test("Critiqs imported under another name is the one init updates", () => {
+  const feedback = `import { Critiqs as Feedback } from "critiqs-react";\nexport const F = () => <Feedback projectId="old" />;\n`;
+  expect(findCritiqsElements(feedback).map((element) => element.line)).toEqual([2]);
+  const main = `import { createRoot } from "react-dom/client";\ncreateRoot(document.body).render(<App />);\n`;
+  const dir = project({ "src/main.tsx": main, "src/feedback.tsx": feedback });
+  expect(run(dir)).toEqual({ code: 0, output: "Set the project ID in src/feedback.tsx:2." });
+  expect(read(dir, "src/feedback.tsx")).toBe(feedback.replace('"old"', `"${ID}"`));
+  expect(read(dir, "src/main.tsx")).toBe(main);
+  expect(run(dir)).toEqual({ code: 0, output: "src/feedback.tsx:2 already uses this project ID." });
+  // Only an import from critiqs-react names it; a local component of that name isn't Critiqs.
+  expect(findCritiqsElements(`import { Critiqs as Feedback } from "./critiqs";\nexport const F = () => <Feedback />;\n`)).toEqual([]);
+});
+
+test("Critiqs imported but not rendered yet in the root's file is used there, not counted as a second one", () => {
+  const main = `import { createRoot } from "react-dom/client";\nimport { Critiqs } from "critiqs-react";\ncreateRoot(document.body).render(<App />);\n`;
+  const dir = project({ "src/main.tsx": main });
+  expect(run(dir).code).toBe(0);
+  expect(read(dir, "src/main.tsx")).toBe(main.replace("<App />", `<><App /><Critiqs projectId="${ID}" /></>`));
 });

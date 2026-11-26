@@ -1,16 +1,14 @@
-// Next.js setup. Stub: detection only, until this framework's setup is automated.
-import { dependsOn, describeProjectId, manualPlan, readText } from "./shared.mjs";
+// Next.js setup: adds <Critiqs /> from critiqs-react inside <body> in the App
+// Router's root layout, or beside <Component {...pageProps} /> in the Pages
+// Router's custom App. The app reads its project ID from
+// NEXT_PUBLIC_CRITIQS_PROJECT_ID.
+import { configFile, jsxAdapter } from "./jsx.mjs";
+import { dependsOn } from "./shared.mjs";
 
 /** @type {import("./types.d.mts").FrameworkAdapter} */
-export const next = {
+export const next = jsxAdapter({
   id: "next",
   name: "Next.js",
-  install: { ecosystem: "npm", packages: ["critiqs-react"] },
-  detect: (root) => dependsOn(root, "next"),
-  env: () => null,
-  find: () => [],
-  plan(root, settings) {
-    return manualPlan(next, settings);
-  },
-  manual: (settings) => `Add Critiqs to this Next.js app with project ID ${describeProjectId(settings)}; see the critiqs-react README.`,
-};
+  detect: (root) => dependsOn(root, "next") || configFile(root, "next") !== null,
+  build: () => "next",
+});

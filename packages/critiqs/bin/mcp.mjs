@@ -12,9 +12,9 @@ import { beginSignIn, listComments, listMockups, postReply, readMockup, readScre
 import { runInit } from "./init.mjs";
 import { beginSetup, CLOUD_BACKEND_URL, doctor, doctorReport, openBrowser, readiness, SetupError } from "./setup.mjs";
 
-const INSTRUCTIONS = `Critiqs adds review comments to a running React prototype through one <Critiqs /> component from the critiqs-react package.
-To set it up: install critiqs-react with the project's package manager, then call critiqs_setup_start. It adds <Critiqs /> where the app renders when the code has none (or name the file with entry), and keeps a project the code already names.
-In Vite and Next.js apps the component reads its project ID from the app's public environment variable, which setup sets in .env.local; each deployment sets its own, and copies without one show nothing. In a workspace (monorepo), pass the app's folder as dir; each app gets its own project.
+const INSTRUCTIONS = `Critiqs adds review comments to a running prototype: a React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, or Flask app, through that framework's Critiqs package (critiqs-react, critiqs-vue, the critiqs-rails gem, …), which builds on the shared critiqs package.
+To set it up, call critiqs_setup_start. It finds the app's framework, adds the Critiqs component or tag where the app renders when the code has none (or name the file with entry), and keeps a project the code already names. Its result names the framework's package when the app doesn't list it yet: install it with the project's package manager.
+Where the framework has a public environment variable (such as VITE_CRITIQS_PROJECT_ID), Critiqs reads its project ID from it, and setup sets it in the app's .env file; each deployment sets its own, and copies without one show nothing. In a workspace (monorepo), pass the app's folder as dir; each app gets its own project.
 It returns either an address to open on this computer, or, with signIn "remote", an address and a short code the person can approve from any device. Pass them on exactly; then call critiqs_setup_finish until it reports the project.
 Critiqs Cloud needs no keys. For the team's own Convex deployment, CONVEX_DEPLOY_KEY must be set in this MCP server's environment; never ask for keys in the conversation.
 Call critiqs_doctor afterwards to check the setup. AI is optional; comments work without it.
@@ -25,13 +25,13 @@ const backendProperty = { type: "string", description: "The Critiqs backend's UR
 const threadProperty = { type: "string", description: "The thread's ID, or a Critiqs link to it or one of its messages (a URL with ?critiqs=…)." };
 
 const dirProperty = { type: "string", description: "The app's folder, relative to the project root. Default: the project root. In a workspace, name one app's folder." };
-const envFileProperty = { type: "string", description: "The .env file setup writes or doctor checks, relative to dir, when the app reads its project ID from the environment. Default: the app's .env.local." };
+const envFileProperty = { type: "string", description: "The .env file setup writes or doctor checks, relative to dir, when the app reads its project ID from the environment. Default: the framework's, such as .env.local." };
 
 export const TOOLS = [
   {
     name: "critiqs_setup_start",
     description:
-      "Starts setting up Critiqs for the prototype: checks the code can take <Critiqs /> (adding it where the app renders when there is none), keeps a project the code already names, deploys to the team's own Convex when asked, and starts sign-in. Returns the address (and, for remote approval, the code) for the person.",
+      "Starts setting up Critiqs for the prototype: finds the app's framework, checks the code can take Critiqs (adding the Critiqs component or tag where the app renders when there is none), keeps a project the code already names, deploys to the team's own Convex when asked, and starts sign-in. Returns the address (and, for remote approval, the code) for the person.",
     inputSchema: {
       type: "object",
       properties: {
@@ -51,8 +51,8 @@ export const TOOLS = [
           description:
             '"browser" opens sign-in on this computer; "remote" returns an address and a code the person approves from a browser on any device (for remote machines and cloud agents). Default "auto": remote when this computer seems to have no browser.',
         },
-        entry: { type: "string", description: "The file where the app renders, relative to dir, when the code has no <Critiqs /> yet." },
-        mount: { type: "string", description: "The element in entry to add <Critiqs /> beside, such as App." },
+        entry: { type: "string", description: "The file where the app renders, relative to dir, when the code has no Critiqs yet." },
+        mount: { type: "string", description: "React and Next.js: the element in entry to add Critiqs beside, such as App." },
         newProject: { type: "boolean", description: "Create a new project even if the code or the person's account already has one with this name." },
         envFile: envFileProperty,
       },
@@ -61,7 +61,7 @@ export const TOOLS = [
   {
     name: "critiqs_setup_finish",
     description:
-      "Waits for the person to sign in or approve from critiqs_setup_start, then reuses their project with this name or creates one, and writes its ID (and backend, unless Critiqs Cloud) into the code. Reports each stage: code, project, trying it locally, and reviewers elsewhere. Call again while it reports waiting.",
+      "Waits for the person to sign in or approve from critiqs_setup_start, then reuses their project with this name or creates one, and writes its ID (and backend, unless Critiqs Cloud) into the code. Reports each stage: code, project, finishing setup (such as installing the framework's Critiqs package), trying it locally, and reviewers elsewhere. Call again while it reports waiting.",
     inputSchema: {
       type: "object",
       properties: { waitSeconds: { type: "number", description: "How long to wait for sign-in, up to 50 seconds. Default 45." } },
@@ -70,15 +70,15 @@ export const TOOLS = [
   {
     name: "critiqs_write_project_id",
     description:
-      "Connects the prototype's <Critiqs /> component to an existing Critiqs project, adding the component where the app renders when there is none. In Vite and Next.js apps it sets the app's environment variable in .env.local; otherwise it writes the ID into the component.",
+      "Connects the prototype's Critiqs to an existing Critiqs project, adding the Critiqs component or tag where the app renders when there is none. Where the framework has a public environment variable, it sets it in the app's .env file; otherwise it writes the ID into the code.",
     inputSchema: {
       type: "object",
       properties: {
         projectId: { type: "string", description: "The project ID from project setup in the Critiqs sidebar." },
         dir: dirProperty,
         dryRun: { type: "boolean", description: "Show the change without writing it." },
-        entry: { type: "string", description: "The file where the app renders, relative to dir, when the code has no <Critiqs /> yet." },
-        mount: { type: "string", description: "The element in entry to add <Critiqs /> beside, such as App." },
+        entry: { type: "string", description: "The file where the app renders, relative to dir, when the code has no Critiqs yet." },
+        mount: { type: "string", description: "React and Next.js: the element in entry to add Critiqs beside, such as App." },
         envFile: envFileProperty,
       },
       required: ["projectId"],
@@ -87,7 +87,7 @@ export const TOOLS = [
   {
     name: "critiqs_doctor",
     description:
-      "Checks the prototype's Critiqs setup: the component and its settings, the backend's version, sign-in, the project, its review address, and whether mention emails are going out. Each check says whether it read configuration or something the backend observed; it never sends email or posts a comment.",
+      "Checks the prototype's Critiqs setup: Critiqs in the code and its settings, the backend's version, sign-in, the project, its review address, and whether mention emails are going out. Each check says whether it read configuration or something the backend observed; it never sends email or posts a comment.",
     inputSchema: {
       type: "object",
       properties: { dir: dirProperty, envFile: envFileProperty, backend: { type: "string", description: "Check this backend URL instead of the one the code names." } },
@@ -283,7 +283,7 @@ export function createTools({ cwd = process.cwd(), env = process.env, open = ope
       const report = doctorReport(await doctor({ root: rootOf(args.dir), cwd, fetchFn, env, envFile: string(args.envFile) ?? null }));
       return {
         ...text(
-          `The code already uses Critiqs project ${setup.connected.projectId}${setup.connected.env ? ` (${setup.connected.env.name} in ${setup.connected.env.file})` : ""}, so nothing was created. Its checks:\n${lines(report.checks)}\n` +
+          `The code already uses Critiqs project ${setup.connected.projectId}${setup.connected.env ? ` (${setup.connected.env.name} in ${setup.connected.env.file ?? "this shell's environment"})` : ""}, so nothing was created. Its checks:\n${lines(report.checks)}\n` +
             "Call again with newProject: true only if the person wants a different project.",
           !report.ok,
         ),
@@ -335,7 +335,9 @@ export function createTools({ cwd = process.cwd(), env = process.env, open = ope
         `${result.reused ? "Reused" : "Created"} the Critiqs project "${result.projectName}" (${result.projectId}).\n${lines(stages)}` +
           (result.written.ok
             ? result.written.env
-              ? `\nCommit the code change, but not ${result.written.env.file}: each deployment sets ${result.written.env.name} itself.`
+              ? result.written.env.file === null
+                ? `\nCommit the code change: each deployment sets ${result.written.env.name} in its own environment.`
+                : `\nCommit the code change, but not ${result.written.env.file}: each deployment sets ${result.written.env.name} itself.`
               : "\nCommit the change so every copy of the prototype shares this project's feedback."
             : ""),
         !result.written.ok,
@@ -369,6 +371,7 @@ export function createTools({ cwd = process.cwd(), env = process.env, open = ope
       {
         cwd,
         print: (line) => output.push(line),
+        env,
       },
     );
     return text(output.join("\n"), code !== 0);

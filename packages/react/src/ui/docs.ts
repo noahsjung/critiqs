@@ -169,7 +169,7 @@ export const DOCS: DocTopic[] = [
     summary: "Connects this prototype to its Critiqs project, and sets where emails link to.",
     steps: [
       "Open it from the Project panel or your avatar menu: Project setup. A prototype without a project shows Set up Critiqs.",
-      "To set up: sign in, name the project, then add its projectId to the Critiqs component, or run npx critiqs-react init with the ID.",
+      "To set up: sign in, name the project, then run npx critiqs init with its ID in the prototype's folder, or give the Critiqs component or tag that project ID.",
       "If you are in more than one organization, choose which one the project goes in; it starts as your own.",
       "The project ID names the project; it is not a secret.",
       "Review address: the page mention emails link to. The person who created the project can change it here.",
