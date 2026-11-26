@@ -1,5 +1,5 @@
 import { canonicalHost, classifyAddress, REVIEW_FILE_TIMING, REVIEW_LIMITED_TIMING, REVIEW_REFUSED_TIMING, type ReviewFailure } from "@critiqs/core";
-import { type BuildSource, buildSource } from "./build-source.ts";
+import { type BuildFile, type BuildSource, buildSource } from "./build-source.ts";
 import { clientKey } from "./clients.ts";
 import type { ProxyConfig } from "./config.ts";
 import { rewriteCss } from "./css.ts";
@@ -31,8 +31,8 @@ import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from 
 // as a browser reads it, never from what the client says a request is for:
 // the only documents a frame host serves are the proxy's own pages. A shared
 // build's frame host (a `share` lease) goes through every one of those checks
-// too, then reads its files from the backend (build-source.ts) and never from
-// the network.
+// too, up to its read slot, then reads its files from the backend
+// (build-source.ts) and never from the network, served by the same rules.
 
 /** The two scripts put in every page, built by `scripts/build-assets.ts`. */
 export interface ProxyAssets {
@@ -126,7 +126,7 @@ type Handling = { kind: "page" } | { kind: "style"; imports: "style" | "import" 
  * A shared build's file: the backend typed it from its extension, and it is
  * served as it was uploaded. Its pages get the page layer and nothing else;
  * a stylesheet is never rewritten, so nothing it names is fetched by the
- * proxy.
+ * proxy; anything else passes through as a file that can't be a document.
  */
 type BuildRoute = { kind: "build" };
 
@@ -423,41 +423,29 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   }
 
   /**
-   * A shared build's file, after every check a live prototype's request
-   * passes: the lease's request window and read slots, then the backend's
-   * answer for this path now. Read from the backend, never the network.
+   * A shared build's file, once its request has passed every check a live
+   * prototype's request passes and holds its read slot: the backend's answer
+   * for this path now, read from the backend, never the network. A page is
+   * served like a live page (the page layer injected, nothing else changed);
+   * anything else gets `passHeaders`, so no file in a build, whatever its
+   * extension or type, can be a document in the frame.
    */
-  async function serveBuild(lease: ReviewResolution, label: string, url: URL, request: Request, asPage: boolean, head: boolean): Promise<Response> {
-    const spent = FILE_HINTS.has(hintOf(request)) ? fileBudget : pageBudget;
-    if (!spent.take(lease.leaseId)) return asPage ? limitedPage(spent.waitMs(lease.leaseId), head) : limitedFile(spent.waitMs(lease.leaseId));
-    const entry = usage.get(lease.linkId) ?? { requests: 0, bytes: 0 };
-    entry.requests++;
-    usage.set(lease.linkId, entry);
-    const release = await takeSlots(lease, new URL(lease.origin).hostname, false, request.signal);
-    if (release === null) return asPage ? failure("busy", head) : plain(503, "Busy", { "retry-after": "2" });
-    try {
-      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(limits.headersTimeoutMs + limits.bodyTimeoutMs)]);
-      const file = await builds.file(label, url.pathname, signal).catch(() => null);
-      if (file === null) return asPage ? failure("not-found", head) : plain(404, "");
-      count(lease, file.body.byteLength);
-      const handling = handlingOf({ kind: "build" }, hintOf(request), file.status, contentType(file.contentType), limits);
-      if (handling.kind === "page") {
-        const text = decodeHtml(file.body, charsetOf(file.contentType));
-        if (text === null) return failure("unsupported", head);
-        const html = injectPageLayer(text, lease.origin, { runtime: deps.assets.runtime.file, layer: deps.assets.layer.file, panelOrigins: config.webOrigins, finalPath: null });
-        return new Response(head ? null : html, {
-          status: file.status,
-          headers: common(new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", "content-security-policy": frameCsp(config.webOrigins) })),
-        });
-      }
-      if (handling.kind !== "pass" || file.body.byteLength > handling.cap) return plain(502, "");
-      return new Response(head ? null : file.body, {
-        status: file.status,
-        headers: common(new Headers({ "content-type": file.contentType, "content-length": String(file.body.byteLength), "cache-control": "private, no-store", etag: `"${file.sha256}"` })),
-      });
-    } finally {
-      release();
+  async function serveBuild(lease: ReviewResolution, file: BuildFile, hint: RequestClass, head: boolean): Promise<Response> {
+    count(lease, file.body.byteLength);
+    const type = contentType(file.contentType);
+    const handling = handlingOf({ kind: "build" }, hint, file.status, type, limits);
+    if (handling.kind === "page") {
+      const text = decodeHtml(file.body, charsetOf(file.contentType));
+      if (text === null) return failure("unsupported", head);
+      const html = injectPageLayer(text, lease.origin, { runtime: deps.assets.runtime.file, layer: deps.assets.layer.file, panelOrigins: config.webOrigins, finalPath: null });
+      return document(file.status, html, head);
     }
+    if (handling.kind !== "pass" || file.body.byteLength > handling.cap) return refusedFile(502);
+    const headers = passHeaders({}, type);
+    headers.set("content-length", String(file.body.byteLength));
+    headers.set("cache-control", "private, no-store");
+    headers.set("etag", `"${file.sha256}"`);
+    return new Response(head ? null : file.body, { status: file.status, headers });
   }
 
   /**
@@ -585,7 +573,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     }
     const head = request.method === "HEAD";
     // A shared build has only its own files: no other origin, signed asset, or leave notice.
-    if (lease.kind === "share") return route.kind === "primary" ? await serveBuild(lease, label, url, request, hintOf(request) === "document", head) : notFound();
+    if (lease.kind === "share" && route.kind !== "primary") return notFound();
     if (route.kind === "leave") return document(200, leavePage(route.to, false, config.webOrigins), head);
 
     // What the browser says the request is for, as a hint only (see `hintOf`).
@@ -619,6 +607,11 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const method = head ? "HEAD" : "GET";
     let streaming = false;
     try {
+      if (lease.kind === "share") {
+        const file = await builds.file(label, url.pathname, signal).catch(() => null);
+        if (file === null) return asPage ? failure("not-found", head) : plain(404, "");
+        return await serveBuild(lease, file, hint, head);
+      }
       const egress = route.kind === "asset" ? deps.egress.asset : deps.egress.primary;
       // The prototype's own data requests may carry its framework's headers, each checked by name and shape.
       const framework = route.kind === "primary" && hint === "data" ? frameworkHeaders(request.headers) : {};

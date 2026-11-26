@@ -102,12 +102,17 @@ are read-only and credential-free (GET and HEAD only, no cookies or
   browser couldn't read). `runtime/layer.ts` runs the page layer for the
   review page around the frame.
 - A shared build's frame host (`critiqs share`, a lease of kind `share`)
-  passes every check above, then `src/build-source.ts` asks the backend which
-  of the build's files the path is (`/internal/review/v1/build-file`, on every
-  request) and reads its bytes (`/internal/review/v1/build-blob`, kept by
-  SHA-256). It has no egress: nothing on that host reaches the network, signed
-  asset, slot and leave paths are 404, and pages get only the runtime shim and
-  page layer (`injectPageLayer`), nothing else rewritten.
+  passes every check above, including the lookup limit, the request and
+  prefetch windows and a read slot waited for in line, then
+  `src/build-source.ts` asks the backend which of the build's files the path
+  is (`/internal/review/v1/build-file`, on every request) and reads its bytes
+  (`/internal/review/v1/build-blob`, kept by SHA-256). It has no egress:
+  nothing on that host reaches the network, signed asset, slot and leave
+  paths are 404, and pages get only the runtime shim and page layer
+  (`injectPageLayer`), nothing else rewritten. Every other file is served
+  like any file the proxy passes through: only the type it read, as a
+  download if the frame navigates to it, and nosniff, so an SVG, XML or text
+  file in a build is never a page in the frame.
 
 `bun run serve` starts it (with `--max-http-header-size=65536`, so cookies a
 sibling frame host planted can't make it refuse requests).

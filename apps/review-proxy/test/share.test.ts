@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { REVIEW_REFUSED_TIMING } from "@critiqs/core";
+import { BUILD_TYPES } from "@critiqs/server/review-builds";
+import type { BuildSource } from "../src/build-source.ts";
 import { parseProxyConfig } from "../src/config.ts";
 import { memoryDirectory } from "../src/directory.ts";
 import type { Egress } from "../src/egress.ts";
@@ -42,20 +45,21 @@ function trap(): Egress & { calls: string[] } {
   } as Egress & { calls: string[] };
 }
 
-function setup(build: { spa?: boolean; files?: Record<string, string | Uint8Array<ArrayBuffer>> } = {}) {
+function setup(build: { spa?: boolean; files?: Record<string, string | Uint8Array<ArrayBuffer>>; builds?: BuildSource; config?: typeof config } = {}) {
   const directory = memoryDirectory([
     { label: LABEL, linkId: "link-share", leaseId: "lease-share", origin: ORIGIN, assetOrigins: [], expiresAt: Date.now() + 600_000, build: { spa: build.spa ?? false, files: build.files ?? FILES } },
   ]);
   const egress = { primary: trap(), asset: trap() };
-  const proxy = createReviewProxy(config, { directory, egress, assets: { runtime: { file: "runtime.0123456789abcdef.js", body: "/* runtime */" }, layer: { file: "layer.0123456789abcdef.js", body: "/* layer */" } } });
+  const proxy = createReviewProxy(build.config ?? config, { directory, egress, builds: build.builds, assets: { runtime: { file: "runtime.0123456789abcdef.js", body: "/* runtime */" }, layer: { file: "layer.0123456789abcdef.js", body: "/* layer */" } } });
   return { proxy, directory, egress };
 }
 
-const ask = (proxy: ReturnType<typeof setup>["proxy"], path: string, init: RequestInit & { dest?: string | null } = {}) => {
+const ask = (proxy: ReturnType<typeof setup>["proxy"], path: string, init: RequestInit & { dest?: string | null; host?: string; client?: string } = {}) => {
   const headers = new Headers(init.headers);
   if (init.dest !== null) headers.set("sec-fetch-dest", init.dest ?? "iframe");
-  headers.set("host", HOST);
-  return proxy.fetch(new Request(`http://${HOST}${path}`, { ...init, headers }));
+  const host = init.host ?? HOST;
+  headers.set("host", host);
+  return proxy.fetch(new Request(`http://${host}${path}`, { ...init, headers }), { client: init.client ?? "" });
 };
 
 describe("a shared build through the proxy", () => {
@@ -141,5 +145,157 @@ describe("a shared build through the proxy", () => {
     const response = await ask(proxy, "/");
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(await response.text()).not.toContain("ÿ");
+  });
+});
+
+/** What the frame's sandbox and the browser make of a file served to a navigation: it can't be a page unless it is the proxy's own rewritten one. */
+function cannotBeAPage(response: Response) {
+  return {
+    type: response.headers.get("content-type"),
+    attachment: response.headers.get("content-disposition"),
+    nosniff: response.headers.get("x-content-type-options"),
+    sandboxed: /\bsandbox\b/.test(response.headers.get("content-security-policy") ?? ""),
+  };
+}
+
+describe("a shared build is served by the proxy's response rules", () => {
+  test("every file type a static build carries loads as its own type, as a file a navigation can't open as a page", async () => {
+    const files: Record<string, string> = {};
+    for (const extension of Object.keys(BUILD_TYPES)) files[`f.${extension}`] = `file ${extension}`;
+    const { proxy } = setup({ files });
+    const dests: Record<string, string> = { html: "iframe", htm: "iframe", css: "style", js: "script", mjs: "script", json: "empty", webmanifest: "manifest", woff: "font", woff2: "font", ttf: "font", otf: "font", wasm: "empty", mp4: "video", webm: "video", mp3: "audio", txt: "empty", xml: "empty" };
+    for (const [extension, type] of Object.entries(BUILD_TYPES)) {
+      const response = await ask(proxy, `/f.${extension}`, { dest: dests[extension] ?? "image" });
+      const body = await response.text();
+      expect([extension, response.status, response.headers.get("x-content-type-options")]).toEqual([extension, 200, "nosniff"]);
+      if (extension === "html" || extension === "htm") {
+        // A page: the proxy's own, with the page layer and the frame's policy.
+        expect([extension, response.headers.get("content-type"), response.headers.get("content-disposition"), body.startsWith("<html><head><script src=\"/__critiqs/runtime.")]).toEqual([extension, "text/html; charset=utf-8", null, true]);
+        continue;
+      }
+      // Only the type the backend gave, exactly; the bytes as uploaded; a download if the frame navigates to it.
+      expect([extension, response.headers.get("content-type"), body, response.headers.get("content-disposition"), response.headers.get("content-length")]).toEqual([extension, type.replace(/; charset=utf-8$/, "; charset=utf-8"), `file ${extension}`, "attachment", String(`file ${extension}`.length)]);
+      expect([extension, cannotBeAPage(response).sandboxed]).toEqual([extension, true]);
+    }
+  });
+
+  test("an uploaded file that reads as HTML, by its content, its extension or a stray type, is never served as a page unrewritten", async () => {
+    const script = "<script>fetch('/ran')</script>";
+    const { proxy } = setup({
+      files: {
+        "index.html": "<!doctype html><h1>Built</h1>",
+        "evil.svg": `<svg xmlns="http://www.w3.org/2000/svg">${script.replace("<script>", '<script type="text/javascript">')}</svg>`,
+        "evil.xml": `<html xmlns="http://www.w3.org/1999/xhtml"><body>${script}</body></html>`,
+        "evil.txt": `<!doctype html><body>${script}</body>`,
+        "evil.json": `<!doctype html><body>${script}</body>`,
+        "evil.webmanifest": `<!doctype html><body>${script}</body>`,
+        "evil.js": `<!doctype html><body>${script}</body>`,
+        "evil.png": `<!doctype html><body>${script}</body>`,
+      },
+    });
+    for (const path of ["/evil.svg", "/evil.xml", "/evil.txt", "/evil.json", "/evil.webmanifest", "/evil.js", "/evil.png"]) {
+      for (const dest of ["iframe", "document", "empty", "image"]) {
+        const response = await ask(proxy, path, { dest });
+        if (dest === "document") {
+          // Opened on its own, a frame host is a notice, never a file.
+          expect([path, response.status]).toEqual([path, 403]);
+          continue;
+        }
+        const seen = cannotBeAPage(response);
+        expect([path, dest, seen.type?.startsWith("text/html") ?? false, seen.attachment, seen.nosniff, seen.sandboxed]).toEqual([path, dest, false, "attachment", "nosniff", true]);
+      }
+    }
+  });
+
+  test("a type the backend gives is read as a browser reads it: the type that wins decides, and only it is sent", async () => {
+    const body = new TextEncoder().encode("<!doctype html><h1>Built</h1>");
+    const typeOf: Record<string, string> = {
+      "/a": "image/svg+xml, text/html",
+      "/b": 'text/plain; x="a,text/html"',
+      "/c": "TEXT/HTML; charset=utf-8, application/xml",
+      "/d": "",
+      "/e": "nonsense",
+    };
+    const builds: BuildSource = { file: async (_label, path) => ({ status: 200, contentType: typeOf[path]!, sha256: "0".repeat(64), body }) };
+    const { proxy } = setup({ builds });
+    // The last valid type wins (text/html): the proxy's page, with the page layer.
+    const a = await ask(proxy, "/a");
+    expect([a.headers.get("content-type"), (await a.text()).includes("/__critiqs/runtime.")]).toEqual(["text/html; charset=utf-8", true]);
+    // A quoted comma is part of a parameter, not a second type: plain text, as a file.
+    const b = await ask(proxy, "/b");
+    expect([b.headers.get("content-type"), b.headers.get("content-disposition")]).toEqual(["text/plain", "attachment"]);
+    // XML wins over HTML here, so it is a file, never a page.
+    const c = await ask(proxy, "/c");
+    expect([c.headers.get("content-type"), c.headers.get("content-disposition"), c.headers.get("x-content-type-options")]).toEqual(["application/xml", "attachment", "nosniff"]);
+    // No type, or one that isn't a type: nothing claimed, and still a file that can't be sniffed into a page.
+    for (const path of ["/d", "/e"]) {
+      const response = await ask(proxy, path);
+      expect([path, response.headers.get("content-type"), response.headers.get("content-disposition"), response.headers.get("x-content-type-options")]).toEqual([path, null, "attachment", "nosniff"]);
+    }
+  });
+});
+
+describe("a shared build within the proxy's limits", () => {
+  test("its reads wait their turn in the same line as a live link's, at most a lease's share at once, and all load", async () => {
+    let now = 0;
+    let most = 0;
+    const builds: BuildSource = {
+      file: async () => {
+        most = Math.max(most, ++now);
+        await Bun.sleep(15);
+        now--;
+        return { status: 200, contentType: "image/png", sha256: "0".repeat(64), body: new Uint8Array(16) };
+      },
+    };
+    const { proxy } = setup({ builds });
+    const answers = await Promise.all(Array.from({ length: 40 }, (_, index) => ask(proxy, `/img-${index}.png`, { dest: "image" })));
+    expect(answers.map((response) => response.status)).toEqual(new Array(40).fill(200));
+    expect(most).toBe(config.limits.concurrentPerLease);
+  });
+
+  test("a refused file is marked as the proxy's refusal, so the review page can say part of the page didn't load", async () => {
+    const tight = { ...config, limits: { ...config.limits, requestsPerWindow: 1, fileRequestsPerWindow: 2, prefetchRequestsPerWindow: 1 } };
+    const { proxy } = setup({ config: tight });
+    expect((await ask(proxy, "/")).status).toBe(200);
+    expect((await ask(proxy, "/assets/app.js", { dest: "script" })).status).toBe(200);
+    expect((await ask(proxy, "/assets/app.css", { dest: "style" })).status).toBe(200);
+    const refused = await ask(proxy, "/assets/app.js", { dest: "script" });
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("server-timing")).toContain(REVIEW_REFUSED_TIMING);
+    // A page past its budget is the proxy's notice saying when pages open again, not a bare refusal.
+    const page = await ask(proxy, "/");
+    expect([page.status, page.headers.get("content-type")]).toEqual([429, "text/html; charset=utf-8"]);
+  });
+
+  test("prefetches count apart, as a live link's do: a framework prefetching every route can't use up what the reviewer opens", async () => {
+    const tight = { ...config, limits: { ...config.limits, prefetchRequestsPerWindow: 2 } };
+    const { proxy } = setup({ config: tight });
+    const prefetch = () => ask(proxy, "/about.html", { dest: "empty", headers: { "sec-purpose": "prefetch" } });
+    expect([(await prefetch()).status, (await prefetch()).status]).toEqual([200, 200]);
+    const third = await prefetch();
+    expect(third.status).toBe(429);
+    expect(third.headers.get("server-timing")).toContain(REVIEW_REFUSED_TIMING);
+    expect((await ask(proxy, "/about")).status).toBe(200);
+  });
+
+  test("a browser that stops reading a shared file holds no read slot", async () => {
+    const { proxy } = setup({ files: { "big.png": new Uint8Array(4 * 1024 * 1024) } });
+    const unread = await Promise.all(Array.from({ length: 30 }, () => ask(proxy, "/big.png", { dest: "image" })));
+    expect(unread.map((response) => response.status)).toEqual(new Array(30).fill(200));
+    expect(proxy.inFlight).toBe(0);
+  });
+
+  test("its frame host is looked up within a client's misses, like any frame host; once seen live it keeps serving", async () => {
+    const { proxy } = setup();
+    const flooder = "198.51.100.7";
+    for (let index = 0; index < config.limits.lookupMissesPerClient; index++) {
+      const label = `v-${index.toString(32).padStart(26, "a").replace(/[^a-z2-7]/g, "a")}`;
+      expect((await ask(proxy, "/", { host: `${label}.review.localhost:5120`, client: flooder })).status).toBe(404);
+    }
+    // Over its misses, a host this proxy hasn't seen live isn't asked about for that client.
+    expect((await ask(proxy, "/", { client: flooder })).status).toBe(404);
+    // Another viewer opens the build; from then on the flooded client's frames load too.
+    expect((await ask(proxy, "/", { client: "203.0.113.9" })).status).toBe(200);
+    expect((await ask(proxy, "/", { client: flooder })).status).toBe(200);
   });
 });
