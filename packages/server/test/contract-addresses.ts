@@ -120,6 +120,49 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
     expect((await backend.run((store) => ops.getProject(store, dana, { projectId }))).reviewUrl).toBeNull();
   });
 
+  test(`${name}: a pattern can't cover a whole shared domain or public suffix; one beside a site's own name can`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend, dana, "Acme");
+    for (const address of ["https://*.vercel.app", "https://*.co.uk", "https://*.github.io", "https://*.netlify.app", "https://*.s3.amazonaws.com", "https://*.pages.dev"]) {
+      await expect(setList(backend, dana, projectId, [address])).rejects.toMatchObject({ code: "invalid", message: expect.stringContaining("shared by many sites") });
+      await expect(backend.run((store) => addProjectAddress(store, dana, { projectId, address }))).rejects.toMatchObject({ code: "invalid" });
+    }
+    await expect(setList(backend, dana, projectId, ["https://*"])).rejects.toMatchObject({ code: "invalid" });
+    expect(await setList(backend, dana, projectId, ["https://*-acme.vercel.app", "https://*.acme.com", "https://*.acme.co.uk", "https://*.acme.github.io"])).toEqual([
+      "https://*-acme.vercel.app",
+      "https://*.acme.com",
+      "https://*.acme.co.uk",
+      "https://*.acme.github.io",
+    ]);
+  });
+
+  test(`${name}: a pattern listed before the rule hands out no project, counts for nothing, and its owner can still remove it`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend, dana, "Attacker");
+    await setList(backend, dana, projectId, ["https://acme.example.com"]);
+    // As saved by a version that accepted it.
+    await backend.run(async (store) => {
+      const row = (await store.projectAddresses.forProject(projectId, 20))[0]!;
+      await store.projectAddresses.insert({ projectId, organizationId: row.organizationId, address: "https://*.vercel.app", key: "https://*.vercel.app", position: 1 });
+    });
+    await opened(backend, lee, projectId);
+    expect(await lookup(backend, lee, "https://lee-company-staging.vercel.app")).toEqual({ status: "none" });
+    expect(await lookup(backend, dana, "https://lee-company-staging.vercel.app")).toEqual({ status: "none" });
+    expect(await backend.run((store) => getProjectAddresses(store, dana, { projectId }))).toEqual(["https://acme.example.com", "https://*.vercel.app"]);
+    expect(await backend.run((store) => removeProjectAddress(store, dana, { projectId, address: "https://*.vercel.app" }))).toEqual(["https://acme.example.com"]);
+  });
+
+  test(`${name}: a pattern reached only through a project the person opened asks which project, never shows it at once`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend, dana, "Dana's");
+    await setList(backend, dana, projectId, ["https://*-acme.vercel.app", "https://exact.acme.com"]);
+    await opened(backend, lee, projectId);
+    expect(await found(backend, lee, "https://pr-1-acme.vercel.app")).toEqual({ status: "choose", names: ["Dana's"] });
+    // An exact origin, or a member of the organization, still finds it at once.
+    expect(await found(backend, lee, "https://exact.acme.com")).toEqual({ status: "found", names: ["Dana's"] });
+    expect(await found(backend, dana, "https://pr-1-acme.vercel.app")).toEqual({ status: "found", names: ["Dana's"] });
+  });
+
   test(`${name}: only the project's owners change or see its address list`, async () => {
     const backend = fresh();
     const projectId = await create(backend, dana, "Acme");

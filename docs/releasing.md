@@ -214,6 +214,11 @@ fork's pull request from a branch with the same name is left alone.
 - A person reviews and merges the release pull request. The workflow never
   merges or approves, and it publishes and deploys nothing.
 
+Before merging a release pull request, refresh the public suffixes address
+patterns are checked against: run `bun scripts/update-public-suffixes.ts`,
+which downloads the current Public Suffix List, and land the change in its
+own pull request if the file changed. The file names the list's version.
+
 Merging the release pull request records the version on `main`. Publishing
 that version is a separate step a maintainer starts.
 

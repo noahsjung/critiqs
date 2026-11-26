@@ -153,4 +153,7 @@ comments.
 
 ## License
 
-MIT
+MIT. The self-hosted server (`critiqs/server`) includes data from the
+[Public Suffix List](https://publicsuffix.org/list/), under the
+[Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/); its source form is
+at that address and in this repository's `packages/server/src/public-suffixes.ts`.
