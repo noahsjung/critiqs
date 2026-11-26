@@ -403,6 +403,7 @@ export default defineSchema({
         scheduledPlan: v.union(v.literal("free"), v.literal("plus"), v.literal("pro"), v.null()),
         storageUnits: v.number(),
         storageRenewing: v.number(),
+        storageEnding: v.optional(v.array(v.union(v.number(), v.null()))),
       }),
     ),
     /** When the state was read from Autumn; an older read never replaces a newer one. */

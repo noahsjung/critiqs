@@ -12,20 +12,36 @@ const PLAN_ORDER: readonly BillingPlan[] = ["free", "plus", "pro"];
 /** How long to wait for a payment to reach Critiqs before saying it is taking longer. */
 export const ARRIVAL_TIMEOUT_MS = 60_000;
 
-/** Opens Plan and billing on an organization, the project's when none is given, where the deployment takes payment, for Upgrade buttons; null elsewhere. */
-export const OpenBillingContext = createContext<((organizationId?: string) => void) | null>(null);
+/**
+ * Plan and billing, where the deployment takes payment, for Upgrade buttons;
+ * null elsewhere. `open` shows it on an organization, or on `organizationId`
+ * (the project's) when none is given.
+ */
+export interface OpenBilling {
+  open: (organizationId?: string) => void;
+  organizationId: string | null;
+}
+
+export const OpenBillingContext = createContext<OpenBilling | null>(null);
 
 /**
- * Upgrade: opens Plan and billing where the deployment takes payment,
+ * Upgrade: opens Plan and billing where the deployment takes payment, once
+ * the organization it opens on is known to have a higher plan to move to;
  * otherwise the deployment's upgrade page when it names one.
  */
 export function UpgradeButton({ upgradeUrl, organizationId, className }: { upgradeUrl?: string; organizationId?: string; className: string }) {
   const openBilling = useContext(OpenBillingContext);
+  const billing = useTransport().billing;
   if (openBilling !== null) {
+    // The organization Plan and billing opens on, so the plan checked is the one it shows.
+    const opensOn = organizationId ?? openBilling.organizationId;
+    if (billing === undefined || opensOn === null) return null;
     return (
-      <button type="button" className={className} onClick={() => openBilling(organizationId)}>
-        Upgrade
-      </button>
+      <IfHigherPlan billing={billing} organizationId={opensOn}>
+        <button type="button" className={className} onClick={() => openBilling.open(opensOn)}>
+          Upgrade
+        </button>
+      </IfHigherPlan>
     );
   }
   if (upgradeUrl === undefined) return null;
@@ -34,6 +50,32 @@ export function UpgradeButton({ upgradeUrl, organizationId, className }: { upgra
       Upgrade
     </a>
   );
+}
+
+/**
+ * What Change plan offers for a plan: the one billed (or, with nothing
+ * billed, the one in effect) is current; one Critiqs set is marked so; the
+ * scheduled one says when it starts; otherwise an upgrade above the current
+ * plan or a switch below it. Free has no row of its own while nothing is
+ * billed.
+ */
+type PlanOffer = "current" | "set-by-critiqs" | "scheduled" | "upgrade" | "switch" | null;
+function planOffer(status: BillingStatus, name: BillingPlan): PlanOffer {
+  const billed = billedPlan(status);
+  if (name === billed && billed !== "free") return "current";
+  if (name === status.plan) return status.plan === billed ? "current" : "set-by-critiqs";
+  if (name === (status.subscription?.scheduledPlan ?? null)) return "scheduled";
+  if (name === "free" && billed === "free") return null;
+  return PLAN_ORDER.indexOf(name) > PLAN_ORDER.indexOf(billed === "free" ? status.plan : billed) ? "upgrade" : "switch";
+}
+
+/** Whether Change plan offers an upgrade, which Upgrade buttons open it for. */
+export const hasHigherPlan = (status: BillingStatus) => PLAN_ORDER.some((name) => planOffer(status, name) === "upgrade");
+
+/** Its children once the organization's plan is known not to be the highest; nothing while it loads or when it can't be read. */
+function IfHigherPlan({ billing, organizationId, children }: { billing: BillingTransport; organizationId: string; children: ReactNode }) {
+  const status = billing.useStatus(organizationId);
+  return status.status === "ready" && status.data !== null && hasHigherPlan(status.data) ? children : null;
 }
 
 const BILLING_PARAMETER = "critiqs-billing";
@@ -317,6 +359,7 @@ function MainPage({ organization, status, usage, locked, act, go, billing, retur
     );
   const portal = () => void act(async () => await billing.openPortal({ organizationId: organization.id, returnUrl: returnUrl(null) }), "");
   const credits = usage?.rows.find((row) => row.metric === "aiCredits");
+  const ending = endingStorageText(status);
   const creditPrice = creditPriceOf(status);
   const monthly = monthlyOf(status.prices, status.plan);
   return (
@@ -389,6 +432,7 @@ function MainPage({ organization, status, usage, locked, act, go, billing, retur
                 <SettingRow label="Extra storage">{() => <span className="note">{storageText(status)}</span>}</SettingRow>
               ))}
           </div>
+          {ending !== null && <p className="note">{ending}</p>}
         </>
       )}
       {!admin && <p className="note">Only admins of {organization.name} can change its plan.</p>}
@@ -421,30 +465,78 @@ function storageText(status: BillingStatus): string {
   return status.prices === null ? added : `${added} · ${dollars(units * status.prices.storageAddOn.monthly)} a month`;
 }
 
+/**
+ * Storage add-ons that no longer renew but last until their own period ends,
+ * as after Remove: when each ends, and, where that end lowers the image
+ * storage, how much is left then, from the plan in effect at that time (the
+ * scheduled one from the end of the plan's period) and the add-ons still
+ * going. An end that changes nothing, such as one after a move to a plan
+ * without add-ons, says no amount; nor does one whose order against the
+ * other ends or the plan change isn't known yet. Null when none is ending.
+ */
+function endingStorageText(status: BillingStatus): string | null {
+  const ending = status.endingStorageAddOns ?? [];
+  const { addOn } = proStorage(status);
+  if (ending.length === 0 || addOn === null) return null;
+  const next = status.subscription?.scheduledPlan ?? null;
+  // When the scheduled plan takes over: undefined without one, null while its date isn't known.
+  const change = next === null ? undefined : (status.subscription?.currentPeriodEnd ?? null);
+  const storageOf = (plan: BillingPlan, addOns: number): number | null => {
+    const limit = status.plans[plan].limits.find((entry) => entry.metric === "captureBytes");
+    return limit === undefined || limit.max === null ? null : limit.max + (limit.addOn ?? 0) * addOns;
+  };
+  /** The image storage in effect just before `end`, and from it on, or null when the order of what changes it isn't known. */
+  const around = (end: number | null): { before: number | null; after: number | null } | null => {
+    if (end === null) {
+      // Only ends not known yet and no plan change: whenever they come, what is left is the renewing add-ons on this plan.
+      // Several unknown ends may fall on different days, so their order isn't known either.
+      if (change !== undefined || ending.length > 1 || ending.some((one) => one.endsAt !== null)) return null;
+      return { before: storageOf(status.plan, status.storageAddOns + ending.length), after: storageOf(status.plan, status.storageAddOns) };
+    }
+    if (change === null || ending.some((one) => one.endsAt === null)) return null;
+    const planWhen = (changed: boolean) => (changed ? next! : status.plan);
+    const going = (still: (endsAt: number) => boolean) => status.storageAddOns + ending.filter((one) => still(one.endsAt!)).length;
+    return {
+      before: storageOf(planWhen(change !== undefined && change < end), going((endsAt) => endsAt >= end)),
+      after: storageOf(planWhen(change !== undefined && change <= end), going((endsAt) => endsAt > end)),
+    };
+  };
+  // Soonest first; an end not known yet sorts last.
+  const ends = [...new Set(ending.map((one) => one.endsAt))].sort((a, b) => (a ?? Number.POSITIVE_INFINITY) - (b ?? Number.POSITIVE_INFINITY));
+  const sentences = ends.map((end) => {
+    const units = ending.filter((one) => one.endsAt === end).length;
+    const storage = around(end);
+    const until = end === null ? "until the end of its billing period" : `until ${dateOf(end)}`;
+    const what = ends.length === 1 && status.storageAddOns === 0 ? "Extra storage" : `${size(units * addOn)} of extra storage`;
+    const left = storage?.after ?? null;
+    const drops = left !== null && (storage!.before === null || left < storage!.before);
+    return drops ? `${what} stays ${until}, then image storage goes down to ${size(left)}.` : `${what} stays ${until}.`;
+  });
+  return sentences.join(" ");
+}
+
 function PlansPage({ organization, status, locked, act, go, billing, returnUrl }: BillingContext) {
   const [buying, setBuying] = useState<BillingPlan | null>(null);
   const billed = billedPlan(status);
-  const setByCritiqs = status.plan !== billed;
-  const current = PLAN_ORDER.indexOf(billed === "free" ? status.plan : billed);
-  const scheduled = status.subscription?.scheduledPlan ?? null;
-  const choose = (target: BillingPlan) => {
+  const choose = (target: BillingPlan, offer: "upgrade" | "switch") => {
     if (billed === "free") {
       setBuying(target);
       void act(() => billing.changePlan({ organizationId: organization.id, from: "free", plan: target, returnUrl: returnUrl(target) }), `Moved to ${status.plans[target].label}`);
       return;
     }
     if (target === "free") go({ name: "confirm", change: { kind: "cancel" } });
-    else go({ name: "confirm", change: { kind: PLAN_ORDER.indexOf(target) > current ? "upgrade" : "downgrade", plan: target } });
+    else go({ name: "confirm", change: { kind: offer === "upgrade" ? "upgrade" : "downgrade", plan: target } });
   };
   const action = (name: BillingPlan): ReactNode => {
-    if (name === billed && billed !== "free") return <span className="note">Current plan</span>;
-    if (name === status.plan) return <span className="note">{setByCritiqs ? "Set by Critiqs" : "Current plan"}</span>;
-    if (name === scheduled) return <span className="note">From {status.subscription?.currentPeriodEnd == null ? "next period" : dateOf(status.subscription.currentPeriodEnd)}</span>;
-    if (name === "free" && billed === "free") return null;
-    const label = PLAN_ORDER.indexOf(name) > current ? `Upgrade to ${status.plans[name].label}` : `Switch to ${status.plans[name].label}`;
+    const offer = planOffer(status, name);
+    if (offer === null) return null;
+    if (offer === "current") return <span className="note">Current plan</span>;
+    if (offer === "set-by-critiqs") return <span className="note">Set by Critiqs</span>;
+    if (offer === "scheduled") return <span className="note">From {status.subscription?.currentPeriodEnd == null ? "next period" : dateOf(status.subscription.currentPeriodEnd)}</span>;
+    const label = `${offer === "upgrade" ? "Upgrade to" : "Switch to"} ${status.plans[name].label}`;
     const chargesCard = billed !== "free" && name !== "free";
     return (
-      <button type="button" className="btn small" disabled={locked || (chargesCard && status.prices === null)} onClick={() => choose(name)}>
+      <button type="button" className="btn small" disabled={locked || (chargesCard && status.prices === null)} onClick={() => choose(name, offer)}>
         {locked && buying === name ? "Opening checkout…" : label}
       </button>
     );

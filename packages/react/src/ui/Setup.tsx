@@ -474,7 +474,7 @@ export function PlanUsage({ project, className }: { project: ProjectInfo; classN
       <div className="row between">
         <strong>{plan} plan</strong>
         {openBilling !== null ? (
-          <button type="button" className="link-btn" onClick={() => openBilling()}>
+          <button type="button" className="link-btn" onClick={() => openBilling.open()}>
             Plan and billing
           </button>
         ) : (

@@ -8,6 +8,7 @@ afterEach(() => {
   delete process.env.CRITIQS_PLANS;
   delete process.env.RESEND_API_KEY;
   delete process.env.CRITIQS_EMAIL_FROM;
+  delete process.env.CRITIQS_UPGRADE_URL;
   globalThis.fetch = realFetch;
 });
 
@@ -125,7 +126,7 @@ test("an invite is emailed once through the deployment's mail service, and the i
   const projectId = await t.withIdentity(dana).mutation(api.projects.create, { name: "Pilot", reviewUrl: "https://proto.example/pilot" });
   const [organization] = await t.withIdentity(dana).query(api.organizations.mine, {});
   const invite = (email: string) => t.withIdentity(dana).mutation(api.organizations.invite, { organizationId: organization!.id, email, role: "member", projectId });
-  expect(await invite("Lee@Example.com")).toEqual({ status: "invited" });
+  expect(await invite("Lee@Example.com")).toEqual({ status: "invited", email: "pending" });
   expect(await invite("lee@example.com")).toEqual({ status: "pending" });
   await t.finishAllScheduledFunctions(() => undefined);
   expect(sent).toEqual([
@@ -141,6 +142,83 @@ test("an invite is emailed once through the deployment's mail service, and the i
   await expect(t.withIdentity(lee).mutation(api.organizations.invite, { organizationId: organization!.id, email: "sam@example.com", role: "member" })).rejects.toThrow(
     "Only an organization's admins",
   );
+});
+
+test("without email set up, an invite says none went out, and the invited person still joins when they sign in", async () => {
+  const t = setup();
+  await t.withIdentity(dana).mutation(api.projects.create, { name: "Pilot" });
+  const [organization] = await t.withIdentity(dana).query(api.organizations.mine, {});
+  expect(await t.withIdentity(dana).mutation(api.organizations.invite, { organizationId: organization!.id, email: "lee@example.com", role: "member" })).toEqual({
+    status: "invited",
+    email: "not-sent",
+  });
+  await t.finishAllScheduledFunctions(() => undefined);
+  await t.withIdentity(lee).mutation(api.users.sync, {});
+  expect(await t.withIdentity(lee).query(api.organizations.mine, {})).toEqual([{ ...organization!, role: "member", home: false }]);
+});
+
+test("an invite doesn't claim its email went out before it is sent: an email limit can skip it, or the send fail, and the person still joins", async () => {
+  process.env.RESEND_API_KEY = "re_key";
+  process.env.CRITIQS_EMAIL_FROM = "Critiqs <sign-in@example.com>";
+  const sent: string[] = [];
+  let failing = false;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (!String(input).startsWith("https://api.resend.com/")) return realFetch(input as Request, init);
+    if (failing) return Response.json({ message: "Resend is down" }, { status: 500 });
+    sent.push(JSON.parse(await new Response(init?.body).text()).to[0]);
+    return Response.json({ id: "email" });
+  }) as typeof fetch;
+  const t = setup();
+  await t.withIdentity(dana).mutation(api.projects.create, { name: "Pilot" });
+  const [organization] = await t.withIdentity(dana).query(api.organizations.mine, {});
+  const organizationId = organization!.id;
+  const invite = (email: string) => t.withIdentity(dana).mutation(api.organizations.invite, { organizationId, email, role: "member" });
+  const withdraw = async () => {
+    const [pending] = (await t.withIdentity(dana).query(api.organizations.get, { organizationId })).invites;
+    await t.withIdentity(dana).mutation(api.organizations.revokeInvite, { inviteId: pending!._id });
+  };
+
+  // Lee's inbox takes 5 invite emails a day; the sixth invite is skipped, yet answers the same.
+  for (let round = 0; round < 5; round++) {
+    expect(await invite("lee@example.com")).toEqual({ status: "invited", email: "pending" });
+    await t.finishAllScheduledFunctions(() => undefined);
+    await withdraw();
+  }
+  expect(sent).toHaveLength(5);
+  expect(await invite("lee@example.com")).toEqual({ status: "invited", email: "pending" });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(sent).toHaveLength(5);
+
+  // Resend refuses Sam's: the answer still didn't say it was sent.
+  failing = true;
+  expect(await invite("sam@example.com")).toEqual({ status: "invited", email: "pending" });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(sent).toHaveLength(5);
+
+  // Both still join by signing in.
+  await t.withIdentity(lee).mutation(api.users.sync, {});
+  expect(await t.withIdentity(lee).query(api.organizations.mine, {})).toEqual([{ ...organization!, role: "member", home: false }]);
+  const sam = reviewer("Sam");
+  await t.withIdentity(sam).mutation(api.users.sync, {});
+  expect(await t.withIdentity(sam).query(api.organizations.mine, {})).toEqual([{ ...organization!, role: "member", home: false }]);
+});
+
+test("an organization carries the deployment's https upgrade page while it has a plan, and leaves out any other address", async () => {
+  const t = setup();
+  await t.withIdentity(dana).mutation(api.projects.create, { name: "Pilot" });
+  const [organization] = await t.withIdentity(dana).query(api.organizations.mine, {});
+  const get = () => t.withIdentity(dana).query(api.organizations.get, { organizationId: organization!.id });
+  process.env.CRITIQS_UPGRADE_URL = "https://critiqs.example/plans";
+  // Without plans there is nothing to upgrade.
+  expect(await get()).toMatchObject({ plan: null });
+  expect(await get()).not.toHaveProperty("upgradeUrl");
+  process.env.CRITIQS_PLANS = "enabled";
+  expect(await get()).toMatchObject({ plan: "Free", upgradeUrl: "https://critiqs.example/plans" });
+  for (const address of ["javascript:alert(1)", "http://critiqs.example/plans", "not a url"]) {
+    process.env.CRITIQS_UPGRADE_URL = address;
+    expect(await get()).toMatchObject({ plan: "Free" });
+    expect(await get()).not.toHaveProperty("upgradeUrl");
+  }
 });
 
 test("organizations:usage shows members the organization's plan usage, and refuses an ID that isn't an organization's", async () => {

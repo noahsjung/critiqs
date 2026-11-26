@@ -47,6 +47,7 @@ const state = v.object({
   scheduledPlan: v.union(plan, v.null()),
   storageUnits: v.number(),
   storageRenewing: v.number(),
+  storageEnding: v.optional(v.array(v.union(v.number(), v.null()))),
 });
 
 /** How long one billing change holds its organization; a second click meanwhile is refused instead of reaching Autumn twice. */

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "../src/App.tsx";
 import { Session } from "../src/session.ts";
 import { CritiqsRequestError, TransportContext } from "../src/transport.ts";
+import { OpenBillingContext } from "../src/ui/BillingDialog.tsx";
 import { OrganizationDialog } from "../src/ui/OrganizationDialog.tsx";
 import { Setup } from "../src/ui/Setup.tsx";
 import { type FakeBackend, fakeTransport } from "./fake-transport.tsx";
@@ -233,6 +234,19 @@ test("an admin invites by email with a role; the page says whether an invite wen
   expect(toasts).toEqual(["Invite sent to sam@example.com"]);
   expect(heading(page)).toBe("Acme");
 
+  // Only an email the mail service accepted is called sent: none going out says how they join, and one still to come, or a backend that doesn't say, just invites.
+  for (const [email, toast] of [
+    ["not-sent", "kim@example.com is invited and joins by signing in to Critiqs with that address"],
+    ["pending", "Invited kim@example.com"],
+    [undefined, "Invited kim@example.com"],
+  ] as const) {
+    data.organizationChange = async () => ({ status: "invited", ...(email === undefined ? {} : { email }) });
+    await click(navRow(page, "Invite by email"));
+    await type(page.querySelector<HTMLInputElement>('input[type="email"]'), "kim@example.com");
+    await submit(page, "Send invite");
+    expect(toasts.at(-1)).toBe(toast);
+  }
+
   data.organizationChange = async () => ({ status: "member" });
   await click(navRow(page, "Invite by email"));
   await type(page.querySelector<HTMLInputElement>('input[type="email"]'), "lee@example.com");
@@ -295,6 +309,80 @@ test("an admin changes a member's role or removes them; the last admin's refusal
   expect(page.querySelector('[role="alert"]')!.textContent).toBe("An organization needs at least one admin. Make someone else an admin first.");
   expect(select(page, "Role")!.textContent).toBe("Admin");
   expect(data.calls!.map((call) => call.name)).toEqual(["setMemberRole", "removeMember", "setMemberRole"]);
+
+  // Each action shows its own result: asking to leave clears the role's refusal, and the refused leave shows its own beside it.
+  const errors = () => [...page.querySelectorAll(".error")].map((line) => [line.textContent, line.closest(".ds-group")?.textContent?.includes("Leave") ?? false]);
+  await click(navRow(page, "Leave organization"));
+  expect(errors()).toEqual([]);
+  data.organizationChange = async () => {
+    throw new CritiqsRequestError("invalid", "You're the last admin of Acme. Make someone else an admin before you leave.");
+  };
+  await click(button(page, "Leave"));
+  expect(errors()).toEqual([["You're the last admin of Acme. Make someone else an admin before you leave.", true]]);
+  await choose(page, "Role", "Member");
+  expect(errors()).toEqual([["You're the last admin of Acme. Make someone else an admin before you leave.", false]]);
+});
+
+test("a role change that fails after the admin moved to another member's page reports nowhere, not on that page", async () => {
+  const data = backend();
+  const page = await render(<Organization />, data);
+  let refuse = (_error: Error) => {};
+  data.organizationChange = () => new Promise((_, reject) => (refuse = reject));
+  await click(navRow(page, "Dana"));
+  await choose(page, "Role", "Member");
+  await click(button(page, "Back"));
+  await click(navRow(page, "Lee"));
+  expect(heading(page)).toBe("Lee");
+  await act(async () => refuse(new CritiqsRequestError("invalid", "An organization needs at least one admin. Make someone else an admin first.")));
+  await settle();
+  expect(heading(page)).toBe("Lee");
+  expect(page.querySelector(".error")).toBeNull();
+  // Nor on Dana's page, back where it started.
+  await click(button(page, "Back"));
+  await click(navRow(page, "Dana"));
+  expect(page.querySelector(".error")).toBeNull();
+});
+
+test("a refused withdrawal shows beside the invite it was for", async () => {
+  const kim = { _id: "invite-kim", email: "kim@example.com", role: "admin" as const, invitedBy: "Dana", createdAt: 2 };
+  const data = backend({ organizationDetails: { acme: { ...asAdmin, invites: [...asAdmin.invites, kim] } } });
+  const page = await render(<Organization />, data);
+  data.organizationChange = async () => {
+    throw new CritiqsRequestError("not-found", "This invite was already accepted or withdrawn.");
+  };
+  await click(button(page, "Withdraw the invite to kim@example.com"));
+  const errors = [...page.querySelectorAll(".error")];
+  expect(errors.map((line) => line.textContent)).toEqual(["This invite was already accepted or withdrawn."]);
+  expect(errors[0]!.previousElementSibling!.textContent).toContain("kim@example.com");
+  expect(errors[0]!.closest('[role="group"]')!.getAttribute("aria-label")).toBe("Invited");
+});
+
+test("the plan opens Plan and billing where the deployment takes payment, otherwise links to Upgrade where it names a page", async () => {
+  const opened: (string | undefined)[] = [];
+  let page = await render(
+    <OpenBillingContext.Provider value={{ open: (organizationId) => void opened.push(organizationId), organizationId: null }}>
+      <Organization />
+    </OpenBillingContext.Provider>,
+    backend(),
+  );
+  expect(navRows(page)[1]).toEqual(["Plan", "Free"]);
+  await click(navRow(page, "Plan"));
+  expect(opened).toEqual(["acme"]);
+  await act(async () => root!.unmount());
+  container!.remove();
+
+  page = await render(<Organization />, backend({ organizationDetails: { acme: { ...asAdmin, upgradeUrl: "https://critiqs.example/plans" } } }));
+  expect(navRow(page, "Plan")).toBeNull();
+  const upgrade = [...page.querySelectorAll("a")].find((anchor) => anchor.textContent === "Upgrade")!;
+  expect(upgrade.closest(".ds-row")!.textContent).toBe("PlanFreeUpgrade");
+  expect(upgrade.getAttribute("href")).toBe("https://critiqs.example/plans");
+  await act(async () => root!.unmount());
+  container!.remove();
+
+  // Without either, the plan is plain text.
+  page = await render(<Organization />, backend());
+  expect(page.querySelector("a")).toBeNull();
+  expect(page.textContent).toContain("PlanFree");
 });
 
 test("someone in several organizations picks one first, and goes back to the list", async () => {
@@ -324,6 +412,69 @@ test("leaving one of two organizations shows the other one, without a question o
   expect(heading(page)).toBe("Studio");
   expect(page.querySelector('[role="alert"]')).toBeNull();
   expect(navRows(page)).toEqual([["Leave organization", null]]);
+});
+
+test("a Leave that finishes after the reviewer moved to another organization leaves that one where it is", async () => {
+  const data = backend({ organizations: [studio, acme] });
+  let finish = () => {};
+  data.organizationChange = () => new Promise<undefined>((resolve) => (finish = () => resolve(undefined)));
+  const notified: string[] = [];
+  const page = await render(<Organization notify={(message) => notified.push(message)} />, data);
+  await click(navRow(page, "Acme"));
+  await click(navRow(page, "Dana"));
+  await click(navRow(page, "Leave organization"));
+  await click(button(page, "Leave"));
+  await click(button(page, "Back"));
+  await click(button(page, "Back"));
+  await click(navRow(page, "Studio"));
+  expect(heading(page)).toBe("Studio");
+  data.organizations = [studio];
+  await act(async () => finish());
+  await settle();
+  expect(heading(page)).toBe("Studio");
+  expect(navRows(page)).toEqual([["Leave organization", null]]);
+  expect(notified).toEqual([]);
+});
+
+test("a Leave whose organization leaves the list first, then a choice of another organization, leaves that one where it is", async () => {
+  const third = { ...acme, id: "third", name: "Third" };
+  const data = backend({ organizations: [studio, acme, third] });
+  let finish = () => {};
+  data.organizationChange = () => new Promise<undefined>((resolve) => (finish = () => resolve(undefined)));
+  const notified: string[] = [];
+  const dialog = <Organization notify={(message) => notified.push(message)} />;
+  const page = await render(dialog, data);
+  await click(navRow(page, "Acme"));
+  await click(navRow(page, "Dana"));
+  await click(navRow(page, "Leave organization"));
+  await click(button(page, "Leave"));
+  // The membership list drops Acme before the Leave itself answers, which returns the dialog to the list.
+  data.organizations = [studio, third];
+  await rerender(dialog, data);
+  expect(heading(page)).toBe("Organizations");
+  await click(navRow(page, "Studio"));
+  await act(async () => finish());
+  await settle();
+  expect(heading(page)).toBe("Studio");
+  expect(notified).toEqual([]);
+});
+
+test("a Leave that finishes after the dialog closed reports nothing and closes nothing again", async () => {
+  const data = backend();
+  let finish = () => {};
+  data.organizationChange = () => new Promise<undefined>((resolve) => (finish = () => resolve(undefined)));
+  const notified: string[] = [];
+  let closed = 0;
+  const dialog = <Organization notify={(message) => notified.push(message)} onClose={() => closed++} />;
+  const page = await render(dialog, data);
+  await click(navRow(page, "Dana"));
+  await click(navRow(page, "Leave organization"));
+  await click(button(page, "Leave"));
+  await rerender(null, data);
+  await act(async () => finish());
+  await settle();
+  expect(notified).toEqual([]);
+  expect(closed).toBe(0);
 });
 
 test("someone removed from the organization they are looking at sees what they are still in", async () => {

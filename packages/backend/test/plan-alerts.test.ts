@@ -59,7 +59,7 @@ test("a Plus organization's admins get one email through Resend when its include
   expect(sent[0]!.body.text).toContain("up to 2,000 extra credits this month");
 
   await charge(1_999);
-  await expect(charge(1)).rejects.toThrow("allowance is used up");
+  await expect(charge(1)).rejects.toThrow("no Critiqs AI credits left");
   await deliver();
   expect(sent.map((one) => one.body.subject)).toEqual(["Dana's organization has used its included Critiqs AI credits", "Critiqs AI is paused for Dana's organization"]);
 
@@ -73,5 +73,5 @@ test("a Plus organization's admins get one email through Resend when its include
     max: 2_000,
     overage: { cap: 3_000 },
   });
-  await expect(t.withIdentity(reviewer("Lee")).mutation(api.organizations.setOverageCap, { organizationId, cap: null })).rejects.toThrow("Only an admin");
+  await expect(t.withIdentity(reviewer("Lee")).mutation(api.organizations.setOverageCap, { organizationId, cap: null })).rejects.toThrow("Only an organization's admins can change its name, members, or billing.");
 });

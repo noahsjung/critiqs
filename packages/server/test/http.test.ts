@@ -91,7 +91,7 @@ test("an admin invites someone by email, who joins when they sign in; members ca
   const projectId = (await dana.api("createProject", { name: "Pilot", reviewUrl: "https://proto.example/app" })).body.value;
   const [organization] = (await dana.api("myOrganizations")).body.value;
   const invited = await dana.api("inviteMember", { organizationId: organization.id, email: " Riley@Example.com ", role: "member", projectId });
-  expect(invited.body.value).toEqual({ status: "invited" });
+  expect(invited.body.value).toEqual({ status: "invited", email: "sent" });
   const email = sent.at(-1)!;
   expect(email).toMatchObject({ to: "riley@example.com", subject: "Dana invited you to Dana's organization on Critiqs" });
   expect(email.text).toContain("Sign in to Critiqs with this address (riley@example.com) and you'll join Dana's organization automatically.");
@@ -109,6 +109,25 @@ test("an admin invites someone by email, who joins when they sign in; members ca
   ]);
 });
 
+test("an invite says whether its email went out: not without a mail service, nor when the send fails", async () => {
+  const call = async (handler: CritiqsHandler, name: string, body: unknown) =>
+    (
+      await (
+        await handler.fetch(
+          new Request(`${SITE}/critiqs/api/${name}`, { method: "POST", headers: { "X-Critiqs-Request": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+        )
+      ).json()
+    ).value;
+  const pat = () => ({ id: "42", name: "Pat", email: "pat@acme.test" });
+  for (const mailer of [undefined, { send: async () => Promise.reject(new Error("Resend is down")) }]) {
+    const handler = await createCritiqsHandler({ database: bunDriver(new Database(":memory:")), identify: pat, ...(mailer === undefined ? {} : { mailer }) });
+    handlers.push(handler);
+    await call(handler, "createProject", { name: "Pilot" });
+    const [organization] = await call(handler, "myOrganizations", {});
+    expect(await call(handler, "inviteMember", { organizationId: organization.id, email: "riley@example.com", role: "member" })).toEqual({ status: "invited", email: "not-sent" });
+  }
+});
+
 test("inviting and withdrawing an address uses up its invite emails, but another organization can still invite it", async () => {
   const { handler, sent } = await server();
   const mallory = await signIn(handler, sent, "mallory@example.com", "Mallory");
@@ -116,7 +135,7 @@ test("inviting and withdrawing an address uses up its invite emails, but another
   const [theirs] = (await mallory.api("myOrganizations")).body.value;
   const toRiley = () => sent.filter((message) => message.to === "riley@example.com").length;
   for (let round = 1; round <= 5; round++) {
-    expect((await mallory.api("inviteMember", { organizationId: theirs.id, email: "riley@example.com", role: "member" })).body.value).toEqual({ status: "invited" });
+    expect((await mallory.api("inviteMember", { organizationId: theirs.id, email: "riley@example.com", role: "member" })).body.value).toEqual({ status: "invited", email: "sent" });
     const [pending] = (await mallory.api("organization", { organizationId: theirs.id })).body.value.invites;
     expect((await mallory.api("revokeInvite", { inviteId: pending._id })).status).toBe(200);
     expect(toRiley()).toBe(round);
@@ -124,9 +143,9 @@ test("inviting and withdrawing an address uses up its invite emails, but another
   const dana = await signIn(handler, sent, "dana@example.com", "Dana");
   await dana.api("createProject", { name: "Pilot" });
   const [organization] = (await dana.api("myOrganizations")).body.value;
-  expect((await dana.api("inviteMember", { organizationId: organization.id, email: "Riley+work@example.com", role: "member" })).body.value).toEqual({ status: "invited" });
+  expect((await dana.api("inviteMember", { organizationId: organization.id, email: "Riley+work@example.com", role: "member" })).body.value).toEqual({ status: "invited", email: "not-sent" });
   expect(sent.filter((message) => message.to === "riley+work@example.com")).toEqual([]);
-  expect((await dana.api("inviteMember", { organizationId: organization.id, email: "riley@example.com", role: "member" })).body.value).toEqual({ status: "invited" });
+  expect((await dana.api("inviteMember", { organizationId: organization.id, email: "riley@example.com", role: "member" })).body.value).toEqual({ status: "invited", email: "not-sent" });
   expect(toRiley()).toBe(5);
   const riley = await signIn(handler, sent, "riley@example.com", "Riley");
   await riley.api("sync");
@@ -186,7 +205,8 @@ test("runs Critiqs's operations for signed-in reviewers, and only from this site
   expect((await dana.api("setOverageCap", { organizationId, cap: "default" })).status).toBe(200);
   expect((await dana.api("setOverageCap", { organizationId, cap: "lots" })).body.error?.code).toBe("invalid");
   const lee = await signIn(handler, sent, "lee@example.com", "Lee");
-  expect((await lee.api("setOverageCap", { organizationId, cap: 1 })).body.error?.code).toBe("forbidden");
+  const outsider = await lee.api("setOverageCap", { organizationId, cap: 1 });
+  expect([outsider.status, outsider.body.error]).toEqual([403, { code: "forbidden", message: "Only an organization's admins can change its name, members, or billing." }]);
   expect((await dana.api("dropTables", {})).status).toBe(404);
   // This server doesn't build mockups: it says so and offers none, rather than storing a thread the sidebar would show.
   const mockup = { mockupId: "m1", snapshotId: null, node: null };

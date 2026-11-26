@@ -596,7 +596,7 @@ test("a mockup turn refused for want of credits still owes the organization's ad
   const threadId = await f.mockupThread();
   const ask = () => f.lee.action(api.ai.mockupReply, { threadId, snapshots: [{ snapshotId: f.snapshotId, description: "body #1", complete: true }], continuation: false });
   await ask();
-  await expect(ask()).rejects.toThrow("allowance is used up");
+  await expect(ask()).rejects.toThrow("enough Critiqs AI credits left for this request");
   expect(prompts).toHaveLength(1);
   expect(await f.t.run((ctx) => ctx.db.query("planAlerts").collect())).toEqual([expect.objectContaining({ kind: "paused", plan: "free", planLabel: "Free", status: "pending" })]);
 });

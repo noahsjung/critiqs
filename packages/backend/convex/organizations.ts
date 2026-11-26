@@ -18,6 +18,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { convexStore, identityOf, run } from "./lib/store";
+import { emailConfigured } from "./lib/email";
 
 const role = v.union(v.literal("admin"), v.literal("member"));
 
@@ -42,7 +43,10 @@ export const rename = mutation({
 /**
  * Invites someone by email, then emails them. Admins only. Someone already a
  * member or invited is left alone. `projectId`, the project the admin invited
- * from, adds a link to its prototype in the email.
+ * from, adds a link to its prototype in the email. `email` is `not-sent`
+ * where the deployment has no email set up, so they join by signing in, and
+ * otherwise `pending`: the email is sent afterwards, and an email limit or a
+ * failed send can still stop it.
  */
 export const invite = mutation({
   args: { organizationId: v.string(), email: v.string(), role, projectId: v.optional(v.string()) },
@@ -51,7 +55,7 @@ export const invite = mutation({
       const result = await inviteMember(convexStore(ctx), await identityOf(ctx), args, Date.now());
       if (result.status !== "invited") return { status: result.status };
       await ctx.scheduler.runAfter(0, internal.organizationEmails.sendInvite, { inviteId: result.inviteId as Id<"invites">, projectId: projectId ?? null });
-      return { status: result.status };
+      return { status: result.status, email: emailConfigured() ? ("pending" as const) : ("not-sent" as const) };
     }),
 });
 

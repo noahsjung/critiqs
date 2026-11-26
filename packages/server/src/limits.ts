@@ -356,7 +356,8 @@ export function upgradeAddress(raw: string | undefined): string | null {
   }
 }
 
-function upgradeOf(store: Store): { upgradeUrl?: string } {
+/** The deployment's upgrade page (`CRITIQS_UPGRADE_URL`), when it names one, for answers that carry it. */
+export function upgradeOf(store: Store): { upgradeUrl?: string } {
   const url = store.limits.upgradeUrl?.() ?? null;
   return url === null ? {} : { upgradeUrl: url };
 }

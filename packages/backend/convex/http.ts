@@ -30,6 +30,7 @@ import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
 import { deployment } from "./lib/ai";
 import { billingConfig, billingHealth, verifyWebhook } from "./lib/billing";
+import { emailConfigured } from "./lib/email";
 import { syncOrganization } from "./billing";
 
 /** Which AI this deployment offers, without any key or address. */
@@ -111,7 +112,7 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const projectId = new URL(request.url).searchParams.get("projectId");
     const state = await ctx.runQuery(internal.notifications.health, { projectId: projectId ?? undefined });
-    const email = Boolean(process.env.RESEND_API_KEY && process.env.CRITIQS_EMAIL_FROM);
+    const email = emailConfigured();
     const issuer = process.env.CRITIQS_AUTH_ISSUER?.replace(/\/$/, "") ?? "";
     const site = (process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
     return Response.json(
@@ -196,7 +197,7 @@ type SignInMode = "email" | "development" | "unavailable";
 function signInMode(): SignInMode {
   // Codes and tokens are both keyed by the signing key; without it nobody can sign in.
   if (!process.env.CRITIQS_AUTH_PRIVATE_KEY) return "unavailable";
-  if (process.env.RESEND_API_KEY && process.env.CRITIQS_EMAIL_FROM) return "email";
+  if (emailConfigured()) return "email";
   // Development sign-in shows codes on screen, so anyone could claim any email; it only runs locally.
   if (process.env.CRITIQS_DEV_SIGN_IN === "enabled" && isLoopback(new URL(signInUrl()).hostname)) return "development";
   return "unavailable";

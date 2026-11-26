@@ -574,7 +574,8 @@ person pays ([Simpler setup](ai-connections.md#simpler-setup-agreed-2026-11-23))
 Where the deployment sets `CRITIQS_UPGRADE_URL` to an https page, both usage
 answers carry it as `upgradeUrl`, and the interface links to it as **Upgrade**.
 On deployments that take payment (`billing`), **Upgrade** opens the
-organization's **Plan and billing** page instead.
+organization's **Plan and billing** page instead, and shows only while the
+organization has a higher plan to move to (not on Pro).
 Own providers count nothing against plans.
 
 ### Free, Plus, and Pro

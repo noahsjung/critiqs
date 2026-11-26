@@ -442,8 +442,14 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       if (result.status !== "invited") return { status: result.status };
       version++;
       const message = mailer === null ? null : await store.transaction((s) => claimInviteEmail(s, { inviteId: result.inviteId, projectId }, Date.now()));
-      if (message !== null) await mailer!.send(message).catch((error) => console.error("Critiqs couldn't send an invite email:", error instanceof Error ? error.message : "unknown error"));
-      return { status: "invited" };
+      // Without email, past an email limit, or when the send fails, the person still joins by signing in; `email` lets the interface say which.
+      const sent =
+        message !== null &&
+        (await mailer!.send(message).then(
+          () => true,
+          (error) => (console.error("Critiqs couldn't send an invite email:", error instanceof Error ? error.message : "unknown error"), false),
+        ));
+      return { status: "invited", email: sent ? "sent" : "not-sent" } as const;
     },
     search: (args: { projectId: string; question: string; scope: SearchScope }, identity) =>
       runSearch({

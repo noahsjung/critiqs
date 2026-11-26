@@ -80,6 +80,8 @@ export interface OrganizationDetails {
   plan: string | null;
   members: OrganizationMember[];
   invites: OrganizationInvite[];
+  /** Where to upgrade the plan, when the deployment names a page; absent from older backends. */
+  upgradeUrl?: string;
 }
 
 /** A Critiqs Cloud plan an organization can buy or move to. */
@@ -102,8 +104,14 @@ export interface BillingStatus {
     /** The plan that takes over when the period ends, such as after a downgrade; null when none is scheduled. */
     scheduledPlan: BillingPlan | null;
   } | null;
-  /** Pro's 100 GB storage add-ons the organization pays for. */
+  /** Pro's 100 GB storage add-ons the organization pays for: those that renew. */
   storageAddOns: number;
+  /**
+   * Storage add-ons that no longer renew but still add storage until their
+   * own period ends (`endsAt`, null when not known yet), as after Remove or
+   * with a plan set to end. Absent from older backends.
+   */
+  endingStorageAddOns?: { endsAt: number | null }[];
   /** Whether the signed-in person may change the plan and payment details: an admin of the organization. */
   canManage: boolean;
   /** What the plans cost, from Autumn's catalog as last read; null until it has been read. */
