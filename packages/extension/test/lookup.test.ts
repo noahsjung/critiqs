@@ -1,21 +1,49 @@
 import { expect, test } from "bun:test";
 import type { ProjectInfo, ProjectLookup } from "@critiqs/core";
-import { addToProject, Choices, StartedProjects, choose, findProject, ownedProjects, type ProjectsApi, pageOrigin, siteName, startReviewing } from "../src/lookup.ts";
+import { addToProject, Choices, choose, findProject, inSeveralOrganizations, type ProjectsApi, pageOrigin, siteName, StartKeys, startReviewing, waitingFor } from "../src/lookup.ts";
 import { fakeChrome } from "./fake-chrome.ts";
 
 const project = (id: string, isOwner = true): ProjectInfo => ({ _id: id, name: `Project ${id}`, tags: [], createdAt: 1, reviewUrl: null, isOwner });
 
-function api(lookup: ProjectLookup, lists: Record<string, string[]> = {}) {
+/**
+ * A backend as the extension sees it: creates with the same key return the
+ * same project, and adding an address is one step that keeps the others.
+ * `lose` makes the next create's response go missing after the backend made it.
+ */
+function api(lookup: ProjectLookup | "live", lists: Record<string, string[]> = {}) {
   const calls: string[] = [];
+  // "live": the lookup finds whichever projects list the origin now.
+  const find = (origin: string): ProjectLookup => {
+    if (lookup !== "live") return lookup;
+    const found = Object.keys(lists).filter((projectId) => lists[projectId]!.includes(origin));
+    return found.length === 0 ? { status: "none" } : found.length === 1 ? { status: "found", project: project(found[0]!) } : { status: "choose", projects: found.map((id) => project(id)) };
+  };
+  const keys = new Map<string, string>();
+  const state = { lose: 0, failAdds: 0 };
   const projects: ProjectsApi = {
-    findForOrigin: async (origin) => (calls.push(`find ${origin}`), lookup),
-    listMine: async () => [project("mine"), project("shared", false)],
-    create: async (name) => (calls.push(`create ${name}`), "new"),
-    addresses: async (projectId) => lists[projectId] ?? [],
-    setAddresses: async (projectId, addresses) => (calls.push(`set ${projectId} ${addresses.join(" ")}`), (lists[projectId] = addresses)),
+    findForOrigin: async (origin) => (calls.push(`find ${origin}`), find(origin)),
+    manageable: async () => ({ projects: [project("mine"), project("admin-of")], complete: true }),
+    create: async (name, idempotencyKey) => {
+      calls.push(`create ${name}`);
+      await Promise.resolve();
+      let projectId = keys.get(idempotencyKey);
+      if (projectId === undefined) {
+        projectId = keys.size === 0 ? "new" : `new-${keys.size}`;
+        keys.set(idempotencyKey, projectId);
+      }
+      if (state.lose-- > 0) throw new Error("offline");
+      return projectId;
+    },
+    addAddress: async (projectId, address) => {
+      if (state.failAdds-- > 0) throw new Error("offline");
+      calls.push(`add ${projectId} ${address}`);
+      const list = (lists[projectId] ??= []);
+      if (!list.includes(address)) list.push(address);
+      return [...list];
+    },
     get: async (projectId) => project(projectId),
   };
-  return { projects, calls };
+  return { projects, calls, keys, state, lists };
 }
 
 test("one match is shown; several ask; none offers to start", () => {
@@ -48,24 +76,44 @@ test("answers are remembered per person and origin, and a stale one is forgotten
   expect(await choices.get("dana", "http://localhost:5173")).toBeNull();
 });
 
+/** Web Locks as Chrome gives them: one holder at a time per name. */
+function sharedLocks() {
+  let queue: Promise<unknown> = Promise.resolve();
+  return {
+    request<T>(_: string, work: () => Promise<T>): Promise<T> {
+      const run = queue.then(work, work);
+      queue = run.catch(() => undefined);
+      return run;
+    },
+  };
+}
+const startKeys = (storage = fakeChrome().storage.local, origin = "https://acme.dev") => new StartKeys(storage, "https://signin.example", "dana", origin);
+
 test("Start reviewing this site creates a project named for the site, listing its origin", async () => {
-  const { projects, calls } = api({ status: "none" });
-  expect(await startReviewing(projects, "http://localhost:5173", new StartedProjects(fakeChrome().storage.local, "s", "dana", "http://localhost:5173"))).toBe("new");
-  expect(calls).toEqual(["create localhost:5173", "set new http://localhost:5173"]);
+  const { projects, calls, keys } = api("live");
+  const storage = fakeChrome().storage.local;
+  const started = await startReviewing(projects, "http://localhost:5173", startKeys(storage, "http://localhost:5173"), null);
+  expect(started).toEqual({ kind: "show", project: project("new"), choices: null });
+  expect(calls).toEqual(["find http://localhost:5173", "create localhost:5173", "add new http://localhost:5173"]);
+  expect([...keys.keys()][0]).toMatch(/^start-[0-9a-f-]{36}$/);
+  // Nothing is kept once the start finished.
+  expect(storage.items.size).toBe(0);
   expect(siteName("https://acme-proto.vercel.app")).toBe("acme-proto.vercel.app");
 });
 
-test("Add to a project adds the origin to the project's list once, keeping its other addresses", async () => {
-  const { projects, calls } = api({ status: "none" }, { mine: ["https://acme.dev"] });
+test("Add to a project adds the origin in one step, keeping the project's other addresses", async () => {
+  const { projects, calls, lists } = api({ status: "none" }, { mine: ["https://acme.dev"] });
   await addToProject(projects, "mine", "https://staging.acme.dev");
   await addToProject(projects, "mine", "https://staging.acme.dev");
-  expect(calls).toEqual(["set mine https://acme.dev https://staging.acme.dev"]);
+  expect(calls).toEqual(["add mine https://staging.acme.dev", "add mine https://staging.acme.dev"]);
+  expect(lists.mine).toEqual(["https://acme.dev", "https://staging.acme.dev"]);
 });
 
-test("only projects the person owns are offered for adding the site", async () => {
-  const { projects } = api({ status: "none" });
-  expect((await ownedProjects(projects)).map((item) => item._id)).toEqual(["mine"]);
-});
+test("two panels adding different sites to one project at once keep both", async () => {
+  const { projects, lists } = api({ status: "none" }, { mine: ["https://acme.dev"] });
+  await Promise.all([addToProject(projects, "mine", "https://one.acme.dev"), addToProject(projects, "mine", "https://two.acme.dev")]);
+  expect([...lists.mine!].sort()).toEqual(["https://acme.dev", "https://one.acme.dev", "https://two.acme.dev"]);
+})
 
 test("pages a project could list have an origin; others, such as chrome:// pages and files, have none", () => {
   expect(pageOrigin("https://Acme-Proto.vercel.app:443/users/42?tab=1#x")).toBe("https://acme-proto.vercel.app");
@@ -76,29 +124,52 @@ test("pages a project could list have an origin; others, such as chrome:// pages
   expect(pageOrigin(undefined)).toBeNull();
 });
 
-test("trying Start reviewing again after its address failed to save finishes the same project instead of making another", async () => {
-  const { projects, calls } = api({ status: "none" });
-  const setAddresses = projects.setAddresses;
-  let failures = 1;
-  projects.setAddresses = async (projectId, addresses) => {
-    if (failures-- > 0) throw new Error("offline");
-    return setAddresses(projectId, addresses);
-  };
-  const chrome = fakeChrome();
-  const started = () => new StartedProjects(chrome.storage.local, "https://signin.example", "dana", "https://acme.dev");
-  await expect(startReviewing(projects, "https://acme.dev", started())).rejects.toThrow("offline");
-  // The panel was closed and opened again: what it started is still known.
-  expect(await startReviewing(projects, "https://acme.dev", started())).toBe("new");
-  expect(chrome.storage.local.items.size).toBe(0);
-  expect(calls.filter((call) => call.startsWith("create"))).toEqual(["create acme.dev"]);
-  expect(calls).toContain("set new https://acme.dev");
+test("trying Start reviewing again after a lost response or a failed address finishes the same project", async () => {
+  const { projects, calls, state, lists } = api("live");
+  const storage = fakeChrome().storage.local;
+  state.lose = 1;
+  await expect(startReviewing(projects, "https://acme.dev", startKeys(storage), null)).rejects.toThrow("offline");
+  state.failAdds = 1;
+  // The panel was closed and opened again: the key it kept is sent again.
+  await expect(startReviewing(projects, "https://acme.dev", startKeys(storage), null)).rejects.toThrow("offline");
+  expect(await startReviewing(projects, "https://acme.dev", startKeys(storage), null)).toMatchObject({ kind: "show", project: { _id: "new" } });
+  expect(calls.filter((call) => call.startsWith("create"))).toHaveLength(3);
+  expect(lists).toEqual({ new: ["https://acme.dev"] });
+  expect(storage.items.size).toBe(0);
 });
 
-test("finishing a started project adds its address, keeping any added to it meanwhile", async () => {
-  const { projects } = api({ status: "none" }, { new: ["https://staging.acme.dev"] });
-  const chrome = fakeChrome();
-  const started = new StartedProjects(chrome.storage.local, "s", "dana", "https://acme.dev");
-  await started.set("new");
-  await startReviewing(projects, "https://acme.dev", started);
-  expect(await projects.addresses("new")).toEqual(["https://staging.acme.dev", "https://acme.dev"]);
+test("two panels starting the same site at once get one project, the second finding the first's", async () => {
+  const { projects, keys, lists } = api("live");
+  const storage = fakeChrome().storage.local;
+  const locks = sharedLocks();
+  const [first, second] = await Promise.all([
+    startReviewing(projects, "https://acme.dev", startKeys(storage), locks),
+    startReviewing(projects, "https://acme.dev", startKeys(storage), locks),
+  ]);
+  expect(first).toMatchObject({ kind: "show", project: { _id: "new" } });
+  expect(second).toMatchObject({ kind: "show", project: { _id: "new" } });
+  expect(keys.size).toBe(1);
+  expect(lists).toEqual({ new: ["https://acme.dev"] });
+});
+
+test("starting a site again after its address was removed from the project makes a new project", async () => {
+  const { projects, lists } = api("live");
+  const storage = fakeChrome().storage.local;
+  await startReviewing(projects, "https://acme.dev", startKeys(storage), null);
+  lists.new = [];
+  expect(await startReviewing(projects, "https://acme.dev", startKeys(storage), null)).toMatchObject({ kind: "show", project: { _id: "new-1" } });
+  expect(lists).toEqual({ new: [], "new-1": ["https://acme.dev"] });
+});
+
+test("an answer for a picker the person already left is dropped", () => {
+  expect(waitingFor({ name: "add", request: 2 }, 2)).toBe(true);
+  expect(waitingFor({ name: "add", request: 3 }, 2)).toBe(false);
+  expect(waitingFor({ name: "none" }, 2)).toBe(false);
+});
+
+test("the list names each project's organization only when it spans several", () => {
+  const inOrganization = (id: string, organization: string): ProjectInfo => ({ ...project(id), organization: { id: organization, name: organization, role: "admin" } });
+  expect(inSeveralOrganizations([inOrganization("a", "acme"), inOrganization("b", "acme")])).toBe(false);
+  expect(inSeveralOrganizations([inOrganization("a", "acme"), inOrganization("b", "globex")])).toBe(true);
+  expect(inSeveralOrganizations([])).toBe(false);
 });

@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { sessionKey } from "../src/session.ts";
+import { showAutomatically } from "../src/site-access.ts";
 import { startWorker } from "../src/worker.ts";
 import { fakeChrome, settle } from "./fake-chrome.ts";
 
@@ -112,4 +114,42 @@ test("a page layer starting in the tab clears an old page's Built in note", asyn
   chrome.runtime.onMessage.fire({ type: "critiqs:page-ready" }, fromPage(), () => {});
   await settle();
   expect(chrome.storage.session.items.get("tab:7")).toEqual({});
+});
+
+test("pins with no panel open aren't read from a backend the panel refuses as too old", async () => {
+  const realFetch = globalThis.fetch;
+  const signIn = "https://backend.convex.site";
+  const asked: string[] = [];
+  let flags: Record<string, boolean> = { addressLists: true };
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/critiqs/config")) return Response.json({ signInUrl: signIn, protocol: 5, transport: "convex", ...flags });
+    asked.push(JSON.parse(String(init?.body)).path);
+    return Response.json({ status: "success", value: { status: "none" }, logLines: [] });
+  }) as typeof fetch;
+  try {
+    for (const current of [false, true]) {
+      flags = current ? { addressLists: true, addressEdits: true, createKeys: true } : { addressLists: true };
+      asked.length = 0;
+      const chrome = fakeChrome();
+      expect(await showAutomatically(chrome, "https://acme-proto.vercel.app")).toBe(true);
+      const accessToken = `h.${btoa(JSON.stringify({ sub: "dana", name: "Dana", email: "dana@example.com" })).replace(/=+$/, "")}.a1`;
+      chrome.storage.local.items.set(sessionKey(signIn), {
+        accessToken,
+        refreshToken: "r1",
+        expiresAt: Date.now() + 15 * 60_000,
+        sessionEndsAt: Date.now() + 86_400_000,
+        reviewer: { id: "dana", name: "Dana", email: "dana@example.com" },
+      });
+      startWorker(chrome, "https://backend.convex.cloud");
+      let answer: unknown;
+      chrome.runtime.onMessage.fire({ type: "critiqs:auto-pins" }, fromPage(), (value) => (answer = value));
+      for (let wait = 0; wait < 50 && answer === undefined; wait++) await Bun.sleep(5);
+      expect(answer).toEqual({ display: null });
+      // A current backend is asked for the page's project; an older one is asked nothing.
+      expect(asked).toEqual(current ? ["projects:findForOrigin"] : []);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

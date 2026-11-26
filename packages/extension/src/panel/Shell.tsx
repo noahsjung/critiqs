@@ -1,13 +1,13 @@
-import { type PanelSignIn, type ProjectInfo, panelSignIn } from "@critiqs/core";
+import { type ManageableProjects, type PanelSignIn, type ProjectInfo, panelSignIn } from "@critiqs/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { type Deployment, resolveDeployment } from "../../../react/src/deployment.ts";
 import { NavRow, Switch } from "../../../react/src/ui/ds.tsx";
 import { BackIcon } from "../../../react/src/ui/icons.tsx";
-import { backendMessage, convexProjects } from "../backend.ts";
+import { backendMessage, backendProblem, convexProjects } from "../backend.ts";
 import { tabScreenshots } from "../capture.ts";
 import type { ChromeApi } from "../chrome.ts";
 import { BACKEND_URL, type TabState, tabKey } from "../config.ts";
-import { addToProject, Choices, StartedProjects, findProject, ownedProjects, type ProjectChoice, type ProjectsApi, pageOrigin, siteName, startReviewing } from "../lookup.ts";
+import { addToProject, Choices, findProject, inSeveralOrganizations, StartKeys, waitingFor, type ProjectChoice, type ProjectsApi, pageOrigin, siteName, startReviewing } from "../lookup.ts";
 import { ExtensionSession } from "../session.ts";
 import { showAutomatically, showsAutomatically, stopShowingAutomatically } from "../site-access.ts";
 import { type TabConnection, tabConnection } from "./page-connection.ts";
@@ -39,7 +39,8 @@ export function Shell({ chrome, tabId, openThread }: { chrome: ChromeApi; tabId:
     setBackend(null);
     resolveDeployment(BACKEND_URL).then(
       async (deployment) => {
-        if (deployment.transport !== "convex") throw new Error("This Critiqs server runs inside its app, so the extension can't use it. Use Critiqs Cloud or a Convex deployment.");
+        const problem = backendProblem(deployment);
+        if (problem !== null) throw new Error(problem);
         const client = panelSignIn(deployment.signInUrl);
         const session = new ExtensionSession(deployment.signInUrl, client, chrome.storage.local, chrome.storage.onChanged);
         await session.ready;
@@ -87,7 +88,8 @@ type Step =
   | { name: "error"; message: string }
   | { name: "choose"; projects: ProjectInfo[] }
   | { name: "none" }
-  | { name: "add"; projects: ProjectInfo[] | null }
+  /** `request` tells this picker's answer from one the person already left. */
+  | { name: "add"; request: number; projects: ManageableProjects | null; failure: string | null }
   | { name: "review"; project: ProjectInfo; choices: ProjectInfo[] | null }
   | { name: "settings"; project: ProjectInfo; choices: ProjectInfo[] | null };
 
@@ -113,6 +115,7 @@ function Project({
   const projects: ProjectsApi = useMemo(() => convexProjects(deployment.backendUrl, session), [deployment.backendUrl, session]);
   const choices = useMemo(() => new Choices(chrome.storage.local, deployment.signInUrl), [chrome, deployment.signInUrl]);
   const [step, setStep] = useState<Step>({ name: "loading" });
+  const pickerRequests = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [screenshotNote, setScreenshotNote] = useState(false);
@@ -182,8 +185,11 @@ function Project({
               disabled={busy}
               onClick={() =>
                 void act(async () => {
-                  const projectId = await startReviewing(projects, origin, new StartedProjects(chrome.storage.local, deployment.signInUrl, reviewerId, origin));
-                  setStep({ name: "review", project: await projects.get(projectId), choices: null });
+                  const keys = new StartKeys(chrome.storage.local, deployment.signInUrl, reviewerId, origin);
+                  const started = await startReviewing(projects, origin, keys, globalThis.navigator?.locks ?? null);
+                  // The person's answer for this origin, so an origin such as localhost doesn't ask again.
+                  if (started.kind === "show" && started.choices === null) await choices.remember(reviewerId, origin, started.project._id);
+                  show(started);
                 })
               }
             >
@@ -197,8 +203,15 @@ function Project({
               disabled={busy}
               onClick={() => {
                 setError(null);
-                setStep({ name: "add", projects: null });
-                ownedProjects(projects).then((owned) => setStep({ name: "add", projects: owned }), (failure) => setStep({ name: "error", message: backendMessage(failure) }));
+                const request = ++pickerRequests.current;
+                setStep({ name: "add", request, projects: null, failure: null });
+                // An answer that comes after the person went back is dropped.
+                const answer = (change: Pick<Extract<Step, { name: "add" }>, "projects" | "failure">) =>
+                  setStep((current) => (waitingFor(current, request) ? { ...current, ...change } : current));
+                projects.manageable().then(
+                  (manageable) => answer({ projects: manageable, failure: null }),
+                  (failure) => answer({ projects: null, failure: backendMessage(failure) }),
+                );
               }}
             >
               Add to a project
@@ -206,31 +219,43 @@ function Project({
           </Quiet>
         </Screen>
       );
-    case "add":
+    case "add": {
+      const named = step.projects !== null && inSeveralOrganizations(step.projects.projects);
       return (
         <Screen title="Add this site to a project" line={<span className="xt-site">{site}</span>} onBack={() => (setError(null), setStep({ name: "none" }))}>
           {error !== null && <p className="error" role="alert">{error}</p>}
-          {step.projects === null ? null : step.projects.length === 0 ? (
-            <p className="note">Projects you created show here. You haven't created one yet.</p>
+          {step.failure !== null && <p className="error" role="alert">{step.failure}</p>}
+          {step.projects === null ? null : step.projects.projects.length === 0 ? (
+            <p className="note">
+              {step.projects.complete
+                ? "Projects you created, and projects in organizations you're an admin of, show here. You don't have one yet."
+                : "Critiqs couldn't list the projects you manage here. You belong to more organizations than it reads."}
+            </p>
           ) : (
-            <div className="xt-list">
-              {step.projects.map((project) => (
-                <NavRow
-                  key={project._id}
-                  label={project.name}
-                  disabled={busy}
-                  onClick={() =>
-                    void act(async () => {
-                      await addToProject(projects, project._id, origin);
-                      setStep({ name: "review", project, choices: null });
-                    })
-                  }
-                />
-              ))}
-            </div>
+            <>
+              <div className="xt-list">
+                {step.projects.projects.map((project) => (
+                  <NavRow
+                    key={project._id}
+                    label={project.name}
+                    value={named ? project.organization?.name : undefined}
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        await addToProject(projects, project._id, origin);
+                        await choices.remember(reviewerId, origin, project._id);
+                        setStep({ name: "review", project, choices: null });
+                      })
+                    }
+                  />
+                ))}
+              </div>
+              {!step.projects.complete && <p className="note">Showing the first {step.projects.projects.length} projects.</p>}
+            </>
           )}
         </Screen>
       );
+    }
     case "review":
     case "settings":
       return (

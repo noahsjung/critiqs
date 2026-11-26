@@ -35,7 +35,7 @@ export const signedOutKey = (signInUrl: string) => `signed-out:${signInUrl}`;
 /** Refresh tokens of sessions signed out here that the service hasn't confirmed ending yet. */
 export const endingKey = (signInUrl: string) => `ending:${signInUrl}`;
 
-type Locks = { request<T>(name: string, callback: () => Promise<T>): Promise<T> };
+export type Locks = { request<T>(name: string, callback: () => Promise<T>): Promise<T> };
 
 export class ExtensionSession implements TokenSession {
   readonly #key: string;

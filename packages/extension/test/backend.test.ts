@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { convexProjects } from "../src/backend.ts";
+import { backendProblem, convexProjects } from "../src/backend.ts";
+import type { Deployment } from "../../react/src/deployment.ts";
 import type { TokenSession } from "../../react/src/session.ts";
 
 const realFetch = globalThis.fetch;
@@ -26,4 +27,41 @@ test("threads are read a page at a time, within the backend's 40 a page, until t
     ["threads:list", 40, null],
     ["threads:list", 40, "page-2"],
   ]);
+});
+
+test("starting, adding, and listing call the backend's keyed create, one-address add, and manageable projects", async () => {
+  const asked: { path: string; args: unknown }[] = [];
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    asked.push({ path: body.path, args: body.args[0] });
+    const value = body.path === "projects:manageable" ? { projects: [], complete: true } : body.path === "projects:create" ? "project" : ["https://acme.dev"];
+    return Response.json({ status: "success", value, logLines: [] });
+  }) as typeof fetch;
+  const projects = convexProjects("http://127.0.0.1:3210", session);
+  expect(await projects.create("acme.dev", "start-key-0001")).toBe("project");
+  expect(await projects.addAddress("project", "https://acme.dev")).toEqual(["https://acme.dev"]);
+  expect(await projects.manageable()).toEqual({ projects: [], complete: true });
+  expect(asked).toEqual([
+    { path: "projects:create", args: { name: "acme.dev", reviewUrl: null, idempotencyKey: "start-key-0001" } },
+    { path: "projects:addAddress", args: { projectId: "project", address: "https://acme.dev" } },
+    { path: "projects:manageable", args: {} },
+  ]);
+});
+
+test("the extension needs a Convex backend that reports the lookup, single-address edits, and keyed creates", () => {
+  const current: Deployment = {
+    backendUrl: "https://team.convex.cloud",
+    siteUrl: "https://team.convex.site",
+    signInUrl: "https://team.convex.site",
+    transport: "convex",
+    signIn: null,
+    addressLists: true,
+    addressEdits: true,
+    createKeys: true,
+  };
+  expect(backendProblem(current)).toBeNull();
+  for (const missing of ["addressLists", "addressEdits", "createKeys"] as const) {
+    expect(backendProblem({ ...current, [missing]: false })).toBe("The Critiqs backend at https://team.convex.cloud runs an older version. Deploy the current Critiqs functions to it.");
+  }
+  expect(backendProblem({ ...current, transport: "http" })).toContain("runs inside its app");
 });

@@ -1,7 +1,7 @@
 import { panelSignIn } from "@critiqs/core";
 import { type Deployment, resolveDeployment } from "../../react/src/deployment.ts";
 import { type AutoPins, pinsDisplay } from "./auto-pins.ts";
-import { convexProjects } from "./backend.ts";
+import { backendProblem, convexProjects } from "./backend.ts";
 import type { ChromeApi, MessageSender, Tab } from "./chrome.ts";
 import { BACKEND_URL, isPageMessage, panelPath, type TabState, tabKey } from "./config.ts";
 import { Choices, findProject, pageOrigin } from "./lookup.ts";
@@ -72,7 +72,11 @@ export function startWorker(chrome: ChromeApi, backendUrl: string = BACKEND_URL)
       deployment = null;
       throw error;
     });
-    const { backendUrl: url, signInUrl } = await deployment;
+    const resolved = await deployment;
+    // A backend the panel refuses gets no calls from here either.
+    const problem = backendProblem(resolved);
+    if (problem !== null) throw new Error(problem);
+    const { backendUrl: url, signInUrl } = resolved;
     const session = new ExtensionSession(signInUrl, panelSignIn(signInUrl), chrome.storage.local, null);
     await session.ready;
     return { url, signInUrl, session };

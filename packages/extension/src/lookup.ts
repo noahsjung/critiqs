@@ -1,5 +1,6 @@
-import { originLookupKeys, type ProjectInfo, type ProjectLookup } from "@critiqs/core";
+import { type ManageableProjects, originLookupKeys, type ProjectInfo, type ProjectLookup } from "@critiqs/core";
 import type { StorageArea } from "./chrome.ts";
+import type { Locks } from "./session.ts";
 
 /**
  * Which project the side panel shows for a page: the backend's lookup by the
@@ -12,11 +13,12 @@ import type { StorageArea } from "./chrome.ts";
 /** What the side panel needs from the backend, signed in as the reviewer. */
 export interface ProjectsApi {
   findForOrigin(origin: string): Promise<ProjectLookup>;
-  /** Projects the person created; owners may change their address lists. */
-  listMine(): Promise<ProjectInfo[]>;
-  create(name: string): Promise<string>;
-  addresses(projectId: string): Promise<string[]>;
-  setAddresses(projectId: string, addresses: string[]): Promise<string[]>;
+  /** Projects whose address lists the person may change: those in organizations they're an admin of, and those they created. */
+  manageable(): Promise<ManageableProjects>;
+  /** Creates a project; a retry with the same key by the same person returns the same project. */
+  create(name: string, idempotencyKey: string): Promise<string>;
+  /** Adds one address to a project's list in one step, so people adding at once keep both; returns the list. */
+  addAddress(projectId: string, address: string): Promise<string[]>;
   get(projectId: string): Promise<ProjectInfo>;
 }
 
@@ -91,11 +93,12 @@ export function siteName(origin: string): string {
 }
 
 /**
- * A project "Start reviewing this site" created whose address didn't save
- * yet, kept in the extension per person and origin, so trying again, even
- * after closing the panel, finishes it rather than creating another.
+ * The idempotency key a "Start reviewing this site" under way sends, kept in
+ * the extension per sign-in service, person, and origin until the start
+ * finishes. Trying again after a lost response or a closed panel sends the
+ * same key, so the backend returns the project it already made.
  */
-export class StartedProjects {
+export class StartKeys {
   readonly #key: string;
   constructor(
     private readonly storage: StorageArea,
@@ -103,7 +106,12 @@ export class StartedProjects {
     reviewerId: string,
     origin: string,
   ) {
-    this.#key = `started:${signInUrl}:${reviewerId}:${origin}`;
+    this.#key = `start:${signInUrl}:${reviewerId}:${origin}`;
+  }
+
+  /** The Web Lock that lets one panel at a time start this site for this person. */
+  get lockName(): string {
+    return `critiqs-${this.#key}`;
   }
 
   async get(): Promise<string | null> {
@@ -111,8 +119,8 @@ export class StartedProjects {
     return typeof value === "string" ? value : null;
   }
 
-  set(projectId: string): Promise<void> {
-    return this.storage.set({ [this.#key]: projectId });
+  set(key: string): Promise<void> {
+    return this.storage.set({ [this.#key]: key });
   }
 
   clear(): Promise<void> {
@@ -120,27 +128,43 @@ export class StartedProjects {
   }
 }
 
-/** "Start reviewing this site": a new project whose address list is this origin, or the one started before. Returns its ID. */
-export async function startReviewing(api: ProjectsApi, origin: string, started: StartedProjects): Promise<string> {
-  let projectId = await started.get();
-  if (projectId === null) {
-    projectId = await api.create(siteName(origin));
-    await started.set(projectId);
-  }
-  // Added rather than set: someone may have added addresses to a project started earlier.
-  await addToProject(api, projectId, origin);
-  await started.clear();
-  return projectId;
+/**
+ * "Start reviewing this site": a project named for the site whose address
+ * list has this origin, or the project another panel started meanwhile. One
+ * panel at a time starts a site. A new start looks the site up again first,
+ * since a panel may show "No project" from before another one finished;
+ * then it sends a new key, so starting again after the site was removed from
+ * a project makes a new project.
+ */
+export async function startReviewing(api: ProjectsApi, origin: string, keys: StartKeys, locks: Locks | null): Promise<ProjectChoice> {
+  const work = async (): Promise<ProjectChoice> => {
+    let key = await keys.get();
+    if (key === null) {
+      const lookup = await api.findForOrigin(origin);
+      if (lookup.status !== "none") return choose(lookup, null);
+      key = `start-${crypto.randomUUID()}`;
+      await keys.set(key);
+    }
+    const projectId = await api.create(siteName(origin), key);
+    // Added rather than set: someone may have added addresses to the project since it was started.
+    await api.addAddress(projectId, origin);
+    await keys.clear();
+    return { kind: "show", project: await api.get(projectId), choices: null };
+  };
+  return locks === null ? await work() : await locks.request(keys.lockName, work);
 }
 
-/** "Add to a project": adds this origin to the address list of a project the person owns. */
+/** "Add to a project": adds this origin to the address list of a project the person manages. */
 export async function addToProject(api: ProjectsApi, projectId: string, origin: string): Promise<void> {
-  const current = await api.addresses(projectId);
-  if (current.includes(origin)) return;
-  await api.setAddresses(projectId, [...current, origin]);
+  await api.addAddress(projectId, origin);
 }
 
-/** Projects the person created and may still manage, for "Add to a project". Projects they manage only as an organization admin aren't listed: the backend has no query for them yet. */
-export async function ownedProjects(api: ProjectsApi): Promise<ProjectInfo[]> {
-  return (await api.listMine()).filter((project) => project.isOwner);
+/** Whether projects come from more than one organization, so each row names its own. */
+export function inSeveralOrganizations(projects: ProjectInfo[]): boolean {
+  return new Set(projects.map((project) => project.organization?.id)).size > 1;
+}
+
+/** Whether the panel still shows the picker that made `request`, so its answer applies. */
+export function waitingFor<S extends { name: string }>(current: S, request: number): current is Extract<S, { name: "add"; request: number }> {
+  return current.name === "add" && (current as { request?: number }).request === request;
 }
