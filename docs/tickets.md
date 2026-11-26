@@ -722,7 +722,9 @@ Self-hosted deployments get the same features:
   capped, a template's text at most 50,000 characters).
 - **Organization templates.** A repository with no `.github/ISSUE_TEMPLATE`
   folder of its own uses its owner's `.github` repository's templates, as
-  GitHub does: Tags and AI lists them under that repository, saying they come
+  GitHub does, only when that repository is public (GitHub never uses a
+  private one for defaults, so Critiqs doesn't either, even when the person
+  can read it): Tags and AI lists them under that repository, saying they come
   from `owner/.github`, and a draft or a new issue in that repository can use
   them. A repository with its own folder never uses them. The person's token
   must reach the `.github` repository (with the GitHub App, it must be

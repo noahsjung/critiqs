@@ -351,10 +351,31 @@ describe("templates and labels", () => {
     expect(await github.templates!(PAT, "acme/api")).toEqual([]);
   });
 
+  test("an owner's .github repository that isn't public gives no templates, as GitHub uses default templates only from a public one", async () => {
+    const { standIn, github } = setup();
+    for (const visibility of ["private", "internal"] as const) {
+      standIn.repositories = standIn.repositories.filter((repository) => repository.name !== ".github");
+      standIn.repositories.push({
+        id: 510, owner: "acme", name: ".github", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug"], visibility,
+        templates: { "org-bug.md": "---\nname: Organization bug\n---\n## What broke\n" },
+      });
+      const tokens = await signIn(standIn);
+      const groups = await github.templates!({ method: "oauth", value: tokens.access });
+      expect(groups.find((group) => group.destination.id === "acme/api")?.templates ?? []).toEqual([]);
+      expect(groups.some((group) => group.from === "acme/.github")).toBe(false);
+      expect(await github.template!(PAT, "acme/.github:org-bug.md", "acme/api")).toBeNull();
+      // Nor is it used to create an issue.
+      standIn.repositories.find((repository) => repository.name === "api")!.pushers.push("dana-smith");
+      const before = standIn.issues.length;
+      expect((await github.create(PAT, { destinationId: "acme/api", title: "T", body: md("B"), labels: [], templateId: "acme/.github:org-bug.md", creationId: `6f1c2b9a-3d4e-4f50-8a1b-00000000010${visibility === "private" ? 1 : 2}` })).status).toBe("refused");
+      expect(standIn.issues.length).toBe(before);
+    }
+  });
+
   test("a repository without a template folder uses its owner's .github repository's templates, as GitHub does; one with its own doesn't", async () => {
     const { standIn, github } = setup();
     standIn.repositories.push({
-      id: 510, owner: "acme", name: ".github", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug"],
+      id: 510, owner: "acme", name: ".github", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug"], visibility: "public",
       templates: { "org-bug.md": "---\nname: Organization bug\nlabels: [bug, missing]\n---\n## What broke\n" },
     });
     const tokens = await signIn(standIn);

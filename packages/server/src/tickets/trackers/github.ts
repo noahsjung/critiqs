@@ -530,6 +530,19 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       .slice(0, MAX_TEMPLATES);
   };
 
+  /**
+   * Whether an owner's `.github` repository is one GitHub takes default
+   * templates from: it exists and is public
+   * (https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file).
+   * A private one, which the person may still be able to read, is never used.
+   */
+  const usedForDefaults = async (token: TrackerToken, shared: { owner: string; name: string }): Promise<boolean> => {
+    const answer = await send(to, token, repoPath(shared));
+    if (answer.response.status === 404) return false;
+    requireOk(answer, token);
+    return isRecord(answer.body) && answer.body.private === false && (answer.body.visibility === undefined || answer.body.visibility === "public");
+  };
+
   const readTemplate = async (token: TrackerToken, repository: { owner: string; name: string }, fileName: string): Promise<GithubTemplateFile | null> => {
     const answer = await send(to, token, repoPath(repository, "contents", ...TEMPLATE_FOLDER.split("/"), fileName), { raw: true });
     if (answer.response.status === 404) return null;
@@ -539,13 +552,15 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
 
   /**
    * Where a repository's issue templates come from, as GitHub decides: its own
-   * template folder, or, when it has none, its owner's `.github` repository's
-   * (an organization's or account's default templates), with the files there.
+   * template folder, or, when it has none, its owner's public `.github`
+   * repository's (an organization's or account's default templates), with the
+   * files there.
    */
   const templateSource = async (token: TrackerToken, repository: { owner: string; name: string }): Promise<{ source: { owner: string; name: string }; files: string[]; shared: boolean }> => {
     const own = await templateFiles(token, repository);
     if (own !== null || repository.name.toLowerCase() === SHARED_REPOSITORY) return { source: repository, files: own ?? [], shared: false };
     const shared = { owner: repository.owner, name: SHARED_REPOSITORY };
+    if (!(await usedForDefaults(token, shared))) return { source: repository, files: [], shared: false };
     return { source: shared, files: (await templateFiles(token, shared)) ?? [], shared: true };
   };
 
@@ -564,7 +579,7 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
     const source = repositoryOf(sourceId);
     if (sourceId.toLowerCase() !== destinationId.toLowerCase()) {
       const shared = source.owner.toLowerCase() === destination.owner.toLowerCase() && source.name.toLowerCase() === SHARED_REPOSITORY;
-      if (!shared || (await templateFiles(token, destination)) !== null) return null;
+      if (!shared || (await templateFiles(token, destination)) !== null || !(await usedForDefaults(token, source))) return null;
     }
     return await readTemplate(token, source, fileName);
   };
