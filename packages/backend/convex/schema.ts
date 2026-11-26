@@ -587,7 +587,7 @@ export default defineSchema({
   signInLimits: defineTable({ key: v.string(), count: v.number(), expiresAt: v.number() })
     .index("by_key", ["key"]).index("by_expiry", ["expiresAt"]),
 
-  /** A sign-in popup in progress: which site asked, its email code, and the reviewer once verified. */
+  /** A sign-in popup or panel in progress: which site asked, its email code, and the reviewer once verified. */
   signInAttempts: defineTable({
     key: v.string(),
     origin: v.string(),
@@ -614,6 +614,11 @@ export default defineSchema({
     consentHash: v.optional(v.string()),
     /** Set when this sign-in approves setup on another device rather than signing in to a site. */
     device: v.optional(v.id("deviceGrants")),
+    /**
+     * Set when one of Critiqs's own panels signs in without a popup. The
+     * binding then covers the attempt key and the panel's origin, not a cookie.
+     */
+    panel: v.optional(v.boolean()),
   })
     .index("by_key", ["key"])
     .index("by_created", ["createdAt"]),
@@ -671,9 +676,21 @@ export default defineSchema({
     expiresAt: v.number(),
     /** …but never after this, however often it is used. */
     endsAt: v.optional(v.number()),
+    /**
+     * Started without a site grant because the origin was one of Critiqs's own
+     * panels. It renews only while the origin is still listed.
+     */
+    firstParty: v.optional(v.boolean()),
   })
     .index("by_refresh_hash", ["refreshHash"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_expiry", ["expiresAt"])
+    .index("by_first_party_origin", ["firstParty", "origin"]),
+
+  /**
+   * Panel origins that have consent-free sessions, so cleanup can end them
+   * once an origin is no longer listed, even if they aren't used meanwhile.
+   */
+  panelSessionOrigins: defineTable({ origin: v.string() }).index("by_origin", ["origin"]),
 
   /** Personal read state (F5). Never affects other reviewers or thread status. */
   readStates: defineTable({

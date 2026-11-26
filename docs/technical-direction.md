@@ -538,7 +538,8 @@ tokens, avoiding the host's domain and third-party cookies.
   page carries its own token. The component accepts tokens only from the popup
   it opened.
 - **Consent.** The first sign-in from a new site asks the reviewer to allow it,
-  so another site cannot embed the component to obtain their access.
+  so another site cannot embed the component to obtain their access. Critiqs's
+  own panel origins (below) are never asked and record no site grant.
 - **Tokens.** After verification and consent, Critiqs issues a 15-minute ES256
   token with the reviewer's verified email and the allowed site. The popup
   posts it only to that site.
@@ -562,7 +563,8 @@ tokens, avoiding the host's domain and third-party cookies.
   service's address. Critiqs Cloud names itself; team-owned Convex deployments
   either name Critiqs Cloud's issuer or run their own sign-in.
 - **Allowed sites.** Sites must use HTTPS unless they run on the reviewer's
-  computer.
+  computer. A `chrome-extension://` origin is accepted only for an extension
+  ID listed in `CRITIQS_EXTENSION_IDS`.
 - **Local development.** With `CRITIQS_DEV_SIGN_IN=enabled` and a local issuer,
   the sign-in window shows the code instead of emailing it. It never runs on a
   shared address.
@@ -572,6 +574,84 @@ on that site can read them. Refresh rotation and sign-in start limits are
 covered by local tests. If a browser has neither Web Locks nor IndexedDB,
 Critiqs preserves the stored session and declines refresh rather than race
 another tab. Browser support is still an open choice.
+
+**Agreed (2026-11-25), not built in a panel yet:** every reviewer who reviews
+without installing verifies their email inside Critiqs's panel (email, code,
+and a display name on a first sign-in), with no popup. Review links ask at the
+first comment; the extension asks when Critiqs first opens on a page.
+
+**Proposed, built:** the sign-in service behind that, for Critiqs's own panels
+only. No panel uses it yet.
+
+- **Panel origins.** `CRITIQS_WEB_ORIGINS` lists Critiqs's website origins
+  (a review link's panel) and `CRITIQS_EXTENSION_IDS` the extension IDs whose
+  side panel (`chrome-extension://<id>`) may sign in, separated by commas or
+  spaces. Each must match exactly: a website origin must be a bare `https:`
+  origin, or `http:` on this computer, and an ID 32 letters from a to p.
+  Patterns, paths, and other entries are ignored. With neither set, no panel
+  can sign in.
+- **Routes.** `POST /auth/panel/email` with `{ email }` starts an attempt,
+  sends a code, and answers with the attempt key; with `{ email, attempt }` it
+  sends a new code for the same attempt. `POST /auth/panel/code` with
+  `{ attempt, code }` answers with the session's tokens for a returning
+  reviewer, or `{ "status": "needs-name" }` for a new one, who then sends
+  `POST /auth/panel/name` with `{ attempt, name }` and receives the tokens.
+  The tokens are the same as a site's: a 15-minute access token naming the
+  panel's origin, a refresh token, and when the session ends. Errors are JSON
+  with an `error` code (such as `wrong-code` with `guessesLeft`, `expired`,
+  `locked`, or `rate-limited` with `retryAfter`) and a `message` to show.
+- **CORS.** Only those exact origins get CORS headers, and requests from any
+  other origin, or with none, are refused with 403 before anything happens:
+  no attempt, no code, no counter. Nothing uses cookies or credentials.
+- **Attempts.** The panel holds an attempt token (32 random bytes) and sends it
+  in the request body instead of a cookie, so it works from another site.
+  Only digests of it are stored, and the email service sees neither it nor a
+  digest that could stand in for it. Each attempt is bound to the token and
+  the origin that started it, so it can't be continued from another origin.
+  Panel and popup attempts never continue each other.
+- **Same rules as the popup.** Codes, digests, the 30-minute attempt, the
+  10-minute code, five wrong codes per attempt across its codes, three codes
+  per attempt, five codes per address in 15 minutes (counted together with
+  popup sign-ins), 300 an hour per deployment, and 20 starts a minute per
+  origin and 200 across the deployment. A malformed code uses up no try. A
+  name is chosen only after the code matches. Request bodies over 4 KB are
+  refused before they are read in full.
+- **No consent.** The panel origins are Critiqs's own, so they never see the
+  allow page and need no site grant; that holds for a popup from those origins
+  too. A session started that way, with no grant behind it, renews and renames
+  only while its origin is still listed. Removing an origin ends its sessions:
+  at their next use, or at the hourly cleanup, whichever comes first, so
+  adding the origin back later doesn't revive them. To end them at once, run
+  `npx convex run signIn:endPanelSessions '{"origin":"<origin>"}'`. Sessions
+  backed by a site grant stay. Every other origin's grant rule is unchanged.
+- **Sessions.** `/auth/refresh`, `/auth/profile`, and `/auth/sign-out` accept
+  an allowed extension's origin, and, as for every site, only from the origin
+  that signed in. `/auth/sign-out` exposes `Critiqs-Session-Ended` to the
+  calling page.
+- **Email.** The code email names the website's origin, or "pages with
+  Critiqs's browser extension", and says to type the code only into the
+  Critiqs panel where the reviewer asked for it.
+- **Client.** `panelSignIn(signInUrl)` in `@critiqs/core` calls these routes
+  and the session routes, with no framework and no stored state: the panel
+  keeps the attempt key and the tokens. It is in `@critiqs/core` so that
+  `critiqs-react`, the planned `critiqs` package, and the extension can share
+  it. A browser hides a refused origin's answer, so the client reports it as a
+  network error.
+- **Capability.** `/critiqs/config` reports `panelSignIn: true` for the
+  deployment's own sign-in service. A deployment's `signInUrl` may name an
+  older service, so before offering the form a panel asks the sign-in service
+  itself: `POST /auth/panel/status` answers `{ "ready": true }` only to a
+  listed origin, and only where codes can be sent (the client's
+  `available()`). It is a POST because browsers send `Origin` with every POST,
+  even from the sign-in service's own origin.
+- **Not in embedded SQLite.** The self-hosted server has its own email-code
+  sign-in, which keeps reviewers signed in with a cookie on the prototype's
+  own site and refuses API calls from other origins. It issues no tokens, so a
+  panel on another origin couldn't use a sign-in there; panels sign in with
+  Critiqs Cloud or a Convex deployment.
+- **Limits.** 20 starts a minute is shared by everyone signing in from one
+  panel origin, as for any site; Critiqs's website and the extension may need
+  a higher limit once many people use them.
 
 **Proposed, built:** approving setup from another device, following RFC 8628's
 device flow, as routes beside the sign-in service on the same Convex

@@ -13,3 +13,4 @@ export * from "./mockup.ts";
 export * from "./local-host.ts";
 export * from "./onboarding.ts";
 export * from "./inbox.ts";
+export * from "./panel-sign-in.ts";
