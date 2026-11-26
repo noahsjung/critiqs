@@ -26,6 +26,7 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     organizationMembers: false,
     overageCap: false,
     billing: false,
+    addressLists: false,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -82,6 +83,7 @@ test("a server in the host app answers at its path, with its own sign-in", async
     organizationMembers: false,
     overageCap: false,
     billing: false,
+    addressLists: false,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });
@@ -123,6 +125,14 @@ test("offers organization members only where the backend reports them", async ()
     (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, organizationMembers })) as unknown as typeof fetch;
   expect((await resolveDeployment("https://team.convex.cloud", config(true))).organizationMembers).toBe(true);
   expect((await resolveDeployment("https://team.convex.cloud", config(undefined))).organizationMembers).toBe(false);
+});
+
+test("records opened projects only where the backend reports address lists", async () => {
+  const config = (addressLists: unknown) =>
+    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressLists })) as unknown as typeof fetch;
+  expect((await resolveDeployment("https://team.convex.cloud", config(true))).addressLists).toBe(true);
+  expect((await resolveDeployment("https://team.convex.cloud", config(undefined))).addressLists).toBe(false);
+  expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).addressLists).toBe(false);
 });
 
 test("offers the cap on extra Critiqs AI credits only where the backend reports it", async () => {

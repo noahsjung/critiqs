@@ -33,6 +33,7 @@ These definitions describe the intended product, not completed features.
 | Mockup mode | Freeze the current page into a page copy and ask Critiqs AI to change it, to show a proposed change during a review. The prototype can't be navigated until the reviewer leaves the mode. The interface labels it **Mockup**. |
 | Toolbar | Critiqs's floating control at the bottom center of the prototype: modes, sidebar, sign-in, and setup. |
 | Review address | The one page of the prototype that notification emails open, for every copy (local, preview, and deployed), such as the deployed prototype. The project's owner enters it in setup or later; nothing else sets or changes it. A local or private review address, such as `http://localhost:5173` or a Tailscale (`.ts.net`) address, opens only on one computer or private network. |
+| Address list | The origins a project's prototype runs at, such as `https://acme-proto.vercel.app`, or patterns with one `*` in the leftmost part of the host, such as `https://*-acme.vercel.app`. The browser extension finds a page's project by it, among projects the person can already reach. Only the project's owners change it. Separate from the review address. |
 | Screen (page) | A logical page type, such as user details. Different users' detail URLs can belong to the same screen. |
 | Record | The specific item being shown, such as Alex's user account. |
 | View state | Settings that affect visible content: selected tab, open dialog, filters, or step. |

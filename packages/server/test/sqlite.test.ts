@@ -8,6 +8,7 @@ import { saveAboutYou } from "../src/onboarding.ts";
 import { listMyOrganizations } from "../src/organizations.ts";
 import type { Plan } from "../src/limits.ts";
 import { anchor, type ContractBackend, defineContract, reviewer } from "./contract.ts";
+import { defineAddressContract } from "./contract-addresses.ts";
 import { defineAiContract } from "./contract-ai.ts";
 import { defineDeveloperEmailContract, defineOnboardingContract } from "./contract-onboarding.ts";
 
@@ -34,6 +35,7 @@ defineContract("SQLite", () => sqliteBackend());
 defineAiContract("SQLite", () => sqliteBackend());
 defineOnboardingContract("SQLite", () => sqliteBackend());
 defineDeveloperEmailContract("SQLite", () => sqliteBackend());
+defineAddressContract("SQLite", () => sqliteBackend());
 
 test("SQLite: operations on one database run one at a time", async () => {
   const store = new SqliteStore(bunDriver(new Database(":memory:")));

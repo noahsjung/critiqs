@@ -1,4 +1,5 @@
 import { defineContract, type ContractBackend } from "@critiqs/server/contract";
+import { defineAddressContract } from "@critiqs/server/contract-addresses";
 import { defineAiContract } from "@critiqs/server/contract-ai";
 import { defineDeveloperEmailContract, defineOnboardingContract } from "@critiqs/server/contract-onboarding";
 import type { Plan } from "@critiqs/server";
@@ -51,3 +52,4 @@ defineContract("Convex", () => convexBackend());
 defineAiContract("Convex", () => convexBackend());
 defineOnboardingContract("Convex", () => convexBackend());
 defineDeveloperEmailContract("Convex", () => convexBackend());
+defineAddressContract("Convex", () => convexBackend());

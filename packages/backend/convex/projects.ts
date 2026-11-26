@@ -1,4 +1,4 @@
-import { operations } from "@critiqs/server";
+import { findProjectsForOrigin, getProjectAddresses, operations, recordProjectOpened, setProjectAddresses } from "@critiqs/server";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -67,4 +67,37 @@ export const usage = query({
   // The UTC day comes from the client, so the result changes when the day does.
   args: { projectId: v.id("projects"), day: v.string(), aiCredits: v.optional(v.boolean()) },
   handler: async (ctx, args) => run(async () => operations.getUsage(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * Replaces the project's address list, which the browser extension's project
+ * lookup searches; returns it normalized. Only the project's owners may.
+ */
+export const setAddresses = mutation({
+  args: { projectId: v.id("projects"), addresses: v.array(v.string()) },
+  handler: async (ctx, args) => run(async () => setProjectAddresses(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/** The project's address list, for its owners. */
+export const addresses = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => run(async () => getProjectAddresses(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * Records that the signed-in person opened the project through an install, so
+ * the lookup searches it too. The component calls it once per session and project.
+ */
+export const recordOpened = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => run(async () => recordProjectOpened(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * The browser extension's project lookup: projects whose address lists match
+ * the page's origin, among those the signed-in person can reach.
+ */
+export const findForOrigin = query({
+  args: { origin: v.string() },
+  handler: async (ctx, args) => run(async () => findProjectsForOrigin(convexStore(ctx), await identityOf(ctx), args)),
 });

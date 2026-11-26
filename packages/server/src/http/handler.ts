@@ -79,6 +79,7 @@ import {
 } from "../developer-setup.ts";
 import { claimAddressCheck, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
+import { findProjectsForOrigin, getProjectAddresses, recordProjectOpened, setProjectAddresses } from "../project-addresses.ts";
 import {
   CODE_MINUTES,
   cleanCode,
@@ -481,6 +482,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     developerSetup: (args) => (s, id) => getDeveloperSetup(s, id, args),
     projectSetup: (args) => (s, id) => getProjectSetup(s, id, args),
     developerSends: (args) => (s, id) => listDeveloperSends(s, id, args),
+    projectAddresses: (args) => (s, id) => getProjectAddresses(s, id, args),
+    findProjectsForOrigin: (args) => (s, id) => findProjectsForOrigin(s, id, args),
   };
   const changes: Record<string, (args: any) => Run> = {
     sync: () => (s, id) => ops.syncReviewer(s, id),
@@ -488,6 +491,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     saveAboutYou: (args) => (s, id) => saveAboutYou(s, id, args),
     setReviewUrl: (args) => (s, id) => ops.setReviewUrl(s, id, args),
     setReviewAccess: (args) => (s, id) => ops.setReviewAccess(s, id, args),
+    setProjectAddresses: (args) => (s, id) => setProjectAddresses(s, id, args),
+    recordProjectOpened: (args) => (s, id) => recordProjectOpened(s, id, args),
     setOverageCap: (args) => (s, id) => setOverageCap(s, id, args),
     createThread: (args) => (s, id) =>
       // This server doesn't store mockups yet; its /critiqs/config doesn't offer them.
@@ -691,7 +696,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       shape(args, "args");
       const identity = await identityOf(request);
       const value = action !== undefined ? await action(args, identity) : await store.transaction((s) => make!(args)(s, identity));
-      if (name in changes || name === "saveAiSettings" || name === "savePersonalAiSettings") version++;
+      // Recording an opened project changes nothing anyone is shown.
+      if ((name in changes && name !== "recordProjectOpened") || name === "saveAiSettings" || name === "savePersonalAiSettings") version++;
       // A reply's emails to everyone in its thread are queued right away, outside the request.
       if (name === "reply") void queueReplyEmails().catch(() => {});
       return json({ value: value ?? null });
@@ -1174,6 +1180,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // setup page shows the project and its install commands (`projectSetup`), with or without email.
       // `reviewAccess`: projects report who can review them (`reviewAccess` on projects), and their owners
       // limit them to their organization's members (`setReviewAccess`).
+      // `addressLists`: projects' address lists (`projectAddresses`, `setProjectAddresses`), recording projects a
+      // person opened (`recordProjectOpened`), and the browser extension's lookup (`findProjectsForOrigin`).
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1190,6 +1198,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         developerEmails: developerEmails !== null,
         reviewAccess: true,
         threadPages: true,
+        addressLists: true,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);

@@ -273,6 +273,19 @@ export function App({
     };
   }, [signedIn, reviewerName, transport]);
 
+  // Opening a project through this install lets the browser extension find it
+  // for this reviewer by the page's address. Once per page load, reviewer, and project.
+  const projectReady = projectQuery.status === "ready";
+  const recordsOpens = deployment.addressLists === true;
+  useEffect(() => {
+    if (!signedIn || !recordsOpens || !projectReady || projectId === null || reviewerId === null) return;
+    const key = JSON.stringify([deployment.backendUrl, reviewerId, projectId]);
+    if (recordedOpens.has(key)) return;
+    recordedOpens.add(key);
+    // A failure is retried the next time this reviewer opens the project.
+    transport.recordProjectOpened(projectId).catch(() => recordedOpens.delete(key));
+  }, [signedIn, recordsOpens, projectReady, projectId, reviewerId, deployment.backendUrl, transport]);
+
   const signOut = useCallback(() => {
     revealController.current?.abort();
     setSelected(null);
@@ -1245,6 +1258,8 @@ function wrongViewReason(location: TargetLocation, current: ResolvedContext): st
 }
 
 const EMPTY: ThreadSummary[] = [];
+/** Projects recorded as opened during this page load, by backend, reviewer, and project. */
+const recordedOpens = new Set<string>();
 const EMPTY_TAGS: string[] = [];
 const EMPTY_REPLY: ReplyState = { draft: EMPTY_MENTION_TEXT, sending: false, error: null };
 

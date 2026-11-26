@@ -111,6 +111,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       change(mutation(api.projects.setReviewUrl, { projectId: projectId as Id<"projects">, reviewUrl })),
     setReviewAccess: ({ projectId, reviewAccess }) =>
       change(mutation(api.projects.setReviewAccess, { projectId: projectId as Id<"projects">, reviewAccess })),
+    recordProjectOpened: (projectId) => change(mutation(api.projects.recordOpened, { projectId: projectId as Id<"projects"> })),
     setOverageCap: ({ organizationId, cap }) =>
       change(mutation(api.organizations.setOverageCap, { organizationId: organizationId as Id<"organizations">, cap })),
     uploadImage,

@@ -308,7 +308,7 @@ export async function getProject(store: Store, identity: Identity | null, args: 
   return await projectInfo(store, await requireProject(store, user, args.projectId), user?._id ?? null);
 }
 
-async function projectInfo(store: Store, project: ProjectRecord, userId: string | null): Promise<ProjectInfo> {
+export async function projectInfo(store: Store, project: ProjectRecord, userId: string | null): Promise<ProjectInfo> {
   const { access, organization } = await projectRole(store, project, userId);
   return {
     _id: project._id,
