@@ -383,8 +383,21 @@ at most 40, and all of them always show.
 linked to a ticket, with the other filters, and the filter summary says "has
 ticket". The rows keep showing each ticket's key and status.
 
-**Proposed:** the ticket's key, status, and link in notification emails, the
-Markdown and JSON export, and coding agents' `critiqs_thread` answer.
+**Built:** the thread's linked tickets in three handoffs, each only where the
+backend has tickets and only tickets that finished linking:
+
+- **Notification emails** (mentions and replies) name each ticket under the
+  thread's status line, such as "Ticket: Linear ENG-12 · In Progress", with
+  its address; in the HTML part the name links to the ticket only when its
+  address is a web address.
+- **The Markdown and JSON export** of a thread or a collection: the Markdown
+  adds a "Ticket:" line per ticket (tracker, key, status, title, address) to
+  the thread's context, or "Tickets: none"; the JSON adds each thread's
+  `tickets` (`tracker`, `key`, `title`, `status`, `url`), with the same schema
+  version, since the field is new and optional.
+- **Coding agents' `critiqs_thread` answer** (the `critiqs` CLI's MCP server)
+  adds `tickets`: each ticket's tracker, key, title, status, whether that
+  status is only the last one known, address, and who linked it when.
 
 ## Status from the tracker
 

@@ -291,6 +291,16 @@ export interface TicketBadge {
   lastKnown?: boolean;
 }
 
+/**
+ * A ticket linked to a thread, as handoffs carry it (exports, notification
+ * emails, coding agents' tools): its tracker, key, title, status, and
+ * address in the tracker. Only tickets that finished linking.
+ */
+export interface ThreadTicket extends TicketBadge {
+  title: string;
+  url: string;
+}
+
 /** A person's connected tracker account, as Your trackers shows it. Never carries tokens. */
 export interface TrackerAccountView {
   tracker: TrackerId;

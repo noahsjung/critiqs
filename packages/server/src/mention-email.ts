@@ -1,3 +1,4 @@
+import { type ThreadTicket, TRACKERS, webAddress } from "@critiqs/core";
 import type { ThreadStatus } from "./store.ts";
 
 // The mention and reply email itself: who mentioned the reviewer or replied
@@ -61,6 +62,8 @@ export interface EmailHeader {
    * carry no links of their own.
    */
   threadPage?: string;
+  /** The thread's linked tickets, oldest first, each with its key, status, and address; absent where the backend has none. */
+  tickets?: ThreadTicket[];
 }
 
 /** A capture read for attaching, or why it can't be shown. */
@@ -198,11 +201,13 @@ export class MentionEmail {
           : (imageNote ??
             "The capture isn't included: with this whole discussion, the email would be larger than the email service accepts. Open the comment to see it.");
 
+    const tickets = emailTickets(header.tickets);
     const textStart = clean([
       `Hi ${shorten(header.recipientName)},`,
       "",
       `${who} ${sentence} ${projectName}.`,
       context,
+      ...tickets.map((ticket) => `Ticket: ${ticket.text}${ticket.url === null ? "" : ` ${ticket.url}`}`),
       ...(note === null ? [] : [note]),
       link === null ? "Open the prototype to see it." : `Open the comment: ${link}`,
       "",
@@ -222,6 +227,12 @@ export class MentionEmail {
 <p style="margin:0 0 12px">Hi ${htmlText(shorten(header.recipientName))},</p>
 <p style="margin:0 0 4px"><strong>${htmlText(who)}</strong> ${htmlText(sentence)} <strong>${htmlText(projectName)}</strong>.</p>
 <p style="margin:0;color:#6b7280;font-size:13px">${htmlText(context)}</p>
+${tickets
+  .map(
+    (ticket) =>
+      `<p style="margin:4px 0 0;color:#6b7280;font-size:13px">Ticket: ${ticket.url === null ? htmlText(ticket.text) : `<a href="${escapeAttribute(ticket.url)}" style="color:#0d63f3">${htmlText(ticket.text)}</a>`}</p>`,
+  )
+  .join("\n")}
 ${capture}
 ${link === null ? `<p style="margin:16px 0">Open the prototype to see it.</p>` : `<p style="margin:16px 0"><a href="${escapeAttribute(link)}" style="display:inline-block;padding:8px 14px;background:#0d63f3;color:#ffffff;border-radius:6px;text-decoration:none;font-weight:600">Open the comment</a></p>`}
 <h2 style="margin:24px 0 0;font-size:15px">Thread · ${htmlText(comments)}</h2>
@@ -261,6 +272,22 @@ ${link === null ? `<p style="margin:16px 0">Open the prototype to see it.</p>` :
     if (request > MAX_EMAIL_BYTES || !fitsEmail(html, text, attach?.bytes.length ?? 0)) return null;
     return parts;
   }
+}
+
+/** The most tickets an email names; a thread holds at most 40. */
+export const MAX_EMAIL_TICKETS = 40;
+
+/**
+ * A thread's tickets as an email names them: "Linear ENG-1 · In Progress",
+ * each on one line and shortened, with its address only when it is a web
+ * address, so nothing a tracker sent can become another kind of link.
+ */
+function emailTickets(tickets: ThreadTicket[] | undefined): { text: string; url: string | null }[] {
+  return (tickets ?? []).slice(0, MAX_EMAIL_TICKETS).map((ticket) => {
+    const tracker = TRACKERS.find((entry) => entry.id === ticket.tracker)?.label ?? ticket.tracker;
+    const status = ticket.status === null ? "" : ` · ${shorten(ticket.status.label)}`;
+    return { text: clean(`${tracker} ${shorten(ticket.key)}${status}`).replace(/\s+/g, " "), url: webAddress(ticket.url) };
+  });
 }
 
 /**

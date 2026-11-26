@@ -554,6 +554,28 @@ test("a thread by ID or link, with mentions, reactions, and who resolved it; and
   expect((await agent.call("critiqs_thread", { thread: "https://planner.example/review", backend: BACKEND })).content[0]!.text).toContain("no Critiqs thread");
 });
 
+test("critiqs_thread names the tickets linked to a thread, with key, title, status, and address, and not ones still being created", async () => {
+  const { t, tools } = local();
+  const ids = await feedback(t);
+  const agent = tools();
+  await signIn(t, agent);
+  await t.run(async (ctx) => {
+    const thread = (await ctx.db.get(ids.department as Id<"threads">))!;
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    const base = { projectId: thread.projectId, threadId: thread._id, linkedBy, linkedAt: Date.UTC(2026, 10, 20), createdFromCritiqs: true };
+    await ctx.db.insert("ticketLinks", { ...base, state: "linked", tracker: "linear", externalId: "issue-1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "Department is wrong", status: { label: "In Progress", category: "started" } });
+    await ctx.db.insert("ticketLinks", { ...base, state: "linked", tracker: "github", externalId: "n1", key: "acme/web#9", url: "https://github.com/acme/web/issues/9", title: "Label", status: { label: "Closed", category: "done" }, statusStale: true });
+    await ctx.db.insert("ticketLinks", { ...base, state: "pending", tracker: "jira", externalId: "c1:1", key: "WEB-1", url: "https://acme.atlassian.net/browse/WEB-1", title: "Pending" });
+  });
+  const answer = data(await agent.call("critiqs_thread", { thread: ids.department, backend: BACKEND }));
+  expect(answer.thread.tickets).toEqual([
+    { tracker: "linear", key: "ENG-12", title: "Department is wrong", status: { label: "In Progress", category: "started" }, lastKnown: false, url: "https://linear.app/acme/issue/ENG-12", linkedBy: expect.any(String), linkedAt: "2026-11-20T00:00:00.000Z" },
+    { tracker: "github", key: "acme/web#9", title: "Label", status: { label: "Closed", category: "done" }, lastKnown: true, url: "https://github.com/acme/web/issues/9", linkedBy: expect.any(String), linkedAt: "2026-11-20T00:00:00.000Z" },
+  ]);
+  // A thread without tickets says so with an empty list.
+  expect(data(await agent.call("critiqs_thread", { thread: ids.spacing, backend: BACKEND })).thread.tickets).toEqual([]);
+});
+
 test("the kept sign-in renews when its token runs out, once even for agents reading at the same time, and signing out ends it", async () => {
   const { t, config, tools, calls } = local();
   const ids = await feedback(t);

@@ -248,8 +248,10 @@ app's own server.
    its messages does, and each message's `matches` says which. `truncated`
    says when more matched than `limit`.
 3. **`critiqs_thread`** (`thread`: an ID or a Critiqs link) adds mentions,
-   reactions, who last resolved or reopened the thread and who moved it, and
-   its screenshot's state.
+   reactions, who last resolved or reopened the thread and who moved it, its
+   screenshot's state, and, where the backend has tickets, `tickets`: each
+   Linear, GitHub Issues, or Jira ticket linked to it, with its key, title,
+   status (`lastKnown` when Critiqs can no longer check it), and address.
 4. **`critiqs_screenshot`** (`thread`; `file` to save it) returns what the
    reviewer saw, with the commented element outlined. Images over 5 MB need
    `file`.
