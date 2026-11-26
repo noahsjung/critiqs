@@ -1,4 +1,4 @@
-import type { Anchor, OrganizationRole, PageRequest, Revision, TargetLocation, ThreadMockup } from "@critiqs/core";
+import type { Anchor, CodeAccess, FeedbackFrom, OrganizationRole, PageRequest, Purpose, Revision, Role, StackId, TargetLocation, TeamSize, ThreadMockup } from "@critiqs/core";
 import type { Plan } from "./limits.ts";
 
 // The storage a backend gives Critiqs's rules. Each operation runs in one
@@ -28,6 +28,17 @@ export interface UserRecord {
   plan?: string;
   /** Where the person's new projects go, and whose plan covers their own Critiqs AI while they belong to it. Absent until they first need one. */
   homeOrganizationId?: string;
+  /** Onboarding's "About you" answers; absent when skipped. */
+  role?: Role;
+  teamSize?: TeamSize;
+}
+
+/** Onboarding's answers that belong to a project, and the stack picked or confirmed; a skipped one has no field. */
+export interface ProjectOnboarding {
+  codeAccess?: CodeAccess;
+  feedbackFrom?: FeedbackFrom[];
+  purpose?: Purpose;
+  stack?: StackId;
 }
 
 export interface ProjectRecord {
@@ -40,6 +51,8 @@ export interface ProjectRecord {
   reviewUrl?: string;
   /** The organization that owns it; absent on projects from before organizations until the backfill gives them one. */
   organizationId?: string;
+  /** Present when the project was created in onboarding with at least one answer. */
+  onboarding?: ProjectOnboarding;
 }
 
 /** A group of people that owns projects and the Critiqs Cloud plan covering them. */
@@ -414,7 +427,7 @@ export interface PageResult<T> {
 type New<T extends { _id: string }> = Omit<T, "_id">;
 
 /** What may change after a record is created; everything else is fixed. */
-export type UserChanges = Partial<Pick<UserRecord, "name" | "email" | "imageUrl" | "profileVersion" | "plan" | "homeOrganizationId">>;
+export type UserChanges = Partial<Pick<UserRecord, "name" | "email" | "imageUrl" | "profileVersion" | "plan" | "homeOrganizationId" | "role" | "teamSize">>;
 export type OrganizationChanges = Partial<Pick<OrganizationRecord, "name" | "plan" | "extraStorageUnits">> & {
   /** `default` removes the organization's own cap, so the plan's default applies. */
   overageCap?: OverageCapChoice;

@@ -82,6 +82,8 @@ http.route({
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`organizations:setOverageCap`).
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
+      // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
+      // takes `onboarding` and `stack`.
       {
         signInUrl: signInUrl(),
         protocol: 5,
@@ -97,6 +99,7 @@ http.route({
         overageCap: true,
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
+        onboardingAnswers: true,
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),

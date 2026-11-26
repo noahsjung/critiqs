@@ -55,7 +55,7 @@ import {
   readPreferenceToken,
   stillMentions,
 } from "../notify.ts";
-import { claimAddressCheck } from "../onboarding.ts";
+import { claimAddressCheck, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
   CODE_MINUTES,
@@ -423,6 +423,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
   const changes: Record<string, (args: any) => Run> = {
     sync: () => (s, id) => ops.syncReviewer(s, id),
     createProject: (args) => (s, id) => ops.createProject(s, id, args),
+    saveAboutYou: (args) => (s, id) => saveAboutYou(s, id, args),
     setReviewUrl: (args) => (s, id) => ops.setReviewUrl(s, id, args),
     setOverageCap: (args) => (s, id) => setOverageCap(s, id, args),
     createThread: (args) => (s, id) =>
@@ -1023,6 +1024,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // `revokeInvite`, `setMemberRole`, `removeMember`), `home` on organizations, and `organizationId` on `createProject`.
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`setOverageCap`).
       // `addressCheck`: onboarding's check of a prototype's address (`checkPrototypeAddress`); false when the host turned it off.
+      // `onboardingAnswers`: onboarding saves the person's answers (`saveAboutYou`), and `createProject` takes `onboarding` and `stack`.
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1035,6 +1037,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         organizationMembers: true,
         overageCap: true,
         addressCheck: addressCheckOn,
+        onboardingAnswers: true,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);

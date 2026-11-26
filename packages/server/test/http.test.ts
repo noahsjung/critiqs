@@ -92,6 +92,7 @@ test("reports itself as a server in the host app, current with the component", a
     organizationMembers: true,
     overageCap: true,
     addressCheck: true,
+    onboardingAnswers: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -796,4 +797,34 @@ test("a server can turn the address check off, and says so in its configuration"
   // Nothing was counted: the hourly limit is untouched.
   const person = { tokenIdentifier: "host|1", name: "Dana", email: "dana@acme.test", emailVerified: true, pictureUrl: null, profileVersion: null };
   for (let i = 0; i < ADDRESS_CHECKS_PER_PERSON_PER_HOUR; i++) await handler.store.transaction((s) => claimAddressCheck(s, person, Date.now()));
+});
+
+test("onboarding saves the person's answers and creates a project with its answers, stack, and starting tags", async () => {
+  const { handler } = await server({ identify: () => ({ id: "1", name: "Dana", email: "dana@acme.test" }) });
+  const b = browser(handler);
+  expect(await b.api("saveAboutYou", { role: "designer", teamSize: "bogus" })).toEqual({ status: 200, body: { value: null } });
+  expect(await handler.store.transaction((s) => s.users.byToken("host|1"))).toMatchObject({ role: "designer" });
+  const created = await b.api("createProject", {
+    name: "acme-proto.vercel.app",
+    onboarding: { codeAccess: "teammate", feedbackFrom: ["clients"], purpose: "design-review" },
+    stack: "nuxt",
+  });
+  expect(created.status).toBe(200);
+  expect((await b.api("project", { projectId: created.body.value })).body.value.tags).toEqual(["Design change request", "UX copy change", "Bug", "User feedback"]);
+  expect((await handler.store.transaction((s) => s.projects.get(created.body.value)))!.onboarding).toEqual({
+    codeAccess: "teammate",
+    feedbackFrom: ["clients"],
+    purpose: "design-review",
+    stack: "nuxt",
+  });
+  // Shapes are checked before anything runs, as Convex's validators check them.
+  for (const [name, args] of [
+    ["saveAboutYou", { role: 1 }],
+    ["saveAboutYou", { admin: true }],
+    ["createProject", { name: "X", onboarding: { purpose: 2 } }],
+    ["createProject", { name: "X", onboarding: { feedbackFrom: Array(11).fill("team") } }],
+    ["createProject", { name: "X", stack: ["next"] }],
+  ] as const) {
+    expect((await b.api(name, args)).status).toBe(400);
+  }
 });

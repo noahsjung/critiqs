@@ -10,7 +10,8 @@
     "./http": "./src/http/index.ts",
     "./contract": "./test/contract.ts",
     "./ai-providers": "./src/ai/providers.ts",
-    "./contract-ai": "./test/contract-ai.ts"
+    "./contract-ai": "./test/contract-ai.ts",
+    "./contract-onboarding": "./test/contract-onboarding.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

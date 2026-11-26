@@ -1,4 +1,4 @@
-import type { Anchor, MockupEdit, MockupSource, TargetLocation } from "@critiqs/core";
+import type { Anchor, CodeAccess, FeedbackFrom, MockupEdit, MockupSource, Purpose, Role, StackId, TargetLocation, TeamSize } from "@critiqs/core";
 import { type Infer, v } from "convex/values";
 
 export const viewStateValidator = v.record(
@@ -118,3 +118,62 @@ export const billingPricesValidator = v.object({
   plans: v.object({ free: planPriceValidator, plus: planPriceValidator, pro: planPriceValidator }),
   storageAddOn: v.object({ gb: v.number(), monthly: v.number() }),
 });
+
+// Onboarding's answers as stored; each must list exactly core's values (checked below).
+
+export const roleValidator = v.union(
+  v.literal("designer"),
+  v.literal("product-manager"),
+  v.literal("engineer"),
+  v.literal("founder"),
+  v.literal("agency"),
+  v.literal("other"),
+);
+export const teamSizeValidator = v.union(v.literal("just-me"), v.literal("2-5"), v.literal("6-20"), v.literal("21-100"), v.literal("over-100"));
+const codeAccessValidator = v.union(v.literal("self"), v.literal("teammate"), v.literal("nobody"));
+const feedbackFromValidator = v.union(v.literal("team"), v.literal("clients"), v.literal("test-users"));
+const purposeValidator = v.union(v.literal("design-review"), v.literal("qa"), v.literal("user-testing"));
+const stackValidator = v.union(
+  v.literal("react"),
+  v.literal("next"),
+  v.literal("angular"),
+  v.literal("astro"),
+  v.literal("django"),
+  v.literal("flask"),
+  v.literal("gatsby"),
+  v.literal("laravel"),
+  v.literal("nuxt"),
+  v.literal("rails"),
+  v.literal("remix"),
+  v.literal("solid"),
+  v.literal("svelte"),
+  v.literal("sveltekit"),
+  v.literal("vue"),
+  v.literal("wordpress"),
+);
+
+/** A project's onboarding answers and stack, as `ProjectOnboarding` in @critiqs/server. */
+export const projectOnboardingValidator = v.object({
+  codeAccess: v.optional(codeAccessValidator),
+  feedbackFrom: v.optional(v.array(feedbackFromValidator)),
+  purpose: v.optional(purposeValidator),
+  stack: v.optional(stackValidator),
+});
+
+/** Onboarding's answers about a project as sent; values core doesn't know are dropped, as if skipped. */
+export const projectAnswersArgs = v.object({
+  codeAccess: v.optional(v.string()),
+  feedbackFrom: v.optional(v.array(v.string())),
+  purpose: v.optional(v.string()),
+});
+
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const sameAsCore: [
+  Same<Infer<typeof roleValidator>, Role>,
+  Same<Infer<typeof teamSizeValidator>, TeamSize>,
+  Same<Infer<typeof codeAccessValidator>, CodeAccess>,
+  Same<Infer<typeof feedbackFromValidator>, FeedbackFrom>,
+  Same<Infer<typeof purposeValidator>, Purpose>,
+  Same<Infer<typeof stackValidator>, StackId>,
+] = [true, true, true, true, true, true];
+void sameAsCore;
