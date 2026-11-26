@@ -12,13 +12,14 @@ import { ReviewHostContext, ReviewPage } from "./ui/ReviewPage.tsx";
 import { ReviewLinksPage } from "./ui/ReviewLinks.tsx";
 import { SetupPage } from "./ui/SetupPage.tsx";
 import { ThreadPage } from "./ui/ThreadPage.tsx";
+import { extensionLink } from "./ui/Ways.tsx";
 
 /** Critiqs Cloud's Convex deployment, or the one `VITE_CRITIQS_BACKEND` names. */
 const BACKEND = (import.meta.env.VITE_CRITIQS_BACKEND as string | undefined)?.trim() || HOSTED_BACKEND_URL;
 /** What a prototype's <Critiqs /> needs as its `backend` property to reach that backend; none for Critiqs Cloud, its default. */
 const COMPONENT_BACKEND = BACKEND === HOSTED_BACKEND_URL ? null : BACKEND;
-/** Where a review link's page sends people for the browser extension; none hides the link. */
-const EXTENSION_URL = (import.meta.env.VITE_CRITIQS_EXTENSION_URL as string | undefined)?.trim() || null;
+/** Where a review link's page sends people for the browser extension: its store listing, or how to load it. */
+const EXTENSION_URL = extensionLink(import.meta.env.VITE_CRITIQS_EXTENSION_URL as string | undefined);
 
 export function App() {
   const route = useMemo(() => {

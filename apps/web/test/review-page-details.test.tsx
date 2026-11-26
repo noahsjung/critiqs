@@ -5,6 +5,7 @@ import type { ReviewLinkSummary, ReviewOpen } from "../src/backend.ts";
 import type { PanelOptions } from "../src/shared.ts";
 import { ReviewLinksPage } from "../src/ui/ReviewLinks.tsx";
 import { type ReviewHost, ReviewHostContext, ReviewPage } from "../src/ui/ReviewPage.tsx";
+import { EXTENSION_GUIDE, extensionLink } from "../src/ui/Ways.tsx";
 import { headerRules, readHostConfig, rewriteFor } from "../../../site-src/host-rules.ts";
 import { reviewHeadersFor, reviewPageHeaders } from "../vite.config.ts";
 import { button, click, fakeAuth, fakeBackend, render, settle, text } from "./render.tsx";
@@ -200,6 +201,11 @@ describe("a page that only partly loads", () => {
     expect(container.querySelectorAll(".review-strip").length).toBe(1);
     expect(container.querySelector('a[href="https://extension.example/critiqs"]')).not.toBeNull();
   });
+});
+
+test("without a store listing, Get the extension goes to how to build and load it, as onboarding and thread pages say", () => {
+  for (const unset of [undefined, null, "", "  "]) expect(extensionLink(unset)).toBe(EXTENSION_GUIDE);
+  expect(extensionLink(" https://chromewebstore.google.com/detail/critiqs ")).toBe("https://chromewebstore.google.com/detail/critiqs");
 });
 
 describe("the website's host sends the review pages' headers", () => {
