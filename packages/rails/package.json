@@ -1,0 +1,14 @@
+{
+  "name": "critiqs-rails",
+  "private": true,
+  "version": "0.3.0",
+  "description": "Workspace marker for the critiqs-rails Ruby gem: carries its version in the shared release group and its scripts.",
+  "critiqsRelease": {
+    "registry": "rubygems"
+  },
+  "scripts": {
+    "test": "bun scripts/gem.ts test",
+    "release:build": "bun scripts/gem.ts build",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  }
+}

@@ -143,6 +143,10 @@
         "nuxt": "^4.0.0",
       },
     },
+    "packages/rails": {
+      "name": "critiqs-rails",
+      "version": "0.3.0",
+    },
     "packages/react": {
       "name": "critiqs-react",
       "version": "0.3.0",
@@ -1048,6 +1052,8 @@
     "critiqs-flask": ["critiqs-flask@workspace:packages/flask"],
 
     "critiqs-nuxt": ["critiqs-nuxt@workspace:packages/nuxt"],
+
+    "critiqs-rails": ["critiqs-rails@workspace:packages/rails"],
 
     "critiqs-react": ["critiqs-react@workspace:packages/react"],
 
