@@ -54,6 +54,8 @@ export interface Deployment {
   addressLists?: boolean;
   /** The backend adds or removes one address at a time and lists the projects a person manages; absent from backends before it. */
   addressEdits?: boolean;
+  /** The backend says which addresses in a project's list match no site now (`projectAddressNotes`); absent from backends before it. */
+  addressNotes?: boolean;
   /** The backend accepts `idempotencyKey` on project creation; absent from backends before it. */
   createKeys?: boolean;
   /** A project's owner can change its preset tags; absent from backends before it. */
@@ -79,6 +81,7 @@ interface ServiceConfig {
   website?: unknown;
   addressLists?: boolean;
   addressEdits?: boolean;
+  addressNotes?: boolean;
   createKeys?: boolean;
   presetTags?: boolean;
   connections?: boolean;
@@ -133,6 +136,7 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
     website: threadPageWebsite(config),
     addressLists: config.addressLists === true,
     addressEdits: config.addressEdits === true,
+    addressNotes: config.addressNotes === true,
     createKeys: config.createKeys === true,
     presetTags: config.presetTags === true,
     connections: config.connections === true,
@@ -166,7 +170,7 @@ export async function resolveDeployment(given: string, fetchFn: typeof fetch = f
     );
     if (!signIn.current) throw new Error(`Critiqs's sign-in service at ${backend.signInUrl} isn't ready for this version of Critiqs yet.`);
   }
-  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, ...(backend.website === undefined ? {} : { website: backend.website }) };
+  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, addressNotes: backend.addressNotes, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, ...(backend.website === undefined ? {} : { website: backend.website }) };
 }
 
 /** The usage query's `aiCredits` argument, only for backends that accept it: those that report `overageCap` came with it. */

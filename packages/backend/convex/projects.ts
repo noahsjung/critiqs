@@ -3,6 +3,7 @@ import {
   addProjectAddress,
   findProjectsForOrigin,
   getProjectAddresses,
+  getProjectAddressNotes,
   listManageableProjects,
   operations,
   recordProjectOpened,
@@ -144,6 +145,12 @@ export const manageable = query({
 export const addresses = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => run(async () => getProjectAddresses(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/** The addresses in the project's list that match no site now, with what to do, for its owners. */
+export const addressNotes = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => run(async () => getProjectAddressNotes(convexStore(ctx), await identityOf(ctx), args)),
 });
 
 /**

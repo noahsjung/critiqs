@@ -145,6 +145,7 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
     // Changes nothing the interface shows, so other queries aren't reloaded.
     recordProjectOpened: async (projectId) => void (await call("recordProjectOpened", { projectId })),
     useProjectAddresses: (projectId) => useQuery("projectAddresses", projectId === null ? "skip" : { projectId }),
+    useProjectAddressNotes: (projectId) => useQuery("projectAddressNotes", projectId === null ? "skip" : { projectId }),
     addProjectAddress: (args) => change("addProjectAddress", args),
     removeProjectAddress: (args) => change("removeProjectAddress", args),
     setOverageCap: (args) => change("setOverageCap", args),

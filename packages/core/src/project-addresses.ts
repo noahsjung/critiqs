@@ -151,6 +151,15 @@ export const MAX_MANAGEABLE_PROJECTS = 200;
  * created while still a member. At most `MAX_MANAGEABLE_PROJECTS`; `complete`
  * is false when there may be more.
  */
+/**
+ * An address in a project's list that matches no site now: a pattern listed
+ * before the rule that refuses it, with why and what to do, for its owners.
+ */
+export interface AddressNote {
+  address: string;
+  note: string;
+}
+
 export interface ManageableProjects {
   projects: ProjectInfo[];
   complete: boolean;

@@ -1037,19 +1037,26 @@ project** and onboarding's extension way add the page's origin.
 - **Address lists.** A project's owners set up to 20 addresses
   (`setProjectAddresses`): origins, or patterns with one `*` in the leftmost
   label, such as `https://*-acme.vercel.app`, never directly in front of a
-  top-level name such as `.com`. A pattern whose `*` is the whole leftmost
-  label can't sit over a public suffix: `https://*.vercel.app`,
-  `https://*.github.io`, and `https://*.co.uk` are refused, because each
-  covers many unrelated people's sites, while `https://*-acme.vercel.app`
-  and `https://*.acme.com` are fine. The backends decide this from the
-  Public Suffix List, its ICANN and private sections
-  (`packages/server/src/public-suffixes.ts`, refreshed before each release
-  with `bun scripts/update-public-suffixes.ts`); only its rules of two or
-  more labels are kept, about 110 KB, and only in `@critiqs/server`, so the
-  browser bundles don't carry it. A pattern listed before this rule stays on
-  the list, where its owners see and can remove it, but it matches nothing:
-  neither the lookup nor Connected counts it, and saving the whole list
-  again with it is refused. Each must use HTTPS, or HTTP on this
+  top-level name such as `.com`. A pattern whose leftmost label sits over a
+  public suffix needs at least four letters or digits of the site's own name
+  beside its `*`: `https://*.vercel.app`, `https://*.github.io`,
+  `https://*.co.uk`, `https://*a.vercel.app`, and `https://*-app.vercel.app`
+  are refused, because each covers many unrelated people's sites, while
+  `https://*-acme.vercel.app` and `https://*.acme.com` are fine
+  (`addressRefusal`). The backends decide this from the Public Suffix List,
+  its ICANN and private sections (`packages/server/src/public-suffixes.ts`,
+  refreshed before each release with `bun scripts/update-public-suffixes.ts`),
+  plus a short hand-kept supplement of shared hosts the list misses, such as
+  `glitch.me` and `koyeb.app`
+  (`packages/server/src/public-suffix-supplement.ts`; the update script
+  leaves it alone and names any entry the list has since added). Only the
+  list's rules of two or more labels are kept, about 110 KB, and only in
+  `@critiqs/server`, so the browser bundles don't carry it. A pattern listed
+  before this rule stays on the list, where its owners can remove it, but it
+  matches nothing: neither the lookup nor Connected counts it, and saving
+  the whole list again with it is refused. On backends that report
+  `addressNotes`, project setup marks it as matching no site now, with what
+  to do (`projectAddressNotes`). Each must use HTTPS, or HTTP on this
   computer or a private network, with no path, parameters, or credentials.
   Case, a default port, a trailing slash, and a host's final dot are
   normalized away, and an address is at most 200 characters as typed and

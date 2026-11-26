@@ -1,3 +1,4 @@
+import { PUBLIC_SUFFIX_SUPPLEMENT } from "./public-suffix-supplement.ts";
 import { PUBLIC_SUFFIX_RULES } from "./public-suffixes.ts";
 
 // Whether a host is a public suffix: a name under which unrelated people get
@@ -5,6 +6,9 @@ import { PUBLIC_SUFFIX_RULES } from "./public-suffixes.ts";
 // `vercel.app` and `github.io`. Address patterns use it so a project can't
 // list a whole shared domain. Only names of two or more labels are answered
 // (see scripts/update-public-suffixes.ts); every one-label name is one.
+// Shared hosts the list misses are added from public-suffix-supplement.ts.
+
+const SUPPLEMENT = new Set(PUBLIC_SUFFIX_SUPPLEMENT.map((entry) => entry.suffix));
 
 /** Each last label's rules, read from the compact form on first use. */
 let rules: Map<string, Set<string>> | null = null;
@@ -27,7 +31,7 @@ function rulesFor(last: string): Set<string> | undefined {
  */
 export function isPublicSuffix(host: string): boolean {
   const labels = host.split(".");
-  if (labels.length < 2) return true;
+  if (labels.length < 2 || SUPPLEMENT.has(host)) return true;
   const last = labels.at(-1)!;
   const known = rulesFor(last);
   if (known === undefined) return false;

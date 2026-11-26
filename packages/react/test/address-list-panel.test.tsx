@@ -14,7 +14,10 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const owned: ProjectInfo = { _id: "project", name: "Pilot", tags: [], createdAt: 1, reviewUrl: null, isOwner: true };
 
-async function renderSetup(backend: Partial<FakeBackend>, { addressEdits = true, project = owned }: { addressEdits?: boolean; project?: ProjectInfo } = {}) {
+async function renderSetup(
+  backend: Partial<FakeBackend>,
+  { addressEdits = true, addressNotes = true, project = owned }: { addressEdits?: boolean; addressNotes?: boolean; project?: ProjectInfo } = {},
+) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -30,6 +33,7 @@ async function renderSetup(backend: Partial<FakeBackend>, { addressEdits = true,
             reviewer={{ id: "u_dana", name: "Dana", email: "dana@example.com", pictureUrl: null }}
             signedIn
             addressEdits={addressEdits}
+            addressNotes={addressNotes}
             onSignIn={() => {}}
             configuredProjectId="project"
             browserProjectId={null}
@@ -118,4 +122,24 @@ test("a full list offers no field; people who aren't owners, and backends withou
   const older = await renderSetup({ addresses: ["https://pilot.example"] }, { addressEdits: false });
   expect(older.section()).toBeNull();
   await older.done();
+});
+
+test("a pattern listed before a rule refused it is shown as matching no site, with what to do; older backends show the list as it is", async () => {
+  const note = "This matches no site now: it would match every site on vercel.app, a domain shared by many sites, so it could match someone else's. Remove it. Put * beside your site's own name, such as https://*-acme.vercel.app, or use your own domain, such as https://*.acme.com.";
+  const backend = { addresses: ["https://pilot.example", "https://*.vercel.app"], addressNotes: [{ address: "https://*.vercel.app", note }] };
+  const view = await renderSetup(backend);
+  const rows = Array.from(view.section()!.querySelectorAll("li"));
+  expect(rows.map((row) => row.querySelector(".address-note")?.textContent ?? null)).toEqual([null, note]);
+  expect(rows.map((row) => row.className.includes("inert"))).toEqual([false, true]);
+  expect(view.button("Remove https://*.vercel.app")).toBeDefined();
+  await view.done();
+  const older = await renderSetup(backend, { addressNotes: false });
+  expect(older.section()!.querySelectorAll(".address-note").length).toBe(0);
+  await older.done();
+});
+
+test("the field's example is a pattern the list accepts", async () => {
+  const view = await renderSetup({ addresses: [] });
+  expect(view.input()?.placeholder).toBe("https://*-acme.vercel.app");
+  await view.done();
 });

@@ -1,4 +1,5 @@
 import type {
+  AddressNote,
   ReviewAccess,
   AiChoiceView,
   BillingChange,
@@ -133,6 +134,8 @@ export interface CritiqsTransport {
    * its owners; on backends whose configuration reports `addressLists`.
    */
   useProjectAddresses(projectId: string | null): QueryState<string[]>;
+  /** The addresses in the project's list that match no site now, with what to do, for its owners; on backends that report `addressNotes`. */
+  useProjectAddressNotes(projectId: string | null): QueryState<AddressNote[]>;
   /** Adds one address or pattern to the project's list, for its owners; returns the list. On backends that report `addressEdits`. */
   addProjectAddress(args: { projectId: string; address: string }): Promise<string[]>;
   /** Removes one address from the project's list, for its owners; returns the list. On backends that report `addressEdits`. */

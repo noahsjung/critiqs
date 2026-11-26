@@ -26,6 +26,7 @@ export function Setup({
   signedIn,
   organizations = false,
   addressEdits = false,
+  addressNotes = false,
   onSignIn,
   configuredProjectId,
   browserProjectId,
@@ -41,6 +42,8 @@ export function Setup({
   organizations?: boolean;
   /** The backend adds and removes single addresses in a project's address list, so its owners can change the list here. */
   addressEdits?: boolean;
+  /** The backend says which listed addresses match no site now. */
+  addressNotes?: boolean;
   onSignIn: () => void;
   /** Project ID from the prototype's code, if any. */
   configuredProjectId: string | null;
@@ -78,6 +81,7 @@ export function Setup({
       projectId={projectId}
       configured={configuredProjectId !== null}
       addressEdits={addressEdits}
+      addressNotes={addressNotes}
       onChange={() => onUseProject(null)}
       onDone={onDone}
       backLabel={backLabel}
@@ -196,6 +200,7 @@ function ProjectReady({
   projectId,
   configured,
   addressEdits,
+  addressNotes,
   onChange,
   onDone,
   backLabel,
@@ -204,6 +209,7 @@ function ProjectReady({
   projectId: string;
   configured: boolean;
   addressEdits: boolean;
+  addressNotes: boolean;
   onChange: () => void;
   onDone: () => void;
   backLabel: string;
@@ -282,7 +288,7 @@ function ProjectReady({
       )}
       {project.status === "ready" && <ReviewAddress project={project.data} notify={notify} />}
       {project.status === "ready" && <WhoCanReview project={project.data} notify={notify} />}
-      {project.status === "ready" && project.data.isOwner && addressEdits && <AddressList projectId={projectId} notify={notify} />}
+      {project.status === "ready" && project.data.isOwner && addressEdits && <AddressList projectId={projectId} notes={addressNotes} notify={notify} />}
       {project.status === "ready" && <PlanUsage project={project.data} className="setup-section" />}
       <p className="note">
         {project.status === "ready" && project.data.reviewAccess === "organization"
@@ -474,12 +480,16 @@ function ReviewAddress({ project, notify }: { project: ProjectInfo; notify: (mes
 /**
  * The project's address list, for its owners: the sites where the browser
  * extension finds this project, each with Remove, and a field to add an
- * origin or a pattern such as `https://*.vercel.app`. Each change saves at
- * once, one address at a time, so two owners changing it at once keep both.
+ * origin or a pattern such as `https://*-acme.vercel.app`. Each change saves
+ * at once, one address at a time, so two owners changing it at once keep
+ * both. With `notes`, an address listed before a rule refused it says that it
+ * matches no site now, and what to do.
  */
-function AddressList({ projectId, notify }: { projectId: string; notify: (message: string) => void }) {
+function AddressList({ projectId, notes, notify }: { projectId: string; notes: boolean; notify: (message: string) => void }) {
   const transport = useTransport();
   const addresses = transport.useProjectAddresses(projectId);
+  const noteState = transport.useProjectAddressNotes(notes ? projectId : null);
+  const noteOf = (address: string) => (noteState.status === "ready" ? noteState.data.find((note) => note.address === address)?.note : undefined);
   const fieldId = useId();
   const [adding, setAdding] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -535,14 +545,18 @@ function AddressList({ projectId, notify }: { projectId: string; notify: (messag
       </span>
       {list.length > 0 && (
         <ul className="address-rows">
-          {list.map((address) => (
-            <li key={address} className="row between">
-              <code>{address}</code>
-              <button type="button" className="link-btn" disabled={busy !== null} aria-label={`Remove ${address}`} onClick={() => void remove(address)}>
-                {busy === address ? "Removing…" : "Remove"}
-              </button>
-            </li>
-          ))}
+          {list.map((address) => {
+            const note = noteOf(address);
+            return (
+              <li key={address} className={note === undefined ? "row between" : "row between inert"}>
+                <code>{address}</code>
+                <button type="button" className="link-btn" disabled={busy !== null} aria-label={`Remove ${address}`} onClick={() => void remove(address)}>
+                  {busy === address ? "Removing…" : "Remove"}
+                </button>
+                {note !== undefined && <span className="note address-note">{note}</span>}
+              </li>
+            );
+          })}
         </ul>
       )}
       {full ? (
@@ -564,7 +578,7 @@ function AddressList({ projectId, notify }: { projectId: string; notify: (messag
             inputMode="url"
             autoCapitalize="off"
             spellCheck={false}
-            placeholder="https://*.vercel.app"
+            placeholder="https://*-acme.vercel.app"
             value={adding}
             aria-invalid={error !== null}
             aria-describedby={error === null ? `${fieldId}-hint` : `${fieldId}-error`}

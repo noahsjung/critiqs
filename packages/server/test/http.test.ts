@@ -103,6 +103,7 @@ test("reports itself as a server in the host app, current with the component", a
     threadPages: true,
     addressLists: true,
     addressEdits: true,
+    addressNotes: true,
     createKeys: true,
     presetTags: true,
     connections: true,

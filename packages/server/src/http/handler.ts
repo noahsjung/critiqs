@@ -84,6 +84,7 @@ import {
   addProjectAddress,
   findProjectsForOrigin,
   getProjectAddresses,
+  getProjectAddressNotes,
   listManageableProjects,
   recordProjectOpened,
   removeProjectAddress,
@@ -465,6 +466,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     projectSetup: (args) => (s, id) => getProjectSetup(s, id, args),
     developerSends: (args) => (s, id) => listDeveloperSends(s, id, args),
     projectAddresses: (args) => (s, id) => getProjectAddresses(s, id, args),
+    projectAddressNotes: (args) => (s, id) => getProjectAddressNotes(s, id, args),
     findProjectsForOrigin: (args) => (s, id) => findProjectsForOrigin(s, id, args),
     manageableProjects: () => (s, id) => listManageableProjects(s, id),
   };
@@ -1186,6 +1188,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // person opened (`recordProjectOpened`), and the browser extension's lookup (`findProjectsForOrigin`).
       // `addressEdits`: adding or removing one address (`addProjectAddress`, `removeProjectAddress`), and the
       // projects whose lists a person may change (`manageableProjects`).
+      // `addressNotes`: the addresses in a project's list that match no site now, with what to do (`projectAddressNotes`).
       // `createKeys`: `idempotencyKey` on `createProject`, so a retried create returns the same project.
       // `presetTags`: a project's owner changes its preset tags (`setPresetTags`).
       // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
@@ -1211,6 +1214,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         threadPages: true,
         addressLists: true,
         addressEdits: true,
+        addressNotes: true,
         createKeys: true,
         presetTags: true,
         connections: true,

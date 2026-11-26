@@ -9,8 +9,13 @@
 // at least two (`*.com` is refused without the list), so the one-label rules,
 // about a seventh of the list, are never needed. Names are stored in their
 // `xn--` form, as hosts are compared after the URL parser has converted them.
+//
+// Shared hosts the list misses are kept by hand in
+// packages/server/src/public-suffix-supplement.ts, which this leaves alone; it
+// names any of them the list has since added, so they can be removed there.
 import { domainToASCII } from "node:url";
 import { join } from "node:path";
+import { PUBLIC_SUFFIX_SUPPLEMENT } from "../packages/server/src/public-suffix-supplement.ts";
 
 const SOURCE = "https://publicsuffix.org/list/public_suffix_list.dat";
 const OUT = join(import.meta.dir, "../packages/server/src/public-suffixes.ts");
@@ -42,6 +47,12 @@ export function compactRules(list: string): { version: string; rules: string; co
   return { version, rules, count };
 }
 
+/** The supplement's hosts this list now has as its own rules, which can be removed from the supplement. */
+export function supplementNowListed(list: string): string[] {
+  const rules = new Set(list.split("\n").map((line) => line.trim().split(/\s/)[0]!).filter((rule) => rule !== "" && !rule.startsWith("//")).map((rule) => domainToASCII(rule)));
+  return PUBLIC_SUFFIX_SUPPLEMENT.map((entry) => entry.suffix).filter((suffix) => rules.has(suffix));
+}
+
 if (import.meta.main) {
   const given = process.argv[2];
   const list = given === undefined ? await (await fetch(SOURCE)).text() : await Bun.file(given).text();
@@ -64,4 +75,6 @@ export const PUBLIC_SUFFIX_RULES =
 `,
   );
   console.log(`Wrote ${count} rules from version ${version} (${rules.length} characters) to ${OUT}.`);
+  const listed = supplementNowListed(list);
+  if (listed.length > 0) console.log(`The list now has ${listed.join(", ")}: remove them from packages/server/src/public-suffix-supplement.ts.`);
 }

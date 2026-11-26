@@ -157,6 +157,7 @@ export const ARGUMENTS: Record<string, Check> = {
   setReviewUrl: object({ projectId: string, reviewUrl: string }),
   setReviewAccess: object({ projectId: string, reviewAccess: literal("anyone", "organization") }),
   projectAddresses: object({ projectId: string }),
+  projectAddressNotes: object({ projectId: string }),
   setProjectAddresses: object({ projectId: string, addresses: array(string, 100) }),
   recordProjectOpened: object({ projectId: string }),
   findProjectsForOrigin: object({ origin: string }),

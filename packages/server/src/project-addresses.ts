@@ -1,4 +1,5 @@
 import {
+  type AddressNote,
   type ManageableProjects,
   MAX_MANAGEABLE_PROJECTS,
   MAX_PROJECT_ADDRESSES,
@@ -109,16 +110,11 @@ interface ListedAddress {
 
 const TOO_MANY = `A project can list up to ${MAX_PROJECT_ADDRESSES} addresses.`;
 
-/** An address a project may list now: well formed, and never a pattern over a shared domain (`sharedDomainOf`). */
+/** An address a project may list now: well formed, and not too broad (`addressRefusal`). */
 function listedAddress(value: string): ListedAddress {
   const parsed = parsedAddress(value);
-  const shared = sharedDomainOf(parsed.address);
-  if (shared !== null) {
-    fail(
-      "invalid",
-      `${JSON.stringify(parsed.address)} matches every site on ${shared}, a domain shared by many sites, so it could match someone else's. Put * beside your site's own name, such as https://*-acme.${shared} or https://*.acme.com.`,
-    );
-  }
+  const refusal = addressRefusal(parsed.address);
+  if (refusal !== null) fail("invalid", refusal);
   return parsed;
 }
 
@@ -130,18 +126,58 @@ function parsedAddress(value: string): ListedAddress {
 }
 
 /**
- * The shared domain a pattern covers whole, or null: a pattern whose \`*\` is
- * the entire leftmost label, over a public suffix such as \`vercel.app\`,
- * \`github.io\`, or \`co.uk\` (\`isPublicSuffix\`, from the Public Suffix List
- * with its private section), matches sites of many unrelated people. A \`*\`
- * beside fixed letters, as in \`https://*-acme.vercel.app\`, and a pattern
- * over a site's own name, as in \`https://*.acme.com\`, are fine. Patterns
- * listed before this rule stay listed, but match nothing (\`listedMatch\`).
+ * Letters and digits a pattern needs beside its `*` when the rest of its host
+ * is a shared domain: with fewer, as in `https://*a.vercel.app` or
+ * `https://*-app.vercel.app`, it matches many unrelated people's sites.
  */
-export function sharedDomainOf(address: string): string | null {
+export const MIN_NAME_BESIDE_WILDCARD = 4;
+
+/**
+ * Whether a normalized address is too broad to list, and over which shared
+ * domain: a pattern whose leftmost label sits on a shared domain, such as
+ * `vercel.app`, `github.io`, or `co.uk` (`isPublicSuffix`: the Public Suffix
+ * List with its private section, and a supplement), with its `*` alone or
+ * beside fewer than `MIN_NAME_BESIDE_WILDCARD` letters and digits. A `*`
+ * beside a site's own name, as in `https://*-acme.vercel.app`, and a pattern
+ * under a site's own domain, as in `https://*.acme.com`, are fine. The one
+ * place that decides it: adding refuses these (`addressRefusal`), patterns
+ * listed before the rule match nothing (`listedMatch`), and owners are told
+ * why (`getProjectAddressNotes`).
+ */
+function tooBroad(address: string): { shared: string; whole: boolean } | null {
   const host = address.slice(address.indexOf("//") + 2).replace(/:\d+$/, "");
   const [first, ...rest] = host.split(".");
-  return first === "*" && isPublicSuffix(rest.join(".")) ? rest.join(".") : null;
+  const shared = rest.join(".");
+  if (!first!.includes("*") || !isPublicSuffix(shared)) return null;
+  if (first === "*") return { shared, whole: true };
+  return first!.replace(/[^a-z0-9]/g, "").length < MIN_NAME_BESIDE_WILDCARD ? { shared, whole: false } : null;
+}
+
+const covers = ({ shared, whole }: { shared: string; whole: boolean }) =>
+  `${whole ? "every site" : "too many sites"} on ${shared}, a domain shared by many sites, so it could match someone else's`;
+const better = ({ shared, whole }: { shared: string; whole: boolean }) =>
+  whole
+    ? `Put * beside your site's own name, such as https://*-acme.${shared}, or use your own domain, such as https://*.acme.com.`
+    : `Put at least ${MIN_NAME_BESIDE_WILDCARD} letters or digits of your site's own name beside the *, such as https://*-acme.${shared}.`;
+
+/** Why an address can't be listed (`tooBroad`), or null when it can. */
+export function addressRefusal(address: string): string | null {
+  const broad = tooBroad(address);
+  return broad === null ? null : `${JSON.stringify(address)} matches ${covers(broad)}. ${better(broad)}`;
+}
+
+/**
+ * The addresses in a project's list that match no site now, for its owners:
+ * patterns listed before the rule that refuses them, each saying why and what
+ * to do. Empty for a list with none.
+ */
+export async function getProjectAddressNotes(store: Store, identity: Identity | null, args: { projectId: string }): Promise<AddressNote[]> {
+  const notes: AddressNote[] = [];
+  for (const address of await getProjectAddresses(store, identity, args)) {
+    const broad = tooBroad(address);
+    if (broad !== null) notes.push({ address, note: `This matches no site now: it would match ${covers(broad)}. Remove it. ${better(broad)}` });
+  }
+  return notes;
 }
 
 async function listed(store: Store, projectId: string): Promise<ListedAddress[]> {
@@ -313,8 +349,8 @@ type OriginKeys = NonNullable<ReturnType<typeof originLookupKeys>>;
  */
 export function listedMatch(row: Pick<ProjectAddressRecord, "address" | "key">, keys: OriginKeys): "exact" | "pattern" | null {
   if (row.key === keys.origin) return "exact";
-  // A pattern over a shared domain, listed before that was refused, hands out nothing.
-  return patternMatches(row.address, keys.origin) && sharedDomainOf(row.address) === null ? "pattern" : null;
+  // A pattern too broad to list now (`tooBroad`), listed before it was refused, hands out nothing.
+  return patternMatches(row.address, keys.origin) && tooBroad(row.address) === null ? "pattern" : null;
 }
 
 /**

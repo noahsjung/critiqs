@@ -3,6 +3,7 @@ import { MAX_MANAGEABLE_PROJECTS, MAX_PROJECT_ADDRESSES } from "@critiqs/core";
 import type { Plan } from "../src/limits.ts";
 import * as ops from "../src/operations.ts";
 import { ORGANIZATION_ONLY } from "../src/organizations.ts";
+import * as projectAddresses from "../src/project-addresses.ts";
 import {
   addProjectAddress,
   findProjectsForOrigin,
@@ -150,6 +151,55 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
     expect(await lookup(backend, dana, "https://lee-company-staging.vercel.app")).toEqual({ status: "none" });
     expect(await backend.run((store) => getProjectAddresses(store, dana, { projectId }))).toEqual(["https://acme.example.com", "https://*.vercel.app"]);
     expect(await backend.run((store) => removeProjectAddress(store, dana, { projectId, address: "https://*.vercel.app" }))).toEqual(["https://acme.example.com"]);
+  });
+
+  test(`${name}: next to a shared domain a * needs at least 4 letters or digits of the site's own name beside it`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend, dana, "Acme");
+    for (const address of ["https://*a.vercel.app", "https://a*.vercel.app", "https://*0.vercel.app", "https://*-app.vercel.app", "https://ab-*-c.vercel.app", "https://*-co.co.uk"]) {
+      await expect(backend.run((store) => addProjectAddress(store, dana, { projectId, address }))).rejects.toMatchObject({
+        code: "invalid",
+        message: expect.stringContaining("at least 4 letters or digits"),
+      });
+    }
+    expect(
+      await setList(backend, dana, projectId, ["https://*-acme.vercel.app", "https://acme-*.vercel.app", "https://ac-*-me.vercel.app", "https://*a.acme.com", "https://*.acme.com"]),
+    ).toEqual(["https://*-acme.vercel.app", "https://acme-*.vercel.app", "https://ac-*-me.vercel.app", "https://*a.acme.com", "https://*.acme.com"]);
+  });
+
+  test(`${name}: shared hosts the Public Suffix List misses are shared domains too`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend, dana, "Acme");
+    for (const address of ["https://*.glitch.me", "https://*.koyeb.app"]) {
+      await expect(backend.run((store) => addProjectAddress(store, dana, { projectId, address }))).rejects.toMatchObject({
+        code: "invalid",
+        message: expect.stringContaining("shared by many sites"),
+      });
+    }
+    expect(await setList(backend, dana, projectId, ["https://*-acme.glitch.me", "https://*-acme.koyeb.app"])).toEqual(["https://*-acme.glitch.me", "https://*-acme.koyeb.app"]);
+  });
+
+  test(`${name}: an owner's list says which patterns listed before the rule match nothing now, and what to do`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend, dana, "Acme");
+    await setList(backend, dana, projectId, ["https://acme.example.com", "https://*-acme.vercel.app"]);
+    // As saved by versions that accepted them.
+    await backend.run(async (store) => {
+      const row = (await store.projectAddresses.forProject(projectId, 20))[0]!;
+      for (const [position, address] of [[2, "https://*.vercel.app"], [3, "https://*a.vercel.app"]] as const) {
+        await store.projectAddresses.insert({ projectId, organizationId: row.organizationId, address, key: "https://*.vercel.app", position });
+      }
+    });
+    await opened(backend, lee, projectId);
+    expect(await lookup(backend, dana, "https://lee-companya.vercel.app")).toEqual({ status: "none" });
+    const notes = await backend.run((store) => projectAddresses.getProjectAddressNotes(store, dana, { projectId }));
+    expect(notes.map((note) => note.address)).toEqual(["https://*.vercel.app", "https://*a.vercel.app"]);
+    for (const note of notes) {
+      expect(note.note).toContain("matches no site now");
+      expect(note.note).toContain("Remove it");
+      expect(note.note).toContain("https://*-acme.vercel.app");
+    }
+    await expect(backend.run((store) => projectAddresses.getProjectAddressNotes(store, lee, { projectId }))).rejects.toMatchObject({ code: "forbidden" });
   });
 
   test(`${name}: a pattern reached only through a project the person opened asks which project, never shows it at once`, async () => {

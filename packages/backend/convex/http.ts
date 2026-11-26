@@ -101,6 +101,7 @@ http.route({
       // person opened (`projects:recordOpened`), and the browser extension's lookup (`projects:findForOrigin`).
       // `addressEdits`: adding or removing one address (`projects:addAddress`, `projects:removeAddress`), and the
       // projects whose lists a person may change (`projects:manageable`).
+      // `addressNotes`: the addresses in a project's list that match no site now, with what to do (`projects:addressNotes`).
       // `createKeys`: `idempotencyKey` on `projects:create`, so a retried create returns the same project.
       // `presetTags`: a project's owner changes its preset tags (`tags:setPresets`).
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
@@ -138,6 +139,7 @@ http.route({
         panelSignIn: true,
         addressLists: true,
         addressEdits: true,
+        addressNotes: true,
         createKeys: true,
         presetTags: true,
         ...(billingConfig() === null ? {} : { billing: true }),

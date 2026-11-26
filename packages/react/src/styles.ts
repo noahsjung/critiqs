@@ -325,6 +325,8 @@ button.hashtag { cursor: pointer; }
 .address-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .address-rows li { min-height: 32px; border-bottom: 1px solid var(--border); }
 .address-rows code { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.address-rows li.inert code { color: var(--muted); text-decoration: line-through; }
+.address-rows .address-note { flex-basis: 100%; padding-bottom: 6px; color: var(--warning-text); }
 .setup-details { display: flex; flex-direction: column; gap: var(--space-2); }
 .step.done .row.between { column-gap: var(--space-3); }
 .plan-usage-rows { display: flex; flex-direction: column; }

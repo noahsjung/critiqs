@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as update from "../../../scripts/update-public-suffixes.ts";
 import { compactRules } from "../../../scripts/update-public-suffixes.ts";
 import { isPublicSuffix } from "../src/public-suffix.ts";
 import { PUBLIC_SUFFIX_LIST_VERSION } from "../src/public-suffixes.ts";
@@ -17,4 +18,11 @@ test("the compact form keeps multi-label rules of both sections, in xn-- form, a
   const list = "// VERSION: 2026-01-01_00-00-00_UTC\n// ===BEGIN ICANN DOMAINS===\ncom\nco.uk\n*.ck\n!www.ck\n公司.cn\n// ===BEGIN PRIVATE DOMAINS===\nvercel.app\n";
   expect(compactRules(list)).toEqual({ version: "2026-01-01_00-00-00_UTC", rules: "app:vercel;ck:!www,*.;cn:xn--55qx5d;uk:co", count: 5 });
   expect(PUBLIC_SUFFIX_LIST_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}_/);
+});
+
+test("shared hosts the list misses are kept in a supplement, which the update script reports once the list has them", () => {
+  for (const host of ["glitch.me", "koyeb.app"]) expect([host, isPublicSuffix(host)]).toEqual([host, true]);
+  expect([isPublicSuffix("acme.glitch.me"), isPublicSuffix("acme.koyeb.app")]).toEqual([false, false]);
+  const list = "// VERSION: 2027-01-01_00-00-00_UTC\n// ===BEGIN PRIVATE DOMAINS===\nglitch.me\nvercel.app\n";
+  expect(update.supplementNowListed(list)).toEqual(["glitch.me"]);
 });

@@ -113,6 +113,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       change(mutation(api.projects.setReviewAccess, { projectId: projectId as Id<"projects">, reviewAccess })),
     recordProjectOpened: (projectId) => change(mutation(api.projects.recordOpened, { projectId: projectId as Id<"projects"> })),
     useProjectAddresses: (projectId) => useQueryState(api.projects.addresses, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),
+    useProjectAddressNotes: (projectId) => useQueryState(api.projects.addressNotes, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),
     addProjectAddress: ({ projectId, address }) => mutation(api.projects.addAddress, { projectId: projectId as Id<"projects">, address }),
     removeProjectAddress: ({ projectId, address }) => mutation(api.projects.removeAddress, { projectId: projectId as Id<"projects">, address }),
     setOverageCap: ({ organizationId, cap }) =>

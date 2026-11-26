@@ -62,6 +62,8 @@ export interface FakeBackend {
   participants?: ParticipantInfo[];
   /** The project's address list, for its owners. */
   addresses?: string[];
+  /** The list's addresses that match no site now, with what to do. */
+  addressNotes?: { address: string; note: string }[];
   /** The backend's refusal to show the list. */
   addressesError?: { code: string; message: string };
   /** Answers adding or removing an address in place of the default, which changes `addresses`. */
@@ -146,6 +148,7 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     },
     recordProjectOpened: async (projectId) => void backend.calls?.push({ name: "recordProjectOpened", args: { projectId } }),
     useProjectAddresses: (projectId) => (projectId === null ? { status: "loading" } : backend.addressesError !== undefined ? { status: "error", ...backend.addressesError } : ready(backend.addresses ?? [])),
+    useProjectAddressNotes: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.addressNotes ?? [])),
     addProjectAddress: async (args) => {
       backend.calls?.push({ name: "addProjectAddress", args });
       if (backend.changeAddresses !== undefined) return await backend.changeAddresses("add", args.address);
