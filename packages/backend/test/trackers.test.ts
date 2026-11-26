@@ -27,7 +27,8 @@ beforeAll(() => {
       const path = new URL(request.url).pathname;
       const body = await request.text();
       const authorization = request.headers.get("Authorization");
-      sent.push({ path, authorization, form: path === "/oauth/token" ? Object.fromEntries(new URLSearchParams(body)) : { query: body } });
+      sent.push({ path, authorization, form: path === "/oauth/token" || path === "/oauth/revoke" ? Object.fromEntries(new URLSearchParams(body)) : { query: body } });
+      if (path === "/oauth/revoke") return new Response(null, { status: 200 });
       if (path === "/oauth/token") {
         const next = tokenReplies.shift() ?? { status: 400, body: { error: "invalid_grant" } };
         return Response.json(next.body, { status: next.status ?? 200 });
@@ -341,6 +342,21 @@ test("expired tracker sign-ins are cleaned up with the other sign-in records", a
   });
   await f.t.mutation(internal.signIn.cleanUp, {});
   expect(await f.t.run((ctx) => ctx.db.query("trackerSignIns").collect())).toHaveLength(1);
+});
+
+test("disconnecting a Linear sign-in removes it and, in the background, revokes its tokens at Linear", async () => {
+  withSignIn();
+  const f = people();
+  const { state, cookie } = await openSignIn(f);
+  tokenReplies.push({ body: { access_token: "access-1", expires_in: 86_399, refresh_token: "refresh-1" } });
+  await callback(f, { code: "code-1", state }, cookie);
+  await f.dana.mutation(api.trackers.disconnect, { tracker: "linear" });
+  expect(await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
+  await f.t.finishAllScheduledFunctions(() => undefined);
+  expect(sent.filter((request) => request.path === "/oauth/revoke").map((request) => [request.form.token, request.form.token_type_hint])).toEqual([
+    ["refresh-1", "refresh_token"],
+    ["access-1", "access_token"],
+  ]);
 });
 
 test("an expired sign-in token is refreshed with Linear before use, and the rotated tokens replace the old ones", async () => {

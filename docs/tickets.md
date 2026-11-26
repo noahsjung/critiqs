@@ -85,9 +85,15 @@ A pasted API key needs no such check: the person pastes it into Critiqs while
 signed in to their own account. Each person may start 10 sign-ins and paste
 10 keys a minute.
 
-Disconnecting doesn't revoke the sign-in at the tracker: the tracker's
-tokens stay valid there until they expire, or until the person removes
-Critiqs from their tracker account's authorized apps.
+Disconnecting also ends what Critiqs holds at the tracker, where an API call
+can, in the background after the stored token is removed:
+
+- **Linear sign-in:** its refresh and access tokens are revoked at Linear
+  (`POST /oauth/revoke`). If Linear can't be reached, they stay valid until
+  they expire, or until the person removes Critiqs from their authorized
+  apps in Linear.
+- **A pasted API key:** no tracker lets another caller revoke a personal key,
+  so it stays valid until the person deletes it in the tracker.
 
 Critiqs calls a tracker only at the tracker's own address or at a public
 HTTPS address the tracker names, such as where it takes an upload: never at

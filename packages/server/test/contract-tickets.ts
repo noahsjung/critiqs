@@ -7,6 +7,7 @@ import {
   claimTrackerSignIn,
   connectTrackerWithToken,
   disconnectTracker,
+  endTrackerAccount,
   finishTokenRefresh,
   listTrackerAccounts,
   openTrackerSignIn,
@@ -466,6 +467,32 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     expect((await refusal(backend.run((store) => setTrackerAttribution(store, dana, { tracker: "linear", attribution: true }, 8_000)))).message).toBe("Connect Linear first.");
   });
 
+  test(`${name}: disconnecting a sign-in ends it at Linear too; a pasted key can't be ended by Critiqs and stays the person's to remove`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
+    await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed }, 1_000));
+    const ended = await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    expect(await backend.run((store) => tickets(store).accounts.find(danaId, "linear"))).toBeNull();
+    const linear = linearStub();
+    expect(await endTrackerAccount(withSignIn, ended!, linear.fetchFn)).toBe("ended");
+    // Linear's revocation endpoint, with the refresh token first (which ends the sign-in), then the access token.
+    const revoked = linear.sent.filter((request) => request.url.endsWith("/oauth/revoke")).map((request) => Object.fromEntries(new URLSearchParams(request.body)));
+    expect(revoked.map((form) => [form.token, form.token_type_hint])).toEqual([
+      ["oauth-refresh", "refresh_token"],
+      ["oauth-access", "access_token"],
+    ]);
+    expect(revoked.every((form) => form.client_id === "client" && form.client_secret === "secret")).toBe(true);
+    // Disconnecting again finds nothing to end.
+    expect(await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }))).toBeNull();
+    // A pasted key: Linear offers no call that ends it, so Critiqs says it is kept.
+    await connect(backend, dana, "lin_api_good");
+    const pasted = await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    const quiet = linearStub();
+    expect(await endTrackerAccount(withSignIn, pasted!, quiet.fetchFn)).toBe("kept");
+    expect(quiet.sent).toEqual([]);
+  });
+
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
     expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
     expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }] });
@@ -566,7 +593,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
    * at `clock`, as the Convex action runs them; `during` runs while Linear is
    * answering the refresh, and `claim` may change what the claim says.
    */
-  async function dueAccount(backend: ContractBackend, options: { during?: () => Promise<void>; claim?: (claim: RefreshClaim) => RefreshClaim; fetch?: typeof fetch } = {}) {
+  async function dueAccount(backend: ContractBackend, options: { during?: () => Promise<unknown>; claim?: (claim: RefreshClaim) => RefreshClaim; fetch?: typeof fetch } = {}) {
     const { danaId } = await setup(backend);
     const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 1_000 });
     await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));

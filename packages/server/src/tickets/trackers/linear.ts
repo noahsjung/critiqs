@@ -138,6 +138,27 @@ export async function refreshLinearToken(endpoint: TrackerEndpointOptions, app: 
   );
 }
 
+/**
+ * Ends a sign-in's token at Linear (https://linear.app/developers/oauth-2-0-authentication,
+ * "Revoke an access token"): the token in the `token` field, with which kind
+ * it is. True when Linear revoked it, or had already (400); false when
+ * Linear couldn't be reached or answered otherwise.
+ */
+export async function revokeLinearToken(endpoint: TrackerEndpointOptions, app: LinearApp, token: string, kind: "access_token" | "refresh_token"): Promise<boolean> {
+  const to = endpointOf(endpoint);
+  try {
+    const response = await to.fetch(`${to.baseUrl}/oauth/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({ token, token_type_hint: kind, client_id: app.clientId, client_secret: app.clientSecret }).toString(),
+    });
+    await response.body?.cancel().catch(() => undefined);
+    return response.ok || response.status === 400;
+  } catch {
+    return false;
+  }
+}
+
 async function tokenRequest(to: TrackerEndpoint, form: Record<string, string>, now: number, refused: string, signal?: AbortSignal): Promise<SignInTokens> {
   let response: Response;
   try {

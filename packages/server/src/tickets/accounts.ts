@@ -5,7 +5,7 @@ import { normalizeEmail } from "../signin.ts";
 import { currentReviewer, requireUser } from "../operations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
 import type { SignInTokens, TrackerAdapter, TrackerIdentity, TrackerToken } from "./trackers/index.ts";
-import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken } from "./trackers/linear.ts";
+import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
 // tracker. Only that person sees or changes them. Tokens are verified with the
@@ -182,12 +182,51 @@ export async function saveOwnTrackerAccount(store: Store, identity: Identity | n
   return await saveTrackerAccount(store, user._id, args.account, now);
 }
 
-/** Removes the signed-in person's account for a tracker and its tokens. Tickets they linked keep their links. */
-export async function disconnectTracker(store: Store, identity: Identity | null, args: { tracker: TrackerId }): Promise<void> {
+/**
+ * An account just disconnected, with its tokens still sealed, so what
+ * Critiqs holds at the tracker can be ended there (`endTrackerAccount`).
+ */
+export interface DisconnectedAccount {
+  userId: string;
+  tracker: TrackerId;
+  method: "oauth" | "token";
+  access: StoredToken;
+  refresh: StoredToken | null;
+}
+
+/**
+ * Removes the signed-in person's account for a tracker and its tokens.
+ * Tickets they linked keep their links. Returns the account removed, to end
+ * at the tracker; null when there was none. One transaction.
+ */
+export async function disconnectTracker(store: Store, identity: Identity | null, args: { tracker: TrackerId }): Promise<DisconnectedAccount | null> {
   const accounts = ticketStore(store).accounts;
   const user = await requireUser(store, identity);
   const existing = await accounts.find(user._id, args.tracker);
-  if (existing !== null) await accounts.delete(existing._id);
+  if (existing === null) return null;
+  await accounts.delete(existing._id);
+  return { userId: user._id, tracker: args.tracker, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
+}
+
+/**
+ * Ends a disconnected account at its tracker, where an API call can: a
+ * Linear sign-in is revoked, refresh token first. A pasted token can't be
+ * ended by another caller in any tracker, so it is `kept`: valid until the
+ * person removes it there. `failed` when the tracker couldn't be reached or
+ * refused; the sign-in then ends when its tokens expire.
+ */
+export async function endTrackerAccount(deployment: TicketsDeployment, account: DisconnectedAccount, fetchFn: typeof fetch = fetch): Promise<"ended" | "kept" | "failed"> {
+  if (account.method !== "oauth") return "kept";
+  const key = deployment.encryptionKey;
+  if (key === null || account.tracker !== "linear" || deployment.linear === null) return "failed";
+  const binding = trackerTokenBinding(account.tracker, account.userId);
+  const endpoint = { fetch: fetchFn, baseUrl: deployment.linearApiUrl };
+  const refresh = account.refresh === null ? null : await decryptToken(key, binding, account.refresh);
+  const access = await decryptToken(key, binding, account.access);
+  let ended = true;
+  if (refresh !== null) ended = (await revokeLinearToken(endpoint, deployment.linear, refresh, "refresh_token")) && ended;
+  if (access !== null) ended = (await revokeLinearToken(endpoint, deployment.linear, access, "access_token")) && ended;
+  return ended && (refresh !== null || access !== null) ? "ended" : "failed";
 }
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */

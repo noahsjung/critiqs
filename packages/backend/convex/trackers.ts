@@ -5,6 +5,7 @@ import {
   openTrackerSignIn,
   connectTrackerWithToken,
   disconnectTracker,
+  endTrackerAccount,
   finishTokenRefresh,
   listTrackerAccounts,
   requireTrackerPerson,
@@ -43,10 +44,29 @@ export const mine = query({
   handler: async (ctx) => run(async () => listTrackerAccounts(convexStore(ctx), await identityOf(ctx))),
 });
 
-/** Removes the signed-in person's account for a tracker, and its tokens. */
+/** Removes the signed-in person's account for a tracker, and its tokens; then, in the background, ends its sign-in at the tracker where it can. */
 export const disconnect = mutation({
   args: { tracker: trackerValidator },
-  handler: async (ctx, args) => run(async () => disconnectTracker(convexStore(ctx), await identityOf(ctx), args)),
+  handler: async (ctx, args) =>
+    run(async () => {
+      const ended = await disconnectTracker(convexStore(ctx), await identityOf(ctx), args);
+      // Still sealed: only the action decrypts them, to end them at the tracker.
+      if (ended !== null) await ctx.scheduler.runAfter(0, internal.trackers.endAccount, { account: ended });
+    }),
+});
+
+/** Ends a disconnected account's sign-in at its tracker (`endTrackerAccount`). */
+export const endAccount = internalAction({
+  args: {
+    account: v.object({
+      userId: v.string(),
+      tracker: trackerValidator,
+      method: v.union(v.literal("oauth"), v.literal("token")),
+      access: storedTokenValidator,
+      refresh: v.union(storedTokenValidator, v.null()),
+    }),
+  },
+  handler: async (_ctx, args): Promise<string> => await endTrackerAccount(ticketsDeployment(), args.account),
 });
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */
