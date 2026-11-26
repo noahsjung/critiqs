@@ -15,6 +15,11 @@ Before changing the package's public interface, the backend interface, or a
 release version, follow
 [versioning and compatibility](docs/technical-direction.md#versioning-and-compatibility).
 
+To run an isolated local Critiqs stack and prove browser flows with
+screenshots, reuse the verification skill in
+[.agents/skills/verify-critiqs/SKILL.md](.agents/skills/verify-critiqs/SKILL.md)
+instead of writing one-off startup or walk scripts.
+
 Every pull request adds a release note in `.changeset/`, following
 [releasing](docs/releasing.md): `patch`, `minor`, or `major` naming each
 Critiqs package the change ships in (`critiqs`, `critiqs-react`, and the
