@@ -48,11 +48,11 @@ import type * as search from "../search.js";
 import type * as signIn from "../signIn.js";
 import type * as tags from "../tags.js";
 import type * as threads from "../threads.js";
-import type * as uploads from "../uploads.js";
 import type * as ticketStatus from "../ticketStatus.js";
 import type * as tickets from "../tickets.js";
 import type * as trackerHttp from "../trackerHttp.js";
 import type * as trackers from "../trackers.js";
+import type * as uploads from "../uploads.js";
 import type * as users from "../users.js";
 
 import type {
@@ -102,11 +102,11 @@ declare const fullApi: ApiFromModules<{
   signIn: typeof signIn;
   tags: typeof tags;
   threads: typeof threads;
-  uploads: typeof uploads;
   ticketStatus: typeof ticketStatus;
   tickets: typeof tickets;
   trackerHttp: typeof trackerHttp;
   trackers: typeof trackers;
+  uploads: typeof uploads;
   users: typeof users;
 }>;
 
