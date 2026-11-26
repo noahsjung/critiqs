@@ -4,7 +4,8 @@ name: Older packages
 # docs/technical-direction.md), installed from its registry, against the
 # current Convex backend and self-hosted server. It needs the registries, so
 # it is not one of the checks every pull request must pass: it runs on pull
-# requests and pushes that change backend code, every day (a new release can
+# requests and pushes that change backend code or the scripts the check
+# runs (and the scripts those import), every day (a new release can
 # enter the window, an old one leave it), and on demand.
 
 on:
@@ -16,6 +17,10 @@ on:
       - "scripts/check-older-packages.ts"
       - "scripts/support-window.ts"
       - "scripts/consumer-kit.ts"
+      - "scripts/package-tarball.ts"
+      - "scripts/publish.ts"
+      - "scripts/release.ts"
+      - "scripts/shipped-changes.ts"
       - ".github/workflows/older-packages.yml"
   push:
     branches: [main]
@@ -26,6 +31,10 @@ on:
       - "scripts/check-older-packages.ts"
       - "scripts/support-window.ts"
       - "scripts/consumer-kit.ts"
+      - "scripts/package-tarball.ts"
+      - "scripts/publish.ts"
+      - "scripts/release.ts"
+      - "scripts/shipped-changes.ts"
       - ".github/workflows/older-packages.yml"
   schedule:
     - cron: "17 6 * * *"

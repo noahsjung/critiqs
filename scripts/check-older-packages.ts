@@ -16,9 +16,9 @@
 // CLI's local backend (downloaded on first use). CRITIQS_EVIDENCE_DIR keeps
 // screenshots; CRITIQS_PORT_BASE makes it use ports from that one up. Run `bun run build` first for --current.
 import assert from "node:assert/strict";
-import { cp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chrome, pack, playwright, ROOT, run, scratch, waitForServer } from "./consumer-kit.ts";
+import { chrome, pack, playwright, ROOT, run, scratch } from "./consumer-kit.ts";
 import { supportCheck, supportedPackages } from "./support-window.ts";
 
 type Backend = "convex" | "self-hosted";
@@ -215,19 +215,45 @@ function convex(): Promise<string> {
       await Bun.sleep(500);
       group("SIGKILL");
     });
-    const until = async (pattern: RegExp, seconds: number) => {
-      for (let i = 0; i < seconds * 2; i++) {
-        if (pattern.test(await log.text().catch(() => ""))) return;
-        if (child.exitCode !== null) break;
+    const text = (file: ReturnType<typeof Bun.file>) => file.text().catch(() => "");
+    /** Waits until `done` holds, or throws naming `what` with the end of Convex's output. */
+    const until = async (what: string, done: () => Promise<boolean>, seconds: number) => {
+      const deadline = Date.now() + seconds * 1000;
+      while (!(await done())) {
+        const stopped = child.exitCode !== null;
+        if (stopped || Date.now() > deadline) {
+          throw new Error(`Convex: ${what} ${stopped ? `didn't happen: convex dev exited (${child.exitCode})` : `didn't happen within ${seconds} s`}:\n${(await text(log)).slice(-3000)}`);
+        }
         await Bun.sleep(500);
       }
-      throw new Error(`Convex didn't print ${pattern} within ${seconds} s:\n${(await log.text().catch(() => "")).slice(-3000)}`);
     };
-    await until(/CONVEX_SITE_URL|Preparing Convex functions/, 180);
-    for (let i = 0; i < 60 && !(await Bun.file(join(dir, ".env.local")).exists()); i++) await Bun.sleep(500);
-    await run(["bun", "scripts/setup-local.ts"], dir, env);
-    await until(/Convex functions ready/, 180);
-    await waitForServer(`http://127.0.0.1:${site}/.well-known/jwks.json`);
+    // The first run downloads the local backend and its dashboard.
+    await until("the local deployment's settings in .env.local", async () => /^CONVEX_SITE_URL=/m.test(await text(Bun.file(join(dir, ".env.local")))), 300);
+    await until("an answer from the local deployment", () => fetch(`http://127.0.0.1:${cloud}/version`).then((r) => r.ok, () => false), 60);
+    // setup-local sets the sign-in settings. While convex dev pushes, the
+    // deployment can turn a change away with a 503
+    // (OptimisticConcurrencyControlFailure); running it again is safe.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await run(["bun", "scripts/setup-local.ts"], dir, env);
+        break;
+      } catch (error) {
+        if (attempt === 5 || !/OptimisticConcurrencyControlFailure|\b503\b/.test(String(error))) throw error;
+        await Bun.sleep(1_000);
+      }
+    }
+    // convex dev retries a push that failed for want of those settings only
+    // when they change after it starts watching them. On a slow machine they
+    // can all land just before, and it then waits for a file change: make one
+    // in this copy, so it pushes again, with the settings, whatever its state.
+    const before = (await text(log)).length;
+    const now = new Date();
+    await utimes(join(dir, "convex/auth.config.ts"), now, now);
+    await until("a push of the functions after setup-local", async () => /Convex functions ready/.test((await text(log)).slice(before)), 180);
+    await until("the sign-in service's keys at /.well-known/jwks.json", async () => {
+      const keys = await fetch(`http://127.0.0.1:${site}/.well-known/jwks.json`).then((r) => (r.ok ? r.json() : null), () => null).catch(() => null);
+      return Array.isArray(keys?.keys) && keys.keys.length > 0;
+    }, 60);
     console.log(`Convex: a fresh local deployment of packages/backend at http://127.0.0.1:${cloud} (sign-in at :${site}).`);
     return `http://127.0.0.1:${cloud}`;
   })();
