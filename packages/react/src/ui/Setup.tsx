@@ -6,6 +6,8 @@ import {
   parseProjectAddress,
   type ProjectInfo,
   type ReviewAccess,
+  type TicketsConfig,
+  TRACKERS,
   validReviewUrl,
 } from "@critiqs/core";
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
@@ -13,7 +15,7 @@ import type { Reviewer } from "../session.ts";
 import { errorMessage, useTransport } from "../transport.ts";
 import { copyText } from "./common.tsx";
 import { OpenBillingContext } from "./BillingDialog.tsx";
-import { Meter, NEAR_LIMIT, Select, type SelectOption, SettingRow } from "./ds.tsx";
+import { Meter, NavRow, NEAR_LIMIT, Select, type SelectOption, SettingRow } from "./ds.tsx";
 import { amount, ceilingOf, type UsageRow, usageName, usageText } from "./usage.ts";
 
 /**
@@ -35,6 +37,7 @@ export function Setup({
   backLabel,
   notify,
   reviewLinksAt = null,
+  trackers,
 }: {
   reviewer: Reviewer | null;
   /** Signed in and accepted by the backend. */
@@ -57,6 +60,8 @@ export function Setup({
   notify: (message: string) => void;
   /** Where the project's owners manage its review links on the website, when the deployment serves them. */
   reviewLinksAt?: ((projectId: string) => string) | null;
+  /** Where the backend offers tickets: the trackers, and opening Your trackers to connect one. */
+  trackers?: { offered: TicketsConfig; onOpen: () => void };
 }) {
   const projectId = configuredProjectId ?? browserProjectId;
 
@@ -90,6 +95,7 @@ export function Setup({
       backLabel={backLabel}
       notify={notify}
       reviewLinksAt={reviewLinksAt}
+      {...(trackers === undefined ? {} : { trackers })}
     />
   );
 }
@@ -210,6 +216,7 @@ function ProjectReady({
   backLabel,
   notify,
   reviewLinksAt = null,
+  trackers,
 }: {
   projectId: string;
   configured: boolean;
@@ -220,6 +227,7 @@ function ProjectReady({
   backLabel: string;
   notify: (message: string) => void;
   reviewLinksAt?: ((projectId: string) => string) | null;
+  trackers?: { offered: TicketsConfig; onOpen: () => void };
 }) {
   const project = useTransport().useProject(projectId);
   const command = `npx critiqs init ${projectId}`;
@@ -307,6 +315,7 @@ function ProjectReady({
           </div>
         </div>
       )}
+      {project.status === "ready" && trackers !== undefined && <YourTrackersRow offered={trackers.offered} onOpen={trackers.onOpen} />}
       <p className="note">
         {project.status === "ready" && project.data.reviewAccess === "organization"
           ? "Only members of the project's organization see its feedback."
@@ -735,6 +744,30 @@ export function PlanUsage({ project, className }: { project: ProjectInfo; classN
           {all ? "Less" : "All usage"}
         </button>
       </div>
+    </section>
+  );
+}
+
+/**
+ * Your trackers in project setup, after the project is created: which of the
+ * trackers the backend offers the person has connected, opening Your trackers
+ * to connect one, so tickets can be made from comments.
+ */
+function YourTrackersRow({ offered, onOpen }: { offered: TicketsConfig; onOpen: () => void }) {
+  const accounts = useTransport().tickets?.useTrackerAccounts(true);
+  const names = offered.trackers.map(({ id }) => TRACKERS.find((entry) => entry.id === id)?.label ?? id);
+  const connected =
+    accounts?.status === "ready"
+      ? offered.trackers.filter(({ id }) => accounts.data.some((account) => account.tracker === id)).map(({ id }) => TRACKERS.find((entry) => entry.id === id)?.label ?? id)
+      : null;
+  return (
+    <section className="setup-section" aria-label="Your trackers">
+      <div className="ds-group">
+        <NavRow label="Your trackers" value={connected === null ? "" : connected.length === 0 ? "None connected" : connected.join(", ")} onClick={onOpen} />
+      </div>
+      <p className="note">
+        Connect {names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")}, or ${names.at(-1)}`} to turn comments into tickets, as you.
+      </p>
     </section>
   );
 }

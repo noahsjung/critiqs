@@ -58,6 +58,16 @@ export const APP_STYLES = `
 .flow-main { display: flex; flex-direction: column; gap: 24px; padding-top: 24px; }
 .stacked { display: flex; flex-direction: column; gap: 12px; }
 .panels, .panel { display: flex; flex-direction: column; gap: 24px; }
+.trackers { display: flex; flex-direction: column; gap: 12px; padding-top: 24px; border-top: 1px solid var(--line); }
+.trackers h2 { margin: 0; font-size: 17px; line-height: 24px; }
+.tracker-rows { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.tracker-row { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; }
+.tracker-row + .tracker-row { border-top: 1px solid var(--line); }
+.tracker-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; }
+.tracker-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tracker-form { display: flex; flex-direction: column; gap: 10px; }
+.tracker-form label { display: flex; flex-direction: column; gap: 4px; }
+.tracker-form .field-label { font-size: 13px; line-height: 18px; font-weight: 600; color: var(--muted); }
 .panel[hidden] { display: none; }
 
 .progress { display: flex; gap: 6px; }

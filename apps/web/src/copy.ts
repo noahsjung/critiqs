@@ -255,6 +255,23 @@ export const copy = {
     },
   },
 
+  trackers: {
+    heading: "Your trackers",
+    lead: "Turn comments into tickets: connect your own account in Linear, GitHub Issues, or Jira. Tickets are created as you.",
+    connected: (name: string, site: string | null) => `Connected as ${name}${site === null ? "" : ` in ${site}`}`,
+    connect: "Connect",
+    waiting: "Finish signing in in the window that opened. This updates when it's done.",
+    useKey: "Use an API key instead",
+    keyLabel: (tracker: string) => (tracker === "GitHub Issues" ? "Fine-grained token" : tracker === "Jira" ? "API token" : "API key"),
+    email: "Atlassian account email",
+    site: "Jira site",
+    sitePlaceholder: "your-team.atlassian.net",
+    save: "Connect",
+    cancel: "Cancel",
+    blocked: "Your browser blocked the sign-in window. Allow pop-ups for this site, or use an API key instead.",
+    later: "You can also connect later, in Critiqs: your avatar menu, then Your trackers.",
+  },
+
   preview: {
     label: (host: string) => `How ${host} will look with Critiqs`,
     placeholder: "your-prototype.app",

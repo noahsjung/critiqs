@@ -87,8 +87,14 @@ Each person connects their own Linear, GitHub, or Jira account. Critiqs offers
 it in three places:
 
 - **Your trackers…** in the avatar menu, beside **Your AI…**.
-- Project setup, and the onboarding planned for the Critiqs website (being
-  designed separately), after the prototype is set up.
+- Project setup, and the onboarding on the Critiqs website, after the
+  prototype is set up. **Built:** in the panel's Project setup, once the
+  project exists, a **Your trackers** row names the trackers the person has
+  connected and opens Your trackers; on the website's setup screen, a **Your
+  trackers** section lists each tracker the backend offers with the person's
+  account in it, and connects one through the same sign-in window, or a
+  pasted token (Jira asks for its site first). Both show only where the
+  backend offers tickets.
 - The first time someone chooses **Create ticket** or **Link ticket** without a
   connected account.
 

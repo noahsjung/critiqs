@@ -1123,6 +1123,7 @@ function PanelApp({
             backLabel={projectView ? "Back to project" : "Back to comments"}
             notify={notify}
             reviewLinksAt={deployment.website !== undefined && deployment.reviewLinks === true ? (id) => `${deployment.website!.replace(/\/$/, "")}/review-links/${encodeURIComponent(id)}` : null}
+            {...(trackersOffered !== null && openYourTrackers !== null ? { trackers: { offered: trackersOffered, onOpen: openYourTrackers } } : {})}
           />
         </SidebarFrame>
       );

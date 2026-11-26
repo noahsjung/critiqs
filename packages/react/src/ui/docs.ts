@@ -170,7 +170,7 @@ export const DOCS: DocTopic[] = [
     title: "Your trackers",
     summary: "Connects your own account in your team's tracker, Linear, GitHub Issues, or Jira, so tickets made from comments are created as you.",
     steps: [
-      "Open it from your avatar menu: Your trackers…. It appears where the Critiqs backend offers tickets.",
+      "Open it from your avatar menu: Your trackers…, or from Project setup. It appears where the Critiqs backend offers tickets.",
       "Connect Linear opens Linear's sign-in in a window; allow Critiqs there. If nothing opens, allow pop-ups for this site.",
       "Where the deployment has no Linear sign-in, Connect Linear asks for a personal API key instead: Open Linear settings, create a key, and paste it.",
       "Connect GitHub Issues opens GitHub's sign-in for the deployment's GitHub App. Critiqs then reaches the repositories where your organization installed the app; Choose repositories in GitHub installs it on more. Without the app, paste a fine-grained personal access token with read and write access to Issues and read access to Contents.",

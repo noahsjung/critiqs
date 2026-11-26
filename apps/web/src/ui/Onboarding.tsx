@@ -28,6 +28,7 @@ import { Select } from "../shared.ts";
 import { AboutYou, SuggestedPlan } from "./AboutYou.tsx";
 import { InviteTeam } from "./Invite.tsx";
 import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
+import { YourTrackers } from "./Trackers.tsx";
 import { Preview } from "./Preview.tsx";
 import { ExtensionPanel, InstallPanel, SendPanel, ShareBuildPanel } from "./Ways.tsx";
 
@@ -504,6 +505,8 @@ function SetupScreen({ state, dispatch, check, checked }: { state: FlowState; di
         checked={checked}
         onSwitch={(who) => dispatch({ type: "switch-who", who })}
       />
+      {/* After the setup, Your trackers: tickets from comments, where the backend offers them. */}
+      <YourTrackers />
       {/* The first question arrives while focus stays on what the person just used, so it's announced. */}
       <div aria-live="polite">
         {state.about.shown && (

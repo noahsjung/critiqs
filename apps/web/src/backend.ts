@@ -15,6 +15,10 @@ import type {
   StackId,
   TeamSize,
   ThreadPageDetail,
+  TicketsConfig,
+  TrackerAccountView,
+  TrackerId,
+  TrackerSignInStart,
 } from "@critiqs/core";
 import type { ConvexReactClient } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -161,6 +165,20 @@ export interface Backend {
   checkAllowCritiqs(projectId: string, origin: string): Promise<AllowCheck>;
   /** The review link that opens a thread page's comment in the frame, when the project has one for its address; null skips it. */
   useThreadReviewLink(key: string | null): QueryState<string | null>;
+  /**
+   * The person's own tracker accounts (Your trackers), where the backend
+   * offers tickets: absent elsewhere. As the panel's Your trackers: sign-in in
+   * a window the backend serves, or a pasted personal token.
+   */
+  trackers?: TrackersBackend;
+}
+
+/** Your trackers on the website: the same backend functions the panel's Your trackers uses. */
+export interface TrackersBackend {
+  offered: TicketsConfig;
+  useAccounts(enabled: boolean): QueryState<TrackerAccountView[]>;
+  startSignIn(tracker: TrackerId, site?: string): Promise<TrackerSignInStart>;
+  connectWithToken(tracker: TrackerId, token: string, site?: { email: string; site: string }): Promise<TrackerAccountView>;
 }
 
 /** What reading a thread page's image needs: the deployment's HTTP address and the signed-in person's token. */
@@ -266,8 +284,18 @@ export function reviewLinksOf(raw: unknown): ReviewLinksCapability | null {
   return { version, live, builds: builds === true, allowCritiqs: allowCritiqs === true };
 }
 
-export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, features: BackendFeatures): Backend {
+export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, features: BackendFeatures, tickets: TicketsConfig | null = null): Backend {
   return {
+    ...(tickets === null
+      ? {}
+      : {
+          trackers: {
+            offered: tickets,
+            useAccounts: (enabled) => useQueryState(api.trackers.mine, enabled ? {} : "skip"),
+            startSignIn: (tracker, site) => client.action(api.trackers.startSignIn, { tracker, ...(site === undefined ? {} : { site }) }),
+            connectWithToken: (tracker, token, site) => client.action(api.trackers.connectWithToken, { tracker, token, ...site }),
+          } satisfies TrackersBackend,
+        }),
     componentBackend,
     ...features,
     openReviewLink: (key) => client.mutation(api.reviewLinks.open, { key }),

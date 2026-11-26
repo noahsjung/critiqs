@@ -1,4 +1,4 @@
-import type { ProjectInfo, ProjectUsage } from "@critiqs/core";
+import type { ProjectInfo, ProjectUsage, TicketsConfig, TrackerAccountView } from "@critiqs/core";
 import { expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -251,4 +251,46 @@ test("an owner reaches the project's review links from setup when the deployment
   expect(member.host.textContent).not.toContain("Manage review links");
   const off = await renderSetup({});
   expect(off.host.textContent).not.toContain("Manage review links");
+});
+
+test("project setup offers Your trackers once the project exists, saying which trackers are connected, where the backend has tickets", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const opened: string[] = [];
+  const render = async (trackers: { offered: TicketsConfig; onOpen: () => void } | undefined, accounts: TrackerAccountView[]) => {
+    const transport = fakeTransport({ project, threads: [], trackers: { accounts } });
+    await act(async () =>
+      root.render(
+        <TransportContext.Provider value={transport}>
+          <Setup
+            backLabel="Back to comments"
+            reviewer={{ id: "u_dana", name: "Dana", email: "dana@example.com", pictureUrl: null }}
+            signedIn
+            onSignIn={() => {}}
+            configuredProjectId="project"
+            browserProjectId={null}
+            onUseProject={() => {}}
+            onDone={() => {}}
+            notify={() => {}}
+            {...(trackers === undefined ? {} : { trackers })}
+          />
+        </TransportContext.Provider>,
+      ),
+    );
+  };
+  const offered: TicketsConfig = { trackers: [{ id: "linear", signIn: "oauth" }, { id: "github", signIn: "oauth" }, { id: "jira", signIn: "token" }], threadTickets: true };
+  await render({ offered, onOpen: () => opened.push("your trackers") }, []);
+  const section = () => host.querySelector('section[aria-label="Your trackers"]');
+  expect(section()!.querySelector(".ds-nav-row")!.textContent).toBe("Your trackersNone connected");
+  expect(section()!.textContent).toContain("Connect Linear, GitHub Issues, or Jira to turn comments into tickets, as you.");
+  await act(async () => section()!.querySelector<HTMLButtonElement>(".ds-nav-row")!.click());
+  expect(opened).toEqual(["your trackers"]);
+  await render({ offered, onOpen: () => {} }, [{ tracker: "jira", method: "token", accountName: "Dana", site: "acme.atlassian.net", connectedAt: 1, attribution: true }, { tracker: "linear", method: "oauth", accountName: "Dana", site: "Acme", connectedAt: 1, attribution: true }]);
+  expect(section()!.querySelector(".ds-nav-row .value")!.textContent).toBe("Linear, Jira");
+  // Without tickets on the backend, no row.
+  await render(undefined, []);
+  expect(section()).toBeNull();
+  await act(async () => root.unmount());
+  host.remove();
 });

@@ -99,8 +99,8 @@ export function Connected({ deployment, features, children }: { deployment: Depl
   // Built to reuse a saved token that is still good, so loading a page doesn't refresh the sign-in.
   const client = useMemo(() => convexClient(deployment.backendUrl), [deployment.backendUrl]);
   const backend = useMemo(
-    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, features),
-    [client, deployment.siteUrl, session, features],
+    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, features, deployment.tickets ?? null),
+    [client, deployment.siteUrl, deployment.tickets, session, features],
   );
   const reviewHost = useMemo(() => ({ deployment, session, mountPanel: loadPanel, extensionUrl: EXTENSION_URL }), [deployment, session]);
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
