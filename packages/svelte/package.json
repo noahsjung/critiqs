@@ -1,0 +1,80 @@
+{
+  "name": "critiqs-svelte",
+  "version": "0.3.0",
+  "description": "Critiqs for Svelte and SvelteKit: add <Critiqs /> to a prototype to comment on it, discuss feedback, and find its context.",
+  "license": "MIT",
+  "keywords": [
+    "svelte",
+    "sveltekit",
+    "feedback",
+    "comments",
+    "review",
+    "prototype",
+    "design review"
+  ],
+  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/svelte#readme",
+  "bugs": {
+    "url": "https://github.com/noahsjung/Critiqs/issues"
+  },
+  "type": "module",
+  "svelte": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "svelte": "./dist/index.js",
+      "import": "./dist/index.js"
+    },
+    "./kit": {
+      "types": "./dist/kit/index.d.ts",
+      "svelte": "./dist/kit/index.js",
+      "import": "./dist/kit/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "svelte-package --input src/lib --output dist && publint --strict",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "bun --conditions=browser test --isolate",
+    "prepack": "bun run build",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  },
+  "dependencies": {
+    "critiqs": "0.3.0"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0",
+    "@sveltejs/kit": ">=2.0.0"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.6",
+    "@sveltejs/kit": "^3.4.0",
+    "@sveltejs/package": "^3.0.3",
+    "@types/bun": "^1.4.2",
+    "publint": "^0.3.25",
+    "svelte": "^5.59.1",
+    "svelte-check": "^4.7.8",
+    "typescript": "^6.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noahsjung/Critiqs.git",
+    "directory": "packages/svelte"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependenciesMeta": {
+    "@sveltejs/kit": {
+      "optional": true
+    }
+  }
+}
