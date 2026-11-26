@@ -421,6 +421,13 @@ export interface TicketStatusUpdate extends TicketStatusReading {
   site: string | null;
   /** The tracker deleted the ticket: at the same `asOf`, this wins over any other status. */
   deleted: boolean;
+  /**
+   * The ticket's ID stays the same wherever it moves and is unique across
+   * sites (a GitHub issue's node ID), so links to it held under another site
+   * are the same ticket, which moved: they take the update, and follow it to
+   * `site` and `place`.
+   */
+  idAcrossSites?: true;
 }
 
 /** An image to put in a ticket, such as a thread's capture. */

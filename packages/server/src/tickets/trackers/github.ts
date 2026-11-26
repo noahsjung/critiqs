@@ -16,13 +16,16 @@ import {
   TrackerRefusal,
   type TrackerTemplate,
   type TicketPlace,
+  type TicketPlaceNow,
   type TrackerToken,
   trackerEndpoint,
   trackerWebOrigins,
 } from "./index.ts";
 
 // GitHub Issues, through GitHub's REST API (https://docs.github.com/en/rest),
-// and its GraphQL API for reading one issue by its node ID. Both kinds of
+// and its GraphQL API for reading and commenting on one issue by its node ID,
+// which stays the same when its repository is renamed or moved, unlike the
+// repository's name and the issue's number. Both kinds of
 // token are sent as bearer tokens: a GitHub App's user access token from
 // sign-in, or a fine-grained personal access token a person pasted. A ticket's
 // permanent ID is the issue's node ID, which GitHub's webhooks carry too.
@@ -86,6 +89,10 @@ export function creationMark(creationId: string): string {
 
 const ISSUE_FIELDS = "id number title url state stateReason updatedAt repository { name nameWithOwner }";
 const NODE = `query CritiqsIssue($id: ID!) { node(id: $id) { __typename ... on Issue { ${ISSUE_FIELDS} } } }`;
+// An issue's text and its comments, a hundred at a time, by its node ID: where the thread's link may already be.
+const LINKS = "query CritiqsIssueLinks($id: ID!, $after: String) { node(id: $id) { __typename ... on Issue { id body comments(first: 100, after: $after) { nodes { body } pageInfo { hasNextPage endCursor } } } } }";
+// A comment on the issue by its node ID (https://docs.github.com/en/graphql/reference/mutations#addcomment).
+const ADD_COMMENT = "mutation CritiqsComment($id: ID!, $body: String!) { addComment(input: { subjectId: $id, body: $body }) { subject { id } } }";
 
 function endpointOf(endpoint: TrackerEndpointOptions, base: string): TrackerEndpoint {
   return trackerEndpoint(endpoint, base);
@@ -316,13 +323,6 @@ function issueIn(ticket: { key: string; site: string | null }): { repository: { 
   return { repository: { owner: site[1]!, name: site[2]! }, number: Number(key[2]) };
 }
 
-/** Where Critiqs writes to an issue it holds: the repository and number its site and key name, which the shared check has matched with its address. */
-function issueOf(ticket: HeldTicket): { repository: { owner: string; name: string }; number: number } {
-  const issue = issueIn(ticket);
-  if (issue === null) throw new TrackerRefusal("invalid", "Critiqs's record of this issue doesn't name its repository and number. Unlink it and link it again.");
-  return issue;
-}
-
 /** Where an issue lives, from its page's address (`…/owner/repo/issues/12`), for an address a person pasted to search. */
 function issueAddress(url: string): { repository: { owner: string; name: string }; number: number } {
   let parts: string[];
@@ -453,6 +453,13 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
     if (!/^[A-Za-z0-9_=-]{1,100}$/.test(id)) return null;
     const data = await graphql(to, token, NODE, { id });
     return parseNodeIssue(data.node);
+  };
+
+  /** Adds a comment to the issue with this node ID; refused when GitHub has no such issue for the person. */
+  const addComment = async (token: TrackerToken, id: string, body: TicketMarkdown): Promise<void> => {
+    if (!/^[A-Za-z0-9_=-]{1,100}$/.test(id)) throw gone();
+    const added = (await graphql(to, token, ADD_COMMENT, { id, body })).addComment;
+    if (!isRecord(added)) throw gone();
   };
 
   const issueByNumber = async (token: TrackerToken, repository: { owner: string; name: string }, number: number): Promise<CreatedTicket | null> => {
@@ -657,31 +664,37 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       }
       return null;
     },
+    // Writes go to the issue by its node ID, never by a repository name and number, which a rename or transfer changes
+    // and another repository may take: a ticket whose repository moved is still written to, and no other issue is.
     linkBack: async (token, ticket, link) => {
-      const { repository, number } = issueOf(ticket);
       const written = markdownLink("open the thread", link.url);
       // The address as Critiqs writes it in a link, `&` escaped, and as it is.
       const forms = [link.url, written.slice(written.indexOf("(<") + 2, -2)];
-      const mentions = (value: unknown) => isRecord(value) && typeof value.body === "string" && forms.some((form) => (value.body as string).includes(form));
+      const mentions = (value: unknown) => typeof value === "string" && forms.some((form) => value.includes(form));
       // The link is in the issue's text when Critiqs created it, or in a comment already: GitHub keeps one link to the thread.
-      if (mentions(await rest(to, token, repoPath(repository, "issues", number), {}, gone))) return;
-      const comments = await pages(
-        (page) => rest(to, token, repoPath(repository, "issues", number, "comments"), { query: { per_page: 100, page } }, gone),
-        (body) => (Array.isArray(body) ? body : null),
-        5,
-      );
-      if (comments.some(mentions)) return;
-      const body: TicketMarkdown = ticketLinkComment(link.title, { link: link.url, attribution: null });
-      await rest(to, token, repoPath(repository, "issues", number, "comments"), { method: "POST", json: { body } }, gone);
+      let after: string | null = null;
+      for (let page = 0; page < 5; page++) {
+        const data: Record<string, unknown> = await graphql(to, token, LINKS, { id: ticket.externalId, after });
+        const node: unknown = data.node;
+        if (!isRecord(node) || node.__typename !== "Issue" || node.id !== ticket.externalId) throw gone();
+        const comments: Record<string, unknown> | null = isRecord(node.comments) ? node.comments : null;
+        const nodes: unknown[] | null = comments !== null && Array.isArray(comments.nodes) ? comments.nodes : null;
+        if (comments === null || nodes === null) throw unexpected("no comments");
+        if ((page === 0 && mentions(node.body)) || nodes.some((comment: unknown) => isRecord(comment) && mentions(comment.body))) return;
+        const info: unknown = comments.pageInfo;
+        const next: string | null = isRecord(info) && info.hasNextPage === true && typeof info.endCursor === "string" ? info.endCursor : null;
+        if (next === null) break;
+        after = next;
+      }
+      await addComment(token, ticket.externalId, ticketLinkComment(link.title, { link: link.url, attribution: null }));
     },
-    comment: async (token, ticket, body) => {
-      const { repository, number } = issueOf(ticket);
-      await rest(to, token, repoPath(repository, "issues", number, "comments"), { method: "POST", json: { body } }, gone);
-    },
+    comment: async (token, ticket, body) => await addComment(token, ticket.externalId, body),
     status: async (token, ticket) => {
       const issue = await issueByNode(token, ticket.externalId);
       if (issue === null) throw notFound();
-      return { externalId: issue.externalId, status: issue.status, asOf: issue.asOf };
+      // Where it is now: a renamed or transferred repository keeps the issue's node ID and gives it a new name and number.
+      const place = { key: issue.key, url: issue.url, title: issue.title, site: issue.site };
+      return { externalId: issue.externalId, status: issue.status, asOf: issue.asOf, place };
     },
     templates: async (token, destinationId) => {
       const destinations = destinationId === undefined ? (await repositories(token)).slice(0, MAX_TEMPLATE_REPOSITORIES) : [{ id: destinationId, name: destinationId, key: null }];
@@ -841,6 +854,16 @@ function hexBytes(hex: string): Uint8Array<ArrayBuffer> | null {
   return bytes;
 }
 
+/**
+ * Where a delivery says an issue is: its key, GitHub's page for it, worked out
+ * from the repository and number the signature covers (never an address the
+ * delivery names), and its title.
+ */
+function githubDeliveryPlace(repository: string, number: number, title: string): TicketPlaceNow {
+  const [owner, name] = repository.split("/") as [string, string];
+  return { key: `${name}#${number}`, url: `${GITHUB_APP_URL}/${owner}/${name}/issues/${number}`, title, site: githubSite(repository) };
+}
+
 /** How old the issue's update in a delivery may be, by GitHub's own time in it, for the delivery to be used: GitHub delivers within seconds, and lets an operator send one again for a few days. */
 export const GITHUB_DELIVERY_MAX_AGE_MS = 24 * 60 * 60_000;
 /** How far ahead of Critiqs's clock the issue's update time may be. */
@@ -882,17 +905,34 @@ export async function readGithubWebhook(secret: string, rawBody: Uint8Array<Arra
   const asOf = timeOf(issue.updated_at);
   // Without the issue's own time, or with one ahead of now, a delivery can't be placed in order.
   if (asOf === null || asOf > now + GITHUB_CLOCK_LEEWAY_MS) return { status: "ignored" };
-  const update = (status: TicketStatus, deleted = false): GithubWebhook => ({
-    status: "update",
-    update: { tracker: "github", externalId: issue.node_id as string, site: githubSite(fullName), status, asOf, deleted },
-  });
+  /**
+   * An update about the issue with this node ID, where it is (`repository`,
+   * `number`): its node ID is the same in any repository it moves to, so
+   * links to it under an old name take the update and follow it there.
+   */
+  const update = (status: TicketStatus, at: { repository: string; number: unknown; title: unknown; asOf: number }, deleted = false): GithubWebhook => {
+    const place = typeof at.number === "number" && Number.isSafeInteger(at.number) && at.number > 0 ? githubDeliveryPlace(at.repository, at.number, typeof at.title === "string" ? at.title : "") : null;
+    return {
+      status: "update",
+      update: { tracker: "github", externalId: issue.node_id as string, site: githubSite(at.repository), status, asOf: at.asOf, deleted, idAcrossSites: true, ...(place === null ? {} : { place }) },
+    };
+  };
+  const here = { repository: fullName, number: issue.number, title: issue.title, asOf };
   switch (body.action) {
     case "deleted":
-      return update({ ...GITHUB_DELETED_STATUS }, true);
-    // The issue moved to another repository, as a new issue there; the check when a thread opens reads where it went.
-    case "transferred":
-      return { status: "ignored" };
+      return update({ ...GITHUB_DELETED_STATUS }, here, true);
+    // The issue moved to another repository. Only when it is still the same node there does a link follow it; a new
+    // node is another issue, and the check when a thread opens finds the old one gone.
+    case "transferred": {
+      const changes = isRecord(body.changes) ? body.changes : null;
+      const moved = changes !== null && isRecord(changes.new_issue) ? changes.new_issue : null;
+      const target = changes !== null && isRecord(changes.new_repository) && typeof changes.new_repository.full_name === "string" ? changes.new_repository.full_name : null;
+      const movedAt = moved === null ? null : timeOf(moved.updated_at);
+      if (moved === null || moved.node_id !== issue.node_id || target === null || !REPOSITORY.test(target) || typeof moved.state !== "string" || movedAt === null || movedAt > now + GITHUB_CLOCK_LEEWAY_MS) return { status: "ignored" };
+      if (now - movedAt > GITHUB_DELIVERY_MAX_AGE_MS) return { status: "ignored" };
+      return update(githubStatus(moved.state, typeof moved.state_reason === "string" ? moved.state_reason : null), { repository: target, number: moved.number, title: moved.title, asOf: movedAt });
+    }
     default:
-      return now - asOf > GITHUB_DELIVERY_MAX_AGE_MS ? { status: "ignored" } : update(githubStatus(issue.state, typeof issue.state_reason === "string" ? issue.state_reason : null));
+      return now - asOf > GITHUB_DELIVERY_MAX_AGE_MS ? { status: "ignored" } : update(githubStatus(issue.state, typeof issue.state_reason === "string" ? issue.state_reason : null), here);
   }
 }

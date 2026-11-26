@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { decryptToken, STATUS_CHECK_MS, trackerTokenBinding } from "@critiqs/server";
-import { addGithubIssue, type GithubStandIn, githubIssueWebhook, githubStandIn } from "@critiqs/server/github-standin";
+import { addGithubIssue, addGithubRepository, type GithubStandIn, githubIssueWebhook, githubStandIn, renameGithubRepository, transferGithubIssue } from "@critiqs/server/github-standin";
 import { api, internal } from "../convex/_generated/api";
 import { anchor, reviewer, setup, upload } from "./harness";
 import { list, thread as getThread } from "./pages";
@@ -282,6 +282,51 @@ test("once a project is limited to its organization, someone outside it can't dr
   github.personalTokens.set("github_pat_riley", "riley");
   await riley.action(api.trackers.connectWithToken, { tracker: "github", token: "github_pat_riley" });
   expect((await riley.action(api.tickets.create, { ...create, submissionId: crypto.randomUUID() })).key).toBe("web#13");
+});
+
+test("a GitHub issue whose repository is renamed or which is transferred stays linked by its node ID: deliveries and checks follow it, and an issue that only shares its old name and number is another", async () => {
+  const { t, lee, sam, projectId, threadId } = await project();
+  const existing = addGithubIssue(github, "acme/web", { number: 12, title: "Department label is unclear" });
+  await lee.action(api.trackers.connectWithToken, { tracker: "github", token: "github_pat_lee" });
+  const view = await lee.action(api.tickets.link, { threadId, tracker: "github", externalId: existing.nodeId, comment: false });
+  const deliver = (delivery: { body: string; headers: Record<string, string> }) => t.fetch("/trackers/github/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+  const link = () => t.run((ctx) => ctx.db.query("ticketLinks").collect()).then((rows) => rows.find((row) => row._id === view._id)!);
+  const shown = async () => (await getThread(sam, { threadId })).tickets?.[0];
+
+  // acme/web is renamed acme/site, and a new repository takes the name acme/web, with its own issue 12.
+  renameGithubRepository(github, "acme/web", "acme/site");
+  addGithubRepository(github, "acme/web", 601);
+  const newcomer = addGithubIssue(github, "acme/web", { number: 12, title: "Someone else's" });
+  // The newcomer's delivery names acme/web and number 12, but another node: it reaches no link.
+  expect((await deliver(await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: newcomer.nodeId, number: 12, state: "closed", updatedAt: ago(30_000) }, repository: "acme/web", repositoryId: 601 }))).status).toBe(200);
+  expect((await shown())?.status?.label).toBe("Open");
+  // The renamed repository's delivery names acme/site: the same issue by its node ID, so its link follows it there.
+  expect((await deliver(await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: ago(20_000) }, repository: "acme/site", repositoryId: 501 }))).status).toBe(200);
+  expect(await shown()).toMatchObject({ key: "site#12", status: { label: "Closed" } });
+  expect(await link()).toMatchObject({ site: "acme/site", url: "https://github.com/acme/site/issues/12" });
+
+  // Transferred to acme/api, keeping its node ID: the delivery about the move says where it went, and the link follows.
+  const moved = transferGithubIssue(github, existing.nodeId, "acme/api", true);
+  const movedNumber = moved.number;
+  const transfer = { nodeId: existing.nodeId, number: movedNumber, state: "open" as const, updatedAt: ago(10_000) };
+  await deliver(await githubIssueWebhook(SECRET, { action: "transferred", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: ago(10_000) }, repository: "acme/site", repositoryId: 501, changes: { newIssue: transfer, newRepository: { id: 502, fullName: "acme/api" } } }));
+  expect(await shown()).toMatchObject({ key: `api#${movedNumber}`, status: { label: "Open" } });
+  // A check reads it by its node ID where it is now.
+  github.setState(existing.nodeId, "closed", "not_planned").updatedAt = ago(1_000);
+  await t.run((ctx) => ctx.db.patch(view._id as never, { statusCheckedAt: 0, statusCheckStartedAt: 0 } as never));
+  await sam.mutation(api.ticketStatus.checkStatus, { threadId });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(await shown()).toMatchObject({ key: `api#${movedNumber}`, status: { label: "Closed as not planned" }, statusStale: false });
+
+  // Transferred again under a new node ID: another issue, so its delivery doesn't move the link, and the old node is gone, so the status is last known.
+  const again = transferGithubIssue(github, existing.nodeId, "acme/web", false);
+  await deliver(await githubIssueWebhook(SECRET, { action: "transferred", issue: { nodeId: existing.nodeId, number: movedNumber, state: "closed", updatedAt: ago(5_000) }, repository: "acme/api", repositoryId: 502, changes: { newIssue: { nodeId: again.nodeId, number: again.number, state: "open", updatedAt: ago(5_000) }, newRepository: { id: 601, fullName: "acme/web" } } }));
+  expect(await shown()).toMatchObject({ key: `api#${movedNumber}`, status: { label: "Closed as not planned" } });
+  await t.run((ctx) => ctx.db.patch(view._id as never, { statusCheckedAt: 0, statusCheckStartedAt: 0 } as never));
+  await sam.mutation(api.ticketStatus.checkStatus, { threadId });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(await shown()).toMatchObject({ key: `api#${movedNumber}`, statusStale: true });
 });
 
 test("a signed GitHub webhook updates every thread linking the issue and Resolve when done resolves them; forged, replayed, or older deliveries change nothing", async () => {

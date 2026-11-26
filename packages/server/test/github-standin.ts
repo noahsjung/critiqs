@@ -4,11 +4,16 @@
 // (https://docs.github.com/en/rest, .../apps/creating-github-apps/authenticating-with-a-github-app,
 // .../webhooks). It keeps users, installations, repositories, issues,
 // comments, labels, and template files in memory. Each test makes its own.
+// Repository renames are modeled as GitHub documents them
+// (https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository):
+// the old name redirects (301) until another repository takes it; node IDs
+// don't change. Issue transfers move an issue to another repository under a
+// new number; whether its node ID stays is not documented, so a test chooses.
 //
 // Not modeled: pagination beyond what a test fills, the `Link` header, ETags
 // and 304s, GitHub's search ranking and index delay (search is a plain word
-// match), secondary rate limits beyond what `intercept` answers, issue
-// transfers (301), organization-wide default templates from a `.github`
+// match), secondary rate limits beyond what `intercept` answers,
+// organization-wide default templates from a `.github`
 // repository, labels GitHub might create when named on a new issue (the
 // stand-in refuses unknown labels), and how issue-form answers render.
 
@@ -92,6 +97,8 @@ export interface GithubStandIn {
    * GitHub created the issue would look).
    */
   intercept: ((method: string, path: string, token: string | null) => Promise<Response | "after" | undefined> | Response | "after" | undefined) | null;
+  /** Old repository names, by `owner/name` in lower case, and the repository they redirect to until another takes the name. */
+  renamed: Map<string, number>;
   /** Changes an issue's state as a person would on GitHub, a second after its last change; returns the issue. */
   setState(nodeId: string, state: "open" | "closed", reason?: StandInGithubIssue["stateReason"]): StandInGithubIssue;
 }
@@ -195,6 +202,7 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
     accessTokens: new Map(),
     refreshTokens: new Map(),
     pairs: new Map(),
+    renamed: new Map(),
     now: () => Date.now(),
     intercept: null,
     setState: (nodeId, state, reason = state === "closed" ? "completed" : "reopened") => {
@@ -364,11 +372,27 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
     const user = standIn.users.find((each) => each.login === who.login)!;
 
     if (request.method === "POST" && path === "/graphql") {
-      const { query, variables } = (await request.json()) as { query: string; variables: { id?: string } };
-      if (!/node\(id: \$id\)/.test(query)) return json({ errors: [{ message: "Unknown query in the stand-in" }] });
+      const { query, variables } = (await request.json()) as { query: string; variables: { id?: string; body?: string; after?: string | null } };
       const issue = standIn.issues.find((each) => each.nodeId === variables.id && each.deleted !== true);
       const visible = issue !== undefined && reachable(who).some((repository) => repository.id === issue.repositoryId);
-      if (!visible) return json({ data: { node: null }, errors: [{ type: "NOT_FOUND", path: ["node"], message: `Could not resolve to a node with the global id of '${variables.id}'` }] });
+      const notFound = (field: string) => json({ data: { [field]: null }, errors: [{ type: "NOT_FOUND", path: [field], message: `Could not resolve to a node with the global id of '${variables.id}'` }] });
+      // addComment (https://docs.github.com/en/graphql/reference/mutations#addcomment): the subject by its node ID.
+      if (/addComment\(input: \{ subjectId: \$id, body: \$body \}\)/.test(query)) {
+        if (!visible) return notFound("addComment");
+        if (typeof variables.body !== "string" || variables.body === "") return json({ data: { addComment: null }, errors: [{ type: "UNPROCESSABLE", message: "Body can't be blank" }] });
+        standIn.comments.push({ issueNodeId: issue.nodeId, body: variables.body, user: who.login });
+        return json({ data: { addComment: { subject: { id: issue.nodeId } } } });
+      }
+      if (!/node\(id: \$id\)/.test(query)) return json({ errors: [{ message: "Unknown query in the stand-in" }] });
+      if (!visible) return notFound("node");
+      // An issue's text and a page of its comments, when asked for.
+      if (/comments\(first: 100, after: \$after\)/.test(query)) {
+        const all = standIn.comments.filter((comment) => comment.issueNodeId === issue.nodeId);
+        const start = variables.after == null ? 0 : Number(variables.after);
+        const nodes = all.slice(start, start + 100).map((comment) => ({ body: comment.body }));
+        const end = start + nodes.length;
+        return json({ data: { node: { ...nodeView(issue), body: issue.body, comments: { nodes, pageInfo: { hasNextPage: end < all.length, endCursor: String(end) } } } } });
+      }
       return json({ data: { node: nodeView(issue) } });
     }
     if (request.method === "GET" && path === "/user") return json({ login: user.login, id: user.id, name: user.login === "dana-smith" ? "Dana Smith" : user.login, email: null });
@@ -395,7 +419,13 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
     if (repoMatch === null) return message("Not Found", 404);
     const [, owner, name, rest = ""] = repoMatch.map((part) => (part === undefined ? part : decodeURIComponent(part)));
     const repository = reachable(who).find((each) => each.owner.toLowerCase() === owner!.toLowerCase() && each.name.toLowerCase() === name!.toLowerCase());
-    if (repository === undefined) return message("Not Found", 404);
+    if (repository === undefined) {
+      // A renamed repository's old name redirects to it, while no other repository has taken the name.
+      const moved = standIn.renamed.get(`${owner}/${name}`.toLowerCase());
+      const target = moved === undefined ? undefined : standIn.repositories.find((each) => each.id === moved);
+      if (target !== undefined) return new Response(null, { status: 301, headers: { Location: `${origin}/repos/${fullName(target)}${rest}` } });
+      return message("Not Found", 404);
+    }
     const inRepository = standIn.issues.filter((issue) => issue.repositoryId === repository.id);
 
     if (rest === "/issues" && request.method === "POST") {
@@ -528,6 +558,46 @@ export function addGithubIssue(standIn: GithubStandIn, repository: string, issue
   return added;
 }
 
+/**
+ * Renames a repository as its owner would on GitHub: its node ID and its
+ * issues' stay, and the old name redirects until another repository takes it.
+ */
+export function renameGithubRepository(standIn: GithubStandIn, from: string, to: string): StandInRepository {
+  const found = standIn.repositories.find((each) => `${each.owner}/${each.name}` === from);
+  if (found === undefined) throw new Error(`No repository ${from}`);
+  const [owner, name] = to.split("/") as [string, string];
+  found.owner = owner;
+  found.name = name;
+  standIn.renamed.set(from.toLowerCase(), found.id);
+  return found;
+}
+
+/** Makes a new repository, as when another takes a renamed repository's old name, which then no longer redirects. */
+export function addGithubRepository(standIn: GithubStandIn, fullName: string, id: number): StandInRepository {
+  const [owner, name] = fullName.split("/") as [string, string];
+  const repository: StandInRepository = { id, owner, name, hasIssues: true, archived: false, installationId: 71, pushers: [], labels: [], templates: {} };
+  standIn.repositories.push(repository);
+  standIn.renamed.delete(fullName.toLowerCase());
+  return repository;
+}
+
+/**
+ * Transfers an issue to another repository, as a person would on GitHub: it
+ * takes the next number there. `keepNode` says whether its node ID stays,
+ * which GitHub doesn't document; otherwise it gets a new one and the old one
+ * resolves to nothing.
+ */
+export function transferGithubIssue(standIn: GithubStandIn, nodeId: string, to: string, keepNode: boolean): StandInGithubIssue {
+  const issue = standIn.issues.find((each) => each.nodeId === nodeId);
+  const target = standIn.repositories.find((each) => `${each.owner}/${each.name}` === to);
+  if (issue === undefined || target === undefined) throw new Error(`No issue ${nodeId} or repository ${to}`);
+  issue.repositoryId = target.id;
+  issue.number = Math.max(0, ...standIn.issues.filter((each) => each.repositoryId === target.id && each !== issue).map((each) => each.number)) + 1;
+  if (!keepNode) issue.nodeId = `${nodeId}_moved`;
+  issue.updatedAt = new Date(Date.parse(issue.updatedAt) + 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return issue;
+}
+
 /** The `X-Hub-Signature-256` GitHub sends: `sha256=` and the hex HMAC-SHA256 of the body under the webhook's secret. */
 export async function githubSignature(secret: string, body: string | Uint8Array<ArrayBuffer>): Promise<string> {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -542,7 +612,15 @@ export async function githubSignature(secret: string, body: string | Uint8Array<
  */
 export async function githubIssueWebhook(
   secret: string,
-  event: { action: string; issue: { nodeId: string; number?: number; state: "open" | "closed"; stateReason?: string | null; updatedAt: string; pullRequest?: boolean }; event?: string; repository?: string },
+  event: {
+    action: string;
+    issue: { nodeId: string; number?: number; state: "open" | "closed"; stateReason?: string | null; updatedAt: string; pullRequest?: boolean };
+    event?: string;
+    repository?: string;
+    repositoryId?: number;
+    /** For `transferred`: the issue as it is in the repository it moved to. */
+    changes?: { newIssue: { nodeId: string; number: number; state: "open" | "closed"; updatedAt: string }; newRepository: { id: number; fullName: string } };
+  },
 ): Promise<{ body: string; headers: Record<string, string> }> {
   const repository = event.repository ?? "acme/web";
   const payload = {
@@ -559,7 +637,23 @@ export async function githubIssueWebhook(
       user: { login: "dana-smith" },
       ...(event.issue.pullRequest === true ? { pull_request: { url: "https://api.github.com/repos/acme/web/pulls/1" } } : {}),
     },
-    repository: { id: 501, node_id: "R_501", name: repository.split("/")[1], full_name: repository },
+    repository: { id: event.repositoryId ?? 501, node_id: `R_${event.repositoryId ?? 501}`, name: repository.split("/")[1], full_name: repository },
+    ...(event.changes === undefined
+      ? {}
+      : {
+          changes: {
+            new_issue: {
+              node_id: event.changes.newIssue.nodeId,
+              number: event.changes.newIssue.number,
+              title: "Department label is unclear",
+              state: event.changes.newIssue.state,
+              state_reason: null,
+              html_url: `https://github.com/${event.changes.newRepository.fullName}/issues/${event.changes.newIssue.number}`,
+              updated_at: event.changes.newIssue.updatedAt,
+            },
+            new_repository: { id: event.changes.newRepository.id, node_id: `R_${event.changes.newRepository.id}`, full_name: event.changes.newRepository.fullName },
+          },
+        }),
     installation: { id: 71, node_id: "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzE=" },
     sender: { login: "dana-smith" },
   };

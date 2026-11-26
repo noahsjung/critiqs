@@ -204,7 +204,7 @@ describe("finding and reading issues", () => {
     });
     standIn.setState(issue.nodeId, "closed", "completed");
     const ref = { tracker: "github" as const, externalId: issue.nodeId, key: "web#3", url: `${standIn.origin}/acme/web/issues/3`, title: "Footer", site: "acme/web" };
-    expect(await github.status(PAT, ref)).toEqual({ status: { label: "Closed", category: "done" }, asOf: Date.parse("2026-02-01T00:00:01Z") });
+    expect(await github.status(PAT, ref)).toEqual({ status: { label: "Closed", category: "done" }, asOf: Date.parse("2026-02-01T00:00:01Z"), place: { key: "web#3", url: `${standIn.origin}/acme/web/issues/3`, title: "Footer", site: "acme/web" } });
     issue.deleted = true;
     expect((await refusal(github.status(PAT, ref))).code).toBe("not-found");
     expect((await refusal(github.get(PAT, "I_kwNothing"))).message).toBe("GitHub can't find this issue, or you can't see it.");
@@ -445,7 +445,17 @@ describe("GitHub webhooks", () => {
     const { body, headers } = await githubIssueWebhook(secret, { action: "closed", issue: { nodeId: "I_1", state: "closed", stateReason: "completed", updatedAt: "2026-03-01T10:00:00Z" } });
     expect(await readGithubWebhook(secret, bytes(body), headers["X-Hub-Signature-256"]!, "issues", NOW)).toEqual({
       status: "update",
-      update: { tracker: "github", externalId: "I_1", site: "acme/web", status: { label: "Closed", category: "done" }, asOf: Date.parse("2026-03-01T10:00:00Z"), deleted: false },
+      update: {
+        tracker: "github",
+        externalId: "I_1",
+        site: "acme/web",
+        status: { label: "Closed", category: "done" },
+        asOf: Date.parse("2026-03-01T10:00:00Z"),
+        deleted: false,
+        // The node ID is the issue wherever it is; where it is, GitHub's page worked out from the signed repository and number.
+        idAcrossSites: true,
+        place: { key: "web#1", url: "https://github.com/acme/web/issues/1", title: "Department label is unclear", site: "acme/web" },
+      },
     });
     const reopened = await githubIssueWebhook(secret, { action: "reopened", issue: { nodeId: "I_1", state: "open", stateReason: "reopened", updatedAt: "2026-03-01T11:00:00Z" } });
     const read = await readGithubWebhook(secret, bytes(reopened.body), reopened.headers["X-Hub-Signature-256"]!, "issues", NOW);

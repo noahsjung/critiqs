@@ -139,11 +139,12 @@ key, or address longer than it can show, and cuts long names, titles, and
 status labels. An answer about a ticket must be about the ticket Critiqs asked
 for, and a ticket's address must be the tracker's page for its key: Linear's
 must be on Linear and name the issue's key; GitHub's must be GitHub's page for
-the issue's repository and number, and a link back or comment goes to that
-repository and number. Critiqs adds a link back or a
+the issue's repository and number. Critiqs adds a link back or a
 comment only to a ticket it holds whose address still agrees with its key and
-site, and goes to it by what Critiqs holds, never by an address a tracker
-named.
+site, and goes to it by the ticket's permanent ID, never by an address a
+tracker named: on GitHub that is the issue's node ID, so a renamed
+repository, or another repository that later takes its old name, never
+sends a write to another issue.
 
 What this settles:
 
@@ -523,12 +524,19 @@ Self-hosted deployments get the same features:
   ago the issue last changed, since GitHub never brings a deleted issue's ID
   back. Each repository's deliveries may change linked tickets 300 times a
   minute; past that the route answers 429.
-  Transferred issues aren't followed by webhook; the check when a thread
-  opens reads them. The ticket's permanent ID is the issue's node ID, and
-  its site is its repository (`owner/name`): a delivery changes only links to
-  issues in the repository it names. A renamed repository's deliveries name
-  its new name, so its tickets' status comes from the check when a thread
-  opens.
+  The ticket's permanent ID is the issue's node ID, which is unique across
+  GitHub and stays with the issue when its repository is renamed; its site
+  is its repository (`owner/name`). A delivery reaches links to that node in
+  any repository: one naming a new repository means the issue is there now,
+  and its links take the new repository, number, and page (worked out from
+  the signed repository and number, never an address the delivery names),
+  unless what the link holds is newer. Another issue that only shares the
+  old name and number is another node and reaches no link. A transferred
+  issue is followed only when it is still the same node in the repository it
+  moved to (`changes.new_issue`); GitHub doesn't document whether a transfer
+  keeps the node ID, and a new node is another issue, so its link keeps its
+  last known status. The check when a thread opens reads the issue by its
+  node ID too, and its link follows it to where it is now.
 - **The webhook secret.** Anyone who holds `CRITIQS_GITHUB_WEBHOOK_SECRET`
   can sign a delivery about any repository and issue, and so change, or
   close and resolve through, any GitHub ticket on the deployment. Set it

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { githubAdapter, readGithubWebhook } from "../src/tickets/trackers/github.ts";
-import { addGithubIssue, githubIssueWebhook, githubStandIn } from "./github-standin.ts";
+import { addGithubIssue, addGithubRepository, githubIssueWebhook, githubStandIn, renameGithubRepository, transferGithubIssue } from "./github-standin.ts";
 
 // The attacks the security reviews of the Linear tickets port made, against
 // GitHub's adapter: a hostile or broken GitHub (answers too long, too large,
@@ -151,6 +151,30 @@ test("GitHub attack: a write goes to the issue Critiqs holds, by its repository 
   // Held consistently: the comment lands on issue 7, as its repository and number say.
   await github.comment(PAT, { ...crossed, url: md<string>(`${standIn.origin}/acme/web/issues/7`) }, md("> Summary\n"));
   expect(standIn.comments.map((comment) => comment.issueNodeId)).toEqual([mine.nodeId]);
+});
+
+test("GitHub: writes go to the issue by its node ID, so a renamed repository whose old name another repository took still gets them, never the newcomer", async () => {
+  const { standIn, github } = recorded();
+  const mine = addGithubIssue(standIn, "acme/web", { number: 7, title: "Mine" });
+  const held = { tracker: "github" as const, externalId: mine.nodeId, key: "web#7", url: md<string>(`${standIn.origin}/acme/web/issues/7`), title: "Mine", site: "acme/web" };
+  // acme/web becomes acme/site; a new acme/web, with its own issue 7, takes the old name.
+  renameGithubRepository(standIn, "acme/web", "acme/site");
+  addGithubRepository(standIn, "acme/web", 601);
+  const newcomer = addGithubIssue(standIn, "acme/web", { number: 7, title: "Someone else's" });
+  await github.comment(PAT, held, md("> Summary\n"));
+  await github.linkBack(PAT, held, { url: md("https://review.example/?critiqs=t1"), title: "Department is wrong" });
+  expect(standIn.comments.filter((comment) => comment.issueNodeId === newcomer.nodeId)).toEqual([]);
+  expect(standIn.comments.map((comment) => comment.issueNodeId)).toEqual([mine.nodeId, mine.nodeId]);
+  // The link back is kept once: adding it again finds it among the issue's comments.
+  await github.linkBack(PAT, held, { url: md("https://review.example/?critiqs=t1"), title: "Department is wrong" });
+  expect(standIn.comments).toHaveLength(2);
+  // A status check reads the issue where it is now: the same issue by its ID, in the renamed repository.
+  expect(await github.status(PAT, held)).toMatchObject({ place: { key: "site#7", url: `${standIn.origin}/acme/site/issues/7`, site: "acme/site" } });
+  // Transferred under a new node ID: a different issue, so the old one is gone, never followed.
+  transferGithubIssue(standIn, mine.nodeId, "acme/api", false);
+  expect((await outcome(github.status(PAT, held))).ok).toBe(false);
+  expect((await outcome(github.comment(PAT, held, md("> Again\n")))).ok).toBe(false);
+  expect(standIn.comments).toHaveLength(2);
 });
 
 test("GitHub attack: an answer about another issue than the one asked for, or whose address isn't GitHub's page for it, is refused", async () => {

@@ -108,7 +108,7 @@ test("GitHub attack: a status check never uses the token of someone removed from
   expect((await getThread(dana, { threadId })).tickets?.[0]).toMatchObject({ status: { label: "Open" }, statusStale: true });
 });
 
-test("GitHub attack: a signed delivery about another repository changes no link to an issue in this one", async () => {
+test("GitHub: a signed delivery naming another repository for the same issue node is that issue, moved there; one about another node in this repository changes nothing", async () => {
   const t = setup();
   const dana = t.withIdentity(reviewer("Dana"));
   const lee = t.withIdentity(reviewer("Lee"));
@@ -118,13 +118,15 @@ test("GitHub attack: a signed delivery about another repository changes no link 
   const existing = addGithubIssue(github, "acme/web", { number: 12, title: "Existing" });
   await lee.action(api.tickets.link, { threadId, tracker: "github", externalId: existing.nodeId, comment: false });
   const deliver = (delivery: { body: string; headers: Record<string, string> }) => t.fetch("/trackers/github/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
-  const other = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: new Date().toISOString() }, repository: "other/web" } as never);
-  expect((await deliver(other)).status).toBe(200);
+  // Another issue numbered 12 in the same repository: another node, no link.
+  const sameNumber = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: "I_someone_else", number: 12, state: "closed", updatedAt: new Date(Date.now() - 2_000).toISOString() } });
+  expect((await deliver(sameNumber)).status).toBe(200);
   expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("Open");
-  // The same change about the issue's own repository does.
-  const own = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: new Date().toISOString() } });
-  expect((await deliver(own)).status).toBe(200);
-  expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("Closed");
+  // GitHub's node IDs are unique across GitHub and stay with an issue whose repository is renamed: a signed delivery naming
+  // other/web for this node says the issue is there now, and its link follows it.
+  const moved = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: new Date().toISOString() }, repository: "other/web" } as never);
+  expect((await deliver(moved)).status).toBe(200);
+  expect((await getThread(dana, { threadId })).tickets?.[0]).toMatchObject({ key: "web#12", url: "https://github.com/other/web/issues/12", status: { label: "Closed" } });
 });
 
 test("GitHub attack: the webhook route reads at most a megabyte of a delivery", async () => {
