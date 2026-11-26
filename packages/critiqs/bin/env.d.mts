@@ -44,3 +44,5 @@ export declare function planEnv(target: EnvTarget, name: string, value: string):
 export declare function checkWritable(file: string): void;
 export declare function applyEnv(plan: EnvPlan): { example: string | null };
 export declare function gitIgnored(file: string): boolean | null;
+/** Whether setup writes `file`'s setting as code the development server runs (a `.py` or `.rb` file), rather than as a `.env` line. */
+export declare function isCodeFile(file: string): boolean;

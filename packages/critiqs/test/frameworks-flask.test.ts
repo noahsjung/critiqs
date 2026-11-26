@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { detectApp, FRAMEWORKS } from "../bin/frameworks/index.mjs";
+import { runInit } from "../bin/init.mjs";
 import type { Plan, Settings } from "../bin/frameworks/types.d.mts";
 
 const flask = FRAMEWORKS.find((adapter) => adapter.id === "flask")!;
@@ -115,16 +116,35 @@ function apply(plan: Plan) {
   return plan;
 }
 
-test("reads the project ID from CRITIQS_PROJECT_ID on each request; .env when python-dotenv loads it", () => {
-  expect(flask.env(quickstart(), "")).toMatchObject({ variable: "CRITIQS_PROJECT_ID", expression: 'os.environ.get("CRITIQS_PROJECT_ID")', readsAt: "runtime", localFile: null });
+test("reads the project ID from CRITIQS_PROJECT_ID on each request; on this computer from .env, which flask-critiqs's python-dotenv loads", () => {
+  expect(flask.env(quickstart(), "")).toMatchObject({ variable: "CRITIQS_PROJECT_ID", expression: 'os.environ.get("CRITIQS_PROJECT_ID")', readsAt: "runtime", localFile: ".env" });
   expect(flask.env(quickstart({ "requirements.txt": "flask\npython-dotenv>=1\n" }), "_WEB")).toMatchObject({ variable: "CRITIQS_PROJECT_ID_WEB", localFile: ".env" });
+});
+
+test("init writes the project to .env for flask run, and keeps it there on a second run", () => {
+  const root = quickstart();
+  const messages: string[] = [];
+  const run = (projectId: string) => {
+    messages.length = 0;
+    const code = runInit(["init", projectId], { cwd: root, print: (message) => messages.push(message), env: {} });
+    return { code, output: messages.join("\n") };
+  };
+  const first = run(PROJECT);
+  expect(first.code).toBe(0);
+  expect(read(root, ".env")).toContain(`CRITIQS_PROJECT_ID=${PROJECT}\n`);
+  expect(first.output).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in .env for this computer.`);
+  // Each step is named once: installing the package (requirements.txt doesn't list it yet), and what deployments set.
+  expect(first.output.split("pip install flask-critiqs").length - 1).toBe(1);
+  expect(first.output.split("in each deployment's environment").length - 1).toBe(1);
+  expect(run(PROJECT).output).toStartWith("templates/base.html:8 already uses this project ID (CRITIQS_PROJECT_ID in .env).");
 });
 
 test("adds the extension where the app is created and the call to templates/base.html", () => {
   const root = quickstart();
   const plan = apply(flask.plan(root, env(root), options));
   expect(plan).toMatchObject({ action: "install", file: join(root, "templates/base.html"), line: 8, changed: ["projectId", "requireProjectId"] });
-  expect(plan.ok && plan.next.join("\n")).toContain("pip install flask-critiqs");
+  // Setup itself names installing the package and what deployments set.
+  expect(plan.ok && plan.next).toEqual([]);
   expect(read(root, "app.py")).toBe(
     QUICKSTART.replace("render_template\n", "render_template\nfrom flask_critiqs import Critiqs\n").replace("app = Flask(__name__)\n", "app = Flask(__name__)\nCritiqs(app)\n"),
   );

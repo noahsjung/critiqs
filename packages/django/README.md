@@ -43,7 +43,16 @@ CRITIQS_PROJECT_ID=<project ID>
 
 Django reads it on each request. Where it is unset, `{% critiqs %}` renders
 nothing, so production or any copy without a project shows no Critiqs. The
-project ID is public configuration, not a secret.
+project ID is public configuration, not a secret. For the development server,
+`npx critiqs init` adds a default to `manage.py`, beside Django's own
+`DJANGO_SETTINGS_MODULE` one, which an environment variable still overrides:
+
+```python
+os.environ.setdefault("CRITIQS_PROJECT_ID", "<project ID>")
+```
+
+A deployment's WSGI or ASGI server doesn't run `manage.py`, so it still
+shows Critiqs only where `CRITIQS_PROJECT_ID` is set.
 
 Critiqs's script is a static file (`critiqs/element.js`), so run
 `python manage.py collectstatic` when you deploy, as for your own static files.

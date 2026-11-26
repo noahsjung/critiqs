@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FRAMEWORKS } from "../bin/frameworks/index.mjs";
+import { runInit } from "../bin/init.mjs";
 import type { FileWrite, Plan, PlanOptions, Settings } from "../bin/frameworks/types.d.mts";
 
 const rails = FRAMEWORKS.find((adapter) => adapter.id === "rails")!;
@@ -46,6 +47,16 @@ const LAYOUT = `<!DOCTYPE html>
 const LAYOUT_PATH = "app/views/layouts/application.html.erb";
 
 /** A Rails app from the starter's files, with `files` added or replaced (null leaves one out). */
+// What `rails new` writes there, trimmed.
+const DEVELOPMENT_PATH = "config/environments/development.rb";
+const DEVELOPMENT = `require "active_support/core_ext/integer/time"
+
+Rails.application.configure do
+  # Make code changes take effect immediately without server restart.
+  config.enable_reloading = true
+end
+`;
+
 function app(files: Record<string, string | null> = {}) {
   const root = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "critiqs-rails-"));
   for (const [name, text] of Object.entries({ Gemfile: GEMFILE, [LAYOUT_PATH]: LAYOUT, ...files })) {
@@ -118,8 +129,32 @@ describe("env", () => {
     expect(rails.env(app(), "_WEB")!.variable).toBe("CRITIQS_PROJECT_ID_WEB");
   });
 
-  test("a local .env file only where the app loads one with dotenv", () => {
-    expect(rails.env(app({ Gemfile: `${GEMFILE}gem "dotenv-rails", groups: [:development, :test]\n` }), "")!.localFile).toBe(".env");
+  test("a local .env file where the app loads one with dotenv, otherwise the development environment's configuration", () => {
+    expect(rails.env(app({ Gemfile: `${GEMFILE}gem "dotenv-rails", groups: [:development, :test]\n`, [DEVELOPMENT_PATH]: DEVELOPMENT }), "")!.localFile).toBe(".env");
+    expect(rails.env(app({ [DEVELOPMENT_PATH]: DEVELOPMENT }), "")!.localFile).toBe(DEVELOPMENT_PATH);
+  });
+
+  test("init sets a default in config/environments/development.rb, which the environment overrides, and keeps it on a second run", () => {
+    const root = app({ Gemfile: `${GEMFILE}gem "critiqs-rails"\n`, [DEVELOPMENT_PATH]: DEVELOPMENT });
+    const messages: string[] = [];
+    const run = (projectId: string) => {
+      messages.length = 0;
+      const code = runInit(["init", projectId], { cwd: root, print: (message) => messages.push(message), env: {} });
+      return { code, output: messages.join("\n") };
+    };
+    const first = run(PROJECT);
+    expect(first.code).toBe(0);
+    const development =
+      `${DEVELOPMENT}\n# Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n` +
+      `ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"\n`;
+    expect(read(root, DEVELOPMENT_PATH)).toBe(development);
+    expect(first.output).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in ${DEVELOPMENT_PATH} for development.`);
+    expect(run(PROJECT).output).toStartWith(`${LAYOUT_PATH}:`);
+    expect(messages.join("\n")).toContain(`already uses this project ID (CRITIQS_PROJECT_ID in ${DEVELOPMENT_PATH})`);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(development);
+    const other = "k98765432109876543210987654321098";
+    expect(run(other).code).toBe(0);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(development.replace(PROJECT, other));
   });
 });
 
@@ -134,8 +169,8 @@ describe("plan", () => {
     expect(plan.writes[1]!.source).toBe(LAYOUT.replace("    <%= yield %>\n", '    <%= yield %>\n    <%= critiqs_tag %>\n'));
     expect(plan).toMatchObject({ file: join(root, LAYOUT_PATH), line: 18, preview: "<%= critiqs_tag %>" });
     expect(plan.changed).toEqual(["projectId", "requireProjectId"]);
-    expect(plan.next[0]).toBe("Run bundle install.");
-    expect(plan.next[1]).toContain("CRITIQS_PROJECT_ID");
+    // Setup itself says what each deployment sets.
+    expect(plan.next).toEqual(["Run bundle install."]);
   });
 
   test("a second plan changes nothing", () => {

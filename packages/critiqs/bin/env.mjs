@@ -220,7 +220,7 @@ export function envTarget(root, convention, { envFile = null, label = null } = {
   const files = chosen === null ? loads : [chosen, ...loads.filter((file) => file !== chosen)];
   const sets = (file) => {
     try {
-      return definitions(readText(file), convention.variable) > 0;
+      return definitions(readText(file), convention.variable, syntaxOf(file)) > 0;
     } catch {
       return false;
     }
@@ -243,10 +243,11 @@ export function readEnvValue(target, name) {
     const text = readText(file);
     if (text === null) continue;
     let value = null;
+    const syntax = syntaxOf(file);
     for (const line of text.split(/\r?\n/)) {
-      const match = DEFINITION.exec(line);
-      // The last definition in a file wins.
-      if (match !== null && match[2] === name) value = envValue(match[3]);
+      const definition = syntax.parse(line);
+      // In a .env file the last definition wins; in code the first default does.
+      if (definition?.name === name && (value === null || !syntax.code)) value = definition.value;
     }
     if (value !== null) return { value, file };
   }
@@ -254,23 +255,82 @@ export function readEnvValue(target, name) {
 }
 
 /** How many times a file's text defines a variable. */
-const definitions = (text, name) => (text ?? "").split(/\r?\n/).filter((line) => DEFINITION.exec(line)?.[2] === name).length;
+const definitions = (text, name, syntax = DOTENV) => (text ?? "").split(/\r?\n/).filter((line) => syntax.parse(line)?.name === name).length;
 
-/** Sets `name=value` in one file's text, replacing its definitions and keeping every other line as it is. */
-function setInText(text, name, value, comment) {
+const NAME = "[A-Za-z_][A-Za-z0-9_]*";
+const PYTHON_DEFINITION = new RegExp(`^([ \\t]*)os\\.environ\\.setdefault\\([ \\t]*(["'])(${NAME})\\2[ \\t]*,[ \\t]*(["'])(.*?)\\4[ \\t]*\\)`);
+const RUBY_DEFINITION = new RegExp(`^([ \\t]*)ENV\\[[ \\t]*(["'])(${NAME})\\2[ \\t]*\\][ \\t]*\\|\\|=[ \\t]*(["'])(.*?)\\4`);
+const DJANGO_SETTINGS_LINE = /^([ \t]*)os\.environ\.setdefault\([ \t]*["']DJANGO_SETTINGS_MODULE["']/;
+
+/**
+ * How a file setup writes a variable into states it: a `.env` file's
+ * `NAME=value` lines, or, for a server framework that loads no `.env` file,
+ * the code its development server runs: a default in Python
+ * (`os.environ.setdefault`, Django's `manage.py`) or Ruby (`ENV[...] ||=`,
+ * Rails's `config/environments/development.rb`). In code the environment
+ * still wins, as it does over a `.env` file. `insert` places a new
+ * definition, with its comment, in a file's lines.
+ */
+const DOTENV = {
+  code: false,
+  parse: (line) => {
+    const match = DEFINITION.exec(line);
+    return match === null ? null : { name: match[2], value: envValue(match[3]) };
+  },
+  replace: (line, name, value) => `${DEFINITION.exec(line)[1] ?? ""}${name}=${value}`,
+  insert: (lines, name, value, comment) => [...lines, ...(comment === null ? [] : [`# ${comment}`]), `${name}=${value}`],
+};
+const codeSyntax = (pattern, statement, place) => ({
+  code: true,
+  parse: (line) => {
+    const match = pattern.exec(line);
+    return match === null ? null : { name: match[3], value: match[5] };
+  },
+  replace: (line, name, value) => `${pattern.exec(line)[1]}${statement(name, value)}`,
+  insert: (lines, name, value, comment) => {
+    const { at, indent, extra } = place(lines);
+    return [...lines.slice(0, at), ...extra, ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}`, ...lines.slice(at)];
+  },
+});
+const PYTHON = codeSyntax(PYTHON_DEFINITION, (name, value) => `os.environ.setdefault(${JSON.stringify(name)}, ${JSON.stringify(value)})`, (lines) => {
+  // Beside Django's own default, in main(), so it is set before the command runs; or else after the module's last import.
+  const django = lines.findIndex((line) => DJANGO_SETTINGS_LINE.test(line));
+  if (django !== -1) return { at: django + 1, indent: DJANGO_SETTINGS_LINE.exec(lines[django])[1], extra: [] };
+  const imports = lines.flatMap((line, i) => (/^(?:import|from)\s/.test(line) ? [i] : []));
+  const hasOs = lines.some((line) => /^import os(?:\s|$|,)/.test(line));
+  const at = imports.length > 0 ? imports.at(-1) + 1 : lines[0]?.startsWith("#!") ? 1 : 0;
+  return { at, indent: "", extra: hasOs ? [] : ["import os"] };
+});
+const RUBY = codeSyntax(RUBY_DEFINITION, (name, value) => `ENV[${JSON.stringify(name)}] ||= ${JSON.stringify(value)}`, (lines) => {
+  const end = lines.at(-1) === "" ? lines.length - 1 : lines.length;
+  return { at: end, indent: "", extra: lines[end - 1] === undefined || lines[end - 1].trim() === "" ? [] : [""] };
+});
+
+/** The syntax a file states variables in, by its extension: `.py` and `.rb` files are code, anything else a `.env` file. */
+function syntaxOf(file) {
+  return file.endsWith(".py") ? PYTHON : file.endsWith(".rb") ? RUBY : DOTENV;
+}
+
+/** Whether setup writes `file`'s setting as code the development server runs, rather than as a `.env` line. */
+export const isCodeFile = (file) => syntaxOf(file).code;
+
+/** Sets `name` to `value` in one file's text, replacing its definitions and keeping every other line as it is. */
+function setInText(text, name, value, comment, syntax = DOTENV) {
   const eol = text?.includes("\r\n") ? "\r\n" : "\n";
-  if (text === null || text === "") return `${comment === null ? "" : `# ${comment}${eol}`}${name}=${value}${eol}`;
+  if (text === null || text === "") return `${syntax.insert([], name, value, comment).join(eol)}${eol}`;
   const lines = text.split(/\r?\n/);
   let found = false;
   const updated = lines.map((line) => {
-    const match = DEFINITION.exec(line);
-    if (match === null || match[2] !== name) return line;
+    if (syntax.parse(line)?.name !== name) return line;
     found = true;
-    return `${match[1] ?? ""}${name}=${value}`;
+    return syntax.replace(line, name, value);
   });
   if (found) return updated.join(eol);
-  const separator = text.endsWith("\n") ? "" : eol;
-  return `${text}${separator}${comment === null ? "" : `# ${comment}${eol}`}${name}=${value}${eol}`;
+  if (!syntax.code) {
+    const separator = text.endsWith("\n") ? "" : eol;
+    return `${text}${separator}${syntax.insert([], name, value, comment).join(eol)}${eol}`;
+  }
+  return syntax.insert(lines, name, value, comment).join(eol);
 }
 
 /**
@@ -284,7 +344,13 @@ export function planEnv(target, name, value) {
   for (const file of target.files) readText(file);
   const local = target.local;
   const original = readText(local);
-  const source = setInText(original, name, value, `Critiqs project for ${target.label ?? "this app"} on this computer. Each deployment sets its own.`);
+  const syntax = syntaxOf(local);
+  const comment = syntax.code
+    ? `Critiqs project for ${target.label ?? "this app"} in development; the environment wins. Each deployment sets its own.`
+    : `Critiqs project for ${target.label ?? "this app"} on this computer. Each deployment sets its own.`;
+  const source = setInText(original, name, value, comment, syntax);
+  // Code is shared through the repository, so it needs no example for the next developer.
+  if (syntax.code) return { name, value, file: local, original, source, changed: source !== original, example: null };
   const exampleFile = join(dirname(local), ".env.example");
   let exampleOriginal;
   try {

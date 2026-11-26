@@ -44,8 +44,9 @@ export const flask = {
     variable: `${VARIABLE}${suffix}`,
     expression: `os.environ.get("${VARIABLE}${suffix}")`,
     readsAt: "runtime",
-    // `flask run` loads .env only when python-dotenv is installed.
-    localFile: listsPackage(root, "python-dotenv") ? ".env" : null,
+    // flask-critiqs depends on python-dotenv, so `flask run` and app.run() load
+    // .env; a deployment's WSGI server doesn't.
+    localFile: ".env",
     deploymentAdvice:
       `Set ${VARIABLE}${suffix} in each deployment's environment to that deployment's project ID; Flask reads it on each request, so restart the server after changing it. ` +
       "Leave it unset where Critiqs shouldn't appear.",
@@ -114,7 +115,8 @@ export const flask = {
       before: usages[0],
       after: flaskSettings(readConfig(app.source)),
       settings,
-      next: ["Install flask-critiqs in the app's environment (pip install flask-critiqs) and add it to your requirements.", ...envAdvice(settings, "Flask")],
+      // Setup names installing the package, from the app's requirements, and what each deployment sets.
+      next: [],
     });
   },
   manual(settings) {

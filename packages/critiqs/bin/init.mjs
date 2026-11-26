@@ -6,6 +6,7 @@
  */
 import { relative, resolve } from "node:path";
 import { chooseWiring, isFile, isFolder, shown, UNRECOGNIZED, workspaceApps, workspaceRefusal, writeConnection } from "./app.mjs";
+import { isCodeFile } from "./env.mjs";
 
 /** Convex document IDs (lowercase letters and digits, about 32 characters), or a self-hosted server's (`p_` and 32 hex digits). */
 export const PROJECT_ID_PATTERN = /^([a-z0-9]{16,64}|p_[0-9a-f]{32})$/;
@@ -133,7 +134,7 @@ export function runInit(argv, { cwd = process.cwd(), print = console.log, env: s
   if (env !== undefined) {
     const line = `${env.name}=${projectId}`;
     if (env.file === null) print(`Set ${line} in the environment the app runs with on this computer.`);
-    else if (env.changed) print(`${options.dryRun ? "Would set" : "Set"} ${line} in ${show(env.file)} for this computer${dry}.`);
+    else if (env.changed) print(`${options.dryRun ? "Would set" : "Set"} ${line} in ${show(env.file)} for ${isCodeFile(env.file) ? "development" : "this computer"}${dry}.`);
     print(env.advice);
   }
   for (const step of steps) print(step);

@@ -7,7 +7,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { applyEnv, checkWritable, describeApp, envTarget, findWorkspace, gitIgnored, planEnv, readEnvValue, UnreadableEnvFile, workspaceMembers, workspacePatterns } from "./env.mjs";
+import { applyEnv, checkWritable, describeApp, envTarget, findWorkspace, gitIgnored, isCodeFile, planEnv, readEnvValue, UnreadableEnvFile, workspaceMembers, workspacePatterns } from "./env.mjs";
 import { detectApp, FRAMEWORKS } from "./frameworks/index.mjs";
 import { ENV_FILES as VITE_ENV_FILES, IGNORED_DIRECTORIES, usesVite } from "./frameworks/jsx.mjs";
 import { react } from "./frameworks/react.mjs";
@@ -548,6 +548,10 @@ export function writeConnection({ root, cwd = root, wiring, projectId, backend, 
     } catch {
       return { ...code, ok: false, ...setting, message: `${code.message} Couldn't write ${file}: add this line to it yourself, keeping the code as it is:\n  ${line}` };
     }
+  }
+  // Code the development server runs, such as Django's manage.py, belongs in the repository.
+  if (isCodeFile(env.file)) {
+    return { ...code, env: { ...setting.env, changed: env.changed }, message: `${code.message} ${env.changed ? "Set" : "Kept"} ${line} in ${file} for development.` };
   }
   const ignored = gitIgnored(env.file);
   const keepOut = ignored === false ? ` Keep ${file} out of Git (add it to .gitignore): it holds this computer's setting, and each deployment sets its own.` : "";
