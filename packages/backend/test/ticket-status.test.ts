@@ -252,3 +252,72 @@ test("/critiqs/config reports ticketStatus with tickets", async () => {
   const config = (await (await t.fetch("/critiqs/config")).json()) as { tickets?: { ticketStatus?: boolean } };
   expect(config.tickets?.ticketStatus).toBe(true);
 });
+
+test("a status check never uses the token of someone removed from the project's organization; their ticket's status is kept as last known", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const riley = t.withIdentity(reviewer("Riley"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
+  const [organization] = await dana.query(api.organizations.mine, {});
+  await dana.mutation(api.organizations.invite, { organizationId: organization!.id, email: "riley@example.com", role: "member" });
+  await riley.mutation(api.users.sync, {});
+  await dana.mutation(api.projects.setReviewAccess, { projectId, reviewAccess: "organization" });
+  const threadId = await riley.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
+  await riley.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_riley" });
+  const link = await riley.action(api.tickets.link, { threadId, tracker: "linear", externalId: "issue-9", comment: false });
+  const rileyId = (await t.run((ctx) => ctx.db.query("users").collect())).find((user) => user.name === "Riley")!._id;
+  await dana.mutation(api.organizations.removeMember, { organizationId: organization!.id, userId: rileyId });
+  linear.issues[0]!.state = { name: "Secret Private Status", type: "started" };
+  await t.run(async (ctx) => ctx.db.patch(link._id as never, { statusCheckedAt: Date.now() - STATUS_CHECK_MS - 1 }));
+  linear.tokens.length = 0;
+  expect(await dana.mutation(api.ticketStatus.checkStatus, { threadId })).toBe(1);
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(linear.tokens).not.toContain("lin_api_riley");
+  expect((await getThread(dana, { threadId })).tickets?.[0]).toMatchObject({ status: { label: "In Progress" }, statusStale: true });
+});
+
+/** A signed Linear issue webhook for issue-9, with or without the workspace it came from. */
+async function signed(event: { state: { name: string; type: string }; organizationId?: string; sentAt?: number }) {
+  const sentAt = event.sentAt ?? Date.now();
+  const body = JSON.stringify({
+    action: "update",
+    type: "Issue",
+    createdAt: new Date(sentAt - 1_000).toISOString(),
+    data: { id: "issue-9", identifier: "ENG-9", title: "x", updatedAt: new Date(sentAt - 1_000).toISOString(), state: { id: "s", ...event.state } },
+    ...(event.organizationId === undefined ? {} : { organizationId: event.organizationId }),
+    webhookId: "webhook-1",
+    webhookTimestamp: sentAt,
+  });
+  return { body, headers: { "Content-Type": "application/json", "Linear-Signature": await linearSignature(SECRET, body) } };
+}
+
+test("a webhook changes only links in the Linear workspace it names, never one that names none", async () => {
+  const { t, sam, projectId } = await project();
+  const statuses = async () => (await list(sam, { projectId })).map((row) => row.tickets?.[0]?.status?.label);
+  expect((await deliver(t, await signed({ state: { name: "Done", type: "completed" } }))).status).toBe(200);
+  expect(await statuses()).toEqual(["In Progress", "In Progress"]);
+  expect((await deliver(t, await signed({ state: { name: "Done", type: "completed" }, organizationId: "org-other" }))).status).toBe(200);
+  expect(await statuses()).toEqual(["In Progress", "In Progress"]);
+});
+
+test("a link being added holds its Linear workspace: another workspace's deletion delivered meanwhile doesn't mark it Deleted", async () => {
+  const { t, projectId } = await project();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const threadId = await dana.mutation(api.threads.create, { projectId, anchor, body: "Third", tags: [], capture: failedCapture });
+  await dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_dana" });
+  linear.intercept = async (operation) => {
+    if (operation !== "CritiqsIssue") return undefined;
+    const removal = JSON.stringify({ action: "remove", type: "Issue", createdAt: new Date().toISOString(), data: { id: "issue-9", updatedAt: new Date().toISOString() }, organizationId: "org-other", webhookTimestamp: Date.now() });
+    await deliver(t, { body: removal, headers: { "Content-Type": "application/json", "Linear-Signature": await linearSignature(SECRET, removal) } });
+    return undefined;
+  };
+  const linked = await dana.action(api.tickets.link, { threadId, tracker: "linear", externalId: "issue-9", comment: false });
+  expect(linked.status).toMatchObject({ label: "In Progress", category: "started" });
+});
+
+test("a webhook's over-long status name is cut to what Critiqs shows", async () => {
+  const { t, sam, projectId } = await project();
+  expect((await deliver(t, await signed({ state: { name: "S".repeat(50_000), type: "started" }, organizationId: "org-1" }))).status).toBe(200);
+  const labels = (await list(sam, { projectId })).map((row) => row.tickets?.[0]?.status?.label?.length ?? 0);
+  for (const length of labels) expect(length).toBeLessThanOrEqual(100);
+});

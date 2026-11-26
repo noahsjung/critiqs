@@ -407,6 +407,8 @@ export async function claimTicketCreation(
     creationId: args.creationId,
     creatorAccountId: account.accountId,
     accountId: account.accountId,
+    // The linker's workspace, so a webhook from another one can't reach the link while it is pending.
+    ...(account.site === undefined ? {} : { site: account.site.id }),
     ...(linkBack === null ? {} : { linkBack: { ...linkBack, added: false } }),
     claimToken: args.holder,
     leaseUntil,
@@ -453,7 +455,8 @@ export async function finishTicketCreation(
     key: ticket.key,
     url: ticket.url,
     title: ticket.title,
-    site: ticket.site,
+    // Where the tracker didn't say, the linker's workspace stays.
+    site: ticket.site ?? creation.site ?? null,
     state: "linked",
     claimToken: null,
     leaseUntil: null,
@@ -733,6 +736,8 @@ export async function claimTicketLink(
     title: "",
     state: "pending",
     accountId: account.accountId,
+    // The linker's workspace, so a webhook from another one can't reach the link while it is pending.
+    ...(account.site === undefined ? {} : { site: account.site.id }),
     claimToken: args.holder,
     leaseUntil,
     linkedBy: user._id,
@@ -787,7 +792,8 @@ export async function finishTicketLink(
     key: ticket.key,
     url: ticket.url,
     title: ticket.title,
-    site: ticket.site,
+    // Where the tracker didn't say, the linker's workspace stays.
+    site: ticket.site ?? held.site ?? null,
     state: "linked",
     claimToken: null,
     leaseUntil: null,

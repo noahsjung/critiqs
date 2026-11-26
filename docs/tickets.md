@@ -362,7 +362,11 @@ Critiqs keeps each linked ticket's status and when it last changed:
   update arriving afterwards doesn't bring it back, nor does an update with
   the same time. A delivery that arrives while a ticket is being linked is
   kept with the link and wins over what linking read when it is newer, so an
-  issue deleted mid-link shows **Deleted** once linked.
+  issue deleted mid-link shows **Deleted** once linked. A delivery changes
+  only links in the Linear workspace it names: each link keeps its
+  workspace, and one being linked keeps its linker's, so a delivery that
+  names no workspace, or another one, changes nothing. Status names longer
+  than 100 characters are cut.
 - **The check when a thread opens.** Opening a thread checks each linked
   ticket whose status is more than **5 minutes** old, at most once every 5
   minutes per ticket however many people open it, in the background. It reads
@@ -371,7 +375,9 @@ Critiqs keeps each linked ticket's status and when it last changed:
   that link only: another thread's link to the same ticket keeps its own
   status. The check also catches a change whose webhook was missed.
 - **Last known.** When that person has disconnected, connected another
-  account, or can no longer see the ticket, the status stays and the chip
+  account, can no longer see the ticket, or may no longer review the project
+  (such as when they leave its organization), the status stays, Critiqs stops
+  using their token for it, and the chip
   adds "· last known"; hovering says when it was last read and why. A webhook
   or a later check that works clears it, and a check refused after a webhook
   saved a newer status while it ran leaves that status current.

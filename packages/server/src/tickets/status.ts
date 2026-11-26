@@ -1,11 +1,11 @@
 import { type TicketSettingsView, type TicketStatus, ticketFinished, type TrackerId } from "@critiqs/core";
 import { CritiqsError, fail } from "../errors.ts";
 import { currentReviewer, MAX_THREAD_TICKET_ROWS, requireProject, requireThread, requireUser } from "../operations.ts";
-import { projectAccess } from "../organizations.ts";
+import { canReview, projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketLinkChanges, TicketLinkRecord } from "../store.ts";
 import { type TicketsDeployment, ticketStore, trackerAdapter } from "./accounts.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
-import { type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken } from "./trackers/index.ts";
+import { checkedStatus, type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken, trackerId } from "./trackers/index.ts";
 
 // Tickets' status coming back from trackers: webhooks, for every link to the
 // ticket, and a check when someone opens the thread, for the checked link
@@ -82,10 +82,13 @@ export function heldReading(link: TicketLinkRecord): HeldReading | null {
  * transaction. Returns the threads it resolved.
  */
 export async function applyTicketStatus(store: Store, update: TicketStatusUpdate, now: number): Promise<{ updated: number; resolved: string[] }> {
-  const links = (await ticketStore(store).links.findByExternal(update.tracker, update.externalId, MAX_TICKET_LINK_ROWS)).filter(
-    (link) => update.site === null || link.site === undefined || link.site === update.site,
-  );
-  return await saveStatus(store, links, { source: "webhook", asOf: update.asOf ?? now, status: update.status, deleted: update.deleted }, now);
+  const externalId = trackerId(update.externalId);
+  if (externalId === null) return { updated: 0, resolved: [] };
+  // Only links in the workspace the update names: a link saves its workspace (a pending one, its linker's), and an
+  // update that names none, or another, never reaches a link in one. Keys and IDs are unique only per workspace.
+  const site = update.site === null ? null : trackerId(update.site);
+  const links = (await ticketStore(store).links.findByExternal(update.tracker, externalId, MAX_TICKET_LINK_ROWS)).filter((link) => (link.site ?? null) === site);
+  return await saveStatus(store, links, { source: "webhook", asOf: update.asOf ?? now, status: checkedStatus(update.status), deleted: update.deleted }, now);
 }
 
 /**
@@ -206,13 +209,20 @@ export type StatusCheck =
 /**
  * Reads what a status check needs: the person who linked the ticket and the
  * tracker account they linked it with. Only that account's token is ever
- * used, never anyone else's. When they have disconnected, or are connected
- * as another account, the link's status is marked stale instead. One transaction.
+ * used, never anyone else's. When they have disconnected, are connected as
+ * another account, or may no longer review the project, the link's status is
+ * marked stale instead. One transaction.
  */
 export async function prepareStatusCheck(store: Store, args: { linkId: string }, now: number): Promise<StatusCheck> {
   const tickets = ticketStore(store);
   const link = await tickets.links.get(args.linkId);
   if (link === null || link.state !== "linked") return { status: "skip" };
+  // Someone who may no longer review the project, such as a member removed from its organization, isn't asked on its behalf.
+  const project = await store.projects.get(link.projectId);
+  if (project === null || !(await canReview(store, project, link.linkedBy))) {
+    await tickets.links.patch(link._id, { statusStale: true });
+    return { status: "stale" };
+  }
   const account = await tickets.accounts.find(link.linkedBy, link.tracker);
   // Tickets created before links recorded `accountId` have only the account their creator submitted them with.
   const accountId = link.accountId ?? link.creatorAccountId;
