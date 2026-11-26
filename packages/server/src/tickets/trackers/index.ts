@@ -247,6 +247,12 @@ function checkedDestination(destination: TicketDestination): TicketDestination |
   return { id, name: trackerText(destination.name, TRACKER_LIMITS.name), key: key === "" ? null : key };
 }
 
+/** A template or label a tracker sent: its ID checked, its name cut; null without a usable ID. */
+function checkedChoice(choice: { id: string; name: string }): { id: string; name: string } | null {
+  const id = trackerId(choice.id);
+  return id === null ? null : { id, name: trackerText(choice.name, TRACKER_LIMITS.name) };
+}
+
 const some = <T>(items: (T | null)[]) => items.filter((item): item is T => item !== null).slice(0, TRACKER_LIMITS.list);
 
 /**
@@ -294,6 +300,36 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
     },
   };
   if (uploadImage) checked.uploadImage = async (token, image) => webAddress(await uploadImage(token, image)) ?? Promise.reject(unreadable("upload address"));
+  const { templates, template, labels } = adapter;
+  if (templates) {
+    checked.templates = async (token, destinationId) =>
+      some(
+        (await templates(token, destinationId)).map((group) => {
+          const destination = checkedDestination(group.destination);
+          return destination === null ? null : { destination, templates: some(group.templates.map(checkedChoice)) };
+        }),
+      );
+  }
+  if (template) {
+    checked.template = async (token, templateId) => {
+      const found = await template(token, templateId);
+      if (found === null) return null;
+      const choice = checkedChoice(found);
+      const destinationId = trackerId(found.destinationId);
+      // A template's text longer than a ticket's couldn't make one.
+      if (choice === null || destinationId === null || found.body.length > TRACKER_LIMITS.templateText) throw unreadable("template");
+      return { ...choice, destinationId, body: found.body };
+    };
+  }
+  if (labels) {
+    checked.labels = async (token, destinationId) =>
+      some(
+        (await labels(token, destinationId)).map((label) => {
+          const choice = checkedChoice(label);
+          return choice === null ? null : { ...choice, exclusiveGroup: label.exclusiveGroup === null ? null : trackerId(label.exclusiveGroup) };
+        }),
+      );
+  }
   checkedAdapters.add(checked);
   return checked;
 }

@@ -30,7 +30,7 @@ import { type JsonSchema, type StructuredModel, type StructuredRequest, toAiErro
 import { quote } from "../ai/prompts.ts";
 import { type AiDeployment, type ChosenConnection, chooseConnection, type ResolvedConnection, resolveConnection } from "../ai/settings.ts";
 import { CritiqsError, fail } from "../errors.ts";
-import { requireProject, requireThread, requireUser } from "../operations.ts";
+import { currentReviewer, requireProject, requireThread, requireUser } from "../operations.ts";
 import { projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketSettingsRecord } from "../store.ts";
 import { threadTags } from "../tags.ts";
@@ -83,7 +83,10 @@ function settingsOf(record: TicketSettingsRecord | null): TicketTemplateSettings
 /** The project's ticket templates, for its owners. No settings saved means off. */
 export async function getTicketTemplateSettings(store: Store, identity: Identity | null, args: { projectId: string }): Promise<TicketTemplateSettings> {
   const tickets = ticketStore(store);
-  const { project } = await requireOwner(store, identity, args.projectId);
+  // A query: reads who is asking without saving their profile, as requireUser would.
+  const { user } = await currentReviewer(store, identity);
+  const project = await requireProject(store, user, args.projectId);
+  if ((await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("forbidden", OWNERS_ONLY);
   return settingsOf(await tickets.settings.find(project._id));
 }
 

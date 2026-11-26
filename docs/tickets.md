@@ -167,7 +167,7 @@ revision, tags, and the whole discussion, with the capture where the tracker
 accepts images.
 
 Everything in ticket text that people or trackers wrote (comments, names,
-tags, the page's details) renders exactly as written, as Critiqs shows it:
+tags, the page's details, a template's headings in a Critiqs AI draft) renders exactly as written, as Critiqs shows it:
 Critiqs escapes it, so none of it can form a link, image, HTML, code block,
 heading, or other structure in the tracker. A character is escaped only where
 Markdown would read it (a full stop after a number at the start of a line, a
@@ -285,7 +285,8 @@ and scope: never the page's address, view state, or the thread's link, which
 can carry a prototype's sign-in token.
 
 Critiqs writes the draft's Markdown itself. The headings are the template's
-top-level headings, either style, each once and in the template's order; a
+top-level headings, either style, each once and in the template's order,
+escaped as the AI's text is, so they render as the template writes them; a
 section the AI left empty keeps its heading, a standard section it left empty
 is left out, and text it wrote for a section the template doesn't have is
 dropped. Under each heading goes the AI's text, with the line breaks inside a

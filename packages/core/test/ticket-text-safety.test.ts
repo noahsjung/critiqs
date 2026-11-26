@@ -109,3 +109,15 @@ test("a draft ending inside a code fence, an HTML comment, or another open HTML 
     expect({ ending, heading: rendered.html.includes("<h2>Capture</h2>") }).toEqual({ ending, heading: true });
   }
 });
+
+test("a tracker template's headings render as written in a Critiqs AI draft, so the thread's link stays its only link", async () => {
+  const { aiTicketText, draftedSections, ticketOutline } = await import("../src/tickets.ts");
+  const template = "## <img src=x onerror=alert(1)>\n\nBody\n\n## [Phish](https://evil.example)\n\nFoo ###\n===\n\n[a]: /url\n===\n";
+  const outline = ticketOutline(template);
+  const sections = draftedSections(outline, outline.sections.map((section) => ({ heading: section.name, text: "Text", items: [], numbered: false })));
+  const rendered = expectOnlyCritiqsMarkup(aiTicketText(sections, outline, LINK));
+  expect(rendered.text).toContain("<img src=x onerror=alert(1)>");
+  expect(rendered.text).toContain("[Phish](https://evil.example)");
+  expect(rendered.text).toContain("Foo ###");
+  expect(outline.sections.map((section) => section.name)).not.toContain("[a]: /url");
+});

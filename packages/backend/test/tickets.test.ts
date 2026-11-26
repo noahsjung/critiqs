@@ -318,3 +318,12 @@ test("a project's owner turns on a Linear team's templates; a reviewer drafts in
   ).rejects.toThrow("doesn't offer that template here");
   expect(linear.operations).toEqual([]);
 });
+
+test("an owner whose name changed, and someone who never signed in here, can read the template settings query without it writing", async () => {
+  const { t, dana, projectId } = await project();
+  const renamed = t.withIdentity({ ...reviewer("Dana"), name: "Dana Renamed" });
+  expect(await renamed.query(api.tickets.templateSettings, { projectId })).toEqual({ on: false, templates: [] });
+  expect(await dana.query(api.tickets.templateSettings, { projectId })).toEqual({ on: false, templates: [] });
+  const unsynced = t.withIdentity(reviewer("Unsynced"));
+  await expect(unsynced.query(api.tickets.templateSettings, { projectId })).rejects.toThrow("Only the person who set up this project");
+});

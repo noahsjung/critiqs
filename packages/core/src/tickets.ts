@@ -37,6 +37,8 @@ export const TRACKER_LIMITS = {
   address: 2048,
   /** Items in one list, such as destinations or labels. */
   list: 500,
+  /** A ticket template's text, as long as a ticket's. */
+  templateText: 50_000,
 } as const;
 
 /** A tracker's state for a ticket, normalized so Critiqs can tell "done" across trackers. */
@@ -395,7 +397,8 @@ export function ticketOutline(template: string | null): TicketOutline {
   const headings = template === null ? [] : markdownBlocks(template).headings;
   const sections = headings.flatMap(({ level, text }) => {
     const name = text.replace(/\s+/g, " ").trim();
-    return name === "" ? [] : [{ name, heading: `${"#".repeat(level)} ${name}` }];
+    // The heading is the tracker's text, so it renders as written, as everything Critiqs AI writes does.
+    return name === "" ? [] : [{ name, heading: `${"#".repeat(level)} ${markdownText(name)}` }];
   });
   return sections.length === 0 ? STANDARD_OUTLINE : { sections, keepEmpty: true };
 }
@@ -451,17 +454,8 @@ export function draftedSections(outline: TicketOutline, answers: SectionAnswer[]
   return drafted.map(({ filled: _, ...entry }) => entry);
 }
 
-/**
- * Every ASCII punctuation character CommonMark or GitHub's Markdown gives a
- * meaning to, anywhere in a line: all but `, ; ? ! ' " %`, which mean
- * something only inside a link, image, or HTML tag, each of which needs a
- * `[` or `<`, both escaped. The rest escaped, no link, autolink, image, HTML,
- * entity, code, emphasis, heading, list, quote, or table can form.
- */
-const MARKDOWN_PUNCTUATION = /[#$&()*+\-./:<=>@[\\\]^_`{|}~]/g;
-
-/** Plain text as Markdown that renders it exactly, as one line of a paragraph or list item. */
-const escaped = (text: PlainText) => text.replace(MARKDOWN_PUNCTUATION, "\\$&");
+/** Plain text as Markdown that renders it exactly, as one line of a paragraph or list item (`markdownText`). */
+const escaped = (text: PlainText) => markdownText(text);
 
 /** The drafted sections as Markdown: each heading, then its paragraphs and list, escaped; a section left empty keeps its heading only when the outline says so. */
 export function draftedMarkdown(sections: DraftedSection[], outline: Pick<TicketOutline, "keepEmpty">): string {
