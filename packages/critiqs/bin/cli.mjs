@@ -41,8 +41,9 @@ Options for init:
                               (default: --browser, or --remote over SSH or without a desktop)
   --new-project               Create a new project even if the code or your account has one
   --dir <path>                The app's folder (default: current folder)
-  --project-env-file <file>   The .env file init writes or doctor checks, relative to --dir
-                              (default: the framework's, such as .env.local)
+  --project-env-file <file>   The file init sets the project ID in or doctor reads, relative to --dir
+                              (default: the framework's, such as .env.local, manage.py
+                              or config/environments/development.rb)
   --dry-run                   With a project ID, show the change without writing it
   --json                      Print the result as JSON, for scripts and coding agents
 

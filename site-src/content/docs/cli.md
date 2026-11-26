@@ -34,7 +34,7 @@ Finds your app's framework, adds Critiqs where the app renders (for React, a Rea
 npx critiqs init [options]
 ```
 
-Where the framework has a project ID variable, `init` reads the ID from it with `requireProjectId` and sets it for your computer: in `.env.local` or `.env` (with an empty entry in `.env.example`), or for Rails and Django as a development-only default in `config/environments/development.rb` or `manage.py`. Otherwise, such as in Angular or a React app with no public variables, it writes the literal project ID into the code. Running `init` again keeps the existing project unless you pass `--new-project`.
+Where the framework has a project ID variable, `init` reads the ID from it with `requireProjectId` and sets it for your computer: in `.env.local` or `.env` (with an empty entry in `.env.example`; for Flask, flask-critiqs reads only its own key from `.env`, under `flask run`), or for Rails and Django as a development-only default in `config/environments/development.rb` or `manage.py`. Otherwise, such as in Angular or a React app with no public variables, it writes the literal project ID into the code. Running `init` again keeps the existing project unless you pass `--new-project`.
 
 In a monorepo workspace, run `init` once per app with `--dir apps/<app>`. At the workspace root, interactive terminals ask which app to set up; non-interactive runs list each app's `--dir` command and change nothing.
 
@@ -48,7 +48,7 @@ In a monorepo workspace, run `init` once per app with `--dir apps/<app>`. At the
 | `--browser` | Open sign-in in a browser on this computer (default when a desktop is available). |
 | `--new-project` | Create a new project even if the code or your account already has one. |
 | `--dir <path>` | App folder to inspect and update (defaults to current folder). |
-| `--project-env-file <file>` | `.env` file to write, relative to `--dir` (default `.env.local`). Also accepted as `--env-file`. |
+| `--project-env-file <file>` | File where `init` sets the project ID, relative to `--dir`, instead of the framework's own (see [what init changes](/docs/install#what-init-changes-by-framework)): `.env.local` for Vite and Next.js apps, `.env` for Nuxt, Astro and Flask, `manage.py` for Django, `config/environments/development.rb` for Rails (`.env` with dotenv). A `.py` or `.rb` file gets a development default in code; any other file gets a `NAME=value` line. Pick a file your framework loads: Django, and Rails without dotenv, load no `.env` file. Also accepted as `--env-file`. |
 | `--json` | Print one JSON result to stdout and send progress (including remote setup codes) to stderr. |
 | `--cloud` | Use Critiqs Cloud (the default). |
 | `--own-convex` | Deploy Critiqs's functions to your team's own Convex deployment and write `backend`. See [self-hosting](/docs/self-hosting). |
@@ -75,7 +75,7 @@ npx critiqs init <projectId> [--dir <path>] [--entry <file>] [--mount <Element>]
 | `--dir <path>` | App folder (defaults to current folder). |
 | `--entry <file>` | File where the app renders, relative to `--dir`. |
 | `--mount <Element>` | Element to place `<Critiqs />` beside. |
-| `--project-env-file <file>` | `.env` file to write, relative to `--dir`. |
+| `--project-env-file <file>` | File where `init` sets the project ID, relative to `--dir`, instead of the framework's own. See `--project-env-file` under `critiqs init` above. |
 
 > **Note:** Flags for creating projects (`--cloud`, `--own-convex`, `--backend`, `--name`, `--review-url`, `--remote`, `--browser`, `--new-project`, `--json`) cannot be combined with a `<projectId>` argument.
 
@@ -91,7 +91,7 @@ npx critiqs doctor [options]
 | --- | --- |
 | `--backend <url>` | Check a specific backend URL instead of the one in your code. |
 | `--dir <path>` | App folder to check (defaults to current folder). |
-| `--project-env-file <file>` | `.env` file to inspect, relative to `--dir` (default `.env.local`). |
+| `--project-env-file <file>` | File to read the project ID from, relative to `--dir` (default: the one `init` writes for the framework, such as `.env.local`, `manage.py` or `config/environments/development.rb`). |
 | `--json` | Print the check report as JSON (`ok`, `checks`, `note`). |
 
 Each check reports a `basis`:
