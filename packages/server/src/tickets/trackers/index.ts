@@ -376,8 +376,8 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
       const found = await template(token, templateId, destinationId);
       if (found === null) return null;
       const choice = checkedChoice(found);
-      // A template for another destination than the one asked about doesn't apply here.
-      if (found.destinationId !== destinationId) return null;
+      // Another template than the one asked for, or one for another destination than the one asked about, doesn't apply here.
+      if (found.id !== templateId || found.destinationId !== destinationId) return null;
       // A template's text longer than a ticket's couldn't make one.
       if (choice === null || trackerId(destinationId) === null || found.body.length > TRACKER_LIMITS.templateText) throw unreadable("template");
       return { ...choice, destinationId, body: found.body };

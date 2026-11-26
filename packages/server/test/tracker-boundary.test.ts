@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CritiqsError } from "../src/errors.ts";
-import { isCheckedAdapter, trackerEndpoint } from "../src/tickets/trackers/index.ts";
+import { checkedAdapter, isCheckedAdapter, trackerEndpoint } from "../src/tickets/trackers/index.ts";
 import { linearAdapter } from "../src/tickets/trackers/linear.ts";
 
 // Everything a tracker answers is outside Critiqs's control: a broken or
@@ -177,4 +177,20 @@ test("templates and labels a tracker sends keep only IDs Critiqs can use, with n
   expect(labels.map((label) => label.id)).toEqual(["label-1"]);
   expect(labels[0]!.name.length).toBeLessThanOrEqual(200);
   expect(labels[0]!.exclusiveGroup).toBeNull();
+});
+
+test("a template a tracker answers with is used only when it is the template asked for, for the destination asked about", async () => {
+  const asked = { id: "tpl-1", name: "Bug", destinationId: "team-1", body: "## Steps\n" };
+  let answer: typeof asked | null = asked;
+  // Only `template` is called here; the rest of the adapter is never reached.
+  const adapter = checkedAdapter({ template: async () => answer } as never, () => null);
+  expect(await adapter.template!(key, "tpl-1", "team-1")).toEqual(asked);
+  // This template is for another destination: it doesn't apply here.
+  answer = { ...asked, destinationId: "team-2" };
+  expect(await adapter.template!(key, "tpl-1", "team-1")).toBeNull();
+  // Another template than the one asked for, even for this destination.
+  answer = { ...asked, id: "tpl-2" };
+  expect(await adapter.template!(key, "tpl-1", "team-1")).toBeNull();
+  answer = null;
+  expect(await adapter.template!(key, "tpl-1", "team-1")).toBeNull();
 });
