@@ -18,7 +18,7 @@ test("a real build asks for no site at install, and its scripts are files Chrome
     const manifest = await Bun.file(join(out, "manifest.json")).json();
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.name).toBe("Critiqs");
-    for (const file of ["worker.js", "page.js", "panel.js"]) {
+    for (const file of ["worker.js", "page.js", "panel.js", "mockup.js"]) {
       const code = await Bun.file(join(out, file)).text();
       // Chrome refuses a content script holding a Unicode noncharacter as "isn't UTF-8 encoded".
       expect(/[﷐-﷯￾￿]/.test(code)).toBe(false);
@@ -26,6 +26,9 @@ test("a real build asks for no site at install, and its scripts are files Chrome
       expect(code.includes("critiqsTest")).toBe(false);
     }
     expect(await Bun.file(join(out, "panel.html")).exists()).toBe(true);
+    expect(await Bun.file(join(out, "mockup.html")).exists()).toBe(true);
+    // Only the files Chrome loads: no folders the bundler left behind.
+    expect((await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: out }))).filter((file) => !file.startsWith("icons/")).sort()).toEqual(["manifest.json", "mockup.html", "mockup.js", "page.js", "panel.html", "panel.js", "worker.js"]);
     expect(await Bun.file(join(out, "icons/128.png")).exists()).toBe(true);
   } finally {
     await rm(out, { recursive: true, force: true });

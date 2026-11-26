@@ -4,7 +4,7 @@ import { PageLink } from "../../react/src/page-layer/link.ts";
 import { type MountedPageLayer, mountPageLayer } from "../../react/src/page-layer/mount.tsx";
 import type { AutoPins } from "./auto-pins.ts";
 import { type ChromeApi, chromeApi, type Port } from "./chrome.ts";
-import { CHANNEL, PANEL_PORT, type PageMessage, REPLACED } from "./config.ts";
+import { CHANNEL, MOCKUP_PORT, PANEL_PORT, type PageMessage, REPLACED } from "./config.ts";
 import { SITES_CHANGED } from "./site-access.ts";
 
 /**
@@ -44,14 +44,26 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
   const send = (message: PageMessage) => chrome.runtime.sendMessage(message).catch(() => undefined);
   const own = new Set<Element>();
   let layer: MountedPageLayer | null = null;
+  /** The Mockup tab's own page layer, which freezes the page for it and draws nothing. */
+  let mockupLayer: { port: Port; layer: MountedPageLayer } | null = null;
   let pins: PageLink | null = null;
   let panel: Port | null = null;
   let builtIn = false;
 
-  const mount = (transport: PageTransport) => {
+  /** Starts a page layer, counting its host among the extension's own. */
+  const start = (transport: PageTransport): MountedPageLayer => {
     const before = new Set(document.querySelectorAll(HOST_TAG));
-    layer = mountPageLayer({ transport, channel: CHANNEL });
+    const started = mountPageLayer({ transport, channel: CHANNEL });
     for (const host of Array.from(document.querySelectorAll(HOST_TAG))) if (!before.has(host)) own.add(host);
+    return started;
+  };
+  const mount = (transport: PageTransport) => {
+    layer = start(transport);
+  };
+  const stopMockups = () => {
+    mockupLayer?.port.disconnect();
+    mockupLayer?.layer.destroy();
+    mockupLayer = null;
   };
   const unmount = () => {
     pins?.close();
@@ -87,7 +99,20 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
   };
 
   const onConnect = (port: Port) => {
-    if (port.name !== PANEL_PORT || builtIn) return;
+    if (builtIn) return;
+    if (port.name === MOCKUP_PORT) {
+      // One Mockup tab at a time; the side panel's page layer and pins stay as they are.
+      stopMockups();
+      const opened = { port, layer: start(portTransport(port)) };
+      mockupLayer = opened;
+      port.onDisconnect.addListener(() => {
+        if (mockupLayer !== opened) return;
+        opened.layer.destroy();
+        mockupLayer = null;
+      });
+      return;
+    }
+    if (port.name !== PANEL_PORT) return;
     // The side panel takes over from pins shown on their own, and from an earlier panel.
     const previous = panel;
     panel = port;
@@ -114,6 +139,7 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
     panel?.disconnect();
     panel = null;
     unmount();
+    stopMockups();
     void send({ type: "critiqs:built-in" });
   };
 
@@ -140,6 +166,7 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
       chrome.runtime.onConnect.removeListener(onConnect);
       panel?.disconnect();
       unmount();
+      stopMockups();
     },
   };
 }

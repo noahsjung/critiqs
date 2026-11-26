@@ -1,6 +1,6 @@
 import { type PageTransport, panelEndpoint } from "@critiqs/core";
 import { createRoot } from "react-dom/client";
-import type { SupplyCapture } from "../App.tsx";
+import type { MockupPlace, SupplyCapture } from "../App.tsx";
 import { attachHost, Connect } from "../connect.tsx";
 import type { CritiqsProps } from "../host.ts";
 import type { TokenSession } from "../session.ts";
@@ -45,6 +45,8 @@ export type PanelOptions = Omit<CritiqsProps, "getContext" | "restoreContext"> &
   session?: TokenSession;
   /** A comment to open once the panel shows, as a link to it would. */
   openThread?: string;
+  /** Where Mockup mode opens, since the panel isn't drawn over the page: such as a window of its own. */
+  mockups?: MockupPlace;
 };
 
 /** A running panel: remove it, closing its connection to the page layer. */
@@ -62,7 +64,7 @@ export interface MountedPanel {
  * page layer answers, and connects again whenever the page layer restarts,
  * such as after the frame loads another page.
  */
-export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, ...props }: PanelOptions): MountedPanel {
+export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, mockups, ...props }: PanelOptions): MountedPanel {
   const { host, container: inner } = attachHost(container);
   const root = createRoot(inner);
   const link = new PageLink(panelEndpoint(transport, { channel }));
@@ -76,7 +78,7 @@ export function mountPanel(container: Element, { transport, channel, supplyCaptu
     // starts, it says so and the link connects then.
     void link.connect({ timeoutMs: 5000 }).catch(() => undefined);
   }).then(() => {
-    if (!destroyed) root.render(<Connect props={props} host={host} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} />);
+    if (!destroyed) root.render(<Connect props={props} host={host} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} mockups={mockups} />);
   });
   return {
     ready,

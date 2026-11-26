@@ -34,14 +34,19 @@ This workspace is private: it isn't published to npm.
   Critiqs Cloud. That page opens for people without the extension once they
   sign in. Without a website, the link is the page's own address with the
   comment in it.
-- **Mockup mode** isn't offered: its page copy is drawn over the page, which a
-  side panel can't do yet.
+- **Mockup mode** opens in a tab of its own beside the page, the Mockup tab,
+  since its copy of the page covers a window and the side panel has no page
+  beneath it. The tab freezes the page through a page layer of its own there
+  and shows Critiqs's Mockup panel; Mockup threads are made there as when
+  installed. Holding O to compare with the live page isn't offered there, and
+  leaving Mockup mode (V) closes the tab and goes back to the page.
 
 | File | Runs in |
 | --- | --- |
 | `src/worker.ts` | The background service worker |
 | `src/page.ts` | The page, as a content script: the page layer |
 | `src/panel/` | The side panel |
+| `src/mockup/`, `src/mockup-tab.ts` | The Mockup tab, and opening it from the side panel |
 
 ## Build and load it unpacked
 

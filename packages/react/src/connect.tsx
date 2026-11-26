@@ -1,7 +1,7 @@
 import type { ConvexReactClient } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { App, type SupplyCapture } from "./App.tsx";
+import { App, type MockupPlace, type SupplyCapture } from "./App.tsx";
 import { HOST_TAG } from "./constants.ts";
 import { convexClient } from "./convex/client.ts";
 import { convexTransport } from "./convex/transport.tsx";
@@ -76,9 +76,11 @@ export interface PanelPage {
   session?: TokenSession;
   /** A comment to open as a link to it would, such as the one whose pin opened the side panel. */
   openThread?: string;
+  /** Where Mockup mode opens when the panel isn't drawn over the page, such as the extension's side panel. Convex backends only. */
+  mockups?: MockupPlace;
 }
 
-export function Connect({ props, host, page, supplyCapture, session, openThread }: { props: CritiqsProps; host: HTMLElement } & PanelPage) {
+export function Connect({ props, host, page, supplyCapture, session, openThread, mockups }: { props: CritiqsProps; host: HTMLElement } & PanelPage) {
   const backendUrl = props.backend ?? HOSTED_BACKEND_URL;
   const required = props.requireProjectId === true;
   // Only a required project is checked against the backend, so only its changes start a new check.
@@ -110,7 +112,7 @@ export function Connect({ props, host, page, supplyCapture, session, openThread 
 
   if (deployment === null) return null;
   if ("error" in deployment) return required ? null : <Unavailable message={deployment.error} />;
-  return <Connected props={props} host={host} deployment={deployment} page={page} supplyCapture={supplyCapture} session={session} openThread={openThread} />;
+  return <Connected props={props} host={host} deployment={deployment} page={page} supplyCapture={supplyCapture} session={session} openThread={openThread} mockups={mockups} />;
 }
 
 type ConnectedProps = { props: CritiqsProps; host: HTMLElement; deployment: Deployment } & PanelPage;
@@ -133,7 +135,7 @@ function ConnectedHttp({ props, host, deployment, page, supplyCapture }: Connect
   );
 }
 
-function ConnectedConvex({ props, host, deployment, page, supplyCapture, session: own, openThread }: ConnectedProps) {
+function ConnectedConvex({ props, host, deployment, page, supplyCapture, session: own, openThread, mockups }: ConnectedProps) {
   const session = useMemo(() => own ?? new Session(deployment.signInUrl), [own, deployment.signInUrl]);
   // Created in an effect so its cleanup closes the same client; StrictMode
   // remounts would otherwise reuse a closed one.
@@ -153,7 +155,7 @@ function ConnectedConvex({ props, host, deployment, page, supplyCapture, session
   if (transport === null) return null;
   return (
     <TransportContext.Provider value={transport}>
-      {transport.wrap(<App props={props} deployment={deployment} session={session} host={host} page={page} supplyCapture={supplyCapture} openThread={openThread} />)}
+      {transport.wrap(<App props={props} deployment={deployment} session={session} host={host} page={page} supplyCapture={supplyCapture} openThread={openThread} mockups={mockups} />)}
     </TransportContext.Provider>
   );
 }

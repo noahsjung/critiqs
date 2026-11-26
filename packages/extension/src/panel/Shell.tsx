@@ -270,7 +270,7 @@ function Project({
               <button type="button" className="btn ghost small" onClick={() => setScreenshotNote(false)}>OK</button>
             </div>
           )}
-          <Review project={step.project} deployment={deployment} connection={connection} session={session} supplyCapture={supplyCapture} takeOpenThread={takeOpenThread} />
+          <Review chrome={chrome} tabId={tabId} project={step.project} deployment={deployment} connection={connection} session={session} supplyCapture={supplyCapture} takeOpenThread={takeOpenThread} />
           {step.name === "settings" && (
             <Settings chrome={chrome} origin={origin} session={session} step={step} onBack={() => setStep({ ...step, name: "review" })} onChange={() => setStep({ name: "choose", projects: step.choices ?? [] })} />
           )}
@@ -400,11 +400,11 @@ function useTabPage(chrome: ChromeApi, tabId: number): TabPage {
   return { facts: { url, origin: pageOrigin(url), builtIn: state.builtIn === true, refused: state.refused, connected, waited }, connection };
 }
 
-function Frame({ children }: { children?: ReactNode }) {
+export function Frame({ children }: { children?: ReactNode }) {
   return <div className="xt">{children}</div>;
 }
 
-function Screen({ title, line, onBack, children }: { title: string; line?: ReactNode; onBack?: () => void; children?: ReactNode }) {
+export function Screen({ title, line, onBack, children }: { title: string; line?: ReactNode; onBack?: () => void; children?: ReactNode }) {
   return (
     <Frame>
       <div className="xt-screen">

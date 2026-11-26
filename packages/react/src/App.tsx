@@ -79,6 +79,19 @@ interface Picked {
  */
 export type SupplyCapture = () => Promise<Blob | null>;
 
+/** What Mockup mode is asked to open: a mockup's thread, a mockup's own thread (null thread), or the list (null). */
+export type MockupOpen = { mockupId: string; threadId: string | null } | null;
+
+/**
+ * Where Mockup mode goes when the panel isn't drawn over the page, so its
+ * copy can't cover the page here, such as in the browser extension's side
+ * panel. `elsewhere`: the Mockup mode button, M, and Open mockup call `open`,
+ * which shows it in a window of its own. `window`: this is that window, for
+ * Mockup mode alone; it starts in Mockup mode on `request`, and leaving Mockup
+ * mode calls `leave`.
+ */
+export type MockupPlace = { kind: "elsewhere"; open: (request: MockupOpen) => void } | { kind: "window"; request: MockupOpen; leave: () => void };
+
 interface AppProps {
   props: CritiqsProps;
   deployment: Deployment;
@@ -94,6 +107,8 @@ interface AppProps {
   supplyCapture?: SupplyCapture;
   /** A comment to open as a link to it would, such as the one whose pin opened the extension's side panel. */
   openThread?: string;
+  /** Where Mockup mode opens when it can't cover the page from here. */
+  mockups?: MockupPlace;
 }
 
 /**
@@ -138,6 +153,7 @@ function PanelApp({
   page,
   supplyCapture,
   openThread,
+  mockups,
 }: Omit<AppProps, "page"> & { page: PageLink }) {
   const transport = useTransport();
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -151,7 +167,9 @@ function PanelApp({
   const configuredProject = props.projectId ?? null;
   const projectId = configuredProject ?? browserProject;
 
-  const [mode, setMode] = useState<Mode>("browse");
+  const [chosenMode, setMode] = useState<Mode>("browse");
+  // In Mockup mode's own window the mode is always Mockup mode: leaving it leaves the window.
+  const mode: Mode = mockups?.kind === "window" ? "mockup" : chosenMode;
   const [sidebarOpen, setSidebarOpen] = useStoredState("critiqs:sidebar-open", false);
   // Pins and the composer stay left of the sidebar, as wide as it is now.
   const sideWidth = useSidebarWidth();
@@ -193,8 +211,10 @@ function PanelApp({
   const [hidden, setHidden] = useState(false);
   const [pendingLink, setPendingLink] = useState(() => parseLink(page.getState().url) ?? (openThread === undefined ? null : { threadId: openThread, messageId: null }));
   // Mockup mode: a mockup to open on entering it, its panel (in the sidebar's place), and what Escape closes there.
-  const [mockupRequest, setMockupRequest] = useState<MockupRequest | null>(null);
-  const mockupRequests = useRef(0);
+  const [mockupRequest, setMockupRequest] = useState<MockupRequest | null>(() =>
+    mockups?.kind === "window" && mockups.request !== null ? { id: 1, ...mockups.request } : null,
+  );
+  const mockupRequests = useRef(1);
   const [mockupPanelOpen, setMockupPanelOpen] = useState(true);
   const mockupEscape = useRef<(() => boolean) | null>(null);
 
@@ -243,8 +263,8 @@ function PanelApp({
   );
   const byId = useMemo(() => new Map(threads.map((thread) => [thread.summary._id as string, thread])), [threads]);
   // Mockup is offered where the backend stores mockups and the project is set up; signed out, it asks to sign in, as Comment does.
-  // Mockup mode draws its page copy over the page itself, so it needs the panel there too.
-  const mockupsOffered = transport.mockups !== undefined && deployment.mockups === true && page.overPage && !needsSetup && !backendRejected && !projectError;
+  // Mockup mode draws its page copy over the page itself, so it needs the panel there too, or a window of its own.
+  const mockupsOffered = transport.mockups !== undefined && deployment.mockups === true && (page.overPage || mockups !== undefined) && !needsSetup && !backendRejected && !projectError;
   const mockupsAvailable = mockupsOffered && signedIn && projectQuery.status === "ready";
   const inMockup = mode === "mockup" && mockupsAvailable;
   // Your AI is offered where the backend keeps each person's own AI settings.
@@ -283,11 +303,20 @@ function PanelApp({
   /** Switches modes as the toolbar and its keys do: entering Comment or Mockup mode signed out asks to sign in. */
   const chooseMode = useCallback(
     (next: Mode) => {
+      if (mockups?.kind === "window") {
+        if (next !== "mockup") mockups.leave();
+        return;
+      }
+      if (next === "mockup" && mockups?.kind === "elsewhere") {
+        if (signedIn) mockups.open(null);
+        else signIn();
+        return;
+      }
       if (next === "mockup") setMockupRequest(null);
       setMode(next);
       if ((next === "comment" || next === "mockup") && !signedIn) signIn();
     },
-    [signedIn, signIn],
+    [signedIn, signIn, mockups],
   );
 
   const revealController = useRef<AbortController | null>(null);
@@ -747,7 +776,7 @@ function PanelApp({
       if (key === "v" && (picking || current.inMockup)) {
         // Browse mode, cancelling any reattachment; a comment draft is kept for C.
         setReattaching(null);
-        setMode("browse");
+        current.chooseMode("browse");
       } else if (key === "Escape" && current.inMockup) {
         // A chosen element closes first, then the Mockup panel; Mockup mode stays on.
         event.preventDefault();
@@ -827,11 +856,15 @@ function PanelApp({
   );
 
   /** Enters Mockup mode on a mockup, such as from a thread linked to it or a link to one of its threads. */
-  const openMockup = useCallback((mockupId: string, threadId: string | null) => {
-    setMockupRequest({ id: ++mockupRequests.current, mockupId, threadId });
-    setMockupPanelOpen(true);
-    setMode("mockup");
-  }, []);
+  const openMockup = useCallback(
+    (mockupId: string, threadId: string | null) => {
+      if (mockups?.kind === "elsewhere") return mockups.open({ mockupId, threadId });
+      setMockupRequest({ id: ++mockupRequests.current, mockupId, threadId });
+      setMockupPanelOpen(true);
+      setMode("mockup");
+    },
+    [mockups],
+  );
 
   const filterByTag = useCallback(
     (tag: string) => {
@@ -1178,6 +1211,7 @@ function PanelApp({
           onOpenAiSettings={isOwner ? () => setTagsDialog("ai") : null}
           onSetUpAi={openYourAi}
           modelLists={deployment.modelLists === true}
+          livePage={mockups?.kind !== "window"}
           notify={notify}
         />
       )}

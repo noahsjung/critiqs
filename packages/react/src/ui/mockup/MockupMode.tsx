@@ -90,6 +90,13 @@ export function MockupMode(props: {
   onSetUpAi: (() => void) | null;
   /** The backend reports which models the reviewer's requests may choose among. */
   modelLists?: boolean;
+  /**
+   * Whether the live page is beneath the copy, as when installed. False in a
+   * window of its own, such as the browser extension's Mockup tab: holding O
+   * would show nothing there, so comparing isn't offered, nor a copy at this
+   * window's width, which the page elsewhere doesn't have.
+   */
+  livePage?: boolean;
   notify: (message: string) => void;
 }) {
   const { host, projectId, context, notify } = props;
@@ -157,7 +164,8 @@ export function MockupMode(props: {
   const openThread = (detail === null ? [] : mockupThreads(detail)).find((thread) => thread._id === open?.threadId) ?? null;
   // The live page beneath the copy is the thread's own page only when the prototype shows it.
   const onPage = detail !== null && showsMockupPage(detail.source, context.screen);
-  const canCompare = open === null || onPage;
+  const compares = props.livePage !== false;
+  const canCompare = compares && (open === null || onPage);
   const canCompareRef = useRef(canCompare);
   canCompareRef.current = canCompare;
 
@@ -473,7 +481,8 @@ export function MockupMode(props: {
 
   const exposedRight = props.panelOpen ? width - panelWidth : width;
   const selection = state.view === "list" ? state.selection : null;
-  const hint = shownCopy === null || detail === null || !onPage ? null : copyHint(detail.snapshots, shownCopy, width);
+  // A copy is taken at the live page's width, which is this window's only where the page is beneath it.
+  const hint = !compares || shownCopy === null || detail === null || !onPage ? null : copyHint(detail.snapshots, shownCopy, width);
 
   /** Asks Critiqs AI again: as before in this visit, or for the thread's latest message after a reload. */
   const retry = (id: string) => {
@@ -570,7 +579,7 @@ export function MockupMode(props: {
               <h2 title={detail.title}>{detail.title}</h2>
               <span className="note">{pageLabel(detail.source)}</span>
             </div>
-            <HoldToCompare onHold={setOriginal} disabled={!onPage} />
+            {compares && <HoldToCompare onHold={setOriginal} disabled={!onPage} />}
             <CloseButton onClose={props.onClose} />
           </>
         }
@@ -634,7 +643,7 @@ export function MockupMode(props: {
           ? "Mockup mode: select an element to ask about it · V to leave"
           : "Mockup mode · V to leave"
         : "Mockup mode: open a thread or start a new one · V to leave"
-      : onPage
+      : onPage && compares
         ? "Mockup mode: hold O to compare with the live page · V to leave"
         : "Mockup mode · V to leave";
 

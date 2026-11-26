@@ -5,7 +5,7 @@ import { locationOf } from "../../react/src/model.ts";
  * What the page layer draws on a site whose comments show automatically,
  * with no side panel open: a pin beside each open comment's element, as the
  * panel draws them when it opens on Browse mode. Mockup comments belong to
- * Mockup mode, which the extension doesn't offer.
+ * Mockup mode, which shows them on its copy of the page in the Mockup tab.
  */
 export function pinsDisplay(threads: ThreadSummary[]): PageDisplay {
   const shown = threads.filter((thread) => thread.mockup === undefined && thread.status === "open");

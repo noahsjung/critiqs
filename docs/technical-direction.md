@@ -1888,6 +1888,14 @@ and can fail when elements it owns are removed.
 - **Showing it.** The copy is shown in an `<iframe sandbox="allow-same-origin">`
   covering the page: no script in it runs, and the prototype's own styles can't
   reach it.
+- **In the browser extension.** The side panel has no page beneath it to
+  cover, so its Mockup mode button opens Mockup mode in a tab of its own
+  beside the page, the Mockup tab (`mockups: { kind: "elsewhere" }` on the
+  panel). That tab runs the same panel in Mockup mode alone (`kind: "window"`)
+  and freezes the reviewed tab's page through a page layer of its own there,
+  beside the side panel's. Holding O to compare isn't offered, since the live
+  page isn't beneath the copy, and neither is a copy at the tab's width, since
+  the page keeps its own. Leaving Mockup mode closes the tab.
 - **One mockup per thread.** Each mockup thread is its own proposal, so
   starting one first saves the frozen page as a new mockup, named after the
   message, then creates the thread on it. Comments added beforehand go to

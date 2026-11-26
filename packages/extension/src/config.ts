@@ -12,6 +12,9 @@ export const CHANNEL = "critiqs-extension";
 /** The port the side panel opens to the page's content script. */
 export const PANEL_PORT = "critiqs:panel";
 
+/** The port the Mockup tab opens to the page's content script: a page layer of its own, beside the side panel's. */
+export const MOCKUP_PORT = "critiqs:mockup";
+
 /** What the content script tells a side panel's port before another panel for the tab takes over the page layer. */
 export const REPLACED = { type: "critiqs:replaced" } as const;
 
@@ -22,6 +25,15 @@ export function isReplaced(message: unknown): boolean {
 /** The side panel's page, for one tab, and the comment to open first when a pin opened it. */
 export const panelPath = (tabId: number, threadId?: string) =>
   `panel.html?${new URLSearchParams({ tab: String(tabId), ...(threadId === undefined ? {} : { thread: threadId }) })}`;
+
+/** The Mockup tab for one tab's page and project, opened on a mockup's thread when one is asked for. */
+export const mockupPath = (tabId: number, projectId: string, request: { mockupId: string; threadId: string | null } | null) =>
+  `mockup.html?${new URLSearchParams({
+    tab: String(tabId),
+    project: projectId,
+    ...(request === null ? {} : { mockup: request.mockupId }),
+    ...(request?.threadId == null ? {} : { thread: request.threadId }),
+  })}`;
 
 /** Messages the content script sends the worker and the side panel. */
 export type PageMessage =

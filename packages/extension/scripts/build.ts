@@ -1,6 +1,6 @@
 // Builds the unpacked extension into dist/: the worker, the content script
-// (Critiqs's page layer), and the side panel, each one self-contained file,
-// plus the manifest and icons. Load dist/ with "Load unpacked" in
+// (Critiqs's page layer), the side panel, and the Mockup tab, each one
+// self-contained file, plus the manifest and icons. Load dist/ with "Load unpacked" in
 // chrome://extensions.
 //
 // CRITIQS_BACKEND names another Convex deployment than Critiqs Cloud, such as
@@ -17,9 +17,9 @@ await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 
 const result = await Bun.build({
-  entrypoints: [`${directory}src/worker.ts`, `${directory}src/page.ts`, `${directory}src/panel/main.tsx`],
+  entrypoints: [`${directory}src/worker.ts`, `${directory}src/page.ts`, `${directory}src/panel/main.tsx`, `${directory}src/mockup/main.tsx`],
   outdir: out,
-  naming: "[name].js",
+  naming: "[dir]/[name].js",
   target: "browser",
   // A classic script for each: content scripts can't be modules.
   format: "iife",
@@ -37,10 +37,11 @@ if (!result.success) throw new AggregateError(result.logs, "The extension didn't
 // encoded". The bundler writes them out raw; written as escapes they mean the same.
 const escapeNoncharacters = (code: string) =>
   code.replace(/[\uFDD0-\uFDEF\uFFFE\uFFFF]/g, (char) => `\\u${char.charCodeAt(0).toString(16).toUpperCase()}`);
-for (const [from, to] of [["worker.js", "worker.js"], ["page.js", "page.js"], ["main.js", "panel.js"]] as const) {
+for (const [from, to] of [["worker.js", "worker.js"], ["page.js", "page.js"], ["panel/main.js", "panel.js"], ["mockup/main.js", "mockup.js"]] as const) {
   await Bun.write(`${out}/${to}`, escapeNoncharacters(await Bun.file(`${out}/${from}`).text()));
 }
-await rm(`${out}/main.js`);
+await rm(`${out}/panel`, { recursive: true });
+await rm(`${out}/mockup`, { recursive: true });
 
 const manifest = await Bun.file(`${directory}static/manifest.json`).json();
 if (test) {
@@ -50,5 +51,6 @@ if (test) {
 }
 await Bun.write(`${out}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
 await cp(`${directory}static/panel.html`, `${out}/panel.html`);
+await cp(`${directory}static/mockup.html`, `${out}/mockup.html`);
 await cp(`${directory}static/icons`, `${out}/icons`, { recursive: true });
 console.error(`Built the Critiqs extension in ${out}${test ? " (test build)" : ""}.`);

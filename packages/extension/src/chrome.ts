@@ -9,6 +9,8 @@ export interface ChromeEvent<Listener> {
 export interface Tab {
   id?: number;
   windowId: number;
+  /** Its place in its window's tab strip. */
+  index?: number;
   url?: string;
   active: boolean;
   /** When the tab was last made active, in milliseconds. */
@@ -62,6 +64,11 @@ export interface ChromeApi {
   };
   tabs: {
     get(tabId: number): Promise<Tab>;
+    /** The tab this extension page is in; undefined outside a tab, such as in the side panel. */
+    getCurrent?(): Promise<Tab | undefined>;
+    create?(properties: { url: string; windowId?: number; index?: number; openerTabId?: number; active?: boolean }): Promise<Tab>;
+    update?(tabId: number, properties: { url?: string; active?: boolean }): Promise<Tab>;
+    remove?(tabId: number): Promise<void>;
     captureVisibleTab(windowId: number, options: { format: "png" | "jpeg" }): Promise<string>;
     connect(tabId: number, info: { name: string; frameId?: number }): Port;
     onRemoved: ChromeEvent<(tabId: number) => void>;

@@ -496,10 +496,10 @@ await step("10b", "Allow it: the switch stays on, and the page layer is register
   await extensions.page.close();
   await proto.page.bringToFront();
   await panel.click(button("Settings"));
-  await panel.click({ css: '[role="switch"]' });
-  await panel.waitFor({ css: '[role="switch"][aria-checked="true"]' });
+  await panel.click({ css: '.xt-settings [role="switch"]' });
+  await panel.waitFor({ css: '.xt-settings [role="switch"][aria-checked="true"]' });
   await Bun.sleep(500);
-  const on = await panel.has({ css: '[role="switch"][aria-checked="true"]' });
+  const on = await panel.has({ css: '.xt-settings [role="switch"][aria-checked="true"]' });
   const registered = await inWorker(() => (globalThis as any).chrome.scripting.getRegisteredContentScripts());
   await shoot("automatic-on", shots);
   const access = await siteAccess(pattern, shots);
@@ -563,8 +563,8 @@ await step("14a", "Click the icon, turn the switch off, close the panel and relo
   panel = await sidePanel(proto);
   focus(proto, panel);
   await panel.click(button("Settings"));
-  await panel.click({ css: '[role="switch"][aria-checked="true"]' });
-  await panel.waitFor({ css: '[role="switch"][aria-checked="false"]' });
+  await panel.click({ css: '.xt-settings [role="switch"][aria-checked="true"]' });
+  await panel.waitFor({ css: '.xt-settings [role="switch"][aria-checked="false"]' });
   await closePanel(proto);
   panel.close();
   focus(proto, null);
@@ -741,6 +741,88 @@ await step("20b", "The copied link opens the thread's page on the website", asyn
   await Bun.sleep(1000);
   await shoot("thread-page", shots);
   return `Opened ${copied}: Sign in to see this comment; after the reviewer signed in with the same email, the page shows the comment "Share this with the client"`;
+});
+
+/** The middle of an element of the page copy in the Mockup tab's canvas, in the tab's coordinates. */
+const inCopy = (page: Page, selector: string) =>
+  page.evaluate((query: string) => {
+    const frames: HTMLIFrameElement[] = [];
+    const walk = (root: Document | ShadowRoot) => {
+      for (const element of Array.from(root.querySelectorAll("*"))) {
+        if (element instanceof HTMLIFrameElement && element.closest(".mockup-canvas") !== null) frames.push(element);
+        if (element.shadowRoot !== null) walk(element.shadowRoot);
+      }
+    };
+    walk(document);
+    for (const frame of frames) {
+      const target = frame.contentDocument?.querySelector(query);
+      const shown = frame.getBoundingClientRect();
+      if (target == null || shown.width === 0 || getComputedStyle(frame).visibility === "hidden") continue;
+      const box = target.getBoundingClientRect();
+      return { x: shown.x + box.x + box.width / 2, y: shown.y + box.y + box.height / 2 };
+    }
+    return null;
+  }, selector);
+
+let mockupTab: Page = null as Page;
+await step("21", "Choose Mockup mode in the side panel: Mockup mode opens in a tab of its own beside the page, with the page frozen into a copy and the Mockup panel", async (shots) => {
+  if (!(await panel.has(button("Mockup mode")))) throw new Error("The side panel's toolbar has no Mockup mode button.");
+  const opened = context.waitForEvent("page", { timeout: 10_000 });
+  await panel.click(button("Mockup mode"));
+  mockupTab = await opened;
+  await mockupTab.waitForLoadState("load");
+  await mockupTab.getByRole("button", { name: "New thread" }).waitFor({ timeout: 20_000 });
+  await waitUntil("the page copy in the canvas", async () => (await inCopy(mockupTab, '[data-critiqs-id="team.save"]')) !== null);
+  const address = new URL(mockupTab.url());
+  focus({ page: mockupTab, id: -1 }, null);
+  await shoot("mockup-tab", shots);
+  const active = await inWorker(() => (globalThis as any).chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((tabs: { id: number }[]) => tabs[0]!.id));
+  if (address.pathname !== "/mockup.html" || address.searchParams.get("tab") !== String(other.id)) throw new Error(`Opened ${mockupTab.url()}.`);
+  return `Opened ${address.pathname}${address.search} as the active tab (${active}); the copy of the other site's page fills it, with the Mockup panel on the right`;
+});
+
+await step("22", "In the Mockup tab, start a thread on an element of the copy: choose New thread, click the button in the copy, ask for a change, and Send", async (shots) => {
+  await mockupTab.getByRole("button", { name: "New thread" }).click();
+  await mockupTab.getByRole("heading", { name: "New thread" }).waitFor();
+  const point = (await inCopy(mockupTab, '[data-critiqs-id="team.save"]'))!;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await mockupTab.mouse.move(point.x - 40, point.y + 40, { steps: 2 });
+    await mockupTab.mouse.move(point.x, point.y, { steps: 4 });
+    await Bun.sleep(100);
+  }
+  await mockupTab.mouse.click(point.x, point.y);
+  const ask = mockupTab.getByLabel("Ask for a change to this element");
+  await ask.waitFor({ timeout: 10_000 });
+  await shoot("mockup-element-chosen", shots);
+  await ask.fill("Make this button green");
+  await mockupTab.getByRole("form", { name: "Ask about this element" }).getByRole("button", { name: "Send", exact: true }).click();
+  await mockupTab.getByRole("heading", { name: "Make this button green" }).waitFor({ timeout: 20_000 });
+  await mockupTab.getByText("Make this button green").nth(1).waitFor({ timeout: 10_000 }).catch(() => undefined);
+  await Bun.sleep(1500);
+  await shoot("mockup-thread", shots);
+  const text = (await mockupTab.evaluate(() => {
+    const parts: string[] = [];
+    const walk = (root: Document | ShadowRoot) => {
+      for (const element of Array.from(root.querySelectorAll("aside"))) parts.push((element as HTMLElement).innerText);
+      for (const element of Array.from(root.querySelectorAll("*"))) if (element.shadowRoot !== null) walk(element.shadowRoot);
+    };
+    walk(document);
+    return parts.join(" ");
+  })).replace(/\s+/g, " ");
+  return `The mockup thread "Make this button green" opened in the Mockup panel. Panel text: "${text.slice(0, 260)}"`;
+});
+
+await step("23", "Leave Mockup mode (V): the Mockup tab closes and the page's tab, with its side panel, is in front again", async (shots) => {
+  await mockupTab.bringToFront();
+  await mockupTab.locator("body").click({ position: { x: 5, y: 5 } }).catch(() => undefined);
+  await mockupTab.keyboard.press("v");
+  await waitUntil("the Mockup tab to close", async () => mockupTab.isClosed(), 10_000);
+  const active = await inWorker(() => (globalThis as any).chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((tabs: { id: number }[]) => tabs[0]!.id));
+  focus(other, panel);
+  await panel.waitFor({ css: ".xt-title", text: "Erin's storefront" });
+  await shoot("mockup-left", shots);
+  if (active !== other.id) throw new Error(`The active tab is ${active}, not the page's ${other.id}.`);
+  return "The Mockup tab closed; the page's tab is active, and its side panel still shows Erin's storefront";
 });
 
 await step("–", "No page errors in any tab during the run", async () => {
