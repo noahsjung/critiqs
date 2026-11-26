@@ -190,3 +190,23 @@ test("a thread page offers the project's review link only to its owners and its 
   expect(await f.dana.query(api.reviewLinks.forThreadPage, { key: leesPage })).toBe(`${link.url}#/pricing`);
   expect(await f.riley.query(api.reviewLinks.forThreadPage, { key: leesPage })).toBe(`${link.url}#/pricing`);
 });
+
+test("reading a project's Allow Critiqs setup changes nothing; only issuing makes the token and adds the address", async () => {
+  const f = await fixture();
+  const addresses = async () => await f.t.run(async (ctx) => (await ctx.db.query("projectAddresses").collect()).map((entry) => entry.address));
+  expect(await f.dana.query(api.reviewAllow.current, { projectId: f.projectId, origin: "https://attacker-chosen.example" })).toBeNull();
+  expect(await addresses()).not.toContain("https://attacker-chosen.example");
+  expect(await f.t.run(async (ctx) => await ctx.db.query("reviewAllow").collect())).toEqual([]);
+  const issued = await f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin: "https://staging.acme.com" });
+  expect(await f.dana.query(api.reviewAllow.current, { projectId: f.projectId, origin: "https://staging.acme.com" })).toEqual(issued);
+  // Owners only, as issuing is.
+  expect(await outcome(f.riley.query(api.reviewAllow.current, { projectId: f.projectId, origin: "https://staging.acme.com" }))).toBe("Only the project's owners can create or change its review links.");
+});
+
+test("a shared build's .build.invalid name is never a site to allow", async () => {
+  const f = await fixture();
+  for (const origin of ["https://babcdefghijklmnopqrstu.build.invalid", "https://x.invalid"]) {
+    expect(await outcome(f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin }))).toBe("This address can't be reached on the internet. Use your prototype's public https:// address.");
+    expect(await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: `${origin}/` }))).toBe("This address can't be reached on the internet. Use your prototype's public https:// address.");
+  }
+});

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { type AllowCheck, type AllowCritiqsSetup, failureMessage, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import { relativeTime } from "../shared.ts";
@@ -46,18 +46,47 @@ export function AllowCritiqsPage({ projectId, origin }: { projectId: string | nu
 
 function OwnerSetup({ projectId, origin }: { projectId: string; origin: string }) {
   const backend = useBackend();
-  const [setup, setSetup] = useState<{ status: "loading" } | { status: "ready"; data: AllowCritiqsSetup } | { status: "error"; message: string }>({ status: "loading" });
-  const [check, setCheck] = useState<{ status: "idle" } | { status: "checking" } | { status: "done"; data: AllowCheck } | { status: "error"; message: string }>({ status: "idle" });
-  useEffect(() => {
-    let current = true;
-    backend.issueAllowCritiqs(projectId, origin).then(
-      (data) => current && setSetup({ status: "ready", data }),
-      (failure: unknown) => current && setSetup({ status: "error", message: failureMessage(failure, copy.allowCritiqs.failed) }),
+  // Opening this page, from any link, only reads: the token is made, and the origin joins the project's addresses, when an owner presses the button.
+  const existing = backend.useAllowCritiqs(projectId, origin);
+  const [issued, setIssued] = useState<{ status: "idle" } | { status: "issuing" } | { status: "ready"; data: AllowCritiqsSetup } | { status: "error"; message: string }>({ status: "idle" });
+  if (existing.status === "loading") return <p className="note">{copy.loading}</p>;
+  if (existing.status === "error") return <p className="error" role="alert">{existing.message}</p>;
+  const made = issued.status === "ready" ? issued.data : existing.data;
+  if (made === null) {
+    const start = async () => {
+      setIssued({ status: "issuing" });
+      try {
+        setIssued({ status: "ready", data: await backend.issueAllowCritiqs(projectId, origin) });
+      } catch (failure) {
+        setIssued({ status: "error", message: failureMessage(failure, copy.allowCritiqs.failed) });
+      }
+    };
+    return (
+      <section className="stacked allow-start">
+        <p className="lead">
+          <strong>{copy.allowCritiqs.forOrigin(origin)}</strong>
+        </p>
+        <p className="note">{copy.allowCritiqs.startLead(origin)}</p>
+        <div className="actions">
+          <button type="button" className="btn primary" disabled={issued.status === "issuing"} onClick={() => void start()}>
+            {copy.allowCritiqs.start}
+          </button>
+        </div>
+        {issued.status === "error" && (
+          <p className="error" role="alert">
+            {issued.message}
+          </p>
+        )}
+      </section>
     );
-    return () => void (current = false);
-  }, [backend, projectId, origin]);
-  if (setup.status === "loading") return <p className="note">{copy.loading}</p>;
-  if (setup.status === "error") return <p className="error" role="alert">{setup.message}</p>;
+  }
+  return <OwnerTools projectId={projectId} initial={made} />;
+}
+
+function OwnerTools({ projectId, initial }: { projectId: string; initial: AllowCritiqsSetup }) {
+  const backend = useBackend();
+  const [setup, setSetup] = useState<{ status: "ready"; data: AllowCritiqsSetup }>({ status: "ready", data: initial });
+  const [check, setCheck] = useState<{ status: "idle" } | { status: "checking" } | { status: "done"; data: AllowCheck } | { status: "error"; message: string }>({ status: "idle" });
   const data = setup.data;
 
   const runCheck = async () => {

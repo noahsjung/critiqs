@@ -435,6 +435,8 @@ export const copy = {
   allowCritiqs: {
     title: "Allow Critiqs",
     lead: "A prototype behind a bot wall or firewall refuses Critiqs's review proxy, so its review links can't show it. Its site's owner can let one Critiqs project in, without opening the site to anyone else.",
+    start: "Set up Allow Critiqs for this address",
+    startLead: (origin: string) => `This makes a token for ${origin} and adds the address to the project's addresses. Nothing changes until you press the button.`,
     howTitle: "How it works",
     how: [
       "The project gets a token for the site's exact address. Only the project's owners see it.",

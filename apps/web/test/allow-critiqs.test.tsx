@@ -41,7 +41,7 @@ describe("the Allow Critiqs page", () => {
   test("an owner sees the token, the rules, the proof file; Check again goes from blocked to allowed", async () => {
     const results = [{ result: "blocked", verified: false }, { result: "public", verified: true }] as const;
     let checks = 0;
-    const backend = fakeBackend({ reviewLinks: ALL, issueAllowCritiqs: async () => setupOf("t".repeat(43)), checkAllowCritiqs: async () => results[checks++]! });
+    const backend = fakeBackend({ reviewLinks: ALL, useAllowCritiqs: () => ({ status: "ready", data: setupOf("t".repeat(43)) }), checkAllowCritiqs: async () => results[checks++]! });
     const page = await render(<AllowCritiqsPage projectId="p1" origin={ORIGIN} />, { backend, auth: fakeAuth() });
     await settle();
     expect(page.querySelector(".allow-token")?.textContent).toBe(`Critiqs-Allow: ${"t".repeat(43)}`);
@@ -56,6 +56,19 @@ describe("the Allow Critiqs page", () => {
     expect(page.querySelector(".allow-result")?.textContent).toContain("Allowed.");
     expect(page.querySelector('.allow-result a')?.getAttribute("href")).toBe("/review-links/p1");
     expect(backend.calls.filter((call) => call.name === "checkAllowCritiqs").map((call) => call.args)).toEqual([["p1", ORIGIN], ["p1", ORIGIN]]);
+  });
+
+  test("opening the page from a link changes nothing: the token is made, and the address added, only when the owner presses the button", async () => {
+    const backend = fakeBackend({ reviewLinks: ALL, issueAllowCritiqs: async () => setupOf("t".repeat(43)) });
+    const page = await render(<AllowCritiqsPage projectId="p1" origin={ORIGIN} />, { backend, auth: fakeAuth() });
+    await settle();
+    expect(backend.calls.map((call) => call.name)).not.toContain("issueAllowCritiqs");
+    expect(page.querySelector(".allow-token") === null).toBe(true);
+    expect(text(page)).toContain(`Nothing changes until you press the button.`);
+    await click(button(page, "Set up Allow Critiqs for this address"));
+    await settle();
+    expect(backend.calls.filter((call) => call.name === "issueAllowCritiqs").map((call) => call.args)).toEqual([["p1", ORIGIN]]);
+    expect(page.querySelector(".allow-token")?.textContent).toBe(`Critiqs-Allow: ${"t".repeat(43)}`);
   });
 
   test("where the deployment doesn't offer it, nothing is issued", async () => {

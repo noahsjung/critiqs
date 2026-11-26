@@ -15,7 +15,7 @@ import {
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { action, internalMutation, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, internalMutation, mutation, type MutationCtx, query, type QueryCtx } from "./_generated/server";
 import { convexStore, identityOf, run } from "./lib/store";
 import { allowKey, backendAddresses, bareOrigin, listed, managed, OFF, reviewLinksCapability, reviewSetup } from "./reviewLinks";
 
@@ -56,17 +56,39 @@ async function setupOf(ctx: QueryCtx | MutationCtx, row: Doc<"reviewAllow">): Pr
   };
 }
 
-/** The signed-in owner's project and the exact origin asked about, which joins the project's address list if it isn't there. */
-async function ownedOrigin(ctx: MutationCtx, projectId: string, input: string) {
+/** The signed-in owner's project and the exact origin asked about, read only. */
+async function ownerAndOrigin(ctx: QueryCtx, projectId: string, input: string) {
   if (reviewLinksCapability()?.allowCritiqs !== true) fail("unavailable", NOT_OFFERED);
   const setup = reviewSetup()!;
-  const store = convexStore(ctx);
-  const { user, project } = await managed(ctx, store, projectId);
+  const { user, project } = await managed(ctx, convexStore(ctx), projectId);
+  // Never the proxy, the website or the backend; and never a shared build's `.invalid` name, which no site has (parseLiveAddress).
   const refused = [setup.proxy.hostname, new URL(setup.website).hostname, ...backendAddresses().map((value) => new URL(value).hostname)];
-  const origin = bareOrigin(input, refused);
+  return { user, project, origin: bareOrigin(input, refused) };
+}
+
+/** The signed-in owner's project and the exact origin asked about, which joins the project's address list if it isn't there. */
+async function ownedOrigin(ctx: MutationCtx, projectId: string, input: string) {
+  const { user, project, origin } = await ownerAndOrigin(ctx, projectId, input);
+  const store = convexStore(ctx);
   if (!(await listed(ctx, project._id, origin))) await addProjectAddress(store, await identityOf(ctx), { projectId: project._id, address: origin });
   return { user, project, origin };
 }
+
+/**
+ * The Allow Critiqs setup a project's owners already made for one of its
+ * origins, or null when there is none yet. Reads only: opening the Allow
+ * Critiqs page from a link changes nothing until an owner presses its button
+ * (`issue`).
+ */
+export const current = query({
+  args: { projectId: v.string(), origin: v.string() },
+  handler: async (ctx, args): Promise<AllowCritiqsSetup | null> =>
+    run(async () => {
+      const { project, origin } = await ownerAndOrigin(ctx, args.projectId, args.origin);
+      const row = await rowFor(ctx, project._id, origin);
+      return row === null ? null : await setupOf(ctx, row);
+    }),
+});
 
 /**
  * A project's Allow Critiqs token and proof for one of its origins, for its

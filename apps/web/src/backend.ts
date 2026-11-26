@@ -153,6 +153,8 @@ export interface Backend {
   revokeReviewLink(linkId: string): Promise<void>;
   /** Allow Critiqs for one of a project's origins, made on first use; owners only. */
   issueAllowCritiqs(projectId: string, origin: string): Promise<AllowCritiqsSetup>;
+  /** The setup already made for one of a project's origins, or null; reads only. Owners only. */
+  useAllowCritiqs(projectId: string, origin: string): QueryState<AllowCritiqsSetup | null>;
   /** Replaces the token and proof with new ones. */
   rotateAllowCritiqs(projectId: string, origin: string): Promise<AllowCritiqsSetup>;
   /** **Check again**: whether the site lets the review proxy in now, with the project's token and proof. */
@@ -279,6 +281,7 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
     createReviewLink: (projectId, address, requestKey) => client.mutation(api.reviewLinks.createLive, { projectId, address, requestKey }),
     copyReviewLink: async (linkId) => (await client.query(api.reviewLinks.copy, { linkId })).url,
     issueAllowCritiqs: (projectId, origin) => client.mutation(api.reviewAllow.issue, { projectId, origin }),
+    useAllowCritiqs: (projectId, origin) => useQueryState(api.reviewAllow.current, { projectId, origin }),
     rotateAllowCritiqs: (projectId, origin) => client.mutation(api.reviewAllow.rotate, { projectId, origin }),
     checkAllowCritiqs: (projectId, origin) => client.action(api.reviewAllow.check, { projectId, origin }),
     useThreadReviewLink: (key) => useQueryState(api.reviewLinks.forThreadPage, key === null ? "skip" : { key }),
