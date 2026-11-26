@@ -131,3 +131,36 @@ test("a large thread from before people in threads were recorded answers within 
   expect(await open(sam)).toBe(NOTHING);
   expect(await t.run((ctx) => ctx.db.query("deliveries").collect())).toEqual([]);
 }, 60_000);
+
+test("/critiqs/config reports the website for thread page links only where CRITIQS_WEB_URL names one", async () => {
+  const t = setup();
+  const config = async () => (await (await t.fetch("/critiqs/config")).json()) as { threadPages?: boolean; website?: string };
+  process.env.CRITIQS_AUTH_ISSUER = "https://critiqs-auth.example";
+  try {
+    delete process.env.CRITIQS_WEB_URL;
+    expect(await config()).toMatchObject({ threadPages: true });
+    expect((await config()).website).toBeUndefined();
+    // Not an address the website could be at: plain HTTP away from this computer.
+    process.env.CRITIQS_WEB_URL = "http://critiqs.example";
+    expect((await config()).website).toBeUndefined();
+    // The website serves thread pages at /t/ on its own origin; under a path, the link would open onboarding instead.
+    process.env.CRITIQS_WEB_URL = "https://critiqs.example/reviews";
+    expect((await config()).website).toBeUndefined();
+    process.env.CRITIQS_WEB_URL = "https://critiqs.example/";
+    expect((await config()).website).toBe("https://critiqs.example");
+  } finally {
+    delete process.env.CRITIQS_WEB_URL;
+    delete process.env.CRITIQS_AUTH_ISSUER;
+  }
+});
+
+test("a thread page's image can be asked for with its key in a header, keeping the key out of the address", async () => {
+  const f = await pagedThread();
+  const preflight = await f.t.fetch("/capture", { method: "OPTIONS", headers: { Origin: "https://critiqs.example", "Access-Control-Request-Headers": "authorization, x-critiqs-thread-page" } });
+  expect(preflight.headers.get("Access-Control-Allow-Headers")?.toLowerCase()).toContain("x-critiqs-thread-page");
+  const image = await f.riley.fetch("/capture", { headers: { "X-Critiqs-Thread-Page": f.key } });
+  expect(image.status).toBe(200);
+  expect(await image.text()).toBe("png-bytes");
+  // Outsiders, and someone signed out, get the same refusal as for no page.
+  for (const who of [f.sam, f.t]) expect((await who.fetch("/capture", { headers: { "X-Critiqs-Thread-Page": f.key } })).status).toBe(404);
+});

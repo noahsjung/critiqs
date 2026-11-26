@@ -101,7 +101,11 @@ ES256 private JWK), `CRITIQS_AUTH_ISSUER` (its own `.convex.site` URL),
 `RESEND_API_KEY`, and `CRITIQS_EMAIL_FROM` (an address on a domain verified in
 Resend, such as `Critiqs <sign-in@example.com>`). Developer setup emails link
 to the Critiqs website named by `CRITIQS_WEB_URL`, `https://critiqs.app` when
-unset. A self-hosted SQLite server sends them only with its `webUrl` and
+unset. Set, it also turns on thread page links: mention and reply emails, and
+**Copy link** on a thread, open the thread's page on that website
+(`<website>/t/<key>`) instead of the prototype. Set it only to a website, at
+its origin with no path, that reaches this deployment, as Critiqs Cloud sets
+`https://critiqs.app`. A self-hosted SQLite server sends them only with its `webUrl` and
 `publicUrl` options; `publicUrl` is the app's public address, which the emails'
 report links start with. A team's own deployment that
 trusts Critiqs Cloud's sign-in sets only `CRITIQS_AUTH_ISSUER`, to Critiqs Cloud's

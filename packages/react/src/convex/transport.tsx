@@ -160,6 +160,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
     },
     markRead: ({ threadId, seenThrough }) => change(mutation(api.threads.markRead, { threadId: threadId as Id<"threads">, seenThrough })),
     markUnread: (threadId) => change(mutation(api.threads.markUnread, { threadId: threadId as Id<"threads"> })),
+    threadPageKey: (threadId) => mutation(api.threads.pageKey, { threadId: threadId as Id<"threads"> }),
 
     exportThreads: (projectId, threadIds, cancelled) =>
       loadExport(

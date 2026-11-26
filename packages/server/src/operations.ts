@@ -30,12 +30,13 @@ import {
 import { fail } from "./errors.ts";
 import { planFor, requireRoom, usageDay, usageSummary, useQuota } from "./limits.ts";
 import { checkThreadMockup } from "./mockups.ts";
-import { acceptInvites, canReview, homeOrganization, inProjectOrganization, ORGANIZATION_ONLY, projectAccess, projectQuota, projectRole } from "./organizations.ts";
+import { acceptInvites, canOpenThreadPage, canReview, homeOrganization, ORGANIZATION_ONLY, projectAccess, projectQuota, projectRole } from "./organizations.ts";
 import {
   changePreferences,
   enqueueMentions,
   follow,
-  queueFollowerScan,
+  ensureThreadPageKey,
+  newThreadPageKey,
   queueReplyEmails,
   type MentionInput,
   listParticipants as participantsMatching,
@@ -771,34 +772,6 @@ export async function authorizedCapture(store: Store, identity: Identity | null,
 /** The one answer for a thread page that doesn't exist, or that this person may not open, signed in or not. */
 const NO_THREAD_PAGE = "This thread doesn't exist, or you can't open it.";
 
-/** A new page key: 128 random bits, as 22 base64url characters. */
-export function newThreadPageKey(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/**
- * Who may open a thread page: someone signed in who may review its project
- * (`canReview`, so the project's **Who can review** applies first) and who
- * either belongs to the project's organization or is already in the thread:
- * started it, replied in it, or was mentioned in it.
- */
-export async function canOpenThreadPage(store: Store, project: ProjectRecord, thread: ThreadRecord, userId: string | null): Promise<boolean> {
-  if (userId === null || !(await canReview(store, project, userId))) return false;
-  return (await inProjectOrganization(store, project, userId)) || (await inThread(store, thread, userId));
-}
-
-/**
- * Whether someone started the thread, replied in it, or was mentioned in it,
- * as its followers record: one indexed read, never the discussion, which can
- * be larger than one Convex transaction may read. In a thread from before
- * followers were recorded, the email worker records them once someone shares
- * it (`threadPageKey`); until then, earlier people in it are refused.
- */
-async function inThread(store: Store, thread: ThreadRecord, userId: string): Promise<boolean> {
-  return thread.createdBy === userId || (await store.followers.find(thread._id, userId)) !== null;
-}
-
 /**
  * A thread someone may open as a thread page, with its project. Anyone who
  * may not, including someone signed out, gets the same `not-found` as for a
@@ -855,11 +828,7 @@ export async function authorizedPageCapture(store: Store, identity: Identity | n
 export async function threadPageKey(store: Store, identity: Identity | null, args: { threadId: string }): Promise<string> {
   const user = await requireUser(store, identity);
   const { thread } = await requireThread(store, user, args.threadId);
-  if (thread.pageKey !== undefined) return thread.pageKey;
-  const pageKey = newThreadPageKey();
-  await store.threads.patch(thread._id, { pageKey });
-  await queueFollowerScan(store, thread, Date.now());
-  return pageKey;
+  return await ensureThreadPageKey(store, thread, Date.now());
 }
 
 // ---------------------------------------------------------------------------

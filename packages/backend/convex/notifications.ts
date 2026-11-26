@@ -10,10 +10,12 @@ import {
   discussionPage,
   freezeDelivery,
   isLocalReviewAddress,
+  makeDeliveryPageKey,
   operations,
   preferenceToken,
   stillMentions,
   touchParticipant,
+  webBase,
 } from "@critiqs/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -44,10 +46,30 @@ export const replyEmailStep = internalMutation({
   handler: async (ctx) => await advanceReplyEmails(convexStore(ctx), Date.now()),
 });
 
+/**
+ * The Critiqs website that serves this deployment's thread pages, from
+ * `CRITIQS_WEB_URL`, or null. Only a website set here counts: a page link
+ * names no deployment, so the website must be one that reaches this
+ * deployment, as Critiqs's own does for Critiqs Cloud. Without one (a team's
+ * own deployment, for now), emails and **Share** link to the prototype, as
+ * before thread pages.
+ */
+export function threadPageWebsite(): string | null {
+  const web = webBase(process.env.CRITIQS_WEB_URL, null);
+  // The website serves thread pages at `/t/<key>` on its own origin; one under a path would open onboarding instead.
+  return web !== null && new URL(web).pathname === "/" ? web : null;
+}
+
 export const claim = internalMutation({
   args: { claimToken: v.string(), limit: v.number() },
   handler: async (ctx, { claimToken, limit }) =>
     (await claimDue(convexStore(ctx), Date.now(), limit, claimToken)) as Id<"deliveries">[],
+});
+
+/** Makes the page key of a held delivery's thread older than thread pages (see `makeDeliveryPageKey`). */
+export const pageKey = internalMutation({
+  args: { id: v.id("deliveries"), claimToken: v.string() },
+  handler: async (ctx, args) => await makeDeliveryPageKey(convexStore(ctx), args, Date.now()),
 });
 
 // The steps of sending one delivery, each its own transaction (see `deliverOne`).
@@ -56,7 +78,7 @@ export const claim = internalMutation({
 export const begin = internalQuery({
   args: { id: v.id("deliveries"), claimToken: v.string(), secret: v.string() },
   handler: async (ctx, { id, claimToken, secret }) =>
-    await beginDelivery(convexStore(ctx), { id, claimToken, preferenceUrl: (scope) => preferenceLink(secret, scope) }),
+    await beginDelivery(convexStore(ctx), { id, claimToken, preferenceUrl: (scope) => preferenceLink(secret, scope), website: threadPageWebsite() }),
 });
 
 export const page = internalQuery({
@@ -91,7 +113,7 @@ export const complete = internalMutation({
     outcomes: v.array(
       v.object({
         deliveryId: v.id("deliveries"),
-        result: v.union(v.literal("sent"), v.literal("skipped"), v.literal("failed")),
+        result: v.union(v.literal("sent"), v.literal("skipped"), v.literal("failed"), v.literal("deferred")),
         reason: v.optional(v.string()),
       }),
     ),

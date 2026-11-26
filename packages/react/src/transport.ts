@@ -136,6 +136,12 @@ export interface CritiqsTransport {
   attachScreenshot(args: { threadId: string; fileId: string }): Promise<void>;
   markRead(args: { threadId: string; seenThrough: number }): Promise<void>;
   markUnread(threadId: string): Promise<void>;
+  /**
+   * The key of the thread's page on the Critiqs website, for **Copy link**;
+   * a thread older than thread pages gets one the first time. Only on
+   * backends that report `threadPages`.
+   */
+  threadPageKey(threadId: string): Promise<string>;
   /** Selected threads with their whole discussions; never a partial collection. */
   exportThreads(projectId: string, threadIds: string[], cancelled: () => boolean): Promise<ExportData>;
   /** A thread's protected image, after the same access checks as reading the thread. */

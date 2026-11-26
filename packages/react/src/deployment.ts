@@ -42,6 +42,13 @@ export interface Deployment {
   overageCap?: boolean;
   /** The backend takes payment for plans (Critiqs Cloud); absent where it doesn't. */
   billing?: boolean;
+  /**
+   * The Critiqs website that serves this deployment's thread pages, where
+   * **Copy link** on a thread links (`<website>/t/<key>`). Absent unless the
+   * backend reports thread pages and a website for them, as only Critiqs
+   * Cloud does for now; there, the link opens the prototype as before.
+   */
+  website?: string;
 }
 
 /** What `/critiqs/config` reports; only `signInUrl` is always there. */
@@ -57,6 +64,19 @@ interface ServiceConfig {
   organizationMembers?: boolean;
   overageCap?: boolean;
   billing?: boolean;
+  threadPages?: boolean;
+  website?: unknown;
+}
+
+/** The website a backend reports for its thread pages, when it reports them and the address is a web address. */
+function threadPageWebsite(config: ServiceConfig): string | undefined {
+  if (config.threadPages !== true || typeof config.website !== "string") return undefined;
+  try {
+    const url = new URL(config.website);
+    return url.protocol === "https:" || url.protocol === "http:" ? config.website : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -94,6 +114,7 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
     organizationMembers: config.organizationMembers === true,
     overageCap: config.overageCap === true,
     billing: config.billing === true,
+    website: threadPageWebsite(config),
   };
 }
 
@@ -124,7 +145,7 @@ export async function resolveDeployment(given: string, fetchFn: typeof fetch = f
     );
     if (!signIn.current) throw new Error(`Critiqs's sign-in service at ${backend.signInUrl} isn't ready for this version of Critiqs yet.`);
   }
-  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing };
+  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, ...(backend.website === undefined ? {} : { website: backend.website }) };
 }
 
 /** The usage query's `aiCredits` argument, only for backends that accept it: those that report `overageCap` came with it. */

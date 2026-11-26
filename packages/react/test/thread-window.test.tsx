@@ -3,6 +3,7 @@ import type { Anchor, ThreadDetail, ThreadSummary } from "@critiqs/core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../src/App.tsx";
+import type { Deployment } from "../src/deployment.ts";
 import { Session } from "../src/session.ts";
 import { TransportContext } from "../src/transport.ts";
 import { placeBeside } from "../src/ui/Picker.tsx";
@@ -219,7 +220,7 @@ function prototypePage() {
   return page.querySelectorAll("button");
 }
 
-async function mount({ sidebarOpen }: { sidebarOpen: boolean }) {
+async function mount({ sidebarOpen, deployment = {} }: { sidebarOpen: boolean; deployment?: Partial<Deployment> }) {
   (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://prototype.example/pilot");
   const payload = btoa(JSON.stringify({ sub: "dana", name: "Dana", email: "dana@example.com" }));
   localStorage.setItem(
@@ -239,7 +240,7 @@ async function mount({ sidebarOpen }: { sidebarOpen: boolean }) {
       <TransportContext.Provider value={fakeTransport(backend)}>
         <App
           props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }}
-          deployment={{ backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null }}
+          deployment={{ backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null, ...deployment }}
           session={session}
           host={host!}
         />
@@ -309,6 +310,106 @@ test("Delete thread is offered only to someone the backend lets delete it, and t
     }
   } finally {
     backend.thread = detail;
+  }
+});
+
+/** A clipboard that records what was copied. */
+function recordingClipboard(): { text: string | null } {
+  const clipboard = { text: null as string | null };
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => void (clipboard.text = value) } });
+  return clipboard;
+}
+
+async function chooseAction(shadow: ShadowRoot, name: string) {
+  const item = [...shadow.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((each) => each.textContent === name)!;
+  await act(async () => item.click());
+  await frames();
+}
+
+const PAGE_KEY = "AbCdEfGhIjKlMnOpQrStUv";
+
+test("Copy link copies the thread's page on the website where the backend has thread pages and a website", async () => {
+  prototypePage();
+  const calls: { name: string; args: unknown }[] = [];
+  Object.assign(backend, { calls, threadPageKey: async () => PAGE_KEY });
+  const clipboard = recordingClipboard();
+  try {
+    const shadow = await mount({ sidebarOpen: true, deployment: { website: "https://critiqs.example" } });
+    await act(async () => shadow.querySelector<HTMLButtonElement>(".entry")!.click());
+    await frames();
+    await moreActions(shadow);
+    await chooseAction(shadow, "Copy link");
+    expect(clipboard.text).toBe(`https://critiqs.example/t/${PAGE_KEY}`);
+    expect(calls).toContainEqual({ name: "threadPageKey", args: { threadId: detail._id } });
+    expect(shadow.textContent).toContain("Link to thread copied");
+    // A message's own link still opens the prototype at that message: a thread page shows the whole thread.
+    clipboard.text = null;
+    const message = threadWindow(shadow)!.querySelector<HTMLElement>(".message")!;
+    await act(async () => message.querySelector<HTMLButtonElement>('[aria-label="Message actions"]')!.click());
+    await chooseAction(shadow, "Copy link to message");
+    expect(clipboard.text as string | null).toBe(`https://prototype.example/pilot?critiqs=${detail._id}.message`);
+  } finally {
+    Object.assign(backend, { calls: undefined, threadPageKey: undefined });
+  }
+});
+
+test("without a website for thread pages, Copy link copies the prototype's link and asks for no page key", async () => {
+  prototypePage();
+  const calls: { name: string; args: unknown }[] = [];
+  Object.assign(backend, { calls, threadPageKey: async () => PAGE_KEY });
+  const clipboard = recordingClipboard();
+  try {
+    const shadow = await mount({ sidebarOpen: true });
+    await act(async () => shadow.querySelector<HTMLButtonElement>(".entry")!.click());
+    await frames();
+    await moreActions(shadow);
+    await chooseAction(shadow, "Copy link");
+    expect(clipboard.text).toBe(`https://prototype.example/pilot?critiqs=${detail._id}`);
+    expect(calls.filter((call) => call.name === "threadPageKey")).toEqual([]);
+    expect(shadow.textContent).toContain("Link to thread copied");
+  } finally {
+    Object.assign(backend, { calls: undefined, threadPageKey: undefined });
+  }
+});
+
+test("a browser that refuses to copy says so instead of saying the link was copied", async () => {
+  prototypePage();
+  Object.assign(backend, { threadPageKey: async () => PAGE_KEY });
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => Promise.reject(new Error("Not allowed")) } });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: () => false });
+  try {
+    const shadow = await mount({ sidebarOpen: true, deployment: { website: "https://critiqs.example" } });
+    await act(async () => shadow.querySelector<HTMLButtonElement>(".entry")!.click());
+    await frames();
+    await moreActions(shadow);
+    await chooseAction(shadow, "Copy link");
+    expect(shadow.textContent).toContain(`Couldn't copy the link. Here it is: https://critiqs.example/t/${PAGE_KEY}`);
+    expect(shadow.textContent).not.toContain("Link to thread copied");
+  } finally {
+    Object.assign(backend, { threadPageKey: undefined });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: () => true });
+  }
+});
+
+test("a page key the backend refuses copies nothing and says why", async () => {
+  prototypePage();
+  Object.assign(backend, {
+    threadPageKey: async () => {
+      throw Object.assign(new Error("Refused"), { data: { code: "forbidden", message: "Only members of this project's organization can review it." } });
+    },
+  });
+  const clipboard = recordingClipboard();
+  try {
+    const shadow = await mount({ sidebarOpen: true, deployment: { website: "https://critiqs.example" } });
+    await act(async () => shadow.querySelector<HTMLButtonElement>(".entry")!.click());
+    await frames();
+    await moreActions(shadow);
+    await chooseAction(shadow, "Copy link");
+    expect(clipboard.text).toBeNull();
+    expect(shadow.textContent).toContain("Only members of this project's organization can review it.");
+    expect(shadow.textContent).not.toContain("Link to thread copied");
+  } finally {
+    Object.assign(backend, { threadPageKey: undefined });
   }
 });
 

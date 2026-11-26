@@ -32,6 +32,8 @@ export interface ThreadViewProps {
   version: string | null;
   reveal: RevealState;
   linkFor: (pageUrl: string, messageId: string | null) => string;
+  /** The thread's link for **Copy link**: its page on the Critiqs website where the backend has one, otherwise `linkFor`'s. */
+  shareLink: (pageUrl: string) => Promise<string>;
   /** False when the target can't be shown beside the thread, so its saved context is shown open. */
   targetShown: boolean;
   reply: ReplyState;
@@ -193,8 +195,17 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
   };
 
   const copyLink = async (messageId: string | null) => {
-    await copyText(props.linkFor(thread.anchor.evidence.url, messageId));
-    props.notify(messageId === null ? "Link to thread copied" : "Link to reply copied");
+    // A message's link opens it in the prototype: a thread page shows the whole thread, not one message.
+    const link = messageId === null ? props.shareLink(thread.anchor.evidence.url) : props.linkFor(thread.anchor.evidence.url, messageId);
+    let copied: boolean;
+    try {
+      copied = await copyText(link);
+    } catch (failure) {
+      props.notify(errorMessage(failure));
+      return;
+    }
+    if (!copied) props.notify(`Couldn't copy the link. Here it is: ${await link}`);
+    else props.notify(messageId === null ? "Link to thread copied" : "Link to reply copied");
   };
 
   const firstRevision = thread.messages[0]?.revision ?? null;

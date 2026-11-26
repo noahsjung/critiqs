@@ -167,6 +167,7 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
     attachScreenshot: (args) => change("attachScreenshot", args),
     markRead: (args) => change("markRead", args),
     markUnread: (threadId) => change("markUnread", { threadId }),
+    threadPageKey: (threadId) => call<string>("threadPageKey", { threadId }),
 
     exportThreads: (projectId, threadIds, cancelled) =>
       loadExport(

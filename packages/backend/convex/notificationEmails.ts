@@ -1,6 +1,6 @@
 "use node";
 
-import { deliverOne, resendMailer, sendPlanAlert } from "@critiqs/server";
+import { type DeliveryResult, deliverOne, resendMailer, sendPlanAlert } from "@critiqs/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
@@ -35,7 +35,7 @@ export const deliver = internalAction({
       return;
     }
     const secret = await linkSecret(ctx);
-    type Outcome = { deliveryId: Id<"deliveries">; result: "sent" | "skipped" | "failed"; reason?: string };
+    type Outcome = { deliveryId: Id<"deliveries">; result: DeliveryResult; reason?: string };
     const outcomes: Outcome[] = [];
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.CRITIQS_EMAIL_FROM;
@@ -51,6 +51,7 @@ export const deliver = internalAction({
         allowed: () => ctx.runQuery(internal.notifications.allowed, { id, claimToken }),
         page: ({ version, cursor }) => ctx.runQuery(internal.notifications.page, { id, claimToken, version, cursor }),
         stillMentions: (messageId) => ctx.runQuery(internal.notifications.mentioned, { id, claimToken, messageId: messageId as Id<"messages"> }),
+        pageKey: async () => void (await ctx.runMutation(internal.notifications.pageKey, { id, claimToken })),
         freeze: ({ version, fileId, to }) =>
           ctx.runMutation(internal.notifications.freeze, { id, claimToken, version, fileId: fileId as Id<"_storage">, to }),
         readFile: async (fileId) => {
@@ -65,7 +66,10 @@ export const deliver = internalAction({
         sendPrepared: (body, idempotencyKey) => mailer.sendPrepared!(body, idempotencyKey),
         sendMessage: (message) => mailer.send(message),
       });
-      if (outcome !== null) outcomes.push({ deliveryId: id, ...outcome });
+      // An email that isn't ready goes back in line at once, with its attempt, rather than after the rest of the batch:
+      // a slow send could otherwise let the claim lapse and another worker count it again.
+      if (outcome?.result === "deferred") await ctx.runMutation(internal.notifications.complete, { claimToken, outcomes: [{ deliveryId: id, ...outcome }] });
+      else if (outcome !== null) outcomes.push({ deliveryId: id, ...outcome });
     }
     await ctx.runMutation(internal.notifications.complete, { claimToken, outcomes });
     if (ids.length === BATCH || moreReplies) await ctx.scheduler.runAfter(0, internal.notificationEmails.deliver, {});
