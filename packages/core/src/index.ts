@@ -16,3 +16,4 @@ export * from "./inbox.ts";
 export * from "./panel-sign-in.ts";
 export * from "./project-addresses.ts";
 export * from "./project-name.ts";
+export * from "./page-layer/index.ts";
