@@ -54,7 +54,7 @@ each one asks of Critiqs.
 | Link back to the thread | Link attachment on the issue | Line in the issue's text | Remote link on the issue |
 | Team templates | The team's issue templates | The repository's `.github/ISSUE_TEMPLATE` files, including issue forms | No built-in templates; an issue type's fields, and a description the team pastes in |
 | Fields Critiqs must ask for | Team; optionally labels, priority, assignee | Repository; optionally labels, assignee | Project, issue type, and any field that issue type requires |
-| Status updates | Webhook to the Critiqs app | Webhook, through the Critiqs GitHub App, or an organization's or repository's webhook with the same secret | Webhook registered through Jira sign-in and renewed before it expires |
+| Status updates | Webhook to the Critiqs app | Webhook, through the Critiqs GitHub App, or, on a deployment one team runs, its organization's or repository's webhook with the same secret | Webhook registered through Jira sign-in and renewed before it expires |
 | One-time setup by the team | None, unless the workspace requires an admin to approve apps | A GitHub organization admin installs the Critiqs GitHub App | None, unless the site's admin restricts apps |
 
 To confirm while building, against each tracker's current API: how a Linear
@@ -510,12 +510,26 @@ Self-hosted deployments get the same features:
   (canceled), and Deleted (canceled). `issues` webhooks are signed with the
   webhook's secret and carry the issue's `updated_at`, which orders them as
   Linear's are ordered, so a late or repeated delivery changes nothing.
+  GitHub's deliveries carry no time of sending, so that time also bounds
+  them: an update more than a day old, or one without the time, is ignored,
+  and so is a deletion without it. A deletion with it counts however long
+  ago the issue last changed, since GitHub never brings a deleted issue's ID
+  back. Each repository's deliveries may change linked tickets 300 times a
+  minute; past that the route answers 429.
   Transferred issues aren't followed by webhook; the check when a thread
   opens reads them. The ticket's permanent ID is the issue's node ID, and
   its site is its repository (`owner/name`): a delivery changes only links to
   issues in the repository it names. A renamed repository's deliveries name
   its new name, so its tickets' status comes from the check when a thread
   opens.
+- **The webhook secret.** Anyone who holds `CRITIQS_GITHUB_WEBHOOK_SECRET`
+  can sign a delivery about any repository and issue, and so change, or
+  close and resolve through, any GitHub ticket on the deployment. Set it
+  only in the operator's GitHub App, or in a webhook of an organization or
+  repository the operator runs. On a deployment several teams share, such
+  as Critiqs Cloud, never give the secret to a team for its own webhooks:
+  their tickets' status comes through the operator's app, or from the check
+  when a thread opens.
 - **Safety.** As for Linear: every call goes through Critiqs's tracker
   endpoint (GitHub's own address only, no redirects, 15 seconds, 2 MB), and
   every answer is checked (IDs and addresses, names and titles cut, lists

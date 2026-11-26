@@ -236,9 +236,11 @@ test("a signed GitHub webhook updates every thread linking the issue and Resolve
   await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true });
   const deliver = (delivery: { body: string; headers: Record<string, string> }) => t.fetch("/trackers/github/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
   const statuses = async () => (await list(sam, { projectId })).map((row) => row.tickets?.[0]?.status?.label);
+  /** GitHub's time of a change `ago` milliseconds before now: deliveries arrive within seconds of it. */
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
-  const closed = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", stateReason: "completed", updatedAt: "2026-06-01T10:00:00Z" } });
-  expect((await deliver(await githubIssueWebhook("not-the-secret", { action: "closed", issue: { nodeId: existing.nodeId, state: "closed", updatedAt: "2026-06-01T10:00:00Z" } }))).status).toBe(401);
+  const closed = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", stateReason: "completed", updatedAt: ago(60_000) } });
+  expect((await deliver(await githubIssueWebhook("not-the-secret", { action: "closed", issue: { nodeId: existing.nodeId, state: "closed", updatedAt: ago(60_000) } }))).status).toBe(401);
   expect((await deliver({ ...closed, body: closed.body.replace('"closed"', '"open"') })).status).toBe(401);
   expect(await statuses()).toEqual(["Open", "Open"]);
 
@@ -247,14 +249,17 @@ test("a signed GitHub webhook updates every thread linking the issue and Resolve
   for (const id of [threadId, otherId]) expect(await getThread(sam, { threadId: id })).toMatchObject({ status: "resolved", resolvedByTickets: true });
   // The same delivery again, or an older change delivered late: still closed.
   expect((await deliver(closed)).status).toBe(200);
-  expect((await deliver(await githubIssueWebhook(SECRET, { action: "edited", issue: { nodeId: existing.nodeId, state: "open", updatedAt: "2026-05-01T10:00:00Z" } }))).status).toBe(200);
+  expect((await deliver(await githubIssueWebhook(SECRET, { action: "edited", issue: { nodeId: existing.nodeId, state: "open", updatedAt: ago(120_000) } }))).status).toBe(200);
   expect(await statuses()).toEqual(["Closed", "Closed"]);
   // GitHub's ping when the webhook is added is answered and ignored.
-  const ping = await githubIssueWebhook(SECRET, { action: "created", issue: { nodeId: existing.nodeId, state: "open", updatedAt: "2026-07-01T10:00:00Z" }, event: "ping" });
+  const ping = await githubIssueWebhook(SECRET, { action: "created", issue: { nodeId: existing.nodeId, state: "open", updatedAt: ago(0) }, event: "ping" });
   expect((await deliver(ping)).status).toBe(200);
   expect(await statuses()).toEqual(["Closed", "Closed"]);
+  // A change GitHub signed two days ago, sent again now, is past what a delivery is good for.
+  expect((await deliver(await githubIssueWebhook(SECRET, { action: "reopened", issue: { nodeId: existing.nodeId, state: "open", updatedAt: ago(2 * 86_400_000) } }))).status).toBe(200);
+  expect(await statuses()).toEqual(["Closed", "Closed"]);
   // A deleted issue shows Deleted.
-  expect((await deliver(await githubIssueWebhook(SECRET, { action: "deleted", issue: { nodeId: existing.nodeId, state: "closed", updatedAt: "2026-06-01T10:00:00Z" } }))).status).toBe(200);
+  expect((await deliver(await githubIssueWebhook(SECRET, { action: "deleted", issue: { nodeId: existing.nodeId, state: "closed", updatedAt: ago(60_000) } }))).status).toBe(200);
   expect(await statuses()).toEqual(["Deleted", "Deleted"]);
 
   // Without the secret, the route refuses every call.

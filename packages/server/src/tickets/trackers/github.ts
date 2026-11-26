@@ -811,17 +811,27 @@ function hexBytes(hex: string): Uint8Array<ArrayBuffer> | null {
   return bytes;
 }
 
+/** How old the issue's update in a delivery may be, by GitHub's own time in it, for the delivery to be used: GitHub delivers within seconds, and lets an operator send one again for a few days. */
+export const GITHUB_DELIVERY_MAX_AGE_MS = 24 * 60 * 60_000;
+/** How far ahead of Critiqs's clock the issue's update time may be. */
+const GITHUB_CLOCK_LEEWAY_MS = 5 * 60_000;
+
 /**
  * Reads a call to the GitHub webhook route. GitHub signs each delivery's raw
  * body with the webhook's secret (`X-Hub-Signature-256: sha256=<hex
  * HMAC-SHA256>`); the signature is checked over the body's exact bytes, in
- * constant time, before anything in the body is decoded or read. GitHub's
- * deliveries carry no time of sending, so a replayed delivery is told apart
- * by the issue's own `updated_at`, which the status is saved as of: an older
- * or repeated one changes nothing. `issues` events become the issue's status;
- * a deleted issue is Deleted, which counts as canceled.
+ * constant time, before anything in the body is decoded or read. What is
+ * used is only what the signature covers: the issue, its repository, and its
+ * own `updated_at`, which the status is saved as of, so an older or repeated
+ * delivery changes nothing. GitHub's deliveries carry no time of sending, so
+ * that time also bounds how long a signed delivery is good for: an update
+ * more than `GITHUB_DELIVERY_MAX_AGE_MS` old, or one without the time, is
+ * ignored. A deleted issue is Deleted, which counts as canceled, as of its
+ * last update, whenever that was: GitHub never brings a deleted issue's ID
+ * back, so a deletion delivered again only says what is still true. A
+ * deletion without that time is ignored, never placed at its arrival.
  */
-export async function readGithubWebhook(secret: string, rawBody: Uint8Array<ArrayBuffer>, signature: string | null, event: string | null): Promise<GithubWebhook> {
+export async function readGithubWebhook(secret: string, rawBody: Uint8Array<ArrayBuffer>, signature: string | null, event: string | null, now: number): Promise<GithubWebhook> {
   const given = signature === null || !signature.trim().startsWith("sha256=") ? null : hexBytes(signature.trim().slice("sha256=".length));
   if (given === null) return { status: "refused", reason: "missing or malformed signature" };
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
@@ -840,6 +850,8 @@ export async function readGithubWebhook(secret: string, rawBody: Uint8Array<Arra
   const fullName = isRecord(body.repository) && typeof body.repository.full_name === "string" ? body.repository.full_name : null;
   if (fullName === null || !REPOSITORY.test(fullName)) return { status: "ignored" };
   const asOf = timeOf(issue.updated_at);
+  // Without the issue's own time, or with one ahead of now, a delivery can't be placed in order.
+  if (asOf === null || asOf > now + GITHUB_CLOCK_LEEWAY_MS) return { status: "ignored" };
   const update = (status: TicketStatus, deleted = false): GithubWebhook => ({
     status: "update",
     update: { tracker: "github", externalId: issue.node_id as string, site: githubSite(fullName), status, asOf, deleted },
@@ -851,6 +863,6 @@ export async function readGithubWebhook(secret: string, rawBody: Uint8Array<Arra
     case "transferred":
       return { status: "ignored" };
     default:
-      return asOf === null ? { status: "ignored" } : update(githubStatus(issue.state, typeof issue.state_reason === "string" ? issue.state_reason : null));
+      return now - asOf > GITHUB_DELIVERY_MAX_AGE_MS ? { status: "ignored" } : update(githubStatus(issue.state, typeof issue.state_reason === "string" ? issue.state_reason : null));
   }
 }

@@ -234,10 +234,14 @@ const MAX_GITHUB_WEBHOOK_BYTES = 1024 * 1024;
 /**
  * GitHub's webhooks: the operator's GitHub App's (set its webhook address to
  * `<deployment site>/trackers/github/webhook`, subscribed to Issues), or an
- * organization's or repository's webhook with the same secret. Each
+ * organization's or repository's webhook with the same secret on a
+ * deployment one team runs: whoever holds the secret can sign a delivery
+ * about any repository, so a deployment several teams share never gives it
+ * out (docs/tickets.md, "GitHub Issues"). Each
  * delivery's `X-Hub-Signature-256` is checked with
  * `CRITIQS_GITHUB_WEBHOOK_SECRET` before anything in it is used. An issue's
- * new status reaches every thread that links it; other events, such as the
+ * new status reaches every thread that links it, up to the repository's
+ * updates for the minute (429 past them); other events, such as the
  * `ping` GitHub sends when a webhook is added, are answered 200 and ignored.
  */
 export const githubWebhook = httpAction(async (ctx, request) => {
@@ -246,8 +250,8 @@ export const githubWebhook = httpAction(async (ctx, request) => {
   const body = await readBoundedBody(request, MAX_GITHUB_WEBHOOK_BYTES);
   if (body === "invalid") return new Response("Content-Length isn't a number.", { status: 400 });
   if (body === "too-large") return new Response("Too large.", { status: 413 });
-  const read = await readGithubWebhook(secret, body, request.headers.get("X-Hub-Signature-256"), request.headers.get("X-GitHub-Event"));
+  const read = await readGithubWebhook(secret, body, request.headers.get("X-Hub-Signature-256"), request.headers.get("X-GitHub-Event"), Date.now());
   if (read.status === "refused") return new Response("Not a delivery from GitHub.", { status: 401 });
-  if (read.status === "update") await ctx.runMutation(internal.ticketStatus.apply, { update: read.update });
+  if (read.status === "update" && (await ctx.runMutation(internal.ticketStatus.apply, { update: read.update })).limited) return tooManyUpdates();
   return new Response(null, { status: 200 });
 });

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
-import { STATUS_CHECK_MS } from "@critiqs/server";
+import { STATUS_CHECK_MS, WEBHOOK_UPDATES_PER_MINUTE } from "@critiqs/server";
 import { addGithubIssue, type GithubStandIn, githubIssueWebhook, githubStandIn } from "@critiqs/server/github-standin";
 import { api } from "../convex/_generated/api";
 import { anchor, reviewer, setup } from "./harness";
@@ -118,11 +118,11 @@ test("GitHub attack: a signed delivery about another repository changes no link 
   const existing = addGithubIssue(github, "acme/web", { number: 12, title: "Existing" });
   await lee.action(api.tickets.link, { threadId, tracker: "github", externalId: existing.nodeId, comment: false });
   const deliver = (delivery: { body: string; headers: Record<string, string> }) => t.fetch("/trackers/github/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
-  const other = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: "2099-01-01T00:00:00Z" }, repository: "other/web" } as never);
+  const other = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: new Date().toISOString() }, repository: "other/web" } as never);
   expect((await deliver(other)).status).toBe(200);
   expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("Open");
   // The same change about the issue's own repository does.
-  const own = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: "2099-01-01T00:00:00Z" } });
+  const own = await githubIssueWebhook(SECRET, { action: "closed", issue: { nodeId: existing.nodeId, number: 12, state: "closed", updatedAt: new Date().toISOString() } });
   expect((await deliver(own)).status).toBe(200);
   expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("Closed");
 });
@@ -132,4 +132,24 @@ test("GitHub attack: the webhook route reads at most a megabyte of a delivery", 
   const huge = "x".repeat(2 * 1024 * 1024);
   const response = await t.fetch("/trackers/github/webhook", { method: "POST", headers: { "Content-Type": "application/json", "X-GitHub-Event": "issues", "X-Hub-Signature-256": "sha256=00" }, body: huge });
   expect(response.status).toBe(413);
+});
+
+test("GitHub attack: past a repository's status updates for the minute, a delivery is answered 429 and changes nothing", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const lee = t.withIdentity(reviewer("Lee"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
+  const threadId = await lee.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
+  await lee.action(api.trackers.connectWithToken, { tracker: "github", token: "github_pat_lee" });
+  const existing = addGithubIssue(github, "acme/web", { number: 12, title: "Existing" });
+  await lee.action(api.tickets.link, { threadId, tracker: "github", externalId: existing.nodeId, comment: false });
+  const deliver = (delivery: { body: string; headers: Record<string, string> }) => t.fetch("/trackers/github/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
+  const now = Date.now();
+  const statuses: number[] = [];
+  for (let index = 0; index <= WEBHOOK_UPDATES_PER_MINUTE; index++) {
+    const state = index % 2 === 0 ? "closed" : "open";
+    statuses.push((await deliver(await githubIssueWebhook(SECRET, { action: state === "closed" ? "closed" : "reopened", issue: { nodeId: existing.nodeId, number: 12, state, updatedAt: new Date(now - 60_000 + index).toISOString() } }))).status);
+  }
+  expect(statuses.slice(0, WEBHOOK_UPDATES_PER_MINUTE).every((status) => status === 200)).toBe(true);
+  expect(statuses.at(-1)).toBe(429);
 });

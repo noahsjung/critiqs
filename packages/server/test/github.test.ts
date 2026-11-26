@@ -434,6 +434,8 @@ describe("templates and labels", () => {
 describe("GitHub webhooks", () => {
   const secret = "github-webhook-secret";
   const bytes = (body: string) => new TextEncoder().encode(body) as Uint8Array<ArrayBuffer>;
+  /** A moment after the deliveries below were sent. */
+  const NOW = Date.parse("2026-03-01T12:00:00Z");
 
   test("the signature is GitHub's documented one: sha256= and the hex HMAC of the exact body", async () => {
     expect(await githubSignature("It's a Secret to Everybody", "Hello, World!")).toBe("sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17");
@@ -441,40 +443,56 @@ describe("GitHub webhooks", () => {
 
   test("a signed issues event becomes the issue's status as of the issue's own update time", async () => {
     const { body, headers } = await githubIssueWebhook(secret, { action: "closed", issue: { nodeId: "I_1", state: "closed", stateReason: "completed", updatedAt: "2026-03-01T10:00:00Z" } });
-    expect(await readGithubWebhook(secret, bytes(body), headers["X-Hub-Signature-256"]!, "issues")).toEqual({
+    expect(await readGithubWebhook(secret, bytes(body), headers["X-Hub-Signature-256"]!, "issues", NOW)).toEqual({
       status: "update",
       update: { tracker: "github", externalId: "I_1", site: "acme/web", status: { label: "Closed", category: "done" }, asOf: Date.parse("2026-03-01T10:00:00Z"), deleted: false },
     });
     const reopened = await githubIssueWebhook(secret, { action: "reopened", issue: { nodeId: "I_1", state: "open", stateReason: "reopened", updatedAt: "2026-03-01T11:00:00Z" } });
-    const read = await readGithubWebhook(secret, bytes(reopened.body), reopened.headers["X-Hub-Signature-256"]!, "issues");
+    const read = await readGithubWebhook(secret, bytes(reopened.body), reopened.headers["X-Hub-Signature-256"]!, "issues", NOW);
     expect(read.status === "update" && read.update.status).toEqual({ label: "Open", category: "open" });
   });
 
   test("a deleted issue counts as canceled, labeled Deleted", async () => {
     const { body, headers } = await githubIssueWebhook(secret, { action: "deleted", issue: { nodeId: "I_1", state: "open", updatedAt: "2026-03-01T10:00:00Z" } });
-    const read = await readGithubWebhook(secret, bytes(body), headers["X-Hub-Signature-256"]!, "issues");
+    const read = await readGithubWebhook(secret, bytes(body), headers["X-Hub-Signature-256"]!, "issues", NOW);
     expect(read.status === "update" && read.update).toMatchObject({ status: { label: "Deleted", category: "canceled" }, deleted: true });
+  });
+
+  test("a delivery is used only as of the time GitHub signed into it: one without the issue's update time, or one whose update is over a day old, changes nothing", async () => {
+    const sent = Date.parse("2026-03-01T10:00:00Z");
+    const at = (updatedAt: string, action = "closed") => githubIssueWebhook(secret, { action, issue: { nodeId: "I_1", state: "closed", stateReason: "completed", updatedAt } });
+    const read = async (delivery: { body: string; headers: Record<string, string> }, now: number) => await readGithubWebhook(secret, bytes(delivery.body), delivery.headers["X-Hub-Signature-256"]!, "issues", now);
+    // Sent a moment after the change: used.
+    expect((await read(await at("2026-03-01T10:00:00Z"), sent + 5_000)).status).toBe("update");
+    // The same signed delivery sent again two days later, such as a recorded one: not used.
+    expect(await read(await at("2026-03-01T10:00:00Z"), sent + 2 * 86_400_000)).toEqual({ status: "ignored" });
+    // A deletion without the issue's own time can't be placed in order, so it isn't used as of whenever it arrives.
+    const deletion = await at("not a time", "deleted");
+    expect(await read(deletion, sent)).toEqual({ status: "ignored" });
+    // A deletion with it is used, however long ago the issue last changed: GitHub never brings a deleted issue's ID back.
+    const deleted = await read(await at("2025-01-01T00:00:00Z", "deleted"), sent);
+    expect(deleted.status === "update" && deleted.update).toMatchObject({ deleted: true, asOf: Date.parse("2025-01-01T00:00:00Z") });
   });
 
   test("a wrong, missing, or malformed signature, or a body changed after signing, is refused before the body is read", async () => {
     const { body, headers } = await githubIssueWebhook(secret, { action: "closed", issue: { nodeId: "I_1", state: "closed", updatedAt: "2026-03-01T10:00:00Z" } });
     const signature = headers["X-Hub-Signature-256"]!;
-    expect((await readGithubWebhook("another-secret", bytes(body), signature, "issues")).status).toBe("refused");
-    expect((await readGithubWebhook(secret, bytes(body), null, "issues")).status).toBe("refused");
-    expect((await readGithubWebhook(secret, bytes(body), signature.slice("sha256=".length), "issues")).status).toBe("refused");
-    expect((await readGithubWebhook(secret, bytes(body), "sha1=abc", "issues")).status).toBe("refused");
-    expect((await readGithubWebhook(secret, bytes(body.replace("closed", "open")), signature, "issues")).status).toBe("refused");
+    expect((await readGithubWebhook("another-secret", bytes(body), signature, "issues", NOW)).status).toBe("refused");
+    expect((await readGithubWebhook(secret, bytes(body), null, "issues", NOW)).status).toBe("refused");
+    expect((await readGithubWebhook(secret, bytes(body), signature.slice("sha256=".length), "issues", NOW)).status).toBe("refused");
+    expect((await readGithubWebhook(secret, bytes(body), "sha1=abc", "issues", NOW)).status).toBe("refused");
+    expect((await readGithubWebhook(secret, bytes(body.replace("closed", "open")), signature, "issues", NOW)).status).toBe("refused");
     // Signed bytes that aren't UTF-8 are refused, never replaced.
     const invalid = new Uint8Array([0x7b, 0xff, 0x7d]);
-    expect(await readGithubWebhook(secret, invalid, await githubSignature(secret, invalid), "issues")).toEqual({ status: "refused", reason: "unreadable body" });
+    expect(await readGithubWebhook(secret, invalid, await githubSignature(secret, invalid), "issues", NOW)).toEqual({ status: "refused", reason: "unreadable body" });
   });
 
   test("other events, pull requests, and transfers are ignored", async () => {
     const ping = await githubIssueWebhook(secret, { action: "created", issue: { nodeId: "I_1", state: "open", updatedAt: "2026-03-01T10:00:00Z" }, event: "ping" });
-    expect(await readGithubWebhook(secret, bytes(ping.body), ping.headers["X-Hub-Signature-256"]!, "ping")).toEqual({ status: "ignored" });
+    expect(await readGithubWebhook(secret, bytes(ping.body), ping.headers["X-Hub-Signature-256"]!, "ping", NOW)).toEqual({ status: "ignored" });
     const pull = await githubIssueWebhook(secret, { action: "closed", issue: { nodeId: "PR_1", state: "closed", updatedAt: "2026-03-01T10:00:00Z", pullRequest: true } });
-    expect(await readGithubWebhook(secret, bytes(pull.body), pull.headers["X-Hub-Signature-256"]!, "issues")).toEqual({ status: "ignored" });
+    expect(await readGithubWebhook(secret, bytes(pull.body), pull.headers["X-Hub-Signature-256"]!, "issues", NOW)).toEqual({ status: "ignored" });
     const moved = await githubIssueWebhook(secret, { action: "transferred", issue: { nodeId: "I_1", state: "open", updatedAt: "2026-03-01T10:00:00Z" } });
-    expect(await readGithubWebhook(secret, bytes(moved.body), moved.headers["X-Hub-Signature-256"]!, "issues")).toEqual({ status: "ignored" });
+    expect(await readGithubWebhook(secret, bytes(moved.body), moved.headers["X-Hub-Signature-256"]!, "issues", NOW)).toEqual({ status: "ignored" });
   });
 });

@@ -262,8 +262,8 @@ test("GitHub attack: search words can't become qualifiers or operators", async (
 
 test("GitHub attack: a signed delivery about another repository names that repository, so it reaches no link in this one", async () => {
   const secret = "s";
-  const other = await githubIssueWebhook(secret, { action: "closed", issue: { nodeId: "I_1", state: "closed", updatedAt: "2026-03-01T10:00:00Z" }, repository: "other/web" } as never);
-  const read = await readGithubWebhook(secret, new Uint8Array(new TextEncoder().encode(other.body)), other.headers["X-Hub-Signature-256"]!, "issues");
+  const other = await githubIssueWebhook(secret, { action: "closed", issue: { nodeId: "I_1", state: "closed", updatedAt: new Date().toISOString() }, repository: "other/web" } as never);
+  const read = await readGithubWebhook(secret, new Uint8Array(new TextEncoder().encode(other.body)), other.headers["X-Hub-Signature-256"]!, "issues", Date.now());
   expect(read.status === "update" ? read.update.site : "ignored").not.toBeNull();
   expect(read.status === "update" ? read.update.site : "ignored").not.toBe("acme/web");
 });
