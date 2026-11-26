@@ -5,6 +5,7 @@ import {
   checkedAdapter,
   type CreatedTicket,
   type CreateOutcome,
+  type HeldTicket,
   type SignInTokens,
   type TicketStatusUpdate,
   type TrackerAdapter,
@@ -14,8 +15,10 @@ import {
   type TrackerLabel,
   TrackerRefusal,
   type TrackerTemplate,
+  type TicketPlace,
   type TrackerToken,
   trackerEndpoint,
+  trackerWebOrigins,
 } from "./index.ts";
 
 // GitHub Issues, through GitHub's REST API (https://docs.github.com/en/rest),
@@ -305,7 +308,22 @@ function nameOf(value: unknown): { fullName: string; name: string } | null {
   return { fullName: value.full_name, name: value.name };
 }
 
-/** Where an issue lives, from its page's address (`…/owner/repo/issues/12`). */
+/** An issue's repository and number, from its key (`repo#12`) and its site (`owner/repo`); null when they don't agree. */
+function issueIn(ticket: { key: string; site: string | null }): { repository: { owner: string; name: string }; number: number } | null {
+  const site = ticket.site === null ? null : REPOSITORY.exec(ticket.site);
+  const key = /^([A-Za-z0-9._-]{1,100})#(\d{1,9})$/.exec(ticket.key);
+  if (site === null || key === null || key[1]!.toLowerCase() !== site[2]!.toLowerCase()) return null;
+  return { repository: { owner: site[1]!, name: site[2]! }, number: Number(key[2]) };
+}
+
+/** Where Critiqs writes to an issue it holds: the repository and number its site and key name, which the shared check has matched with its address. */
+function issueOf(ticket: HeldTicket): { repository: { owner: string; name: string }; number: number } {
+  const issue = issueIn(ticket);
+  if (issue === null) throw new TrackerRefusal("invalid", "Critiqs's record of this issue doesn't name its repository and number. Unlink it and link it again.");
+  return issue;
+}
+
+/** Where an issue lives, from its page's address (`…/owner/repo/issues/12`), for an address a person pasted to search. */
 function issueAddress(url: string): { repository: { owner: string; name: string }; number: number } {
   let parts: string[];
   try {
@@ -318,6 +336,22 @@ function issueAddress(url: string): { repository: { owner: string; name: string 
     throw unexpected("issue address");
   }
   return { repository: { owner, name }, number: Number(number) };
+}
+
+/**
+ * Where GitHub's issues are: `<GitHub>/<owner>/<repo>/issues/<number>`, from
+ * the issue's site (its repository) and key (its number). An address is kept
+ * only when it is that page, on GitHub's own address, in any letter case.
+ */
+function githubPlace(origins: string[]): TicketPlace {
+  return (ticket) => {
+    const issue = issueIn(ticket);
+    const url = webAddress(ticket.url);
+    if (issue === null || url === null) return null;
+    const path = `/${issue.repository.owner}/${issue.repository.name}/issues/${issue.number}`.toLowerCase();
+    const address = new URL(url);
+    return origins.includes(address.origin) && address.pathname.replace(/\/$/, "").toLowerCase() === path && address.search === "" && address.hash === "" ? url : null;
+  };
 }
 
 /**
@@ -411,7 +445,9 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
     const answer = await send(to, token, repoPath(repository, "issues", number));
     if (answer.response.status === 404 || answer.response.status === 410) return null;
     requireOk(answer, token);
-    return parseRestIssue(answer.body, repository);
+    const issue = parseRestIssue(answer.body, repository);
+    // Another number than the one asked for isn't this issue.
+    return issue === null || issue.key !== `${repository.name}#${number}` ? null : issue;
   };
 
   /** The repositories the person can create issues in: where the app is installed and they have access, or what their token reaches. */
@@ -608,7 +644,7 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       return null;
     },
     linkBack: async (token, ticket, link) => {
-      const { repository, number } = issueAddress(ticket.url);
+      const { repository, number } = issueOf(ticket);
       const written = markdownLink("open the thread", link.url);
       // The address as Critiqs writes it in a link, `&` escaped, and as it is.
       const forms = [link.url, written.slice(written.indexOf("(<") + 2, -2)];
@@ -625,7 +661,7 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       await rest(to, token, repoPath(repository, "issues", number, "comments"), { method: "POST", json: { body } }, gone);
     },
     comment: async (token, ticket, body) => {
-      const { repository, number } = issueAddress(ticket.url);
+      const { repository, number } = issueOf(ticket);
       await rest(to, token, repoPath(repository, "issues", number, "comments"), { method: "POST", json: { body } }, gone);
     },
     status: async (token, ticket) => {
@@ -651,7 +687,7 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       return file === null ? null : { id: templateId, name: file.name, destinationId, body: file.body };
     },
     labels,
-  }, (ticket) => webAddress(ticket.url));
+  }, githubPlace(trackerWebOrigins(endpoint, GITHUB_APP_URL)));
 }
 
 // ---------------------------------------------------------------------------

@@ -131,7 +131,9 @@ most 15 seconds for an answer, and reads at most 2 MB of one. It keeps no ID,
 key, or address longer than it can show, and cuts long names, titles, and
 status labels. An answer about a ticket must be about the ticket Critiqs asked
 for, and a ticket's address must be the tracker's page for its key: Linear's
-must be on Linear and name the issue's key. Critiqs adds a link back or a
+must be on Linear and name the issue's key; GitHub's must be GitHub's page for
+the issue's repository and number, and a link back or comment goes to that
+repository and number. Critiqs adds a link back or a
 comment only to a ticket it holds whose address still agrees with its key and
 site, and goes to it by what Critiqs holds, never by an address a tracker
 named.

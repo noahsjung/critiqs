@@ -125,11 +125,66 @@ test("GitHub attack: an issue address that isn't a web address is never kept as 
 test("GitHub attack: the issue address a ticket carries is never called; every request goes to GitHub's own address", async () => {
   const { standIn, sent, github } = recorded();
   const existing = addGithubIssue(standIn, "acme/web", { number: 7, title: "Existing" });
-  const ref = { tracker: "github" as const, externalId: existing.nodeId, key: "web#7", url: md<string>("https://169.254.169.254/acme/web/issues/7"), title: "Existing" };
-  await github.linkBack(PAT, ref as never, { url: md("https://review.example/?critiqs=t1"), title: "t" });
-  await github.comment(PAT, ref as never, md("> Summary\n"));
+  const ref = { tracker: "github" as const, externalId: existing.nodeId, key: "web#7", url: md<string>("https://169.254.169.254/acme/web/issues/7"), title: "Existing", site: "acme/web" };
+  // An address that isn't GitHub's page for the issue: nothing is written, and nothing is called.
+  expect((await outcome(github.linkBack(PAT, ref, { url: md("https://review.example/?critiqs=t1"), title: "t" }))).ok).toBe(false);
+  expect((await outcome(github.comment(PAT, ref, md("> Summary\n")))).ok).toBe(false);
+  expect(sent).toEqual([]);
+  // GitHub's own page for it: written, at GitHub's own address.
+  const held = { ...ref, url: md<string>(`${standIn.origin}/acme/web/issues/7`) };
+  await github.linkBack(PAT, held, { url: md("https://review.example/?critiqs=t1"), title: "t" });
+  await github.comment(PAT, held, md("> Summary\n"));
   expect(sent.length).toBeGreaterThan(0);
   expect(sent.filter((request) => !request.url.startsWith(standIn.origin))).toEqual([]);
+});
+
+test("GitHub attack: a write goes to the issue Critiqs holds, by its repository and number, never to one an address names", async () => {
+  const { standIn, sent, github } = recorded();
+  const mine = addGithubIssue(standIn, "acme/web", { number: 7, title: "Mine" });
+  const other = addGithubIssue(standIn, "acme/api", { number: 9, title: "Someone else's" });
+  // Held as issue 7 in acme/web, but its address names acme/api#9, which the person's token can also write to.
+  const crossed = { tracker: "github" as const, externalId: mine.nodeId, key: "web#7", url: md<string>(`${standIn.origin}/acme/api/issues/9`), title: "Mine", site: "acme/web" };
+  expect((await outcome(github.linkBack(PAT, crossed, { url: md("https://review.example/?critiqs=t1"), title: "Department is wrong" }))).ok).toBe(false);
+  expect((await outcome(github.comment(PAT, crossed, md("> Summary\n")))).ok).toBe(false);
+  expect(standIn.comments.filter((comment) => comment.issueNodeId === other.nodeId)).toEqual([]);
+  expect(sent).toEqual([]);
+  // Held consistently: the comment lands on issue 7, as its repository and number say.
+  await github.comment(PAT, { ...crossed, url: md<string>(`${standIn.origin}/acme/web/issues/7`) }, md("> Summary\n"));
+  expect(standIn.comments.map((comment) => comment.issueNodeId)).toEqual([mine.nodeId]);
+});
+
+test("GitHub attack: an answer about another issue than the one asked for, or whose address isn't GitHub's page for it, is refused", async () => {
+  const { standIn, github } = recorded();
+  const mine = addGithubIssue(standIn, "acme/web", { number: 7, title: "Mine" });
+  const node = (overrides: Record<string, unknown>) =>
+    Response.json({
+      data: {
+        node: { __typename: "Issue", id: mine.nodeId, number: 7, title: "Mine", url: `${standIn.origin}/acme/web/issues/7`, state: "OPEN", stateReason: null, updatedAt: "2026-01-01T00:00:00Z", repository: { name: "web", nameWithOwner: "acme/web" }, ...overrides },
+      },
+    });
+  let answer = node({ id: "I_someone_else", repository: { name: "secret", nameWithOwner: "acme/secret" }, number: 9, url: `${standIn.origin}/acme/secret/issues/9` });
+  standIn.intercept = (method, path) => (method === "POST" && path === "/graphql" ? answer : undefined);
+  expect((await outcome(github.get(PAT, mine.nodeId))).ok).toBe(false);
+  const held = { tracker: "github" as const, externalId: mine.nodeId, key: "web#7", url: `${standIn.origin}/acme/web/issues/7`, title: "Mine", site: "acme/web" };
+  answer = node({ id: "I_someone_else" });
+  expect((await outcome(github.status(PAT, held))).ok).toBe(false);
+  // The right node, but an address on another repository, another number, or another host.
+  for (const url of [`${standIn.origin}/acme/secret/issues/7`, `${standIn.origin}/acme/web/issues/8`, "https://evil.example/acme/web/issues/7"]) {
+    answer = node({ url });
+    expect((await outcome(github.get(PAT, mine.nodeId))).ok).toBe(false);
+  }
+  answer = node({});
+  expect((await github.get(PAT, mine.nodeId)).url).toBe(`${standIn.origin}/acme/web/issues/7`);
+  // A created issue whose page is in another repository isn't kept as the one created.
+  standIn.intercept = (method, path) =>
+    method === "POST" && path === "/repos/acme/web/issues" ? Response.json(issueJson({ number: 1, html_url: `${standIn.origin}/acme/secret/issues/1` }), { status: 201 }) : undefined;
+  expect((await create(github)).status).toBe("unknown");
+  // A search result whose page doesn't match its repository and number is left out.
+  standIn.intercept = (method, path) =>
+    method === "GET" && path === "/search/issues"
+      ? Response.json({ items: [issueJson({ number: 3, html_url: `${standIn.origin}/acme/secret/issues/3`, repository_url: `${standIn.origin}/repos/acme/web` })] })
+      : undefined;
+  expect(await github.search(PAT, "label")).toEqual([]);
 });
 
 test("GitHub attack: a redirect isn't followed, so the person's token never reaches another address", async () => {
