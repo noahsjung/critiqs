@@ -6,9 +6,9 @@
  * Dependency-free, like setup.mjs, so it runs under Node and Bun without a build.
  */
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   callConvex,
   CLOUD_BACKEND_URL,
@@ -320,6 +320,27 @@ function bury(path, token) {
   rmSync(tombstone, { recursive: true, force: true });
 }
 
+/**
+ * Removes what `bury` left behind when its process stopped between renaming
+ * and removing: `<lock>.<token>.gone` and `<lock>.break.<token>.gone`. Nothing
+ * uses a buried lock again, so any of them can go, whoever left it.
+ */
+function sweepBuried(lock) {
+  const prefix = `${basename(lock)}.`;
+  let names;
+  try {
+    names = readdirSync(dirname(lock));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(".gone")) continue;
+    try {
+      rmSync(join(dirname(lock), name), { recursive: true, force: true });
+    } catch {}
+  }
+}
+
 /** Removes the lock if its heartbeat is still stale, holding the breaker; true when the caller may try again at once. */
 function takeOverAbandoned(lock, token, staleMs) {
   const breaker = `${lock}.break`;
@@ -385,6 +406,7 @@ async function withLock(file, work, { waitMs = 15_000, staleMs = STALE_LOCK_MS }
   const held = () => {
     if (!mine()) throw new LockLostError("Another Critiqs process took over this computer's sign-in. Try again.");
   };
+  sweepBuried(lock);
   const heartbeat = setInterval(() => {
     try {
       if (mine()) utimesSync(owner, new Date(), new Date());

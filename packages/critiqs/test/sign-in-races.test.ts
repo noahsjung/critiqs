@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accessTokenFor, signOutComputer } from "../bin/agent.mjs";
@@ -391,3 +391,20 @@ test("a sign-in another process finishes while sign-out ends the sessions kept a
   expect(read(config).recovered).toBeUndefined();
   expect(await usableToken(env, service)).toBe("a2");
 }, 30_000);
+
+test("what a process that stopped while removing a lock left behind is cleared by the next one to take the lock", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  service.open("r1");
+  save(config, { refreshToken: "r1", accessToken: token({ exp: (service.now() + 10 * MINUTE) / 1000 }), accessExpiresAt: service.now() + 10 * MINUTE });
+  // A lock and a breaker renamed aside but not yet removed when their processes stopped.
+  for (const left of [`${signInFile(config)}.lock.0123456789abcdef01234567.gone`, `${signInFile(config)}.lock.break.89abcdef0123456789abcdef.gone`]) {
+    mkdirSync(left);
+    writeFileSync(join(left, "owner"), "0123456789abcdef01234567");
+  }
+  // Another sign-in file's lock leftovers aren't this one's.
+  mkdirSync(join(config, "sign-in.json.lock.fedcba9876543210fedcba98.gone"));
+  await signOutComputer({ backendUrl: TEAM, env, fetchFn: service.fetchFn });
+  expect(readdirSync(config).filter((name) => name.endsWith(".gone"))).toEqual(["sign-in.json.lock.fedcba9876543210fedcba98.gone"]);
+});
