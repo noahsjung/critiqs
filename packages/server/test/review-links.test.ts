@@ -131,8 +131,8 @@ test("Google Web Risk's answers map to clean, unsafe, or unknown, and nothing un
 
 test("the proxy accepts only a well-formed resolution", () => {
   const good = { v: 1, kind: "site", linkId: "l", leaseId: "s", origin: "https://proto.example", assetOrigins: [{ slot: 1, origin: "https://api.example" }], expiresAt: 10, cacheUntil: 5 };
-  expect(parseReviewResolution(good)).toEqual(good as never);
-  expect(parseReviewResolution({ ...good, extra: "dropped" })).toEqual(good as never);
+  expect(parseReviewResolution(good)).toEqual({ ...good, allow: [] } as never);
+  expect(parseReviewResolution({ ...good, extra: "dropped" })).toEqual({ ...good, allow: [] } as never);
   for (const bad of [
     null,
     "x",

@@ -547,3 +547,129 @@ test("cleanup removes ended leases with their frame hosts", async () => {
   expect(await f.t.mutation(internal.reviewLinks.cleanUp, {})).toEqual({ leases: 1, usage: 0 });
   expect(await f.t.run(async (ctx) => [(await ctx.db.query("reviewLeases").collect()).length, (await ctx.db.query("reviewFrameHosts").collect()).length])).toEqual([1, 1]);
 });
+
+// ---------------------------------------------------------------------------
+// Attacks from the security reviews (Gemini F-H3-1, F-H3-2, notes 3, 4, 6;
+// Opus N5, N7, N9), each reproduced against the real functions.
+
+test("F-H3-1: a proxy on a sibling of the website's own site turns review links off", async () => {
+  const f = await fixture();
+  const config = async () => (await (await f.t.fetch("/critiqs/config")).json()) as { reviewLinks?: unknown };
+  process.env.CRITIQS_WEB_URL = "https://app.critiqs.example";
+  process.env.CRITIQS_REVIEW_PROXY_URL = "https://proxy.critiqs.example";
+  process.env.CRITIQS_WEB_RISK_API_KEY = "test-key";
+  expect((await config()).reviewLinks).toBeUndefined();
+  process.env.CRITIQS_REVIEW_PROXY_URL = "https://app.critiqs.example.";
+  expect((await config()).reviewLinks).toBeUndefined();
+  process.env.CRITIQS_REVIEW_PROXY_URL = "https://critiqs-review.example";
+  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: false, allowCritiqs: false });
+});
+
+test("F-H3-2: an address written with extra dots is refused, and a trailing dot is checked as its host", async () => {
+  const f = await fixture();
+  process.env.CRITIQS_REVIEW_TEST_UNSAFE_HOSTS = "unsafe.example";
+  for (const address of ["https://unsafe.example../", "https://critiqs.example../"]) {
+    expect(typeof (await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address })))).toBe("string");
+  }
+  expect(await f.t.run(async (ctx) => (await ctx.db.query("reviewLinks").collect()).length)).toBe(0);
+  const created = await f.link("https://unsafe.example./");
+  const link = await f.t.run((ctx) => ctx.db.get(created.linkId));
+  expect(link?.origin).toBe("https://unsafe.example");
+  expect(link?.status).toBe("blocked");
+  expect(await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: "https://critiqs.example./" }))).toBe("Critiqs's own addresses can't be reviewed through a review link.");
+});
+
+test("Gemini note 3: someone signed out learns nothing about whether a link ID exists", async () => {
+  const f = await fixture();
+  const { linkId } = await f.link();
+  const bogus = await f.t.run(async (ctx) => {
+    const id = await ctx.db.insert("reviewDeny", { subject: "x", reason: "x", createdAt: 0 });
+    await ctx.db.delete(id);
+    return String(id);
+  });
+  for (const id of [linkId, bogus, "not-an-id"]) {
+    expect(await outcome(f.anonymous.query(api.reviewLinks.copy, { linkId: id as Id<"reviewLinks"> }))).toBe("Sign in to view feedback.");
+    expect(await outcome(f.anonymous.mutation(api.reviewLinks.revoke, { linkId: id as Id<"reviewLinks"> }))).toBe("Sign in to view feedback.");
+  }
+});
+
+test("Gemini note 4: opening a link with a stale verdict asks the provider again at most once a minute", async () => {
+  const f = await fixture();
+  const { key } = await f.link();
+  const checks = async () => (await f.t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect())).filter((job) => job.name.includes("checkReputation")).length;
+  const before = await checks();
+  // The provider can't answer (a proxy on the internet with no key), so the verdict stays stale and every open is pending.
+  process.env.CRITIQS_REVIEW_PROXY_URL = "https://critiqs-review.example";
+  setSystemTime(Date.now() + 49 * 60 * 60_000);
+  // Anyone holding the key, signed out, opening it again and again.
+  for (let index = 0; index < 20; index++) expect(await f.anonymous.mutation(api.reviewLinks.open, { key })).toEqual({ kind: "pending" });
+  expect((await checks()) - before).toBeLessThanOrEqual(1);
+  setSystemTime(Date.now() + 49 * 60 * 60_000 + 61_000);
+  await f.dana.mutation(api.reviewLinks.open, { key });
+  expect((await checks()) - before).toBe(2);
+});
+
+test("Gemini note 6: links stuck waiting for a verdict don't starve newer ones", async () => {
+  const f = await fixture();
+  const projectId = f.projectId as Id<"projects">;
+  const userId = (await f.t.run((ctx) => ctx.db.query("users").collect())).find((user) => user.name === "Dana")!._id;
+  const stuck = await f.t.run(async (ctx) => {
+    const ids: Id<"reviewLinks">[] = [];
+    for (let index = 0; index < 60; index++) {
+      ids.push(
+        await ctx.db.insert("reviewLinks", { projectId, kind: "site", origin: `https://s${index}.example`, startPath: "/", assetOrigins: [], keyHash: `h${index}`, keyVersion: 1, status: "checking", createdBy: userId, createdAt: index }),
+      );
+    }
+    return ids;
+  });
+  // No provider on the internet: every check comes back unknown and the links keep waiting.
+  process.env.CRITIQS_REVIEW_PROXY_URL = "https://critiqs-review.example";
+  const picked = new Set<string>();
+  for (let round = 0; round < 3; round++) {
+    const before = await f.t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).map((job) => job._id));
+    await f.t.mutation(internal.reviewLinks.recheckReputation, {});
+    const jobs = await f.t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => !before.includes(job._id)));
+    for (const job of jobs) picked.add(String((job.args[0] as { linkId: string }).linkId));
+    await f.t.finishAllScheduledFunctions(() => undefined);
+  }
+  expect(stuck.every((id) => picked.has(id))).toBe(true);
+});
+
+test("Opus N9: an owner-approved origin stops serving once it leaves the address list", async () => {
+  const f = await fixture();
+  const created = await f.link("https://app.acme.com/", { assetOrigins: ["https://api.acme.com"] });
+  const opened = await lease(f.anonymous, created.key);
+  expect(JSON.parse((await resolve(f.t, opened.label)).body).assetOrigins).toEqual([{ slot: 1, origin: "https://api.acme.com" }]);
+  await f.dana.mutation(api.projects.removeAddress, { projectId: f.projectId, address: "https://api.acme.com" });
+  const after = await resolve(f.t, opened.label);
+  expect(after.status).toBe(200);
+  expect(JSON.parse(after.body).assetOrigins).toEqual([]);
+});
+
+test("Opus N5: during a rotation the proxy's previous secret still works, and only until it is removed", async () => {
+  const f = await fixture();
+  const opened = await lease(f.anonymous, (await f.link()).key);
+  const next = "next-proxy-secret-for-tests-0123456789abcdef";
+  process.env.CRITIQS_PROXY_SECRET = next;
+  process.env.CRITIQS_PROXY_SECRET_PREVIOUS = SECRET;
+  try {
+    expect((await resolve(f.t, opened.label, SECRET)).status).toBe(200);
+    expect((await resolve(f.t, opened.label, next)).status).toBe(200);
+    delete process.env.CRITIQS_PROXY_SECRET_PREVIOUS;
+    expect(await resolve(f.t, opened.label, SECRET)).toEqual(NOT_FOUND);
+  } finally {
+    delete process.env.CRITIQS_PROXY_SECRET_PREVIOUS;
+  }
+});
+
+test("Opus N7: an owner replaces a link's key by removing the link and creating it again; the old key opens nothing", async () => {
+  const f = await fixture();
+  const first = await f.link();
+  const opened = await lease(f.anonymous, first.key);
+  await f.dana.mutation(api.reviewLinks.revoke, { linkId: first.linkId });
+  const second = await f.link();
+  expect(second.key).not.toBe(first.key);
+  expect(await f.anonymous.mutation(api.reviewLinks.open, { key: first.key })).toEqual({ kind: "sign-in" });
+  expect(await resolve(f.t, opened.label)).toEqual(NOT_FOUND);
+  expect((await lease(f.anonymous, second.key)).kind).toBe("ready");
+});

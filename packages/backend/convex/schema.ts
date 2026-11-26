@@ -199,6 +199,8 @@ export default defineSchema({
     status: v.union(v.literal("checking"), v.literal("active"), v.literal("blocked"), v.literal("revoked")),
     /** When the reputation provider last gave a clear verdict on every address. */
     checkedAt: v.optional(v.number()),
+    /** When a reputation check was last started, whatever it found: checks are spaced out and taken oldest first. */
+    attemptedAt: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     /** The client's key for this create, so a retry returns this link. */
@@ -208,7 +210,8 @@ export default defineSchema({
     .index("by_key_hash", ["keyHash"])
     .index("by_project_status", ["projectId", "status"])
     .index("by_creator_request", ["createdBy", "requestKey"])
-    .index("by_status_checked", ["status", "checkedAt"]),
+    .index("by_status_checked", ["status", "checkedAt"])
+    .index("by_status_attempted", ["status", "attemptedAt"]),
 
   /**
    * One viewer's short hold on a review link, renewed by the review page. An

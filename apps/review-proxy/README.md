@@ -152,6 +152,39 @@ sibling frame host planted can't make it refuse requests).
 `bun test` runs the unit tests and the attack tests against local servers;
 no test reaches the internet.
 
+## Outgoing identity
+
+Every request the proxy makes upstream carries a user agent it chose:
+`Critiqs-Review/1 (+<website>/allow-critiqs)` for a link's own origin and
+its owner-approved origins (`egress.primary`), and `Critiqs-Asset/1` for
+other sites' static files (`egress.asset`). That user agent and the proxy's
+egress addresses are the same for every Critiqs customer, and any owner can
+create a link to any public origin or name one as an owner-approved origin:
+an address list proves nothing about who owns a site. So a site's firewall
+rule that lets `Critiqs-Review/1` from the egress addresses through would
+let every Critiqs customer read that site, its staging pages and its APIs,
+from a frame's scripts.
+
+The rule for Allow Critiqs, which the proxy's side already follows:
+
+- A site lets Critiqs through by matching its own token, never by user agent
+  and address alone. The user agent and egress addresses only tell a bot wall
+  the request is Critiqs; they are not an authentication boundary.
+- A token is issued per project and per origin (an HMAC under a backend key
+  over the project and the exact origin), shown to that project's owners for
+  that origin only, and revocable by issuing a new one.
+- The backend returns a lease's tokens in its resolution (`allow`, one entry
+  per origin of the lease, checked against the lease's own origins by
+  `parseReviewResolution`). Until Allow Critiqs issues them it returns none.
+- The proxy sends an origin's token in `Critiqs-Allow` only on requests to
+  that exact origin, through `egress.primary` (`sendsAllowTokens`), and only
+  while every redirect hop stays on that origin. The asset egress never sends
+  one. A project that names another customer's origin therefore sends that
+  origin nothing it would accept.
+- Before a token is issued for an origin, the owner should prove control of
+  it (a DNS TXT record or a well-known file), so a token can't be minted for
+  someone else's site and handed to them as if it were theirs.
+
 ## Before a public domain
 
 Frame hosts run other people's pages with same-origin scripts. Until the
@@ -177,4 +210,15 @@ On any domain that isn't `.localhost`, the proxy refuses to start until
   buffers). Many managed front servers and CDNs refuse a request with that
   much header (often above 32 KiB, with a 400 or 431) before any rule that
   removes a header runs, so the attack still works through them.
+
+Also before a public domain:
+
+- Set `CRITIQS_PROXY_CLIENT_IP_HEADER` to the header the server in front
+  overwrites with the viewer's address, so the per-client lookup limit sees
+  viewers and not the ingress.
+- Set `CRITIQS_PROXY_SIGNING_KEY` on the proxy only, so the backend's copy
+  of `CRITIQS_PROXY_SECRET` can't sign asset addresses.
+- A per-client limit on opening links (each open mints a lease, at most 60
+  an hour per link) belongs at the website's edge: the backend can't see a
+  viewer's address.
 

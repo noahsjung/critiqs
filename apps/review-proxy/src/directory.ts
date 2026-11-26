@@ -18,8 +18,9 @@ export { convexDirectory, FRAME_LABEL };
 export type { ReviewDirectory, ReviewResolution, ReviewUsageReport };
 
 /** A lease the memory directory serves, by its frame label. */
-export interface MemoryLease extends Omit<ReviewResolution, "v" | "kind" | "cacheUntil"> {
+export interface MemoryLease extends Omit<ReviewResolution, "v" | "kind" | "cacheUntil" | "allow"> {
   label: string;
+  allow?: ReviewResolution["allow"];
 }
 
 /**
@@ -43,7 +44,7 @@ export function memoryDirectory(leases: Iterable<MemoryLease>, now: () => number
       const time = now();
       if (lease === undefined || lease.expiresAt <= time || paused.has(lease.linkId)) return null;
       const { label: _label, ...rest } = lease;
-      return { v: 1, kind: "site", ...rest, assetOrigins: rest.assetOrigins.map((entry) => ({ ...entry })), cacheUntil: Math.min(lease.expiresAt, time + 5_000) };
+      return { v: 1, kind: "site", ...rest, assetOrigins: rest.assetOrigins.map((entry) => ({ ...entry })), allow: (rest.allow ?? []).map((entry) => ({ ...entry })), cacheUntil: Math.min(lease.expiresAt, time + 5_000) };
     },
     async report(usage: readonly ReviewUsageReport[]): Promise<{ paused: readonly string[] }> {
       reports.push(...usage.map((entry) => ({ ...entry })));

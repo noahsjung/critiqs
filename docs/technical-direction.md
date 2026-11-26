@@ -1217,13 +1217,15 @@ stores the links and decides every request the proxy serves.
   undone with `reviewLinks:undeny`.
 
 Settings on the Convex deployment; `/critiqs/config` reports `reviewLinks`
-only when the first three are set and the proxy's domain is apart from the
-website and the backend:
+only when the first three are set and the proxy's domain is its own site,
+apart from the website's and the backend's (siblings such as
+`proxy.critiqs.app` beside `app.critiqs.app` share a site and are refused):
 
 | Setting | Value |
 | --- | --- |
 | `CRITIQS_REVIEW_PROXY_URL` | The proxy's domain as an origin, such as `https://critiqs-review.net` (`http://review.localhost:<port>` on one computer) |
 | `CRITIQS_PROXY_SECRET` | At least 32 characters, the same value the proxy has |
+| `CRITIQS_PROXY_SECRET_PREVIOUS` | Only during a rotation: the secret proxies not yet updated still send. Remove it once every proxy has the new one |
 | `CRITIQS_WEB_URL` | The website that serves `/r/<key>` |
 | `CRITIQS_WEB_RISK_API_KEY` | Google Web Risk Lookup API key; without it, links aren't served except on a `*.localhost` proxy |
 

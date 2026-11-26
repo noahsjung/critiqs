@@ -52,8 +52,13 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? 3_000;
   const maxCached = options.maxCached ?? 10_000;
-  /** Answers by label, in the order they were stored. */
-  const cache = new Map<string, { value: ReviewResolution | null; until: number }>();
+  /**
+   * Answers by label, in the order they were stored: hosts that serve and
+   * hosts that serve nothing apart, so asking about random hosts can only
+   * push out other misses, never a host a viewer is using.
+   */
+  const cache = new Map<string, { value: ReviewResolution; until: number }>();
+  const misses = new Map<string, number>();
   const pending = new Map<string, Promise<ReviewResolution | null>>();
 
   const post = async (path: string, body: unknown, signal?: AbortSignal): Promise<Response | null> => {
@@ -73,13 +78,17 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
 
   const remember = (label: string, value: ReviewResolution | null, until: number) => {
     cache.delete(label);
-    cache.set(label, { value, until });
-    while (cache.size > maxCached) cache.delete(cache.keys().next().value!);
+    misses.delete(label);
+    const into: Map<string, unknown> = value === null ? misses : cache;
+    if (value === null) misses.set(label, until);
+    else cache.set(label, { value, until });
+    while (into.size > maxCached) into.delete(into.keys().next().value!);
   };
 
-  const ask = async (label: string, signal?: AbortSignal): Promise<ReviewResolution | null> => {
+  /** One lookup, shared by every request for the label: bounded by its own deadline, never by one caller's. */
+  const ask = async (label: string): Promise<ReviewResolution | null> => {
     const asked = now();
-    const response = await post("/internal/review/v1/resolve", { hostHash: await frameHostHash(label) }, signal);
+    const response = await post("/internal/review/v1/resolve", { hostHash: await frameHostHash(label) });
     if (response === null) return null;
     if (response.status === 404) {
       // A host that serves nothing stays that way for a moment; a new lease always gets a new host.
@@ -96,17 +105,26 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
   return {
     async resolve(label, signal) {
       if (!FRAME_LABEL.test(label)) return null;
-      const cached = cache.get(label);
       const time = now();
-      if (cached !== undefined && time < cached.until) {
-        if (cached.value === null || time < cached.value.expiresAt) return cached.value;
-      }
+      const cached = cache.get(label);
+      if (cached !== undefined && time < cached.until && time < cached.value.expiresAt) return cached.value;
       cache.delete(label);
-      const inFlight = pending.get(label);
-      if (inFlight !== undefined) return await inFlight;
-      const answer = ask(label, signal).finally(() => pending.delete(label));
-      pending.set(label, answer);
-      return await answer;
+      const missed = misses.get(label);
+      if (missed !== undefined && time < missed) return null;
+      misses.delete(label);
+      let answer = pending.get(label);
+      if (answer === undefined) {
+        answer = ask(label).finally(() => pending.delete(label));
+        pending.set(label, answer);
+      }
+      if (signal === undefined) return await answer;
+      // A caller that goes away stops waiting; the lookup goes on for the others.
+      if (signal.aborted) return null;
+      return await new Promise<ReviewResolution | null>((resolve) => {
+        const stop = () => resolve(null);
+        signal.addEventListener("abort", stop, { once: true });
+        void answer.then(resolve, () => resolve(null)).finally(() => signal.removeEventListener("abort", stop));
+      });
     },
 
     async report(usage, signal) {
@@ -119,7 +137,7 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
         for (const linkId of body.paused) if (typeof linkId === "string") paused.add(linkId);
       }
       // A paused link's hosts are asked about again, and refused, from now on.
-      for (const [label, entry] of cache) if (entry.value !== null && paused.has(entry.value.linkId)) cache.delete(label);
+      for (const [label, entry] of cache) if (paused.has(entry.value.linkId)) cache.delete(label);
       return { paused: [...paused] };
     },
   };

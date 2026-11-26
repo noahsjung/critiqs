@@ -16,7 +16,8 @@ const notFound = () => new Response("Not found", { status: 404, headers: { "Cach
 
 /** The request's JSON body when the proxy sent it and review links are on; null for anything else. */
 async function proxyBody(request: Request): Promise<unknown> {
-  if (!(await proxyAuthorized(request.headers.get("Authorization"), process.env.CRITIQS_PROXY_SECRET))) return null;
+  // During a rotation the proxy may still send the previous secret (CRITIQS_PROXY_SECRET_PREVIOUS); remove it once every proxy has the new one.
+  if (!(await proxyAuthorized(request.headers.get("Authorization"), process.env.CRITIQS_PROXY_SECRET, process.env.CRITIQS_PROXY_SECRET_PREVIOUS))) return null;
   if (reviewSetup() === null) return null;
   const length = Number(request.headers.get("Content-Length") ?? "0");
   if (!Number.isFinite(length) || length > MAX_BODY) return null;

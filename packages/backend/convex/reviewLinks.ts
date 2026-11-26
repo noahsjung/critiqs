@@ -39,6 +39,7 @@ import {
   type ReviewResolution,
   webRiskVerdict,
 } from "@critiqs/server";
+import { canonicalHost, hostOf } from "@critiqs/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -107,6 +108,9 @@ export function reviewLinksCapability(): ReviewLinksCapability | null {
   if (setup === null) return null;
   return { version: 1, live: reputationSource(setup) !== null, builds: false, allowCritiqs: false };
 }
+
+/** The shortest gap between two reputation checks of one link that opening it starts. */
+const REPUTATION_ATTEMPT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Keys
@@ -243,6 +247,8 @@ async function managed(ctx: QueryCtx, store: Store, projectId: string) {
 }
 
 async function managedLink(ctx: QueryCtx, store: Store, linkId: string) {
+  // Signed in first, so someone signed out learns nothing about which IDs exist.
+  await operations.requireUser(store, await identityOf(ctx));
   const id = ctx.db.normalizeId("reviewLinks", linkId);
   const link = id === null ? null : await ctx.db.get(id);
   if (link === null) fail("not-found", "This review link does not exist.");
@@ -468,7 +474,11 @@ export const open = mutation({
       const verdict = await serving(ctx, store, link, project, user?._id ?? null, now);
       if (verdict === "denied") return refused;
       if (verdict === "pending") {
-        if (link.status === "active") await ctx.scheduler.runAfter(0, internal.reviewLinks.checkReputation, { linkId: link._id });
+        // A stale verdict is checked again, at most once a minute however often the link is opened.
+        if (link.status === "active" && (link.attemptedAt === undefined || now - link.attemptedAt >= REPUTATION_ATTEMPT_MS)) {
+          await ctx.db.patch(link._id, { attemptedAt: now });
+          await ctx.scheduler.runAfter(0, internal.reviewLinks.checkReputation, { linkId: link._id });
+        }
         return { kind: "pending" };
       }
       if (verdict === "limited" || !(await countLease(ctx, link._id, now))) return { kind: "limited" };
@@ -593,6 +603,8 @@ export const resolveHost = internalQuery({
       leaseId: lease._id,
       origin: link.origin,
       assetOrigins,
+      // Allow Critiqs tokens come with Allow Critiqs; until then the proxy sends none.
+      allow: [],
       expiresAt,
       cacheUntil: Math.min(now + RESOLUTION_CACHE_MS, expiresAt),
     };
@@ -647,8 +659,9 @@ async function verdictFor(subject: string): Promise<ReputationVerdict> {
   const source = reputationSource(reviewSetup());
   if (source === "web-risk") return await webRiskVerdict(subject, { apiKey: process.env.CRITIQS_WEB_RISK_API_KEY! });
   if (source === "fixture") {
-    const unsafe = (process.env.CRITIQS_REVIEW_TEST_UNSAFE_HOSTS ?? "").split(/[\s,]+/).filter((host) => host !== "");
-    return unsafe.includes(new URL(subject).hostname) ? "unsafe" : "clean";
+    const unsafe = (process.env.CRITIQS_REVIEW_TEST_UNSAFE_HOSTS ?? "").split(/[\s,]+/).map((host) => canonicalHost(host)).filter((host): host is string => host !== null);
+    const host = hostOf(new URL(subject));
+    return host !== null && unsafe.includes(host) ? "unsafe" : "clean";
   }
   return "unknown";
 }
@@ -682,9 +695,14 @@ export const recordReputation = internalMutation({
   args: { linkId: v.id("reviewLinks"), verdict: v.union(v.literal("clean"), v.literal("unsafe"), v.literal("unknown")) },
   handler: async (ctx, { linkId, verdict }) => {
     const link = await ctx.db.get(linkId);
-    if (link === null || link.status === "revoked" || link.status === "blocked" || verdict === "unknown") return;
+    if (link === null || link.status === "revoked" || link.status === "blocked") return;
     const now = Date.now();
-    await ctx.db.patch(linkId, verdict === "unsafe" ? { status: "blocked", checkedAt: now } : { status: "active", checkedAt: now });
+    if (verdict === "unknown") {
+      // Nothing learned, but the attempt counts, so the next round takes links that waited longer.
+      await ctx.db.patch(linkId, { attemptedAt: now });
+      return;
+    }
+    await ctx.db.patch(linkId, verdict === "unsafe" ? { status: "blocked", checkedAt: now, attemptedAt: now } : { status: "active", checkedAt: now, attemptedAt: now });
   },
 });
 
@@ -694,9 +712,10 @@ export const recheckReputation = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const due = [
+      // Links never tried first, then the ones whose last try is oldest, so links stuck waiting can't starve newer ones.
       ...(await ctx.db
         .query("reviewLinks")
-        .withIndex("by_status_checked", (q) => q.eq("status", "checking"))
+        .withIndex("by_status_attempted", (q) => q.eq("status", "checking"))
         .take(50)),
       ...(await ctx.db
         .query("reviewLinks")
@@ -716,9 +735,12 @@ function denySubject(args: { linkId?: string; projectId?: string; origin?: strin
   if (given.length !== 1) throw new Error("Name exactly one of linkId, projectId, or origin.");
   if (args.linkId !== undefined) return `link:${args.linkId}`;
   if (args.projectId !== undefined) return `project:${args.projectId}`;
-  const origin = new URL(args.origin!).origin;
-  if (origin !== args.origin!.replace(/\/$/, "")) throw new Error("Give an origin without a path, such as https://acme-proto.vercel.app.");
-  return `origin:${origin}`;
+  const url = new URL(args.origin!);
+  const host = hostOf(url);
+  if (host === null || url.origin !== args.origin!.replace(/\/$/, "")) throw new Error("Give an origin without a path, such as https://acme-proto.vercel.app.");
+  // The same spelling links store (`parseLiveAddress`), so a trailing dot can't miss.
+  if (!url.hostname.startsWith("[")) url.hostname = host;
+  return `origin:${url.origin}`;
 }
 
 const denyArgs = { linkId: v.optional(v.id("reviewLinks")), projectId: v.optional(v.id("projects")), origin: v.optional(v.string()) };

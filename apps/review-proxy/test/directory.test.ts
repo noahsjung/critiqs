@@ -38,12 +38,27 @@ describe("the serve entry's directory", () => {
     const lease = { label: LABEL, linkId: "l1", leaseId: "s1", origin: "https://shop.example.com", assetOrigins: [], expiresAt: Date.now() + 60_000 };
     const local = directoryFor(parseProxyConfig(env), { CRITIQS_PROXY_DEV_LEASES: JSON.stringify([lease]) });
     expect((await local.resolve(LABEL))?.leaseId).toBe("s1");
-    const deployed = parseProxyConfig({ ...env, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_PROXY_BACKEND: "https://brazen.convex.site", CRITIQS_WEB_RISK_API_KEY: "k" });
+    const deployed = parseProxyConfig({
+      ...env,
+      CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net",
+      CRITIQS_WEB_ORIGINS: "https://critiqs.app",
+      CRITIQS_PROXY_BACKEND: "https://brazen.convex.site",
+      CRITIQS_WEB_RISK_API_KEY: "k",
+      CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+    });
     expect(() => directoryFor(deployed, { CRITIQS_PROXY_DEV_LEASES: JSON.stringify([lease]) })).toThrow(ConfigError);
   });
 
-  test("a deployed proxy's backend must use https", () => {
-    const deployed = parseProxyConfig({ ...env, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_PROXY_BACKEND: "http://brazen.convex.site", CRITIQS_WEB_RISK_API_KEY: "k" });
-    expect(() => directoryFor(deployed, {})).toThrow(ConfigError);
+  test("a deployed proxy's backend must use https: refused with the settings, before any directory", () => {
+    expect(() =>
+      parseProxyConfig({
+        ...env,
+        CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net",
+        CRITIQS_WEB_ORIGINS: "https://critiqs.app",
+        CRITIQS_PROXY_BACKEND: "http://brazen.convex.site",
+        CRITIQS_WEB_RISK_API_KEY: "k",
+        CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+      }),
+    ).toThrow(ConfigError);
   });
 });

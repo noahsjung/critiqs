@@ -37,7 +37,7 @@ try {
   const policy = proxyPolicy(config);
   const egress = {
     // A link's own and owner-approved origins are checked by path; third-party static files by host.
-    primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits, reputationScope: "path" }),
+    primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits, reputationScope: "path", sendsAllowTokens: true }),
     asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits, reputationScope: "origin" }),
   };
   const proxy = createReviewProxy(config, { directory: directoryFor(config, env), egress, assets: await buildAssets() });

@@ -27,6 +27,12 @@ export interface EgressDeps {
    * third-party static files checks hosts.
    */
   reputationScope?: "path" | "origin";
+  /**
+   * Whether requests through this egress may carry an origin's Allow Critiqs
+   * token: true only for the egress of a link's own and owner-approved
+   * origins. The third-party asset egress never sends one, whatever it is given.
+   */
+  sendsAllowTokens?: boolean;
   limits: Pick<ProxyLimits, "hopTimeoutMs" | "headersTimeoutMs" | "maxRedirects">;
 }
 
@@ -38,6 +44,8 @@ export interface EgressRequest {
   origin: string;
   /** Framework headers checked by `frameworkHeaders`, on the prototype's own data requests only. */
   framework?: Readonly<Record<string, string>>;
+  /** The Allow Critiqs token issued for `origin`, sent only while every hop stays on it. */
+  allowToken?: string | null;
   /** Aborts the request and its body, such as when the browser goes away. */
   signal: AbortSignal;
 }
@@ -110,7 +118,8 @@ export function createEgress(deps: EgressDeps): Egress {
           const address = await resolvePublicAddress(url, deps.web.resolve, signal, deps.policy);
           if (address === null) return { kind: "refused", reason: "unreachable" };
           signal.throwIfAborted();
-          response = await deps.web.fetchPinned({ url, address, headers: outboundHeaders(request.class, deps.userAgent, request.framework), signal, method: request.method });
+          const token = deps.sendsAllowTokens === true && url.origin === allowed.origin ? (request.allowToken ?? null) : null;
+          response = await deps.web.fetchPinned({ url, address, headers: outboundHeaders(request.class, deps.userAgent, request.framework, token), signal, method: request.method });
         } catch {
           // DNS, TLS, connection, the deadline: never reported in detail.
           return { kind: "refused", reason: "unreachable" };

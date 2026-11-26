@@ -30,15 +30,23 @@ export function isRewritten(requestClass: RequestClass): boolean {
  * the user agent, plus the framework headers `frameworkHeaders` checked one
  * by one: nothing else of the browser's request is an input.
  */
-export function outboundHeaders(requestClass: RequestClass, userAgent: string, framework: Readonly<Record<string, string>> = {}): Record<string, string> {
+export function outboundHeaders(requestClass: RequestClass, userAgent: string, framework: Readonly<Record<string, string>> = {}, allowToken: string | null = null): Record<string, string> {
   return {
     "User-Agent": userAgent,
     Accept: ACCEPT[requestClass],
     // Rewritten bodies are decompressed with a hard cap (decompress.ts); others pass through as sent.
     "Accept-Encoding": isRewritten(requestClass) ? "gzip, br, deflate" : "gzip, br",
     ...framework,
+    ...(allowToken === null ? {} : { [ALLOW_HEADER]: allowToken }),
   };
 }
+
+/**
+ * The header that carries a site's own Allow Critiqs token, for its firewall
+ * to match. Sent only on the egress for a link's own and owner-approved
+ * origins, and only to the origin the token was issued for.
+ */
+export const ALLOW_HEADER = "Critiqs-Allow";
 
 // Next.js's App Router fetches each page's data (React Server Components) with
 // request headers that name what it wants, and its server answers a request

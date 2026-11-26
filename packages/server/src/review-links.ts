@@ -1,5 +1,6 @@
-import { isLocalAddress, MAX_REVIEW_URL_LENGTH } from "@critiqs/core";
+import { canonicalHost, hostOf, isHostWithin, isLocalAddress, MAX_REVIEW_URL_LENGTH, siteOf } from "@critiqs/core";
 import { fail } from "./errors.ts";
+import { isPublicAddress } from "./public-web.ts";
 
 // Review links: the rules the backend, the review proxy, and the website
 // agree on. A review link is a durable, unguessable key on the Critiqs
@@ -19,6 +20,8 @@ export const REVIEW_LINK_KEY = /^[a-z2-7]{26}$/;
 export const FRAME_LABEL = /^v-[a-z2-7]{26}$/;
 /** What the backend and proxy exchange for a frame host: base64url SHA-256 of its label. */
 export const HOST_HASH = /^[A-Za-z0-9_-]{43}$/;
+/** An Allow Critiqs token: base64url, as an HMAC gives it. */
+export const ALLOW_TOKEN = /^[A-Za-z0-9_-]{22,86}$/;
 
 /** A lease lasts this long unless renewed. */
 export const REVIEW_LEASE_MS = 10 * 60_000;
@@ -135,13 +138,16 @@ export async function sameSecret(given: string, expected: string): Promise<boole
 
 /**
  * Whether a request from the proxy carries the shared secret
- * (`Authorization: Bearer <secret>`). Always false while the deployment has no
- * secret of at least `MIN_PROXY_SECRET` characters.
+ * (`Authorization: Bearer <secret>`), or during a rotation the previous one.
+ * A secret shorter than `MIN_PROXY_SECRET` characters never matches.
  */
-export async function proxyAuthorized(authorization: string | null, secret: string | undefined): Promise<boolean> {
-  if (secret === undefined || secret.length < MIN_PROXY_SECRET) return false;
+export async function proxyAuthorized(authorization: string | null, secret: string | undefined, previous?: string): Promise<boolean> {
   const given = /^Bearer (\S+)$/.exec(authorization ?? "")?.[1] ?? "";
-  return await sameSecret(given, secret);
+  let matched = false;
+  for (const candidate of [secret, previous]) {
+    if (candidate !== undefined && candidate.length >= MIN_PROXY_SECRET && (await sameSecret(given, candidate))) matched = true;
+  }
+  return matched;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,33 +175,30 @@ export function parseProxyAddress(value: string | undefined): ProxyAddress | nul
     return null;
   }
   if (url.pathname !== "/" || url.search !== "" || url.hash !== "" || url.username !== "" || url.password !== "") return null;
-  if (url.protocol === "http:" && !isLocalhostName(url.hostname)) return null;
+  const hostname = hostOf(url);
+  if (hostname === null) return null;
+  if (url.protocol === "http:" && !isLocalhostName(hostname)) return null;
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  return { protocol: url.protocol, host: url.host, hostname: url.hostname };
-}
-
-/** Whether `inner` is `outer` or a name under it. */
-function within(inner: string, outer: string): boolean {
-  return inner === outer || inner.endsWith(`.${outer}`);
+  if (!url.hostname.startsWith("[")) url.hostname = hostname;
+  return { protocol: url.protocol, host: url.host, hostname };
 }
 
 /**
- * Whether the proxy domain is kept apart from the website and the backend:
- * not the same host as either, and neither one under the other (sharing a
- * site would let framed prototypes set cookies the website reads). `localhost`
- * itself counts as a suffix nobody owns, as browsers treat it.
+ * Whether the proxy domain is its own site, apart from the website's and the
+ * backend's: a frame host on a shared site (the same host, one under the
+ * other, or siblings such as `proxy.critiqs.app` and `app.critiqs.app`)
+ * could set cookies the website reads. Sites are compared as `siteOf` does,
+ * the same rule the proxy refuses to start with.
  */
 export function proxySeparate(proxy: ProxyAddress, others: readonly string[]): boolean {
   for (const other of others) {
-    let hostname: string;
+    let hostname: string | null;
     try {
-      hostname = new URL(other).hostname;
+      hostname = hostOf(new URL(other));
     } catch {
       continue;
     }
-    if (hostname === proxy.hostname) return false;
-    if (hostname !== "localhost" && within(proxy.hostname, hostname)) return false;
-    if (proxy.hostname !== "localhost" && within(hostname, proxy.hostname)) return false;
+    if (hostname === null || siteOf(hostname) === siteOf(proxy.hostname)) return false;
   }
   return true;
 }
@@ -233,12 +236,20 @@ export function parseLiveAddress(input: string, refusedHosts: readonly string[])
   if (url.username !== "" || url.password !== "") fail("invalid", "Leave the username and password out of the address.");
   if (url.protocol !== "https:") fail("invalid", "A review link needs an address that starts with https://.");
   if (url.port !== "") fail("invalid", "A review link needs an address on the usual port, without :port.");
-  if (url.hostname.endsWith(".")) url.hostname = url.hostname.slice(0, -1);
-  if (isLocalAddress(url) || !url.hostname.includes(".")) {
+  // One spelling of the host for every check below and for what is stored.
+  const host = hostOf(url);
+  if (host === null) fail("invalid", "Enter the full address, starting with https://.");
+  if (!url.hostname.startsWith("[")) url.hostname = host;
+  const literal = /^[\d.]+$/.test(host) || host.includes(":");
+  if (isLocalAddress(url) || !host.includes(".") || (literal && !isPublicAddress(host))) {
     fail("invalid", "This address is on a computer or private network. Share a build or use the browser extension instead.");
   }
-  for (const host of refusedHosts) if (host !== "" && within(url.hostname, host.toLowerCase())) fail("invalid", SELF);
+  for (const refused of refusedHosts) {
+    const name = canonicalHost(refused);
+    if (name !== null && isHostWithin(host, name)) fail("invalid", SELF);
+  }
   if (url.pathname.startsWith("/__critiqs/")) fail("invalid", "Paths starting with /__critiqs/ are reserved for review links.");
+  if (url.pathname.startsWith("//")) fail("invalid", "Enter an address whose path starts with a single /.");
   return { origin: url.origin, path: `${url.pathname}${url.search}` };
 }
 
@@ -268,9 +279,9 @@ export async function webRiskVerdict(
   const url = new URL("https://webrisk.googleapis.com/v1/uris:search");
   for (const threat of THREATS) url.searchParams.append("threatTypes", threat);
   url.searchParams.set("uri", subject);
-  url.searchParams.set("key", options.apiKey);
   try {
-    const response = await (options.fetch ?? fetch)(url, { signal: options.signal ?? AbortSignal.timeout(5_000), redirect: "error" });
+    // The key goes in a header, so it never appears in a logged URL.
+    const response = await (options.fetch ?? fetch)(url, { signal: options.signal ?? AbortSignal.timeout(5_000), redirect: "error", headers: { "X-Goog-Api-Key": options.apiKey } });
     if (!response.ok) return "unknown";
     const body = (await response.json()) as { threat?: { threatTypes?: unknown } };
     if (body === null || typeof body !== "object") return "unknown";
@@ -293,6 +304,14 @@ export interface ReviewResolution {
   origin: string;
   /** Owner-approved origins the pages may read from, by slot (`/__critiqs/o/<slot>/…`). */
   assetOrigins: { slot: number; origin: string }[];
+  /**
+   * Allow Critiqs tokens, one per origin of this lease that has one: the proxy
+   * sends an origin's token (`Critiqs-Allow`) only on requests to that origin,
+   * never to another site, so a site's firewall rule that requires its own
+   * token lets only its own project's links through. Empty until Allow Critiqs
+   * issues them.
+   */
+  allow: { origin: string; token: string }[];
   /** When the lease ends unless renewed. */
   expiresAt: number;
   /** The proxy may reuse this answer until then: at most `RESOLUTION_CACHE_MS` from when it was given, never past `expiresAt`. */
@@ -332,6 +351,17 @@ export function parseReviewResolution(raw: unknown): ReviewResolution | null {
     if (!count(slot) || slot < 1 || slot > REVIEW_LINK_LIMITS.assetOrigins || !isOrigin(origin)) return null;
     assetOrigins.push({ slot, origin });
   }
+  const allow: ReviewResolution["allow"] = [];
+  if (value.allow !== undefined) {
+    if (!Array.isArray(value.allow) || value.allow.length > 1 + REVIEW_LINK_LIMITS.assetOrigins) return null;
+    const origins = new Set([value.origin, ...assetOrigins.map((entry) => entry.origin)]);
+    for (const entry of value.allow as unknown[]) {
+      if (entry === null || typeof entry !== "object") return null;
+      const { origin, token } = entry as Record<string, unknown>;
+      if (typeof origin !== "string" || !origins.has(origin) || typeof token !== "string" || !ALLOW_TOKEN.test(token)) return null;
+      allow.push({ origin, token });
+    }
+  }
   return {
     v: 1,
     kind: "site",
@@ -339,6 +369,7 @@ export function parseReviewResolution(raw: unknown): ReviewResolution | null {
     leaseId: value.leaseId,
     origin: value.origin,
     assetOrigins,
+    allow,
     expiresAt: value.expiresAt,
     cacheUntil: value.cacheUntil,
   };

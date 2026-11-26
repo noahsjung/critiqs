@@ -567,7 +567,9 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       // The prototype's own data requests may carry its framework's headers, each checked by name and shape.
       const framework = route.kind === "primary" && hint === "data" ? frameworkHeaders(request.headers) : {};
       const origin = route.kind === "primary" ? lease.origin : route.upstream.origin;
-      const outcome = await egress.fetch({ url: route.upstream, method, class: hint, origin, framework, signal });
+      // A site's own Allow Critiqs token, only for a link's own or owner-approved origin and only to that origin.
+      const allowToken = route.kind === "asset" ? null : (lease.allow.find((entry) => entry.origin === origin)?.token ?? null);
+      const outcome = await egress.fetch({ url: route.upstream, method, class: hint, origin, framework, allowToken, signal });
       if (outcome.kind !== "response") return refused(outcome, asPage, head);
       const type = contentType(outcome.headers["content-type"]);
       const handling = handlingOf(route, hint, outcome.status, type, limits);
