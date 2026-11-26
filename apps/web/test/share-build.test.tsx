@@ -134,7 +134,7 @@ describe("owners' review links page", () => {
     const backend = fakeBackend({ reviewLinks: { version: 1, live: false, builds: true, allowCritiqs: false }, useReviewLinks: () => ({ status: "ready", data: [BUILD_LINK] }), project: { _id: "p1", name: "Pilot", reviewUrl: null } as never });
     const container = await render(<ReviewLinksPage projectId="p1" />, { backend, auth: fakeAuth() });
     await settle();
-    expect(container.querySelector("form")).toBeNull();
+    expect(container.querySelector("form") === null).toBe(true);
     expect(container.querySelector(".review-link-row strong")?.textContent).toBe("Shared build · 12 files, 300 KB · until Dec 2");
     expect(container.querySelector(".share-build .command")?.textContent).toBe("npx critiqs share dist/ --project p1");
   });
@@ -142,7 +142,7 @@ describe("owners' review links page", () => {
   test("nothing is offered where the deployment has neither", async () => {
     const container = await render(<ReviewLinksPage projectId="p1" />, { backend: fakeBackend({ reviewLinks: null }), auth: fakeAuth() });
     expect(text(container)).toContain("doesn't offer review links");
-    expect(container.querySelector(".share-build")).toBeNull();
+    expect(container.querySelector(".share-build") === null).toBe(true);
   });
 });
 
