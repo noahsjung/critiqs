@@ -442,6 +442,36 @@ test("the thread list row shows each linked ticket's key and status, and the pin
   expect(pin.getAttribute("title")).toContain("ENG-1 · In Progress");
 });
 
+test("Has ticket in the filter menu shows only threads with a ticket, says so, and resets", async () => {
+  const plain = { ...summary(), _id: "plain", preview: { body: "No ticket here", authorName: "Lee", authorImageUrl: null } };
+  const shadow = await mount(backend({ threads: [summary([badge]), plain] }), OFFERED, { sidebarOpen: true });
+  expect(shadow.querySelectorAll(".entry")).toHaveLength(2);
+  await click(shadow.querySelector('button[aria-label="Filter"]'));
+  await click([...shadow.querySelectorAll('[role^="menuitem"]')].find((item) => item.textContent === "Has ticket"));
+  const entries = [...shadow.querySelectorAll(".entry")];
+  expect(entries.map((entry) => entry.querySelector(".excerpt")?.textContent)).toEqual(["Align the review button"]);
+  expect(entries[0]!.querySelector(".ticket-badge")?.textContent).toBe("ENG-1 · In Progress");
+  expect(shadow.querySelector(".filter-summary")!.textContent).toContain("has ticket");
+  expect(shadow.querySelector(".filter-summary")!.textContent).toContain("1 hidden by filters");
+  await click(button(shadow.querySelector(".filter-summary")!, "Reset"));
+  expect(shadow.querySelectorAll(".entry")).toHaveLength(2);
+});
+
+test("with no thread linked to a ticket, Has ticket says so and offers to clear it; a backend without tickets has no Has ticket", async () => {
+  let shadow = await mount(backend(), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Filter"]'));
+  await click([...shadow.querySelectorAll('[role^="menuitem"]')].find((item) => item.textContent === "Has ticket"));
+  expect(shadow.querySelector(".empty")!.textContent).toContain("No threads with tickets");
+  await click(button(shadow.querySelector(".empty")!, "Clear filters"));
+  expect(shadow.querySelectorAll(".entry")).toHaveLength(1);
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend({ trackers: undefined }), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Filter"]'));
+  expect([...shadow.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent)).not.toContain("Has ticket");
+});
+
 test("a thread without tickets shows no chips, badge, or pin mark", async () => {
   const shadow = await mount(backend(), OFFERED, { sidebarOpen: true });
   expect(shadow.querySelector(".ticket-badge")).toBeNull();

@@ -1218,6 +1218,7 @@ function PanelApp({
               tags={tagInfo === null ? projectTags : tagInfo.tags.map((tag) => tag.label)}
               groups={(tagInfo?.groups ?? []).map((group) => ({ ...group, members: groupMembers(tagInfo, group._id) }))}
               onFilters={setFilters}
+              tickets={trackersOffered !== null}
             />
           </>
         }

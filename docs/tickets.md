@@ -378,9 +378,13 @@ link Critiqs couldn't confirm stops counting toward that after 10 minutes, and
 can still be finished later, so a thread can show a few more. A thread holds
 at most 40, and all of them always show.
 
-**Proposed:** a **Has ticket** filter in the thread list, and the ticket's
-key, status, and link in notification emails, the Markdown and JSON export,
-and coding agents' `critiqs_thread` answer.
+**Built:** a **Has ticket** filter in the thread list's filter menu, beside
+**Unread only**, wherever the backend has tickets: it shows only threads
+linked to a ticket, with the other filters, and the filter summary says "has
+ticket". The rows keep showing each ticket's key and status.
+
+**Proposed:** the ticket's key, status, and link in notification emails, the
+Markdown and JSON export, and coding agents' `critiqs_thread` answer.
 
 ## Status from the tracker
 

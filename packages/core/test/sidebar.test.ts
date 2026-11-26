@@ -44,3 +44,19 @@ test("unread and tag filters combine", () => {
   const filters = { ...DEFAULT_FILTERS, screens: "all" as const, unreadOnly: true, tags: ["Bug"] };
   expect(ids(groupThreads(threads, view, filters))).toEqual([["other-screen", ["elsewhere"]]]);
 });
+
+test("Has ticket shows only threads linked to a ticket, with the other filters", () => {
+  const linked = [
+    thread({ id: "live-ticket", lastActivityAt: 5, hasTicket: true }),
+    thread({ id: "live-plain", lastActivityAt: 4, hasTicket: false }),
+    thread({ id: "old-backend", lastActivityAt: 3 }),
+    thread({ id: "resolved-ticket", status: "resolved", hasTicket: true }),
+  ];
+  expect(ids(groupThreads(linked, view, { ...DEFAULT_FILTERS, hasTicket: true }))).toEqual([["current-view", ["live-ticket"]]]);
+  expect(ids(groupThreads(linked, view, { ...DEFAULT_FILTERS, status: "all", hasTicket: true }))).toEqual([
+    ["current-view", ["live-ticket"]],
+    ["other-view", ["resolved-ticket"]],
+  ]);
+  // Off, every thread shows, with or without tickets.
+  expect(ids(groupThreads(linked, view, { ...DEFAULT_FILTERS, hasTicket: false }))[0]![1]).toEqual(["live-ticket", "live-plain"]);
+});
