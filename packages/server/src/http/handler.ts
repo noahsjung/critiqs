@@ -78,7 +78,7 @@ import {
   webBase,
 } from "../developer-setup.ts";
 import { readBody } from "./body.ts";
-import { claimAddressCheck, clearConnected, MAX_CONNECTION_REPORT_BYTES, reportConnected, saveAboutYou } from "../onboarding.ts";
+import { claimAddressCheck, clearConnected, connectionReport, MAX_CONNECTION_REPORT_BYTES, reportConnected, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
   addProjectAddress,
@@ -1113,8 +1113,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
    */
   async function connected(request: Request): Promise<Response> {
     const body = await readBody(request, MAX_CONNECTION_REPORT_BYTES).catch(() => new Uint8Array());
-    const projectId = new TextDecoder().decode(body).trim();
-    if (projectId !== "") await store.transaction((s) => reportConnected(s, { projectId, origin: request.headers.get("origin") }, Date.now()));
+    const report = connectionReport(new TextDecoder().decode(body), request.headers.get("origin"));
+    if (report !== null) await store.transaction((s) => reportConnected(s, report, Date.now()));
     return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
   }
 

@@ -583,6 +583,13 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3 + 100, origin: "https://acme-proto.vercel.app", clearable: true });
   });
 
+  test(`${name}: a load from the project's address written with its final dot is kept as the address itself`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    await backend.run((store) => reportConnected(store, { projectId, origin: "https://acme-proto.vercel.app." }, day));
+    expect((await backend.run((store) => getProjectSetup(store, dana, { projectId }))).connected).toEqual({ at: day, origin: "https://acme-proto.vercel.app", clearable: true });
+  });
+
   test(`${name}: a setup link opens only for the exact address it was sent to, ignoring case and spaces, not another +tag of the same inbox`, async () => {
     const backend = fresh();
     const projectId = await create(backend);

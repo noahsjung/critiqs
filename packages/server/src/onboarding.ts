@@ -1,4 +1,4 @@
-import { connectionOrigin, parseOnboardingAnswers } from "@critiqs/core";
+import { connectionOrigin, originLookupKeys, parseOnboardingAnswers } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { countWithinAll } from "./limits.ts";
 import { requireProject, requireUser } from "./operations.ts";
@@ -76,14 +76,34 @@ export const MAX_CONNECTION_REPORT_BYTES = 200;
  * inserted, so reports can't grow any table.
  */
 export async function reportConnected(store: Store, args: { projectId: string; origin: string | null }, now: number): Promise<void> {
-  const origin = connectionOrigin(args.origin);
-  const id = store.normalizeId("projects", args.projectId);
-  if (origin === null || id === null) return;
+  const report = connectionReport(args.projectId, args.origin);
+  const id = report === null ? null : store.normalizeId("projects", report.projectId);
+  if (report === null || id === null) return;
   const project = await store.projects.get(id);
   if (project === null) return;
   if (project.connectedAt !== undefined && now < project.connectedAt + CONNECTION_WRITE_MS) return;
-  if (!(await isProjectAddress(store, project, origin))) return;
-  await store.projects.patch(project._id, { connection: { at: now, origin } });
+  if (!(await isProjectAddress(store, project, report.origin))) return;
+  await store.projects.patch(project._id, { connection: { at: now, origin: report.origin } });
+}
+
+/** Longest project ID a report may name; real ones on either backend are far shorter. */
+const MAX_REPORTED_ID = 64;
+
+/**
+ * A Connected report as the route receives it (the body, the browser's
+ * `Origin`), or null when it can't count whatever the project: no origin, one
+ * that isn't a web page's (`chrome-extension:`, `file:`, `null`), one written
+ * differently than browsers send it, or a body that can't be a project ID.
+ * Routes check this before calling anything that reads, so a report like that
+ * costs nothing further. The origin is the canonical one the lookup compares
+ * (`originLookupKeys`): a host's final dot dropped, as the record keeps it.
+ */
+export function connectionReport(body: string, origin: string | null): { projectId: string; origin: string } | null {
+  const projectId = body.trim();
+  if (projectId === "" || projectId.length > MAX_REPORTED_ID || !/^[A-Za-z0-9_]+$/.test(projectId)) return null;
+  const sent = connectionOrigin(origin);
+  const canonical = sent === null ? null : (originLookupKeys(sent)?.origin ?? null);
+  return canonical === null ? null : { projectId, origin: canonical };
 }
 
 /** Clears a project's Connected record, for the people who manage it; the next load from its own address records it again. */

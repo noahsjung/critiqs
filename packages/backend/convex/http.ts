@@ -7,6 +7,7 @@ import {
   codeDigest,
   generateCode,
   MailError,
+  connectionReport,
   MAX_CONNECTION_REPORT_BYTES,
   normalizeEmail,
   readPreferenceToken,
@@ -240,8 +241,9 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const body = await readBody(request, MAX_CONNECTION_REPORT_BYTES).catch(() => new Uint8Array());
-    const projectId = new TextDecoder().decode(body).trim();
-    if (projectId !== "") await ctx.runMutation(internal.onboarding.reportConnected, { projectId, origin: request.headers.get("origin") });
+    // A report that can't count ends here: one billed call (this action), with no mutation after it.
+    const report = connectionReport(new TextDecoder().decode(body), request.headers.get("origin"));
+    if (report !== null) await ctx.runMutation(internal.onboarding.reportConnected, report);
     return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
   }),
 });

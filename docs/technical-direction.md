@@ -971,8 +971,18 @@ nothing but an address its owners listed, and a developer's own computer or
 the extension's side panel doesn't count. It keeps the latest such load, as
 `connectedAt` and that origin (`connectedOrigin`), writing at most once every
 ten minutes per project and inserting nothing, so a wrong record is replaced
-by the next real load and no table grows. Every report gets the same empty
-answer, so it reveals no project. The project's owners can clear it
+by the next real load and no table grows. It keeps the origin as the lookup
+compares it, so a host written with its final dot is kept without it. A
+report that can't count whatever the project (no origin, one that isn't a
+web page's, or a body that can't be a project ID) is dropped by the route
+itself (`connectionReport`) before anything reads the database; on Convex
+that is the HTTP action alone, with no mutation after it. Convex runs an
+HTTP action for every request to the route and offers no request filtering
+or rate limiting in front of functions; a per-client limit would need a
+database write per report, which costs more than it saves. A deployment
+that needs more puts its own Cloudflare zone or Vercel firewall in front of
+its `.convex.site` address, as Convex's abuse protection guide describes.
+Every report gets the same empty answer, so it reveals no project. The project's owners can clear it
 (`clearConnected`). A project that already had threads before this version
 was installed: SQLite marks it connected at its first thread, on that
 thread's page's origin, when it upgrades to schema version 19; on Convex,
