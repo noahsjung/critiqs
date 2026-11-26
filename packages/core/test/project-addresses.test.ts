@@ -26,3 +26,31 @@ test("origins on this computer, a private network, or a local name are ambiguous
   }
   for (const origin of ["https://acme-proto.vercel.app", "https://203.0.113.9"]) expect(isAmbiguousOrigin(origin)).toBe(false);
 });
+
+test("a pattern reads the same where the browser writes * in a host as %2A, as Chrome does", () => {
+  const Real = globalThis.URL;
+  // Chrome's URL parser keeps `*` in a host only percent-encoded; Node and Bun keep it as typed.
+  class ChromeURL extends Real {
+    override get hostname() {
+      return super.hostname.replace(/\*/g, "%2A");
+    }
+    override get origin() {
+      return super.origin.replace(/\*/g, "%2A");
+    }
+  }
+  const read = () => ["https://*-acme.vercel.app", "https://*.acme.com", "https://acme-*.vercel.app/", "https://acme.example", "https://*-acme.vercel.app/path"].map((value) => parseProjectAddress(value));
+  const here = read();
+  globalThis.URL = ChromeURL as typeof URL;
+  try {
+    expect(read()).toEqual(here);
+  } finally {
+    globalThis.URL = Real;
+  }
+  expect(here.slice(0, 3)).toEqual([
+    { address: "https://*-acme.vercel.app", exact: false, key: "https://*.vercel.app" },
+    { address: "https://*.acme.com", exact: false, key: "https://*.acme.com" },
+    { address: "https://acme-*.vercel.app", exact: false, key: "https://*.vercel.app" },
+  ]);
+  // The stand-in for the wildcard is never an address of its own.
+  expect(parseProjectAddress("https://*-critiqswildcard.vercel.app")).toHaveProperty("error");
+});
