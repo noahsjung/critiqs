@@ -476,6 +476,19 @@ export const ALLOW_HEADER = "Critiqs-Allow";
 export const ALLOW_PROOF_PATH = "/.well-known/critiqs-allow.txt";
 /** Checks of a project's Allow Critiqs rules through the proxy, per hour. */
 export const ALLOW_CHECKS_PER_PROJECT_PER_HOUR = 20;
+/**
+ * Checks one person may start per hour, across every project they own: so
+ * making more projects doesn't make more checks, and keeping the proxy's
+ * checks busy for every other customer takes many people, not many projects.
+ */
+export const ALLOW_CHECKS_PER_PERSON_PER_HOUR = 20;
+/**
+ * How often an allowed site is checked again on its own: a site whose owner
+ * removed the proof, or whose rule stopped letting the token in, stops
+ * getting the token within about this long, without anyone pressing Check
+ * again.
+ */
+export const ALLOW_RECHECK_MS = 60 * 60_000;
 
 /**
  * A project's token for one exact origin: an HMAC under the deployment's

@@ -299,9 +299,13 @@ export default defineSchema({
     lastResult: v.optional(v.union(v.literal("public"), v.literal("blocked"), v.literal("sign-in"), v.literal("unreachable"), v.literal("unsafe"), v.literal("busy"))),
     lastProof: v.optional(v.boolean()),
     checkedAt: v.optional(v.number()),
+    /** When an allowed origin is checked again on its own (`reviewAllow.recheck`); unset while it isn't allowed. */
+    recheckAt: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
-  }).index("by_project_origin", ["projectId", "origin"]),
+  })
+    .index("by_project_origin", ["projectId", "origin"])
+    .index("by_recheck", ["recheckAt"]),
 
   /** A lease's frame host on the proxy domain, stored only as the hash of its random label. */
   reviewFrameHosts: defineTable({

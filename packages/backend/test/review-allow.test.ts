@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { ALLOW_TOKEN, frameHostHash } from "@critiqs/server/review-links";
-import { api } from "../convex/_generated/api";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { ALLOW_CHECKS_PER_PERSON_PER_HOUR, ALLOW_RECHECK_MS, ALLOW_TOKEN, frameHostHash } from "@critiqs/server/review-links";
+import { api, internal } from "../convex/_generated/api";
 import { anchor, reviewer, setup } from "./harness";
 
 // Allow Critiqs on Convex: a token is one project's for one exact origin,
@@ -209,4 +209,42 @@ test("a shared build's .build.invalid name is never a site to allow", async () =
     expect(await outcome(f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin }))).toBe("This address can't be reached on the internet. Use your prototype's public https:// address.");
     expect(await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: `${origin}/` }))).toBe("This address can't be reached on the internet. Use your prototype's public https:// address.");
   }
+});
+
+test("an allowed site is checked again on its own: once its proof is gone the allowance ends, with nobody pressing Check again", async () => {
+  const f = await fixture();
+  const origin = "https://walled.example";
+  await f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin });
+  const allowed = async () => (await f.dana.query(api.reviewAllow.current, { projectId: f.projectId, origin }))!.verifiedAt !== null;
+  try {
+    expect((await f.dana.action(api.reviewAllow.check, { projectId: f.projectId, origin })).verified).toBe(true);
+    // Not due yet: nothing is asked.
+    await f.t.action(internal.reviewAllow.recheck, {});
+    expect(probes.length).toBe(1);
+    // Due, and the site can't be reached this time: that ends nothing, and it is tried again later.
+    setSystemTime(new Date(Date.now() + ALLOW_RECHECK_MS + 1_000));
+    probeAnswer = () => new Response("", { status: 502 });
+    await f.t.action(internal.reviewAllow.recheck, {});
+    expect([probes.length, await allowed()]).toEqual([2, true]);
+    // Due again, and the proof is gone: the allowance ends, and leases stop carrying the token.
+    setSystemTime(new Date(Date.now() + 2 * ALLOW_RECHECK_MS + 2_000));
+    probeAnswer = () => Response.json({ result: "public", proof: false });
+    await f.t.action(internal.reviewAllow.recheck, {});
+    expect([probes.length, await allowed()]).toEqual([3, false]);
+    // No longer allowed, it isn't checked on its own again.
+    setSystemTime(new Date(Date.now() + 4 * ALLOW_RECHECK_MS));
+    await f.t.action(internal.reviewAllow.recheck, {});
+    expect(probes.length).toBe(3);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("one person's checks are limited across their projects, so more projects never make more checks", async () => {
+  const f = await fixture();
+  const second = await f.dana.mutation(api.projects.create, { name: "Second" });
+  await f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin: "https://one.example" });
+  await f.dana.mutation(api.reviewAllow.issue, { projectId: second, origin: "https://two.example" });
+  for (let n = 0; n < ALLOW_CHECKS_PER_PERSON_PER_HOUR; n++) await f.dana.action(api.reviewAllow.check, { projectId: f.projectId, origin: "https://one.example" });
+  expect(await outcome(f.dana.action(api.reviewAllow.check, { projectId: second, origin: "https://two.example" }))).toBe(`You can check Allow Critiqs rules ${ALLOW_CHECKS_PER_PERSON_PER_HOUR} times an hour, across your projects. Try again later.`);
 });
