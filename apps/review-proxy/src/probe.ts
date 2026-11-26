@@ -1,4 +1,4 @@
-import { classifyAddress } from "@critiqs/core";
+import { classifyAddress, hostOf } from "@critiqs/core";
 import { type AllowCheckResult, ALLOW_PROOF_PATH, hasAllowProof, proxyAuthorized } from "@critiqs/server/review-links";
 import type { ProxyConfig } from "./config.ts";
 import { readDecoded } from "./decompress.ts";
@@ -18,7 +18,10 @@ import { windowCounter } from "./limits.ts";
 // response (`classifyAddress`). Then it looks for the project's proof file.
 // It answers only `{ result, proof }`: never a status, a header, an address
 // or an error. Anyone without the secret gets the same bare 404 as any other
-// unknown path; checks are limited per origin and for the whole process.
+// unknown path; checks are limited per origin and for the whole process, and
+// each holds a read slot of the proxy's (its process's and the site's host's
+// share, `ProbeReads`) while it fetches, waited for in the same line as a
+// review frame's reads, so a check never adds load beside those limits.
 
 /** The largest request body the probe reads. */
 const MAX_BODY = 4 * 1024;
@@ -34,6 +37,9 @@ export interface ProbeLimits {
 }
 
 export const DEFAULT_PROBE_LIMITS: ProbeLimits = { perMinute: 60, perOriginPerMinute: 6 };
+
+/** The proxy's read slots, as the probe takes them: the process's and one upstream host's, all or none, or null once the wait is over. */
+export type ProbeReads = (host: string, signal: AbortSignal) => Promise<(() => void) | null>;
 
 /** The origin to check: `https://` (or `http://` on a `.localhost` proxy's tests), a bare origin with a host name. Null otherwise. */
 function originOf(value: unknown, local: boolean): string | null {
@@ -87,7 +93,7 @@ export function createProbe(config: Pick<ProxyConfig, "secret" | "limits" | "loc
     }
   };
 
-  return async function probe(request: Request): Promise<Response> {
+  return async function probe(request: Request, reads: ProbeReads): Promise<Response> {
     // Without the secret, the same answer as any path that isn't there.
     if (!(await proxyAuthorized(request.headers.get("authorization"), config.secret))) return plain(404, "Not found");
     const length = Number(request.headers.get("content-length") ?? "0");
@@ -106,12 +112,17 @@ export function createProbe(config: Pick<ProxyConfig, "secret" | "limits" | "loc
     const proof = body.proof === undefined ? null : typeof body.proof === "string" && PROOF.test(body.proof) ? body.proof : undefined;
     if (origin === null || token === undefined || proof === undefined) return plain(400, "");
     if (!all.admit("all") || !perOrigin.admit(origin)) return plain(429, "");
+    const site = new URL(origin);
+    const release = await reads(hostOf(site) ?? site.hostname, request.signal);
+    if (release === null) return answer("busy");
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.limits.headersTimeoutMs + config.limits.bodyTimeoutMs)]);
     try {
       const result = await look(origin, token, signal);
       return answer(result, result === "public" && proof !== null ? await proven(origin, token, proof, signal) : false);
     } catch {
       return answer("unreachable");
+    } finally {
+      release();
     }
   };
 }

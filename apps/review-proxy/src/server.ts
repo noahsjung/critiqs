@@ -11,6 +11,7 @@ import { decodeHtml, injectPageLayer, rewriteHtml } from "./html.ts";
 import { budget, type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
 import { failurePage, frameCsp, inertCsp, leavePage, topLevelPage } from "./pages.ts";
 import { framePath } from "./paths.ts";
+import type { ProbeReads } from "./probe.ts";
 import { wellKnown } from "./wellKnown.ts";
 import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from "./urls.ts";
 
@@ -48,8 +49,8 @@ export interface ProxyDeps {
   assets: ProxyAssets;
   /** Where a shared build's files come from; by default the directory's backend. */
   builds?: BuildSource;
-  /** Allow Critiqs' check (`POST /__critiqs/probe`, probe.ts); without it, that path is a 404 like any other. */
-  probe?: (request: Request) => Promise<Response>;
+  /** Allow Critiqs' check (`POST /__critiqs/probe`, probe.ts), given the proxy's read slots; without it, that path is a 404 like any other. */
+  probe?: (request: Request, reads: ProbeReads) => Promise<Response>;
   now?: () => number;
 }
 
@@ -68,6 +69,8 @@ function slotMime(type: string): boolean {
 }
 
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+/** The slot line's key for Allow Critiqs checks: never a lease ID, which has no space. */
+const PROBE_LINE = " allow-critiqs-check";
 
 
 /**
@@ -465,6 +468,13 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   };
 
   /**
+   * The read slots an Allow Critiqs check holds while it fetches a site: the
+   * process's and that site's host's, waited for in the same line as a
+   * frame's reads, so checks never add load beside those shares.
+   */
+  const probeReads: ProbeReads = (upstreamHost, signal) => line.take([() => processSlots.take(), () => hostSlots.take(upstreamHost)], PROBE_LINE, limits.queueTimeoutMs, signal);
+
+  /**
    * Frame hosts that resolved to a live lease, with the directory's last
    * answer, until that lease's end: their lookups never count against a
    * client's misses, so a viewer whose address someone else uses up (a
@@ -544,7 +554,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
         // Refused below.
       }
       if (path === "/__critiqs/probe" && deps.probe !== undefined) {
-        const answer = await deps.probe(request);
+        const answer = await deps.probe(request, probeReads);
         return new Response(answer.body, { status: answer.status, headers: common(new Headers(answer.headers)) });
       }
     }

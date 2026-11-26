@@ -1,10 +1,10 @@
-import { type PanelSignedIn, type PanelSignIn, panelSignIn, parseReviewFrameMessage, type ReviewFrameMessage, windowTransport } from "@critiqs/core";
+import { type PanelSignedIn, type PanelSignIn, panelSignIn, parseReviewFrameMessage, type ReviewFrameMessage, reviewPathOf, shownPathOf, windowTransport } from "@critiqs/core";
 import { createContext, Fragment, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { failureMessage, type ReviewReady, useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
 import { framesOnlyFrom, ownFramePolicy } from "../frame-policy.ts";
-import { REVIEW_KEY, reviewPathOf } from "../route.ts";
+import { REVIEW_KEY } from "../route.ts";
 import type { Deployment, MountedPanel, PanelMount, TokenSession } from "../shared.ts";
 import { keepThreadWindowsBelow, useSidebarWidth } from "../shared.ts";
 import { Logo } from "./Preview.tsx";
@@ -69,16 +69,6 @@ function subscribeNarrow(listener: () => void) {
 /** Whether the review page lays out for a narrow screen (`NARROW_QUERY`). */
 function useNarrow(): boolean {
   return useSyncExternalStore(subscribeNarrow, () => window.matchMedia?.(NARROW_QUERY).matches ?? window.innerWidth < 960, () => false);
-}
-
-/**
- * The path to show in the bar and copy with Share for a path the frame
- * reports: a path starting with `//` gets `/.` in front, as the proxy writes
- * it, so it never reads as another site's address; null for the proxy's own
- * paths and anything else a review address can't hold.
- */
-export function shownPathOf(pathname: string): string | null {
-  return reviewPathOf(pathname.startsWith("//") ? `/.${pathname}` : pathname);
 }
 
 /** The frame's origin, if it is a lease host: `v-<26 base32 characters>` under the proxy's domain, `https:`, or `http:` on `.localhost`. */

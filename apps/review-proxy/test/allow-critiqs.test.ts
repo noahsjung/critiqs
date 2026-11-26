@@ -7,7 +7,7 @@ import { createProbe } from "../src/probe.ts";
 import { cachedReputation, fixtureReputation } from "../src/reputation.ts";
 import { createReviewProxy } from "../src/server.ts";
 import { assetPath } from "../src/urls.ts";
-import { close, listen, PUBLIC_A, PUBLIC_B, recordingServer, testWeb, v4 } from "./fixtures.ts";
+import { close, listen, PUBLIC_A, PUBLIC_B, PUBLIC_C, recordingServer, testWeb, v4 } from "./fixtures.ts";
 
 // Allow Critiqs through the proxy: the backend's check (`POST /__critiqs/probe`,
 // AT-31) and a site whose firewall lets in only requests with its project's
@@ -26,6 +26,7 @@ const TOKEN = "t".repeat(43);
 const PROOF = "p".repeat(32);
 const LABEL = `v-${"a".repeat(26)}`;
 const OTHER = `v-${"b".repeat(26)}`;
+const SLOW = `v-${"c".repeat(26)}`;
 
 /** A site behind a wall: everything is a challenge page unless the request carries its own token. */
 const guarded = recordingServer((request, response) => {
@@ -48,30 +49,43 @@ const other = recordingServer((_request, response) => {
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   response.end("<!doctype html><title>Other</title><h1>Other</h1>");
 });
-let ports = { guarded: 0, other: 0 };
+/** A slow site, counting the requests it is answering at once. */
+const slowSite = { now: 0, most: 0, delayMs: 60 };
+const slow = recordingServer((_request, response) => {
+  slowSite.most = Math.max(slowSite.most, ++slowSite.now);
+  setTimeout(() => {
+    slowSite.now--;
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end("<!doctype html><title>Slow</title><h1>Slow</h1>");
+  }, slowSite.delayMs);
+});
+let ports = { guarded: 0, other: 0, slow: 0 };
 beforeAll(async () => {
-  ports = { guarded: await listen(guarded.server), other: await listen(other.server) };
+  ports = { guarded: await listen(guarded.server), other: await listen(other.server), slow: await listen(slow.server) };
 });
 afterAll(async () => {
-  await Promise.all([close(guarded.server), close(other.server)]);
+  await Promise.all([close(guarded.server), close(other.server), close(slow.server)]);
 });
 
-function setup(options: { unsafe?: string[]; perOriginPerMinute?: number } = {}) {
-  const web = testWeb({ "staging.acme.example": [v4(PUBLIC_A)], "other.example": [v4(PUBLIC_B)] }, { [PUBLIC_A]: ports.guarded, [PUBLIC_B]: ports.other });
+function setup(options: { unsafe?: string[]; perOriginPerMinute?: number; limits?: Partial<typeof config.limits> } = {}) {
+  const config_ = { ...config, limits: { ...config.limits, ...options.limits } };
+  const web = testWeb({ "staging.acme.example": [v4(PUBLIC_A)], "other.example": [v4(PUBLIC_B)], "slow.example": [v4(PUBLIC_C)] }, { [PUBLIC_A]: ports.guarded, [PUBLIC_B]: ports.other, [PUBLIC_C]: ports.slow });
   const reputation = cachedReputation(fixtureReputation(options.unsafe ?? []));
   const policy = proxyPolicy(config);
   const egress = {
     primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits, sendsAllowTokens: true }),
     asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits, reputationScope: "origin" }),
   };
-  const probe = createProbe(config, { egress: egress.primary, limits: { perMinute: 60, perOriginPerMinute: options.perOriginPerMinute ?? 6 } });
+  const probe = createProbe(config_, { egress: egress.primary, limits: { perMinute: 60, perOriginPerMinute: options.perOriginPerMinute ?? 6 } });
   const directory = memoryDirectory([
     // The guarded site's own link: its lease carries the project's token for it.
     { label: LABEL, linkId: "link-1", leaseId: "lease-1", origin: "http://staging.acme.example", assetOrigins: [], allow: [{ origin: "http://staging.acme.example", token: TOKEN }], expiresAt: Date.now() + 600_000 },
     // Another customer's link whose pages use the guarded site's files.
     { label: OTHER, linkId: "link-2", leaseId: "lease-2", origin: "http://other.example", assetOrigins: [], expiresAt: Date.now() + 600_000 },
+    // A link to the slow site.
+    { label: SLOW, linkId: "link-3", leaseId: "lease-3", origin: "http://slow.example", assetOrigins: [], expiresAt: Date.now() + 600_000 },
   ]);
-  const proxy = createReviewProxy(config, { directory, egress, probe, assets: { runtime: { file: "runtime.0123456789abcdef.js", body: "" }, layer: { file: "layer.0123456789abcdef.js", body: "" } } });
+  const proxy = createReviewProxy(config_, { directory, egress, probe, assets: { runtime: { file: "runtime.0123456789abcdef.js", body: "" }, layer: { file: "layer.0123456789abcdef.js", body: "" } } });
   return { proxy, web };
 }
 
@@ -138,6 +152,33 @@ describe("AT-31: the Allow Critiqs check", () => {
     expect(response.status).toBe(200);
     const post = await proxy.fetch(new Request(`http://${LABEL}.review.localhost:5120/x`, { method: "POST", headers: { host: `${LABEL}.review.localhost:5120` }, body: "x" }));
     expect(post.status).toBe(405);
+  });
+});
+
+describe("the Allow Critiqs check within the proxy's read limits", () => {
+  test("checks hold the site's host share with review frames: never more fetches at once than the share, and every check answers", async () => {
+    slowSite.most = 0;
+    slowSite.delayMs = 60;
+    const { proxy } = setup({ perOriginPerMinute: 20, limits: { concurrentPerUpstreamHost: 2 } });
+    const answers = await Promise.all(Array.from({ length: 6 }, () => probeWith(proxy, { origin: "http://slow.example", proof: PROOF }).then((response) => response.json())));
+    expect(answers).toEqual(new Array(6).fill({ result: "public", proof: false }));
+    expect(slowSite.most).toBe(2);
+  });
+
+  test("a check that can't get a slot in time is busy, never a fetch beside the limit; a frame's read holding the share counts", async () => {
+    slowSite.most = 0;
+    slowSite.delayMs = 400;
+    const { proxy } = setup({ limits: { concurrentPerUpstreamHost: 1, queueTimeoutMs: 100 } });
+    const frame = proxy.fetch(new Request(`http://${SLOW}.review.localhost:5120/`, { headers: { host: `${SLOW}.review.localhost:5120`, "sec-fetch-dest": "iframe" } }));
+    await Bun.sleep(30);
+    const check = await probeWith(proxy, { origin: "http://slow.example" });
+    expect(await check.json()).toEqual({ result: "busy", proof: false });
+    expect((await frame).status).toBe(200);
+    expect([slowSite.most, slow.requests.length > 0]).toEqual([1, true]);
+    // Once the frame's read is done, the check runs.
+    slowSite.delayMs = 10;
+    expect(await (await probeWith(proxy, { origin: "http://slow.example" })).json()).toEqual({ result: "public", proof: false });
+    expect(proxy.inFlight).toBe(0);
   });
 });
 

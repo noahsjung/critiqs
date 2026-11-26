@@ -41,7 +41,7 @@ import {
   webRiskVerdict,
   allowToken,
 } from "@critiqs/server";
-import { canonicalHost, hostOf } from "@critiqs/core";
+import { canonicalHost, hostOf, shownPathOf } from "@critiqs/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -670,10 +670,9 @@ export const forThreadPage = query({
         if ((await serving(ctx, store, link, project as unknown as Doc<"projects">, user?._id ?? null, now)) !== "ok") continue;
         const key = await linkKey(ctx, link);
         if (key === null) continue;
-        // The path the review page opens at, when it is one the page takes (`reviewPathOf`); otherwise the link's own start.
-        const path = page.pathname;
-        const usable = path !== "/" && path.length <= 2_048 && !path.startsWith("//") && !path.startsWith("/__critiqs/") && /^\/[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$/.test(path);
-        return `${setup.website}/r/${key}${usable ? `#${path}` : ""}`;
+        // The path the review page opens at, as the review page shows it (`shownPathOf`); otherwise the link's own start.
+        const path = shownPathOf(page.pathname);
+        return `${setup.website}/r/${key}${path !== null && path !== "/" ? `#${path}` : ""}`;
       }
       return null;
     }),

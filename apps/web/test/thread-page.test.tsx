@@ -184,6 +184,10 @@ describe("the thread page", () => {
     const gone = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(ended) }) });
     expect(text(gone)).toContain("The comment was left on a shared build that is no longer shared");
     expect(text(gone)).not.toContain("build.invalid");
+    // However its host is spelled (case, the root's trailing dot), it is the same host to the one canonical-host rule.
+    const spelled = { ...thread, prototype: { pageUrl: "https://BKKKKKKKKKKKKKKKKKKKK.Build.Invalid./pricing", screen: "/pricing" } };
+    const same = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(spelled) }) });
+    expect(text(same)).toContain("The comment was left on a shared build that is no longer shared");
   });
 
   test("Open in prototype goes only to a web address", () => {

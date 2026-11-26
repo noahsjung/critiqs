@@ -1,4 +1,4 @@
-import { buildLink, isThreadPageKey, type MentionView, removeLink, reviewLink } from "@critiqs/core";
+import { buildLink, hostOf, isHostWithin, isThreadPageKey, type MentionView, removeLink, reviewLink } from "@critiqs/core";
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type Backend, failureCode, failureMessage, type ThreadPageData, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
@@ -112,7 +112,8 @@ export function extensionWay(connectedAt: number | null | undefined, madeWith: "
 /** Whether a comment was left on a shared build (`https://<id>.build.invalid/…`), whose address opens nothing. */
 function isSharedBuild(href: string): boolean {
   try {
-    return new URL(href).hostname.endsWith(".build.invalid");
+    const host = hostOf(new URL(href));
+    return host !== null && isHostWithin(host, "build.invalid");
   } catch {
     return false;
   }

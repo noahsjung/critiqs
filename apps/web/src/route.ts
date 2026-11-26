@@ -47,15 +47,3 @@ export function routeOf(pathname: string, search = ""): Route {
   }
   return { page: "start" };
 }
-
-/**
- * The prototype path a review link's address names after `#`, such as
- * `/r/<key>#/products/42`: a path on the prototype's own origin, without a
- * query, kept out of the address the server sees. Null for anything else.
- */
-export function reviewPathOf(hash: string): string | null {
-  const path = hash.startsWith("#") ? hash.slice(1) : hash;
-  if (path === "" || path.length > 2048 || !path.startsWith("/") || path.startsWith("//") || path.startsWith("/__critiqs/")) return null;
-  if (!/^\/[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$/.test(path)) return null;
-  return path;
-}

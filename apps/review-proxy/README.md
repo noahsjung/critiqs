@@ -204,6 +204,10 @@ The rule for Allow Critiqs, which the proxy's side already follows:
   `unreachable`, `unsafe`, or `busy` past its limits: 60 checks a minute, 6
   per origin), never a status, header, address or error; without the secret
   it is the same 404 as any unknown path.
+- A check holds one of the proxy's read slots while it fetches: the
+  process's and the site's host's share, waited for in the same line as a
+  review frame's reads. A check that gets none within the wait is `busy`, so
+  checks never fetch beside those limits.
 - The domain itself serves `/.well-known/critiqs-review.json`
   (`src/wellKnown.ts`): the user agent token, the header, the proof path, and
   `CRITIQS_PROXY_EGRESS`. Nothing in it lets anyone in.

@@ -49,6 +49,9 @@ test("a thread page's review link is the project's link for the comment's addres
   const link = await dana!.mutation(api.reviewLinks.createLive, { projectId, address: "https://proto.example/" });
   await t.finishAllScheduledFunctions(() => undefined);
   expect(await dana!.query(api.reviewLinks.forThreadPage, { key })).toBe(`${link.url}#/users/alex`);
+  // A path the proxy would read as another site's address opens as the review page shows it, never as `#//…`.
+  const odd = await dana!.mutation(api.threads.create, { projectId, anchor: { ...anchor, evidence: { ...anchor.evidence, url: "https://proto.example//evil.example/x" } }, body: "Odd path", tags: [], capture: { status: "failed" as const, failureReason: "x" } });
+  expect(await dana!.query(api.reviewLinks.forThreadPage, { key: await dana!.mutation(api.threads.pageKey, { threadId: odd }) })).toBe(`${link.url}#/.//evil.example/x`);
   // Someone who may not open the thread page learns nothing from it.
   const pageRefusal: unknown = await outcome(sam!.query(api.threads.page, { key, paginationOpts: { numItems: 1, cursor: null } }));
   expect((await outcome(sam!.query(api.reviewLinks.forThreadPage, { key }))) as unknown).toBe(pageRefusal);
