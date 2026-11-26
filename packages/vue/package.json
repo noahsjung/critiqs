@@ -1,0 +1,65 @@
+{
+  "name": "critiqs-vue",
+  "version": "0.3.0",
+  "description": "Critiqs's Vue component: add <Critiqs /> to a prototype to comment on it, discuss feedback, and find its context.",
+  "license": "MIT",
+  "keywords": [
+    "vue",
+    "feedback",
+    "comments",
+    "review",
+    "prototype",
+    "design review"
+  ],
+  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/vue#readme",
+  "bugs": {
+    "url": "https://github.com/noahsjung/Critiqs/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./router": {
+      "types": "./dist/router.d.ts",
+      "import": "./dist/router.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --isolate",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  },
+  "dependencies": {
+    "critiqs": "0.3.0"
+  },
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.6",
+    "@types/bun": "^1.4.2",
+    "vue": "^3.5.46",
+    "vue-router": "^5.5.1"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noahsjung/Critiqs.git",
+    "directory": "packages/vue"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
