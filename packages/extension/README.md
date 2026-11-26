@@ -103,9 +103,13 @@ sets it once on the Cloud deployment, in place of the development ID:
 bunx convex env set CRITIQS_EXTENSION_IDS <store ID> --prod
 ```
 
-A team's own Convex deployment that wants the published extension lists the
-same ID. Several IDs, such as a deployment for development that also takes
-the published extension, are separated by commas or spaces.
+Only Critiqs Cloud lists the store's ID. The published extension can reach
+no other deployment: the store's build has Cloud's address built in and
+refuses `CRITIQS_BACKEND`, so listing its ID elsewhere does nothing. A team
+that runs its own Convex deployment builds the extension for it
+(`CRITIQS_BACKEND=<its address> bun run build`), loads that build unpacked,
+and lists that build's ID there: the development ID, with the caution above.
+`CRITIQS_EXTENSION_IDS` takes several IDs separated by commas or spaces.
 
 ## Checks
 
