@@ -189,7 +189,7 @@ test("opening a thread schedules a check with the linker's token once its status
 
 test("after the linker disconnects Linear, the chip keeps the last status, marked stale, until a webhook updates it", async () => {
   const { t, lee, sam, threadId, link } = await project();
-  await lee.mutation(api.trackers.disconnect, { tracker: "linear" });
+  await lee.action(api.trackers.disconnect, { tracker: "linear" });
   await t.run(async (ctx) => ctx.db.patch(link._id as never, { statusCheckedAt: Date.now() - STATUS_CHECK_MS - 1 }));
   linear.tokens.length = 0;
   expect(await sam.mutation(api.ticketStatus.checkStatus, { threadId })).toBe(1);
@@ -204,7 +204,7 @@ test("opening a thread checks only its own links: another thread's link to the s
   const { t, dana, lee, sam, projectId, threadId, otherId, link } = await project();
   await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true });
   // Lee disconnects; opening his thread marks its status last known.
-  await lee.mutation(api.trackers.disconnect, { tracker: "linear" });
+  await lee.action(api.trackers.disconnect, { tracker: "linear" });
   await t.run(async (ctx) => ctx.db.patch(link._id as never, { statusCheckedAt: Date.now() - STATUS_CHECK_MS - 1 }));
   await sam.mutation(api.ticketStatus.checkStatus, { threadId });
   await t.finishAllScheduledFunctions(() => undefined);
