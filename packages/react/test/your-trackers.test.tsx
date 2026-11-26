@@ -472,3 +472,30 @@ test("disconnecting a Jira sign-in, which Atlassian offers no way to end, says i
   await rerender(node, pasted);
   expect(again.querySelector('[role="status"]')?.textContent).toBe("Critiqs no longer has your Jira API token, but the token still works in Jira until you delete it there.");
 });
+
+test("a Jira site Critiqs refuses keeps the site form open, with what was typed and why, so the person corrects it", async () => {
+  const { popup } = fakeWindow();
+  let refuse = true;
+  const data = backend({
+    trackers: {
+      accounts: [],
+      signIn: async () => {
+        if (refuse) throw new ConvexError({ code: "invalid", message: "That isn't a Jira Cloud site. Enter its address, such as your-team.atlassian.net." });
+        return { url: "https://backend.convex.site/trackers/jira/start", state: "s1", binding: "secret-1" };
+      },
+    },
+  });
+  const dialog = await render(<YourTrackersDialog offered={JIRA_BY_SIGN_IN} onClose={() => undefined} notify={() => undefined} />, data);
+  await click(button(dialog, "Connect Jira"));
+  const site = () => dialog.querySelector<HTMLInputElement>('input[placeholder="your-team.atlassian.net"]');
+  await type(site(), "acme.example.com");
+  await click(button(dialog, "Sign in with Atlassian"));
+  expect(site()?.value).toBe("acme.example.com");
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toBe("That isn't a Jira Cloud site. Enter its address, such as your-team.atlassian.net.");
+  expect(popup.closed).toBe(true);
+  refuse = false;
+  await type(site(), "acme.atlassian.net");
+  await click(button(dialog, "Sign in with Atlassian"));
+  expect(site()).toBeNull();
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe("Finish connecting in the Jira window.");
+});

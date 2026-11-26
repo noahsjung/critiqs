@@ -174,14 +174,15 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
     }
   };
 
-  const signIn = (tracker: TrackerId, site?: string) => {
+  /** Starts a tracker's sign-in in its window; true once it started, false when it couldn't, with the reason shown. */
+  const signIn = (tracker: TrackerId, site?: string): Promise<boolean> => {
     // Opened at once, from the click, so the browser allows it; the address follows.
     const popup = window.open("", SIGN_IN_WINDOW, "popup,width=520,height=720");
     if (popup === null) {
       setError("Your browser blocked the sign-in window. Allow pop-ups for this site and try again.");
-      return;
+      return Promise.resolve(false);
     }
-    void attempt(async () => {
+    return attempt(async () => {
       try {
         const start = await tickets.startTrackerSignIn(tracker, site);
         watchBlocked(tracker, popup, start.url);
@@ -236,9 +237,10 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
           busy={busy}
           onBack={() => go({ kind: "main" })}
           onToken={() => go({ kind: "token", tracker: page.tracker })}
+          error={error}
           onSignIn={(site) => {
-            signIn(page.tracker, site);
-            setPage({ kind: "main" });
+            // A site Critiqs refuses keeps this page, with what was typed, to correct it.
+            void signIn(page.tracker, site).then((started) => started && setPage({ kind: "main" }));
           }}
         />
       </Dialog>
@@ -293,7 +295,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                     <NavRow
                       label={`Connect ${label(id)}`}
                       disabled={busy}
-                      onClick={() => (method !== "oauth" ? go({ kind: "token", tracker: id }) : hasSites(id) ? go({ kind: "site", tracker: id }) : signIn(id))}
+                      onClick={() => (method !== "oauth" ? go({ kind: "token", tracker: id }) : hasSites(id) ? go({ kind: "site", tracker: id }) : void signIn(id))}
                     />
                     {method === "oauth" && (
                       <div className="row">
@@ -477,7 +479,22 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
  * Choosing the site before a tracker's sign-in, where accounts are on one of
  * several sites (Jira Cloud): the sign-in connects that site only.
  */
-function SitePage({ tracker, busy, onBack, onToken, onSignIn }: { tracker: TrackerId; busy: boolean; onBack: () => void; onToken: () => void; onSignIn: (site: string) => void }) {
+function SitePage({
+  tracker,
+  busy,
+  error,
+  onBack,
+  onToken,
+  onSignIn,
+}: {
+  tracker: TrackerId;
+  busy: boolean;
+  /** Why the last sign-in couldn't start, such as a site Critiqs refused; null for none. */
+  error: string | null;
+  onBack: () => void;
+  onToken: () => void;
+  onSignIn: (site: string) => void;
+}) {
   const [site, setSite] = useState("");
   const pageRef = useRef<HTMLDivElement>(null);
   usePageFocus(pageRef, tracker, { initial: true });
@@ -496,6 +513,11 @@ function SitePage({ tracker, busy, onBack, onToken, onSignIn }: { tracker: Track
           <span className="field-label">Jira site</span>
           <input className="field" autoComplete="url" value={site} placeholder="your-team.atlassian.net" onChange={(event) => setSite(event.target.value)} />
         </label>
+        {error !== null && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="ds-actions between">
           <button type="button" className="link-btn" disabled={busy} onClick={onToken}>
             {tokenKind(tracker).instead}
