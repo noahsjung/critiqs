@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-critiqs"
+dynamic = ["version"]
+description = "Critiqs for Django: reviewers comment directly on a running prototype, discuss feedback, and find its context."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["Django>=5.2"]
+keywords = ["feedback", "comments", "review", "prototype", "design review", "django"]
+classifiers = [
+  "Framework :: Django",
+  "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.0",
+  "Framework :: Django :: 6.1",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/noahsjung/Critiqs/tree/main/packages/django#readme"
+Issues = "https://github.com/noahsjung/Critiqs/issues"
+Source = "https://github.com/noahsjung/Critiqs"
+
+# The version lives in package.json, which Changesets bumps with every other
+# Critiqs package; hatchling's built-in regex source reads it.
+[tool.hatch.version]
+path = "package.json"
+pattern = '"version":\s*"(?P<version>[^"]+)"'
+
+# hatch_build.py puts Critiqs's browser bundle in the package.
+[tool.hatch.build.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/django_critiqs"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/hatch_build.py", "/package.json", "/README.md", "/LICENSE"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
