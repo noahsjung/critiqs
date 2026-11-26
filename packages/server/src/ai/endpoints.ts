@@ -1,4 +1,8 @@
+import { isLocalHost } from "@critiqs/core";
 import { AiError } from "./model.ts";
+
+// Core owns the rule, shared with onboarding. Exported here so `@critiqs/server` callers keep it.
+export { isLocalHost };
 
 // Custom provider addresses are a server-side request boundary: the server
 // sends a provider key to whatever address a project names. So an address
@@ -21,47 +25,6 @@ export interface EndpointPolicy {
 /** Normalized prefix: no trailing slash, no query or fragment. */
 function normalize(url: URL): string {
   return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const parts = host.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts as [number, number, number, number];
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    a >= 224
-  );
-}
-
-function isPrivateIpv6(host: string): boolean {
-  const address = host.replace(/^\[|\]$/g, "").toLowerCase();
-  if (!address.includes(":")) return false;
-  if (address === "::" || address === "::1") return true;
-  const mapped = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateIpv4(mapped[1]!);
-  // Mapped addresses written in hex, such as ::ffff:7f00:1, are refused outright.
-  if (address.startsWith("::ffff:")) return true;
-  return /^(fc|fd|fe8|fe9|fea|feb|ff)/.test(address);
-}
-
-/** Whether a host names this computer or a private network, by name or address. */
-export function isLocalHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    isPrivateIpv4(host) ||
-    isPrivateIpv6(host)
-  );
 }
 
 /** Whether `url` is the prefix `base` or under it, at a path segment. */

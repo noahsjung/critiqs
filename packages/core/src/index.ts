@@ -10,3 +10,5 @@ export * from "./protocol.ts";
 export * from "./tags.ts";
 export * from "./ai.ts";
 export * from "./mockup.ts";
+export * from "./local-host.ts";
+export * from "./onboarding.ts";

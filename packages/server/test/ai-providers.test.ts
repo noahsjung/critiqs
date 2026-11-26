@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AiProvider } from "@critiqs/core";
+import { isLocalHost } from "@critiqs/server";
 import { checkEndpoint, guardedFetch } from "../src/ai/endpoints.ts";
 import { AiError } from "../src/ai/model.ts";
 import { testRequest, interpretRequest } from "../src/ai/prompts.ts";
@@ -281,6 +282,11 @@ describe("endpoints owners may enter", () => {
     for (const address of ["https://127.0.0.1/v1", "https://10.0.0.2/v1", "https://169.254.169.254/latest", "https://[::1]/v1", "https://[::ffff:127.0.0.1]/v1", "https://localhost/v1", "http://ollama.internal:11434/v1"]) {
       expect(checkEndpoint(address, { ...policy, allowed: [...policy.allowed, address] })).toMatchObject({ ok: false });
     }
+  });
+
+  test("isLocalHost is still exported from @critiqs/server", () => {
+    expect(["localhost", "10.0.0.2", "[::1]", "ollama.internal"].map(isLocalHost)).toEqual([true, true, true, true]);
+    expect(["llm.example.com", "8.8.8.8"].map(isLocalHost)).toEqual([false, false]);
   });
 
   test("local addresses work only where the operator allows them", () => {

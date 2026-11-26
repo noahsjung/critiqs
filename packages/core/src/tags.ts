@@ -2,6 +2,9 @@
 // messages. Both are matched by a key, so `#Wording`, `#wording`, and the
 // preset "Wording" are one tag; the first spelling seen is kept for display.
 
+/** Initial project tags (F11). Projects can change them later; see `startingTags` for tags by purpose. */
+export const DEFAULT_TAGS: readonly string[] = ["Bug", "UX copy change", "Design change request", "User feedback"];
+
 /** Longest tag, in characters, without the `#`. */
 export const MAX_TAG_LENGTH = 50;
 /** Most explicit tags one thread can carry. */
