@@ -286,7 +286,7 @@ test("a project's owner turns on a Linear team's templates; a reviewer drafts in
   const drafted = await lee.action(api.ai.draftTicket, { threadId, tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug" });
   expect(drafted).toMatchObject({ title: "Department shows the wrong team", drafted: "ai", notice: null });
   expect(drafted.body).toBe(
-    `## Summary\n\nThe department is wrong\\.\n\n## Steps to reproduce\n\n## Expected\n\n## Actual\n\nThread: [open the thread](<https://review.example/app?critiqs=${threadId}>)\n`,
+    `## Summary\n\nThe department is wrong.\n\n## Steps to reproduce\n\n## Expected\n\n## Actual\n\nThread: [open the thread](<https://review.example/app?critiqs=${threadId}>)\n`,
   );
   expect(prompts.map((entry) => `${entry.model} ${entry.authorization}`)).toEqual(["local-model Bearer deployment-key"]);
   expect(prompts[0]!.prompt).toContain("What happened?");

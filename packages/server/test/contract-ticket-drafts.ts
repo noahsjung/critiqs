@@ -280,7 +280,7 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
     await save(backend, dana, projectId, true, [bug]);
     const filled = await draft(backend, lee, linear, threadId, { destinationId: "team-eng", templateId: "tpl-bug" });
     expect(filled.title).toBe("Department is wrong #wording");
-    expect(filled.body.startsWith("## Summary\n\n> Department is wrong \\#wording\n> Should be Support\n\n- Link: [open the thread](")).toBe(true);
+    expect(filled.body.startsWith("## Summary\n\n> Department is wrong #wording\n> Should be Support\n\n- Link: [open the thread](")).toBe(true);
     expect(filled.body).toContain(link);
     expect(filled.body).toContain("What happened?\n\n## Steps to reproduce\n\n1.\n\n## Expected\n\n## Actual\n");
     // The standard format, without a template, is as before.
@@ -356,7 +356,7 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
     title: "Department shows Sales instead of Support",
     sections: [section("Summary", "Reviewers report the department reads Sales; it should be Support."), section("Expected", "Support")],
   };
-  const summary = "Reviewers report the department reads Sales; it should be Support\\.";
+  const summary = "Reviewers report the department reads Sales; it should be Support.";
 
   test(`${name}: Critiqs AI drafts into the chosen template from the thread, keeping its link, charging the project's credits; the person's own key costs nothing`, async () => {
     const backend = fresh().withPlans({ free: { name: "free", label: "Free", limits: [{ metric: "aiCredits", period: "month", max: 40 }] } });
