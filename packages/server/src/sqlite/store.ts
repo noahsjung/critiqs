@@ -559,18 +559,19 @@ export const MIGRATIONS: Migration[] = [
  * already has threads was installed: each was left with Critiqs on the page,
  * since nothing else could make one before this version. It starts connected
  * at its first thread, on that thread's page's origin, in one pass over the
- * threads (SQLite takes a bare column from the row `MIN` picks). A stored
+ * threads (SQLite takes a bare column from the row `MIN` picks), reading
+ * each first thread's anchor on its own. A stored
  * anchor whose page can't be read still connects the project, with no origin,
  * so no row can stop the upgrade.
  */
 function addConnections(sql: SqlDriver): void {
   sql.exec("ALTER TABLE projects ADD COLUMN connected_at INTEGER");
   sql.exec("ALTER TABLE projects ADD COLUMN connected_origin TEXT");
-  const firsts = sql.all<{ project_id: string; created_at: number; anchor: string }>(
-    "SELECT project_id, MIN(created_at) AS created_at, anchor FROM threads GROUP BY project_id",
-  );
+  // Each project's first thread by ID only, then its anchor one at a time, so memory doesn't hold every anchor at once.
+  const firsts = sql.all<{ project_id: string; created_at: number; id: string }>("SELECT project_id, MIN(created_at) AS created_at, id FROM threads GROUP BY project_id");
   for (const first of firsts) {
-    const { at, origin } = connectionFromThread({ createdAt: first.created_at, pageUrl: storedPageUrl(first.anchor) });
+    const anchor = sql.get<{ anchor: string }>("SELECT anchor FROM threads WHERE id = ?", [first.id])?.anchor ?? "";
+    const { at, origin } = connectionFromThread({ createdAt: first.created_at, pageUrl: storedPageUrl(anchor) });
     sql.run("UPDATE projects SET connected_at = ?, connected_origin = ? WHERE id = ? AND connected_at IS NULL", [at, origin, first.project_id]);
   }
 }
