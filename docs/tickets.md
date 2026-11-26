@@ -510,8 +510,11 @@ Self-hosted deployments get the same features:
 - **Templates.** A repository's `.github/ISSUE_TEMPLATE` files, read for each
   draft: Markdown templates, by the `name` in their front matter, and issue
   forms, as the Markdown an issue from the form has (each field's label as a
-  heading, with its preset value, and a checkbox per option). A form's
-  literal text stays literal: labels and one-line answers show exactly as
+  heading, with its preset value, and a checkbox per option of a checkbox or
+  dropdown field, for the person to tick). Critiqs AI writes only under a
+  form's free-text fields: a heading whose only content is such a task list
+  keeps its list in the draft, and the model is never asked to fill it. A
+  form's literal text stays literal: labels and one-line answers show exactly as
   written, and a field GitHub renders as code (`render`) is a code block. A
   textarea's preset text and a checkbox's label stay Markdown, as GitHub's
   forms read them. The form's checks, such as a required field, aren't

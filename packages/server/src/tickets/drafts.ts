@@ -5,6 +5,7 @@ import {
   type DraftedSection,
   draftedMarkdown,
   draftedSections,
+  fillableSections,
   type ExportPageLoader,
   type ExportThread,
   exportThread,
@@ -397,7 +398,7 @@ function draftSchema(outline: TicketOutline): JsonSchema {
   const section = {
     type: "object",
     properties: {
-      heading: { type: "string", enum: [...new Set(outline.sections.map((each) => each.name))] },
+      heading: { type: "string", enum: [...new Set(fillableSections(outline).map((each) => each.name))] },
       text: { type: "string" },
       items: { type: "array", items: { type: "string" } },
       numbered: { type: "boolean" },
@@ -441,7 +442,7 @@ export function ticketDraftRequest(input: TicketDraftRequestInput): StructuredRe
         ? "Format: Critiqs's standard sections, named under Sections."
         : "Format: the template in <data>, its name under Template name, its text under Template, and its sections, in order, under Sections.",
       "<data>",
-      `Sections: ${JSON.stringify(outline.sections.map((section) => section.name)).replaceAll("<", "\\u003c")}`,
+      `Sections: ${JSON.stringify(fillableSections(outline).map((section) => section.name)).replaceAll("<", "\\u003c")}`,
       ...(input.template === null ? [] : [`Template name: ${asData(input.template.name, 200)}`, `Template: ${asData(input.template.body, TICKET_AI.templateChars)}`]),
       `Thread: ${asData(input.thread, TICKET_AI.threadChars)}`,
       "</data>",

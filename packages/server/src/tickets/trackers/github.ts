@@ -419,6 +419,14 @@ export function parseGithubTemplate(fileName: string, source: string): GithubTem
       sections.push([heading, "", ...boxes].join("\n"));
       continue;
     }
+    // A dropdown's options, one box each, for the person to tick: never a free-text section to fill. Each option is text.
+    if (element.type === "dropdown" && Array.isArray(attributes.options)) {
+      const boxes = attributes.options.flatMap((option) => (text(option) ? [`- [ ] ${markdownText(option)}`] : []));
+      if (boxes.length > 0) {
+        sections.push([heading, "", ...boxes].join("\n"));
+        continue;
+      }
+    }
     const preset = (element.type === "textarea" || element.type === "input") && typeof attributes.value === "string" ? attributes.value.trim() : "";
     const value =
       preset === ""

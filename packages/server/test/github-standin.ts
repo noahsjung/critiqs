@@ -105,7 +105,7 @@ export interface GithubStandIn {
 
 export const STAND_IN_GITHUB_UPDATED_AT = "2026-01-01T00:00:00Z";
 
-const BUG_FORM = `name: Bug report
+export const GITHUB_BUG_FORM = `name: Bug report
 description: Something isn't working
 title: "[Bug]: "
 labels: ["bug", "triage"]
@@ -188,7 +188,7 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
       ["github_pat_riley", "riley"],
     ]),
     repositories: [
-      { id: 501, owner: "acme", name: "web", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug", "Wording", "enhancement"], templates: { "bug.yml": BUG_FORM, "feature.md": FEATURE_TEMPLATE, "config.yml": "blank_issues_enabled: false\n" } },
+      { id: 501, owner: "acme", name: "web", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug", "Wording", "enhancement"], templates: { "bug.yml": GITHUB_BUG_FORM, "feature.md": FEATURE_TEMPLATE, "config.yml": "blank_issues_enabled: false\n" } },
       { id: 502, owner: "acme", name: "api", hasIssues: true, archived: false, installationId: 71, pushers: [], labels: ["bug"], templates: {} },
       { id: 503, owner: "acme", name: "old", hasIssues: true, archived: true, installationId: 71, pushers: ["dana-smith"], labels: [], templates: {} },
       { id: 504, owner: "acme", name: "docs", hasIssues: false, archived: false, installationId: 71, pushers: ["dana-smith"], labels: [], templates: {} },

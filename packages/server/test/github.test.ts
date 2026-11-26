@@ -351,13 +351,13 @@ describe("templates and labels", () => {
     expect(await github.templates!(PAT, "acme/api")).toEqual([]);
   });
 
-  test("an issue form reads as the Markdown GitHub writes from it: each field's label a heading, preset values, a checkbox per option", async () => {
+  test("an issue form reads as the Markdown GitHub writes from it: each field's label a heading, preset values, a checkbox per option of a checkbox or dropdown field", async () => {
     const { github } = setup();
     expect(await github.template!(PAT, "acme/web:bug.yml")).toEqual({
       id: "acme/web:bug.yml",
       name: "Bug report",
       destinationId: "acme/web",
-      body: "### What happened?\n\n### Version\n\n1\\.0\n\n### Which browsers?\n\n### Code of Conduct\n\n- [ ] I agree to follow this project's Code of Conduct\n",
+      body: "### What happened?\n\n### Version\n\n1\\.0\n\n### Which browsers?\n\n- [ ] Firefox\n- [ ] Chrome\n\n### Code of Conduct\n\n- [ ] I agree to follow this project's Code of Conduct\n",
     });
     expect((await github.template!(PAT, "acme/web:feature.md"))?.body).toBe("## Problem\n\n## Proposal\n");
     expect(await github.template!(PAT, "acme/web:gone.md")).toBeNull();
@@ -537,5 +537,17 @@ describe("ending a sign-in", () => {
     tokens = await signIn(standIn);
     expect(await end(tokens, standIn.fetchFn, 1_000, async () => true)).toBe(true);
     expect(standIn.accessTokens.has(tokens.access)).toBe(false);
+  });
+});
+
+describe("drafting with an issue form", () => {
+  test("Critiqs AI is asked to fill only a form's free-text fields: its checkbox and dropdown fields are left for the person to tick", async () => {
+    const { ticketDraftRequest } = await import("../src/tickets/drafts.ts");
+    const { ticketOutline } = await import("@critiqs/core");
+    const form = parseGithubTemplate("bug.yml", (await import("./github-standin.ts")).GITHUB_BUG_FORM)!;
+    const outline = ticketOutline(form.body);
+    const request = JSON.stringify(ticketDraftRequest({ thread: "Dana: the button is grey", template: { name: form.name, body: form.body }, outline }));
+    expect(request).toContain('Sections: [\\"What happened?\\",\\"Version\\"]');
+    expect(request).not.toContain('\\"enum\\":[\\"What happened?\\",\\"Version\\",\\"Which browsers?\\"');
   });
 });
