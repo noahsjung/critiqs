@@ -1,0 +1,7 @@
+# Copied from packages/critiqs/dist when the gem is built or tested.
+/app/assets/javascripts/critiqs/element.js
+/release/
+/.bundle/
+/vendor/bundle/
+/Gemfile.lock
+/tmp/
