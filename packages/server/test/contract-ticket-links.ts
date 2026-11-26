@@ -1100,7 +1100,8 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
                   id: (variables.input as { id: string }).id,
                   identifier: `ENG-${"9".repeat(300)}`,
                   title: "T".repeat(5_000),
-                  url: "https://linear.app/acme/issue/eng-1",
+                  // Linear's address names the issue's key, however long.
+                  url: `https://linear.app/acme/issue/eng-${"9".repeat(300)}`,
                   state: { name: "S".repeat(100_000), type: "unstarted" },
                   updatedAt: new Date(5_000).toISOString(),
                   team: { organization: { id: "org-1" } },

@@ -1,4 +1,4 @@
-import { type TicketDestination, type TicketRef, type TicketStatus, type TicketStatusCategory, type WebAddress, webAddress } from "@critiqs/core";
+import { type TicketDestination, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, type WebAddress, webAddress } from "@critiqs/core";
 import { CritiqsError, fail } from "../../errors.ts";
 import {
   checkedAdapter,
@@ -9,10 +9,13 @@ import {
   type TrackerAdapter,
   type TrackerEndpoint,
   type TrackerEndpointOptions,
+  type TicketPlace,
   type TrackerIdentity,
   TrackerRefusal,
   type TrackerToken,
   trackerEndpoint,
+  trackerText,
+  trackerWebOrigins,
 } from "./index.ts";
 
 // Linear, through its GraphQL API (https://linear.app/developers). A pasted
@@ -70,9 +73,9 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       const key = KEY_PATTERN.exec(term);
       if (key !== null) {
         const found = firstIssue(await graphql(to, token, ISSUE_BY_KEY, { team: key[1], number: Number(key[2]) }), "issues");
-        if (found !== null) return [ticketOf(found)];
+        if (found !== null) return [found];
       }
-      return issueList(await graphql(to, token, SEARCH, { term, teamId: destinationId ?? null }), "searchIssues").map(ticketOf);
+      return issueList(await graphql(to, token, SEARCH, { term, teamId: destinationId ?? null }), "searchIssues");
     },
     get: async (token, externalId) => {
       const issue = await issueById(token, externalId);
@@ -110,9 +113,30 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       const written = await write(to, token, COMMENT, { input: { issueId: ticket.externalId, body } }, "commentCreate");
       if (!written.done) throw new TrackerRefusal("invalid", "Add it in Linear instead.");
     },
-    status: async (token, ticket) => (await issueById(token, ticket.externalId))?.status ?? fail("not-found", "Linear can't find this issue, or you can't see it."),
+    status: async (token, ticket) => {
+      const issue = (await issueById(token, ticket.externalId)) ?? fail("not-found", "Linear can't find this issue, or you can't see it.");
+      return { externalId: issue.externalId, status: issue.status };
+    },
     uploadImage: async (token, image) => uploadImage(to, token, image),
-  });
+  }, linearPlace(trackerWebOrigins(endpoint, LINEAR_APP_URL)));
+}
+
+/**
+ * Where Linear's issues are: `<Linear>/<workspace>/issue/<key>`, with the
+ * issue's title after it. Critiqs doesn't hold the workspace's name in the
+ * address, so an issue's address is kept when it is on Linear's own address
+ * and names the issue's key.
+ */
+function linearPlace(origins: string[]): TicketPlace {
+  return (ticket) => {
+    const url = webAddress(ticket.url);
+    if (url === null) return null;
+    const address = new URL(url);
+    const [workspace, kind, key] = address.pathname.split("/").slice(1);
+    // Compared as Critiqs keeps keys, cut to their limit.
+    const named = key === undefined || /%(?![0-9A-Fa-f]{2})/.test(key) ? "" : trackerText(decodeURIComponent(key), TRACKER_LIMITS.key);
+    return origins.includes(address.origin) && workspace !== undefined && workspace !== "" && kind === "issue" && named.toLowerCase() === ticket.key.toLowerCase() ? url : null;
+  };
 }
 
 /** Linear's state types, as Critiqs's status categories. */
@@ -327,8 +351,6 @@ function issueList(data: unknown, field: string): CreatedTicket[] {
 function firstIssue(data: unknown, field: string): CreatedTicket | null {
   return issueList(data, field)[0] ?? null;
 }
-
-const ticketOf = ({ site: _site, ...ticket }: CreatedTicket): TicketRef & { status: TicketStatus } => ticket;
 
 /**
  * Linear's sign-in page for Critiqs, asking only for what tickets need: to

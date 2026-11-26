@@ -267,13 +267,13 @@ test("an unknown creation's issue is found by the creation's ID, and get refuses
   expect(missing.code).toBe("not-found");
   expect(missing.message).toBe("Linear can't find this issue, or you can't see it.");
   replies.push({ body: { data: { issues: { nodes: [issue("i1", "ENG-1", { name: "Done", type: "completed" })] } } } });
-  expect(await linear.status(key, { tracker: "linear", externalId: "i1", key: "ENG-1", url: "u", title: "t" })).toEqual({ label: "Done", category: "done" });
+  expect(await linear.status(key, { tracker: "linear", externalId: "i1", key: "ENG-1", url: "https://linear.app/acme/issue/eng-1", title: "t", site: "org-1" })).toEqual({ label: "Done", category: "done" });
 });
 
 test("the link back is a URL attachment on the issue, which Linear keeps one of per address, and a comment is Markdown on it", async () => {
   requests.length = 0;
   const linear = linearAdapter({ baseUrl });
-  const ticket = { tracker: "linear" as const, externalId: "i1", key: "ENG-1", url: "u", title: "t" };
+  const ticket = { tracker: "linear" as const, externalId: "i1", key: "ENG-1", url: "https://linear.app/acme/issue/eng-1", title: "t", site: "org-1" };
   replies.push({ body: { data: { attachmentCreate: { success: true } } } }, { body: { data: { commentCreate: { success: true } } } });
   await linear.linkBack(key, ticket, { url: web("https://review.example/?critiqs=t1"), title: "Department is wrong" });
   await linear.comment(key, ticket, md("> Department is wrong\n"));
@@ -337,4 +337,33 @@ test("calls bounded by a deadline: none starts at or after it, and one still run
   // Through the adapter, a request cut off by the deadline is an unknown outcome: Linear may have acted.
   const outcome = await linearAdapter({ baseUrl, fetch: fetchUntil(slow, Date.now() + 50, () => Date.now()) }).create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: "x" });
   expect(outcome.status).toBe("unknown");
+});
+
+test("an answer about another issue than the one asked for, or whose address doesn't name its key on Linear, is refused", async () => {
+  const linear = linearAdapter({ baseUrl });
+  // Asked for i1, answered with i2: Critiqs would link, and later write to, an issue the person didn't choose.
+  replies.push({ body: { data: { issues: { nodes: [issue("i2", "ENG-2")] } } } });
+  expect((await refusal(linear.get(key, "i1"))).code).toBe("unavailable");
+  // The address shown on the thread must be Linear's page for this issue's key.
+  replies.push({ body: { data: { issues: { nodes: [{ ...issue("i1", "ENG-1"), url: "https://evil.example/acme/issue/eng-1" }] } } } });
+  expect((await refusal(linear.get(key, "i1"))).code).toBe("unavailable");
+  replies.push({ body: { data: { issues: { nodes: [{ ...issue("i1", "ENG-1"), url: "https://linear.app/acme/issue/ops-9" }] } } } });
+  expect((await refusal(linear.get(key, "i1"))).code).toBe("unavailable");
+  replies.push({ body: { data: { searchIssues: { nodes: [{ ...issue("i1", "ENG-1"), url: "https://evil.example/acme/issue/eng-1" }, issue("i3", "ENG-3")] } } } });
+  expect((await linear.search(key, "department")).map((found) => found.key)).toEqual(["ENG-3"]);
+  // Linear's real addresses carry a title after the key.
+  replies.push({ body: { data: { issues: { nodes: [{ ...issue("i1", "ENG-1"), url: "https://linear.app/acme/issue/ENG-1/department-is-wrong" }] } } } });
+  expect((await linear.get(key, "i1")).url).toBe("https://linear.app/acme/issue/ENG-1/department-is-wrong");
+  // The status of another issue than the one asked for is never saved as this one's.
+  replies.push({ body: { data: { issues: { nodes: [issue("i2", "ENG-2", { name: "Done", type: "completed" })] } } } });
+  expect((await refusal(linear.status(key, { tracker: "linear", externalId: "i1", key: "ENG-1", url: "https://linear.app/acme/issue/eng-1", title: "t", site: "org-1" } as never))).code).not.toBe(undefined);
+});
+
+test("a ticket Critiqs holds whose address doesn't agree with its key is never written to", async () => {
+  requests.length = 0;
+  const linear = linearAdapter({ baseUrl });
+  const held = { tracker: "linear" as const, externalId: "i1", key: "ENG-1", url: "https://evil.example/acme/issue/eng-1", title: "t", site: "org-1" };
+  expect((await refusal(linear.linkBack(key, held as never, { url: web("https://review.example/?critiqs=t1"), title: "t" }))).code).toBe("invalid");
+  expect((await refusal(linear.comment(key, held as never, md("Text")))).code).toBe("invalid");
+  expect(requests).toHaveLength(0);
 });

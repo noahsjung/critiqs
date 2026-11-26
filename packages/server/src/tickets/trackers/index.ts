@@ -189,16 +189,29 @@ export function checkedStatus(status: TicketStatus): TicketStatus {
 }
 
 /**
- * A ticket a tracker sent, held to Critiqs's limits: its ID within
- * `TRACKER_LIMITS.id` and its address a web address, or null when either
- * isn't; its key, title, and status cut; its site's ID kept only within
- * the limit.
+ * Each tracker's rule for where its tickets are: the address to keep for a
+ * ticket the tracker answered with, or one Critiqs holds, when it is the
+ * tracker's page for that ticket's key in its site; null when it isn't. Where
+ * Critiqs can work the address out from the key and site (GitHub, Jira), it
+ * must be that one; where it can't (Linear), it must be on the tracker's own
+ * address and name the key.
  */
-function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: string | null }>(ticket: T): T | null {
+export type TicketPlace = (ticket: { key: string; site: string | null; url: string }, token: TrackerToken) => WebAddress | null;
+
+/**
+ * A ticket a tracker sent, held to Critiqs's limits: its ID within
+ * `TRACKER_LIMITS.id`, its key and title cut, its status checked, its site's
+ * ID kept only within the limit, and its address only where the tracker's
+ * `place` says it is that ticket's page. Null when its ID, key, or address
+ * can't be kept.
+ */
+function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: string | null }>(ticket: T, place: TicketPlace, token: TrackerToken): T | null {
   const externalId = trackerId(ticket.externalId);
-  const url = webAddress(ticket.url);
   const key = trackerText(ticket.key, TRACKER_LIMITS.key);
-  if (externalId === null || url === null || key === "") return null;
+  const site = ticket.site === undefined || ticket.site === null ? null : trackerId(ticket.site);
+  if (externalId === null || key === "" || (ticket.site != null && site === null)) return null;
+  const url = webAddress(ticket.url) === null ? null : place({ key, site, url: ticket.url }, token);
+  if (url === null) return null;
   return {
     ...ticket,
     externalId,
@@ -206,8 +219,21 @@ function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: str
     url,
     title: trackerText(ticket.title, TRACKER_LIMITS.title),
     ...(ticket.status === undefined ? {} : { status: checkedStatus(ticket.status) }),
-    ...(ticket.site === undefined ? {} : { site: ticket.site === null ? null : trackerId(ticket.site) }),
+    ...(ticket.site === undefined ? {} : { site }),
   };
+}
+
+/**
+ * A ticket Critiqs holds, before anything is written to it: its address must
+ * still be the tracker's page for its key in its site, so a write goes to the
+ * ticket Critiqs linked, worked out from what Critiqs holds, never to an
+ * address an answer named.
+ */
+function heldTicket(ticket: HeldTicket, place: TicketPlace, token: TrackerToken): HeldTicket {
+  if (webAddress(ticket.url) === null || place({ key: ticket.key, site: ticket.site, url: ticket.url }, token) === null) {
+    throw new TrackerRefusal("invalid", "Critiqs's record of this ticket doesn't match its tracker. Unlink it and link it again.");
+  }
+  return ticket;
 }
 
 function checkedDestination(destination: TicketDestination): TicketDestination | null {
@@ -222,36 +248,70 @@ const some = <T>(items: (T | null)[]) => items.filter((item): item is T => item 
 /**
  * An adapter whose answers are held to Critiqs's limits, whatever its own
  * parsing missed: IDs and addresses checked, names and labels cut, lists
- * capped. Each tracker's factory returns its adapter through this, and a test
- * fails any that doesn't.
+ * capped. An answer about one ticket must be about the ticket asked for (its
+ * `externalId`), and every ticket's address must be where the tracker's
+ * `place` says that ticket is; a write goes only to a ticket Critiqs holds
+ * whose address agrees with its key and site. Each tracker's factory returns
+ * its adapter through this, and a test fails any that doesn't.
  */
-export function checkedAdapter<T extends Partial<TrackerAdapter>>(adapter: T): T {
-  const checked: Partial<TrackerAdapter> = { ...adapter };
-  const { verify, destinations, search, get, create, findCreated, status, uploadImage } = adapter;
+export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): TrackerAdapter {
+  const { verify, destinations, search, get, create, findCreated, linkBack, comment, status, uploadImage, ...rest } = adapter;
   const unreadable = (what: string) => refused(what);
-  if (verify) checked.verify = async (token) => checkedIdentity(await verify(token));
-  if (destinations) checked.destinations = async (token) => some((await destinations(token)).map(checkedDestination));
-  if (search) checked.search = async (token, query, destinationId) => some((await search(token, query, destinationId)).map(checkedTicket));
-  if (get) checked.get = async (token, externalId) => checkedTicket(await get(token, externalId)) ?? Promise.reject(unreadable("ticket"));
-  if (create) {
-    checked.create = async (token, input) => {
+  const checked: TrackerAdapter = {
+    ...rest,
+    verify: async (token) => checkedIdentity(await verify(token)),
+    destinations: async (token) => some((await destinations(token)).map(checkedDestination)),
+    search: async (token, query, destinationId) =>
+      some((await search(token, query, destinationId)).map((found) => checkedTicket(found, place, token))).map(({ site: _site, ...ticket }) => ticket),
+    get: async (token, externalId) => {
+      const ticket = await get(token, externalId);
+      // An answer about another ticket than the one asked for is never linked, or written to later.
+      if (ticket.externalId !== externalId) throw unreadable("another ticket");
+      return checkedTicket(ticket, place, token) ?? Promise.reject(unreadable("ticket"));
+    },
+    create: async (token, input) => {
       const outcome = await create(token, input);
       if (outcome.status !== "created") return outcome;
-      const ticket = checkedTicket(outcome.ticket);
+      const ticket = checkedTicket(outcome.ticket, place, token);
       // Made, but not a ticket Critiqs can keep: the next attempt finds it again.
       return ticket === null ? { status: "unknown", error: unreadable("ticket") } : { status: "created", ticket };
-    };
-  }
-  if (findCreated) {
-    checked.findCreated = async (token, created) => {
+    },
+    findCreated: async (token, created) => {
       const found = await findCreated(token, created);
-      return found === null ? null : (checkedTicket(found) ?? Promise.reject(unreadable("ticket")));
-    };
-  }
-  if (status) checked.status = async (token, ticket) => checkedStatus(await status(token, ticket));
+      return found === null ? null : (checkedTicket(found, place, token) ?? Promise.reject(unreadable("ticket")));
+    },
+    linkBack: async (token, ticket, link) => await linkBack(token, heldTicket(ticket, place, token), link),
+    comment: async (token, ticket, body) => await comment(token, heldTicket(ticket, place, token), body),
+    status: async (token, ticket) => {
+      const answer = await status(token, ticket);
+      // Another ticket's status is never saved as this one's.
+      if (answer.externalId !== ticket.externalId) throw unreadable("another ticket");
+      return checkedStatus(answer.status);
+    },
+  };
   if (uploadImage) checked.uploadImage = async (token, image) => webAddress(await uploadImage(token, image)) ?? Promise.reject(unreadable("upload address"));
   checkedAdapters.add(checked);
-  return checked as T;
+  return checked;
+}
+
+/**
+ * Where a tracker's pages are: its own web address, and the address Critiqs
+ * calls its API at (`baseUrl`), which only the operator sets: the tracker's
+ * API in production, a local stand-in in tests.
+ */
+export function trackerWebOrigins(endpoint: TrackerEndpointOptions, own: string): string[] {
+  return [...new Set([new URL(own).origin, ...(endpoint.baseUrl === undefined ? [] : [new URL(endpoint.baseUrl).origin])])];
+}
+
+/** A ticket Critiqs holds: what it linked, with the site it is in, as status updates match it. Writes go by these, never by an address a tracker named. */
+export interface HeldTicket extends TicketRef {
+  site: string | null;
+}
+
+/** What an adapter answers before `checkedAdapter` checks it: a search's tickets with their sites, and a status with the ticket it was read from. */
+export interface UncheckedAdapter extends Omit<TrackerAdapter, "search" | "status"> {
+  search(token: TrackerToken, query: string, destinationId?: string): Promise<(TicketRef & { status: TicketStatus; site: string | null })[]>;
+  status(token: TrackerToken, ticket: HeldTicket): Promise<{ externalId: string; status: TicketStatus }>;
 }
 
 /** A ticket Critiqs created, as the tracker reports it. */
@@ -307,10 +367,10 @@ export interface TrackerAdapter {
    */
   findCreated(token: TrackerToken, created: { creationId: string; link: WebAddress | null }): Promise<CreatedTicket | null>;
   /** Adds a link back to the thread: a Linear attachment, a Jira remote link, or a GitHub comment. Safe to repeat: the ticket keeps one link to the thread. */
-  linkBack(token: TrackerToken, ticket: TicketRef, link: { url: WebAddress; title: string }): Promise<void>;
+  linkBack(token: TrackerToken, ticket: HeldTicket, link: { url: WebAddress; title: string }): Promise<void>;
   /** Adds a comment: text Critiqs made (`ticketLinkComment`), never a plain string. */
-  comment(token: TrackerToken, ticket: TicketRef, body: TicketMarkdown): Promise<void>;
-  status(token: TrackerToken, ticket: TicketRef): Promise<TicketStatus>;
+  comment(token: TrackerToken, ticket: HeldTicket, body: TicketMarkdown): Promise<void>;
+  status(token: TrackerToken, ticket: HeldTicket): Promise<TicketStatus>;
   /** Uploads an image for a new ticket's text and returns the address to embed; absent where the tracker can't take images (GitHub). */
   uploadImage?(token: TrackerToken, image: TicketImage): Promise<WebAddress>;
   /** The destination's own ticket templates, where the tracker has them. */

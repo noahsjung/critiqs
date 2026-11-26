@@ -23,7 +23,7 @@ import { MAX_THREAD_TICKET_ROWS, MAX_THREAD_TICKETS, requireThread, requireUser,
 import { projectAccess } from "../organizations.ts";
 import type { Identity, ProjectRecord, Store, ThreadRecord, TicketLinkRecord, UserRecord } from "../store.ts";
 import { requireOffered, type TicketsDeployment, ticketStore, trackerAdapter, trackerLabel } from "./accounts.ts";
-import { type CreatedTicket, fetchUntil, type TicketImage, type TrackerAdapter, TrackerRefusal, type TrackerToken } from "./trackers/index.ts";
+import { type CreatedTicket, fetchUntil, type HeldTicket, type TicketImage, type TrackerAdapter, TrackerRefusal, type TrackerToken } from "./trackers/index.ts";
 
 // Tickets linked to threads: creating one in the person's tracker from a
 // thread, linking a thread to a ticket that already exists, and unlinking.
@@ -594,7 +594,7 @@ async function uploadCapture(
 
 /** A created ticket's missing link back, checked, to add; `added` when the tracker has it already. */
 export type PreparedLinkBack =
-  | { status: "ready"; person: TrackerPerson; tracker: TrackerId; ticket: TicketRef; linkBack: { url: WebAddress; title: string } }
+  | { status: "ready"; person: TrackerPerson; tracker: TrackerId; ticket: HeldTicket; linkBack: { url: WebAddress; title: string } }
   | { status: "added"; view: TicketLinkView };
 
 /**
@@ -618,7 +618,7 @@ export async function prepareTicketLinkBack(store: Store, identity: Identity | n
     status: "ready",
     person: { userId: user._id, accountId: account.accountId },
     tracker: link.tracker,
-    ticket: { tracker: link.tracker, externalId: link.externalId, key: link.key, url: link.url, title: link.title },
+    ticket: { tracker: link.tracker, externalId: link.externalId, key: link.key, url: link.url, title: link.title, site: link.site ?? null },
     linkBack: { url: webAddress(link.linkBack.url) ?? fail("invalid", "This ticket's link back to the thread isn't a web address."), title: link.linkBack.title },
   };
 }
