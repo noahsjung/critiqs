@@ -162,6 +162,11 @@ export interface CritiqsTransport {
   mergeTagGroups(args: { projectId: string; groupId: string; intoGroupId: string }): Promise<void>;
   /** Sets a tag's groups (final, never changed automatically), or hands it back to automatic grouping. */
   setTagGroups(args: { projectId: string; tag: string; groupIds: string[]; automatic?: boolean }): Promise<void>;
+  /**
+   * Sets the project's preset tags, in order. `previous` is the list being
+   * edited; the backend refuses the change when the presets changed since.
+   */
+  setPresetTags(args: { projectId: string; tags: string[]; previous: string[] }): Promise<void>;
   /** Searches the project's feedback in plain language; basic word and tag search when AI isn't available. */
   search(args: { projectId: string; question: string; scope: SearchScope }): Promise<SearchResponse>;
   /** The project's AI settings, for its owner. */

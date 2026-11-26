@@ -1286,7 +1286,14 @@ function PanelApp({
       )}
       {yourAiOpen && openYourAi !== null && <YourAiDialog onClose={() => setYourAiOpen(false)} notify={notify} modelLists={deployment.modelLists === true} />}
       {signedIn && tagsDialog !== null && isOwner && projectId !== null && (
-        <TagsAiDialog projectId={projectId} initialTab={tagsDialog} onClose={() => setTagsDialog(null)} notify={notify} modelLists={deployment.modelLists === true} />
+        <TagsAiDialog
+          projectId={projectId}
+          initialTab={tagsDialog}
+          onClose={() => setTagsDialog(null)}
+          notify={notify}
+          modelLists={deployment.modelLists === true}
+          presetTags={deployment.presetTags === true}
+        />
       )}
       {billing !== null && openBilling !== null && transport.billing !== undefined && (
         <BillingDialog billing={transport.billing} organizationId={billing.organizationId} awaiting={billing.awaiting} onClose={() => setBilling(null)} notify={notify} />

@@ -58,7 +58,7 @@ import {
   updateTextTags,
 } from "./tags.ts";
 
-export { createGroup, deleteGroup, mergeGroups, renameGroup, setTagGroups } from "./tags.ts";
+export { createGroup, deleteGroup, mergeGroups, renameGroup, setPresetTags, setTagGroups } from "./tags.ts";
 
 // Critiqs's server rules (F2–F12), shared by every backend. Each function runs
 // inside one transaction of the backend that calls it.

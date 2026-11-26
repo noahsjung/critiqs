@@ -104,6 +104,7 @@ test("reports itself as a server in the host app, current with the component", a
     addressLists: true,
     addressEdits: true,
     createKeys: true,
+    presetTags: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -212,6 +213,20 @@ test("inviting and withdrawing an address uses up its invite emails, but another
   const riley = await signIn(handler, sent, "riley@example.com", "Riley");
   await riley.api("sync");
   expect((await riley.api("myOrganizations")).body.value.map((each: { name: string }) => each.name)).toEqual(["Dana's organization"]);
+});
+
+test("the self-hosted server changes a project's preset tags for its owner only, checking the arguments", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const projectId = (await dana.api("createProject", { name: "Pilot" })).body.value;
+  const previous = (await dana.api("project", { projectId })).body.value.tags;
+  expect((await dana.api("setPresetTags", { projectId, tags: ["Defect", ...previous.slice(1)], previous })).status).toBe(200);
+  expect((await dana.api("project", { projectId })).body.value.tags[0]).toBe("Defect");
+  expect(await dana.api("setPresetTags", { projectId, tags: [3] })).toMatchObject({ status: 400, body: { error: { code: "invalid" } } });
+  expect(await dana.api("setPresetTags", { projectId, tags: ["Ok"], extra: true })).toMatchObject({ status: 400, body: { error: { code: "invalid" } } });
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  expect(await lee.api("setPresetTags", { projectId, tags: ["Mine"] })).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
+  expect((await dana.api("project", { projectId })).body.value.tags[0]).toBe("Defect");
 });
 
 test("signs a reviewer in with an emailed code, keeps the session in a cookie, and signs out", async () => {

@@ -424,6 +424,89 @@ test("the owner organizes groups: a person's choice for a tag is sent as final, 
 });
 
 
+test("the owner adds, renames, moves, and removes preset tags; each change sends the list it changed", async () => {
+  const calls: { name: string; args: unknown }[] = [];
+  const notes: string[] = [];
+  const backend: FakeBackend = {
+    project: { _id: "project", name: "Pilot", tags: ["Bug", "UX copy change", "User feedback"], createdAt: 1, reviewUrl: null, isOwner: true },
+    threads: undefined,
+    tags,
+    calls,
+  };
+  // The fake isn't live: drawing again reads the saved presets, as a live query would.
+  const draw = () => render(<TagsAiDialog projectId="project" initialTab="groups" onClose={() => undefined} notify={(note) => notes.push(note)} presetTags />, backend);
+  let host = await draw();
+  const presets = () => Array.from(host.querySelectorAll(".preset-list .tag-chip")).map((chip) => chip.textContent);
+  const input = (label: string) => host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  const type = async (field: HTMLInputElement, text: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  const menuItem = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>(".menu button")).find((entry) => entry.textContent === text);
+  const change = async (label: string, item: string) => {
+    await act(async () => host.querySelector<HTMLButtonElement>(`button[aria-label="Change preset ${label}"]`)!.click());
+    await act(async () => menuItem(item)!.click());
+    await settled();
+    host = await draw();
+  };
+  expect(presets()).toEqual(["#Bug", "#UX-copy-change", "#User-feedback"]);
+  expect(host.textContent).toContain("leaves the threads that already have it as they are");
+
+  // Refused here first, with the backend's rules: a tag that can't be a hashtag, or one already there.
+  await type(input("New preset tag"), "Design/UX");
+  expect(host.textContent).toContain("starting with a letter");
+  expect(buttonIn(host, "Add preset").disabled).toBe(true);
+  await type(input("New preset tag"), "bug");
+  expect(host.textContent).toContain("“Bug” is already a preset.");
+  await type(input("New preset tag"), "Accessibility");
+  await act(async () => buttonIn(host, "Add preset").click());
+  await settled();
+  expect(calls.at(-1)).toEqual({ name: "setPresetTags", args: { projectId: "project", tags: ["Bug", "UX copy change", "User feedback", "Accessibility"], previous: ["Bug", "UX copy change", "User feedback"] } });
+  expect(notes.at(-1)).toBe("Preset “Accessibility” added");
+  host = await draw();
+  expect(input("New preset tag").value).toBe("");
+  expect(presets()).toEqual(["#Bug", "#UX-copy-change", "#User-feedback", "#Accessibility"]);
+
+  // The first can't move up, the last can't move down.
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Change preset Bug"]')!.click());
+  expect(menuItem("Move up")).toBeUndefined();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Change preset Bug"]')!.click());
+  await change("User feedback", "Move up");
+  expect(presets()).toEqual(["#Bug", "#User-feedback", "#UX-copy-change", "#Accessibility"]);
+
+  await change("Bug", "Rename");
+  await type(input("New name for Bug"), "Defect");
+  await act(async () => buttonIn(host, "Save").click());
+  await settled();
+  expect(calls.at(-1)).toEqual({ name: "setPresetTags", args: { projectId: "project", tags: ["Defect", "User feedback", "UX copy change", "Accessibility"], previous: ["Bug", "User feedback", "UX copy change", "Accessibility"] } });
+  host = await draw();
+
+  await change("UX copy change", "Remove preset");
+  expect(presets()).toEqual(["#Defect", "#User-feedback", "#Accessibility"]);
+  expect(notes.at(-1)).toBe("Preset “UX copy change” removed; threads keep it");
+
+  // The backend's refusal, such as a change someone made meanwhile, is shown and nothing changes here.
+  backend.presetError = "The preset tags changed while you were editing them. Look at them again and redo your change.";
+  await change("Accessibility", "Move up");
+  expect(notes.at(-1)).toContain("changed while you were editing");
+  expect(presets()).toEqual(["#Defect", "#User-feedback", "#Accessibility"]);
+});
+
+test("preset tags are offered only where the backend reports it can change them", async () => {
+  const backend: FakeBackend = {
+    project: { _id: "project", name: "Pilot", tags: ["Bug"], createdAt: 1, reviewUrl: null, isOwner: true },
+    threads: undefined,
+    tags,
+  };
+  let host = await render(<TagsAiDialog projectId="project" initialTab="groups" onClose={() => undefined} notify={() => undefined} />, backend);
+  expect(host.querySelector('[aria-label="Preset tags"]')).toBeNull();
+  expect(host.querySelector(".group-list")).not.toBeNull();
+  host = await render(<TagsAiDialog projectId="project" initialTab="groups" onClose={() => undefined} notify={() => undefined} presetTags />, backend);
+  expect(host.querySelector('[aria-label="Preset tags"]')).not.toBeNull();
+});
+
 test("restoring a caret outside a wrapped pill reveals its text edge without moving inside it", () => {
   const editor = document.createElement("div");
   document.body.append(editor);

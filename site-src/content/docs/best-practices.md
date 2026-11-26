@@ -52,7 +52,7 @@ Good `version` labels include a branch name plus short commit SHA (such as `pr-4
 
 ## 4. Use `#tags` for triage
 
-Critiqs starts every project with four preset tags (**Bug**, **UX copy change**, **Design change request**, and **User feedback**) and turns any inline `#hashtag` (such as `#wording`, `#a11y`, or `#blocker`) into a filterable tag.
+Critiqs starts every project with four preset tags (**Bug**, **UX copy change**, **Design change request**, and **User feedback**), which the project's owner can change in **Tags and AI**, and turns any inline `#hashtag` (such as `#wording`, `#a11y`, or `#blocker`) into a filterable tag.
 
 - Agree on two or three lightweight triage tags for your team (for example `#blocker`, `#copy`, `#polish`).
 - Group related tags in **Tags and AI** so everyone can filter by one shared group (Critiqs includes **Copy & wording** as a starter group and groups new tags automatically when AI is on).
