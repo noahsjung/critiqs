@@ -63,9 +63,9 @@ function opens(chars: string[], index: number): boolean {
     // An HTML tag, comment, declaration, or instruction, or an autolink.
     case "<":
       return after === undefined || /[A-Za-z/!?]/.test(after);
-    // A character reference.
+    // A character reference; and `&` before word characters and `;`, which marked writes as it is, so a browser reads `&amp_x;` as `&_x;`.
     case "&":
-      return /^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31})(?:;|$)/.test(chars.slice(index).join(""));
+      return /^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31})(?:;|$)|^&#?\w+;/.test(chars.slice(index).join(""));
     // A domain's dot, which turns a word into a web or email address, and the dot of `www.`.
     case ".":
       return word(after) || after === "-" || after === "_" || /www$/i.test(chars.slice(Math.max(0, index - 3), index).join(""));

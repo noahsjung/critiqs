@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { markdownCode, markdownLines, markdownLink, markdownText } from "../src/markdown-text.ts";
-import { githubReferences, render, renderGfm, renderLinkified } from "./markdown-oracle.ts";
+import { githubReferences, render, renderGfm, renderLinkified, renderMarked } from "./markdown-oracle.ts";
 
 const TOKENS = [
   "[", "]", "(", ")", "<", ">", "!", "`", "``", "```", "~~~", "*", "_", "~", "#", "##", "-", "+", "=", "|", "\\", "&", "&amp;", "&#60;",
@@ -167,4 +167,15 @@ test("a piece ending in a scheme next to one starting with an address makes no l
       for (const rendered of [renderGfm(line), render(line), renderLinkified(line)]) expect({ line, links: rendered.hrefs }).toEqual({ line, links: [] });
     }
   }
+});
+
+test("an & before word characters and ; reaches the browser as text, in every renderer, so a browser reads no character reference in it", () => {
+  // A browser reads `&amp_x;` as `&_x;` and `&copy_amp;` as `©_amp;`: the legacy references need no `;`.
+  for (const value of ["&amp_x;", "&copy_amp;", "&lt_b;", "x &nbsp_1; y", "&#_1;", "&a_b;"]) {
+    for (const rendered of [render(markdownText(value)), renderGfm(markdownText(value)), renderLinkified(markdownText(value)), renderMarked(markdownText(value))]) {
+      expect({ value, raw: rendered.html.match(/&(?!amp;|lt;|gt;|quot;|#39;|#\d+;)/g) ?? [] }).toEqual({ value, raw: [] });
+    }
+  }
+  // An & in a sentence still needs no backslash.
+  expect(markdownText("R&D and Q&A teams")).toBe("R&D and Q&A teams");
 });

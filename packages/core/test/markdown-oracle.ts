@@ -1,10 +1,11 @@
 // Renders Markdown as a tracker would and reports what it made, for tests
 // that check text from people and trackers renders exactly as written.
 // Bun's renderer with GitHub's autolinks (web and email addresses) on,
-// GitHub's own flavour (`renderGfm`), or markdown-it with its linkifier
-// (`renderLinkified`).
+// GitHub's own flavour (`renderGfm`), markdown-it with its linkifier
+// (`renderLinkified`), or marked with GitHub's flavour (`renderMarked`).
 
 import MarkdownIt from "markdown-it";
+import { marked } from "marked";
 import { micromark } from "micromark";
 import { gfm, gfmHtml } from "micromark-extension-gfm";
 
@@ -59,6 +60,11 @@ const linkified = new MarkdownIt({ linkify: true });
 /** Renders Markdown as markdown-it does with its linkifier on, which finds addresses (`mailto:` ones too) that GitHub's autolinks don't. */
 export function renderLinkified(markdown: string): Rendered {
   return parsed(linkified.render(markdown));
+}
+
+/** Renders Markdown as marked does with GitHub's flavour, which writes an `&` before word characters and `;` as it is, for the browser to read. */
+export function renderMarked(markdown: string): Rendered {
+  return parsed(marked.parse(markdown, { gfm: true, async: false }) as string);
 }
 
 /**
