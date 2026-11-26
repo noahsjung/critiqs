@@ -414,7 +414,8 @@ reopens it keeps it open until a ticket finishes again. Turning the setting
 on catches up: in the background, every open thread whose linked tickets are
 all already done or canceled resolves, as if its last ticket had just
 finished, except one whose status someone changed after the setting was
-turned on.
+turned on, or one with a ticket whose status is only last known, which may
+have been reopened since.
 Only linked tickets count, not ones still being created.
 
 ## Attribution

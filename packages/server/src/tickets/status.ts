@@ -4,7 +4,7 @@ import { currentReviewer, MAX_THREAD_TICKET_ROWS, requireProject, requireThread,
 import { projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketLinkChanges, TicketLinkRecord } from "../store.ts";
 import { type TicketsDeployment, ticketStore, type TokenUse, trackerAdapter } from "./accounts.ts";
-import { linkerAccount } from "./current.ts";
+import { lastKnownStatus, linkerAccount } from "./current.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
 import { checkedStatus, type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken, trackerId } from "./trackers/index.ts";
 
@@ -194,14 +194,23 @@ export function linkedReading(pending: TicketLinkRecord, read: TicketStatusReadi
   };
 }
 
-/** Resolves an open thread whose project has Resolve when done on, when every ticket it links is done or canceled; recorded as resolved by its tickets. */
-export async function resolveWhenDone(store: Store, threadId: string, now: number): Promise<boolean> {
+/**
+ * Resolves an open thread whose project has Resolve when done on, when every
+ * ticket it links is done or canceled; recorded as resolved by its tickets.
+ * With `current`, only on statuses Critiqs can still check (`lastKnownStatus`),
+ * for a catch-up, which acts on statuses read who knows when.
+ */
+export async function resolveWhenDone(store: Store, threadId: string, now: number, current = false): Promise<boolean> {
   const tickets = ticketStore(store);
   const thread = await store.threads.get(threadId);
   if (thread === null || thread.status !== "open") return false;
   if ((await tickets.settings.find(thread.projectId))?.resolveWhenDone !== true) return false;
   const linked = await tickets.links.listForThread(threadId, "linked", MAX_THREAD_TICKET_ROWS);
   if (linked.length === 0 || !linked.every((link) => ticketFinished(link.status))) return false;
+  if (current) {
+    const lastKnown = lastKnownStatus(store);
+    for (const link of linked) if (await lastKnown(link)) return false;
+  }
   await store.threads.patch(threadId, { status: "resolved", statusChangedAt: now, statusChangedByTickets: true });
   return true;
 }
@@ -351,7 +360,8 @@ export const RESOLVE_CATCH_UP_PAGE = 50;
 /**
  * After Resolve when done was turned on at `since`: resolves the open threads
  * in a page of the project's threads whose every linked ticket is already
- * done or canceled, as a ticket finishing would have (`resolveWhenDone`), so
+ * done or canceled, with a status Critiqs can still check, as a ticket
+ * finishing would have (`resolveWhenDone`), so
  * turning it on catches up. A thread whose status someone changed since is
  * left as they set it, and nothing happens once the setting is off again.
  * Returns the threads it resolved and the next page's cursor, null after the
@@ -362,7 +372,8 @@ export async function catchUpResolveWhenDone(store: Store, args: { projectId: st
   const resolved: string[] = [];
   for (const thread of page.page) {
     if (thread.status !== "open" || (thread.statusChangedAt ?? 0) >= args.since) continue;
-    if (await resolveWhenDone(store, thread._id, now)) resolved.push(thread._id);
+    // A ticket marked Done whose status is only last known may have been reopened since: it doesn't resolve the thread.
+    if (await resolveWhenDone(store, thread._id, now, true)) resolved.push(thread._id);
   }
   return { resolved, cursor: page.isDone ? null : page.continueCursor };
 }

@@ -356,3 +356,14 @@ test("turning Resolve when done on resolves the open threads whose linked ticket
   await t.finishAllScheduledFunctions(() => undefined);
   expect((await getThread(sam, { threadId })).status).toBe("open");
 });
+
+test("turning Resolve when done on leaves open a thread whose done ticket's status is only last known: Critiqs can't check it now", async () => {
+  const { t, dana, lee, sam, threadId } = await project();
+  expect((await deliver(t, await done())).status).toBe(200);
+  await t.finishAllScheduledFunctions(() => undefined);
+  // Lee, who linked the ticket, disconnects: its Done is last known, and the ticket may have been reopened since.
+  await lee.action(api.trackers.disconnect, { tracker: "linear" });
+  await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId: (await getThread(sam, { threadId })).projectId, on: true });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect((await getThread(sam, { threadId })).status).toBe("open");
+});
