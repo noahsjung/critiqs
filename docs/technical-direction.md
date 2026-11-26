@@ -1029,8 +1029,10 @@ Provider secrets stay on the server; browser configuration contains public setti
 Synchronizing multiple stores is outside the first release.
 
 **Proposed, built:** address lists and the project lookup for the planned
-browser extension, which has no project ID in the page. Nothing in the
-interface sets a list yet; the owner's settings come with the extension.
+browser extension, which has no project ID in the page. A project's owners
+see the list in project setup, remove an address, and add an origin or a
+pattern, on backends that report `addressEdits`; the extension's **Add to a
+project** and onboarding's extension way add the page's origin.
 
 - **Address lists.** A project's owners set up to 20 addresses
   (`setProjectAddresses`): origins, or patterns with one `*` in the leftmost

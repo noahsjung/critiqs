@@ -128,6 +128,15 @@ export interface CritiqsTransport {
    * backends whose configuration reports `addressLists`.
    */
   recordProjectOpened(projectId: string): Promise<void>;
+  /**
+   * The project's address list, which the browser extension finds it by, for
+   * its owners; on backends whose configuration reports `addressLists`.
+   */
+  useProjectAddresses(projectId: string | null): QueryState<string[]>;
+  /** Adds one address or pattern to the project's list, for its owners; returns the list. On backends that report `addressEdits`. */
+  addProjectAddress(args: { projectId: string; address: string }): Promise<string[]>;
+  /** Removes one address from the project's list, for its owners; returns the list. On backends that report `addressEdits`. */
+  removeProjectAddress(args: { projectId: string; address: string }): Promise<string[]>;
   /** Sets how many Critiqs AI credits past the plan's an organization may use each month, null for no cap, or `default` for the plan's; for its admins, on backends whose configuration reports `overageCap`. */
   setOverageCap(args: { organizationId: string; cap: number | null | "default" }): Promise<void>;
   /** Uploads an image for a new thread or a supplied screenshot; returns its file ID. */

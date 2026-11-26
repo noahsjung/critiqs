@@ -322,6 +322,9 @@ button.hashtag { cursor: pointer; }
 .setup-section { display: flex; flex-direction: column; gap: var(--space-1); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .setup-section .row.between { flex-wrap: wrap; column-gap: var(--space-3); }
 .setup-section .note { overflow-wrap: anywhere; }
+.address-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.address-rows li { min-height: 32px; border-bottom: 1px solid var(--border); }
+.address-rows code { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .setup-details { display: flex; flex-direction: column; gap: var(--space-2); }
 .step.done .row.between { column-gap: var(--space-3); }
 .plan-usage-rows { display: flex; flex-direction: column; }

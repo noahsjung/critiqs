@@ -1,4 +1,13 @@
-import { isPrivateReviewAddress, MAX_PROJECT_NAME_LENGTH, type OrganizationSummary, type ProjectInfo, type ReviewAccess, validReviewUrl } from "@critiqs/core";
+import {
+  isPrivateReviewAddress,
+  MAX_PROJECT_ADDRESSES,
+  MAX_PROJECT_NAME_LENGTH,
+  type OrganizationSummary,
+  parseProjectAddress,
+  type ProjectInfo,
+  type ReviewAccess,
+  validReviewUrl,
+} from "@critiqs/core";
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import type { Reviewer } from "../session.ts";
 import { errorMessage, useTransport } from "../transport.ts";
@@ -16,6 +25,7 @@ export function Setup({
   reviewer,
   signedIn,
   organizations = false,
+  addressEdits = false,
   onSignIn,
   configuredProjectId,
   browserProjectId,
@@ -29,6 +39,8 @@ export function Setup({
   signedIn: boolean;
   /** The backend keeps organizations' members, so a new project can go in any of the reviewer's organizations. */
   organizations?: boolean;
+  /** The backend adds and removes single addresses in a project's address list, so its owners can change the list here. */
+  addressEdits?: boolean;
   onSignIn: () => void;
   /** Project ID from the prototype's code, if any. */
   configuredProjectId: string | null;
@@ -65,6 +77,7 @@ export function Setup({
     <ProjectReady
       projectId={projectId}
       configured={configuredProjectId !== null}
+      addressEdits={addressEdits}
       onChange={() => onUseProject(null)}
       onDone={onDone}
       backLabel={backLabel}
@@ -182,6 +195,7 @@ function CreateProject({ organizations, onCreated }: { organizations: boolean; o
 function ProjectReady({
   projectId,
   configured,
+  addressEdits,
   onChange,
   onDone,
   backLabel,
@@ -189,6 +203,7 @@ function ProjectReady({
 }: {
   projectId: string;
   configured: boolean;
+  addressEdits: boolean;
   onChange: () => void;
   onDone: () => void;
   backLabel: string;
@@ -267,6 +282,7 @@ function ProjectReady({
       )}
       {project.status === "ready" && <ReviewAddress project={project.data} notify={notify} />}
       {project.status === "ready" && <WhoCanReview project={project.data} notify={notify} />}
+      {project.status === "ready" && project.data.isOwner && addressEdits && <AddressList projectId={projectId} notify={notify} />}
       {project.status === "ready" && <PlanUsage project={project.data} className="setup-section" />}
       <p className="note">
         {project.status === "ready" && project.data.reviewAccess === "organization"
@@ -451,6 +467,128 @@ function ReviewAddress({ project, notify }: { project: ProjectInfo; notify: (mes
         </form>
       )}
       {error !== null && <div className="error">{error}</div>}
+    </section>
+  );
+}
+
+/**
+ * The project's address list, for its owners: the sites where the browser
+ * extension finds this project, each with Remove, and a field to add an
+ * origin or a pattern such as `https://*.vercel.app`. Each change saves at
+ * once, one address at a time, so two owners changing it at once keep both.
+ */
+function AddressList({ projectId, notify }: { projectId: string; notify: (message: string) => void }) {
+  const transport = useTransport();
+  const addresses = transport.useProjectAddresses(projectId);
+  const fieldId = useId();
+  const [adding, setAdding] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  if (addresses.status === "loading") return null;
+  if (addresses.status === "error") {
+    return (
+      <section className="setup-section" aria-label="Extension addresses">
+        <strong>Extension addresses</strong>
+        <div className="error">{addresses.message}</div>
+      </section>
+    );
+  }
+  const list = addresses.data;
+  const full = list.length >= MAX_PROJECT_ADDRESSES;
+  const add = async () => {
+    const parsed = parseProjectAddress(adding);
+    if ("error" in parsed) return setError(parsed.error);
+    setBusy("add");
+    setError(null);
+    try {
+      await transport.addProjectAddress({ projectId, address: parsed.address });
+      setAdding("");
+      notify("Address added");
+      field.current?.focus();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = async (address: string) => {
+    setBusy(address);
+    setError(null);
+    try {
+      await transport.removeProjectAddress({ projectId, address });
+      notify(`${address} removed`);
+      field.current?.focus();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section className="setup-section address-list" aria-label="Extension addresses">
+      <strong>Extension addresses</strong>
+      <span className="note">
+        {list.length === 0
+          ? "None yet. The Critiqs extension finds this project on the sites listed here, for people who can already open it."
+          : "The Critiqs extension finds this project on these sites, for people who can already open it."}
+      </span>
+      {list.length > 0 && (
+        <ul className="address-rows">
+          {list.map((address) => (
+            <li key={address} className="row between">
+              <code>{address}</code>
+              <button type="button" className="link-btn" disabled={busy !== null} aria-label={`Remove ${address}`} onClick={() => void remove(address)}>
+                {busy === address ? "Removing…" : "Remove"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {full ? (
+        <span className="note">A project can list up to {MAX_PROJECT_ADDRESSES} addresses. Remove one to add another.</span>
+      ) : (
+        <form
+          className="row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void add();
+          }}
+        >
+          <input
+            ref={field}
+            id={fieldId}
+            aria-label="Address or pattern to add"
+            className="grow"
+            type="text"
+            inputMode="url"
+            autoCapitalize="off"
+            spellCheck={false}
+            placeholder="https://*.vercel.app"
+            value={adding}
+            aria-invalid={error !== null}
+            aria-describedby={error === null ? `${fieldId}-hint` : `${fieldId}-error`}
+            onChange={(event) => {
+              setAdding(event.target.value);
+              setError(null);
+            }}
+          />
+          <button type="submit" className="btn small" disabled={busy !== null || adding.trim() === ""}>
+            {busy === "add" ? "Adding…" : "Add"}
+          </button>
+        </form>
+      )}
+      {error === null ? (
+        !full && (
+          <span className="note" id={`${fieldId}-hint`}>
+            An origin, such as https://acme-proto.vercel.app, or one * for many, such as https://*-acme.vercel.app.
+          </span>
+        )
+      ) : (
+        <div className="error" id={`${fieldId}-error`} role="alert">
+          {error}
+        </div>
+      )}
     </section>
   );
 }

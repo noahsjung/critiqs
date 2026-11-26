@@ -947,6 +947,7 @@ function PanelApp({
             reviewer={reviewer}
             signedIn={signedIn}
             organizations={organizationMembers}
+            addressEdits={deployment.addressEdits === true}
             onSignIn={signIn}
             configuredProjectId={configuredProject}
             browserProjectId={browserProject}
