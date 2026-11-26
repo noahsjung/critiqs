@@ -259,7 +259,8 @@ const definitions = (text, name, syntax = DOTENV) => (text ?? "").split(/\r?\n/)
 
 const NAME = "[A-Za-z_][A-Za-z0-9_]*";
 const PYTHON_DEFINITION = new RegExp(`^([ \\t]*)os\\.environ\\.setdefault\\([ \\t]*(["'])(${NAME})\\2[ \\t]*,[ \\t]*(["'])(.*?)\\4[ \\t]*\\)`);
-const RUBY_DEFINITION = new RegExp(`^([ \\t]*)ENV\\[[ \\t]*(["'])(${NAME})\\2[ \\t]*\\][ \\t]*\\|\\|=[ \\t]*(["'])(.*?)\\4`);
+// `ENV[...] ||= "…"`, or a plain `ENV[...] = "…"` someone wrote by hand, which wins even over the environment.
+const RUBY_DEFINITION = new RegExp(`^([ \\t]*)ENV\\[[ \\t]*(["'])(${NAME})\\2[ \\t]*\\][ \\t]*(?:\\|\\|)?=[ \\t]*(["'])(.*?)\\4`);
 const DJANGO_SETTINGS_LINE = /^([ \t]*)os\.environ\.setdefault\([ \t]*["']DJANGO_SETTINGS_MODULE["']/;
 
 /**
@@ -301,10 +302,17 @@ const PYTHON = codeSyntax(PYTHON_DEFINITION, (name, value) => `os.environ.setdef
   const at = imports.length > 0 ? imports.at(-1) + 1 : lines[0]?.startsWith("#!") ? 1 : 0;
   return { at, indent: "", extra: hasOs ? [] : ["import os"] };
 });
-const RUBY = codeSyntax(RUBY_DEFINITION, (name, value) => `ENV[${JSON.stringify(name)}] ||= ${JSON.stringify(value)}`, (lines) => {
-  const end = lines.at(-1) === "" ? lines.length - 1 : lines.length;
-  return { at: end, indent: "", extra: lines[end - 1] === undefined || lines[end - 1].trim() === "" ? [] : [""] };
-});
+const RUBY = {
+  ...codeSyntax(RUBY_DEFINITION, (name, value) => `ENV[${JSON.stringify(name)}] ||= ${JSON.stringify(value)}`, (lines) => {
+    const end = lines.at(-1) === "" ? lines.length - 1 : lines.length;
+    return { at: end, indent: "", extra: lines[end - 1] === undefined || lines[end - 1].trim() === "" ? [] : [""] };
+  }),
+  // A definition gets the new value and keeps its own operator: a plain `=` stays plain.
+  replace: (line, name, value) => {
+    const match = RUBY_DEFINITION.exec(line);
+    return `${match[1]}ENV[${JSON.stringify(name)}] ${/\|\|=/.test(match[0]) ? "||=" : "="} ${JSON.stringify(value)}`;
+  },
+};
 
 /** The syntax a file states variables in, by its extension: `.py` and `.rb` files are code, anything else a `.env` file. */
 function syntaxOf(file) {

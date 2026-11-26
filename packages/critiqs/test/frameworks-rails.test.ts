@@ -156,6 +156,16 @@ describe("env", () => {
     expect(run(other).code).toBe(0);
     expect(read(root, DEVELOPMENT_PATH)).toBe(development.replace(PROJECT, other));
   });
+
+  test("init updates an older plain ENV[…] = line in development.rb instead of adding a default it would override", () => {
+    const older = DEVELOPMENT.replace("Rails.application.configure do\n", 'ENV["CRITIQS_PROJECT_ID"] = "k98765432109876543210987654321098"\nRails.application.configure do\n');
+    expect(older).not.toBe(DEVELOPMENT);
+    const root = app({ Gemfile: `${GEMFILE}gem "critiqs-rails"\n`, [DEVELOPMENT_PATH]: older });
+    const messages: string[] = [];
+    expect(runInit(["init", PROJECT], { cwd: root, print: (message) => messages.push(message), env: {} })).toBe(0);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(older.replace("k98765432109876543210987654321098", PROJECT));
+    expect(messages.join("\n")).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in ${DEVELOPMENT_PATH} for development.`);
+  });
 });
 
 describe("plan", () => {

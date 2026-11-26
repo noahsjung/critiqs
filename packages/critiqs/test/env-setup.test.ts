@@ -714,5 +714,11 @@ test("in Python and Ruby a default is read and replaced in place; Python places 
   const set = at("set.rb", `ENV['CRITIQS_PROJECT_ID'] ||= 'old' # set by hand\n`);
   expect(readEnvValue(set, "CRITIQS_PROJECT_ID")?.value).toBe("old");
   expect(planEnv(set, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"\n`);
+  // A plain assignment written by hand is read too, and gets the new value as a plain assignment.
+  const plain = at("plain.rb", `Rails.application.configure do\nend\n  ENV['CRITIQS_PROJECT_ID'] = 'old'\n`);
+  expect(readEnvValue(plain, "CRITIQS_PROJECT_ID")?.value).toBe("old");
+  expect(planEnv(plain, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`Rails.application.configure do\nend\n  ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}"\n`);
+  // A comparison isn't a definition.
+  expect(readEnvValue(at("compare.rb", `puts 1 if ENV["CRITIQS_PROJECT_ID"] == "old"\n`), "CRITIQS_PROJECT_ID")).toBeNull();
   rmSync(dir, { recursive: true, force: true });
 });
