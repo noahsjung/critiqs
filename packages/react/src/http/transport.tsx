@@ -1,6 +1,6 @@
 import type { ExportPage, PageRequest } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { creditsArg, type Deployment } from "../deployment.ts";
+import { creditsArg, type Deployment, madeWithArg } from "../deployment.ts";
 import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
 import { CritiqsRequestError, type CritiqsTransport, describeError, type QueryState } from "../transport.ts";
@@ -162,7 +162,7 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
       }
       return body.fileId;
     },
-    createThread: (thread) => change("createThread", { ...thread }),
+    createThread: (thread) => change("createThread", { ...thread, ...madeWithArg(deployment) }),
     reply: (args) => change("reply", args),
     editMessage: (args) => change("editMessage", args),
     toggleReaction: (args) => change("toggleReaction", args),

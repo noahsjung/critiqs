@@ -3,7 +3,7 @@ import type { Page, ReactionRow, ThreadDetail, ThreadDetailPage } from "@critiqs
 import { ConvexProviderWithAuth, type ConvexReactClient, useConvexAuth, usePaginatedQuery } from "convex/react";
 import { ConvexError, type GenericId as Id } from "convex/values";
 import { type ReactNode, useCallback, useSyncExternalStore } from "react";
-import { creditsArg, type Deployment } from "../deployment.ts";
+import { creditsArg, type Deployment, madeWithArg } from "../deployment.ts";
 import { uploadCapture, uploadFile } from "../capture-upload.ts";
 import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
@@ -56,6 +56,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       tags: args.tags,
       mentions: args.mentions.map(({ userId, label }) => ({ userId: userId as Id<"users">, label })),
       capture: capture.status === "captured" ? { status: "captured", storageId: capture.fileId as Id<"_storage"> | Id<"captureFiles"> } : capture,
+      ...madeWithArg(deployment),
       ...(args.mockup === undefined
         ? {}
         : {

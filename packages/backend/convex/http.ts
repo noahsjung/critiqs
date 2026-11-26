@@ -113,6 +113,8 @@ http.route({
       // `onboarding:developerSetup`), and its owners clear it (`onboarding:clearConnected`).
       // `developerResends`: `resend` on `onboarding:sendDeveloperSetup` sends the steps again 24 hours after an email went
       // out, at most twice, and `onboarding:developerSends` says when (`resendAt`).
+      // `threadMadeWith`: `threads:create` takes `madeWith: "extension"` from the extension's panel, and thread pages say
+      // how a thread was left (`prototype.madeWith` on `threads:page`).
       // `developerEmails`: a project's owners email its setup steps to developers (`onboarding:sendDeveloperSetup`,
       // `onboarding:developerSends`), and setup links show them (`onboarding:developerSetup`); false without email. A copied
       // message's setup page shows the project and its install commands (`onboarding:projectSetup`), with or without email.
@@ -148,6 +150,7 @@ http.route({
         developerEmails: developerEmailSetup() !== null,
         connections: true,
         developerResends: true,
+        threadMadeWith: true,
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),

@@ -417,17 +417,28 @@ test("the website sends only its origin as the referrer, so a page key never lea
 });
 
 describe("Open in prototype and the extension", () => {
-  test("the extension is offered when the project isn't installed, or the thread was left before it was; never on an older backend", () => {
-    expect(extensionWay(null, 1_000)).toBe("not-installed");
-    expect(extensionWay(2_000, 1_000)).toBe("made-with-extension");
-    expect(extensionWay(500, 1_000)).toBeNull();
-    expect(extensionWay(undefined, 1_000)).toBeNull();
+  test("only a thread left with the extension offers it, saying whether the project is installed; never on an older backend", () => {
+    expect(extensionWay(null, "extension")).toBe("not-installed");
+    expect(extensionWay(2_000, "extension")).toBe("made-with-extension");
+    expect(extensionWay(null, "install")).toBeNull();
+    expect(extensionWay(2_000, "install")).toBeNull();
+    // From before threads recorded it: every thread was left with an install.
+    expect(extensionWay(null, undefined)).toBeNull();
+    expect(extensionWay(2_000, undefined)).toBeNull();
+    expect(extensionWay(undefined, "extension")).toBeNull();
   });
 
-  test("not installed: Open in prototype, and how to see the comment there with the extension", async () => {
-    const backend = fakeBackend({ threadPageState: ready({ ...THREAD, project: { ...THREAD.project, connectedAt: null } }) });
-    const page = await render(<ThreadPage pageKey={KEY} />, { backend });
+  // Each check reads text, never an element: a failing match on a rendered element prints its whole React tree.
+  const cardOf = async (project: Partial<ThreadPageData["project"]>, madeWith?: "install" | "extension") => {
+    const prototype = { ...THREAD.prototype, ...(madeWith === undefined ? {} : { madeWith }) };
+    const page = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready({ ...THREAD, project: { ...THREAD.project, ...project }, prototype }) }) });
     await settle();
+    return page;
+  };
+  const heading = (page: Element) => page.querySelector(".extension-way strong")?.textContent ?? null;
+
+  test("left with the extension on a project not installed: Open in prototype, and how to see the comment there with the extension", async () => {
+    const page = await cardOf({ connectedAt: null }, "extension");
     const way = page.querySelector(".extension-way");
     expect(way?.textContent).toBe("Not installed on the prototype yetOpen the prototype in Chrome and click Critiqs in the toolbar to see this comment there. Get the extension");
     expect(way?.querySelector("a")?.getAttribute("href")).toBe("https://github.com/noahsjung/critiqs/tree/main/packages/extension#build-and-load-it-unpacked");
@@ -435,13 +446,19 @@ describe("Open in prototype and the extension", () => {
     expect(page.querySelector("a.btn")?.textContent).toBe("Open in prototype");
   });
 
-  test("installed after the comment was left: both ways; installed before: only the installed link", async () => {
-    const made = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready({ ...THREAD, project: { ...THREAD.project, connectedAt: now } }) }) });
-    await settle();
-    expect(made.querySelector(".extension-way strong")?.textContent).toBe("Left with the Critiqs extension");
-    const installed = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready({ ...THREAD, project: { ...THREAD.project, connectedAt: now - 10 * HOUR } }) }) });
-    await settle();
-    expect(installed.querySelector(".extension-way")).toBeNull();
+  test("left with the extension on a project installed since: both ways", async () => {
+    expect(heading(await cardOf({ connectedAt: now - 10 * HOUR }, "extension"))).toBe("Left with the Critiqs extension");
+    expect(heading(await cardOf({ connectedAt: now + HOUR }, "extension"))).toBe("Left with the Critiqs extension");
+  });
+
+  test("left with an install, or from before threads recorded it: only the installed link, whenever the project last loaded", async () => {
+    // A project installed before Connected shipped first reports after every older thread, or not yet.
+    for (const madeWith of [undefined, "install"] as const) {
+      for (const connectedAt of [null, now - 10 * HOUR, now]) {
+        const page = await cardOf({ connectedAt }, madeWith);
+        expect([madeWith, connectedAt, heading(page), page.querySelector("a.btn")?.textContent ?? null]).toEqual([madeWith, connectedAt, null, "Open in prototype"]);
+      }
+    }
   });
 });
 

@@ -1,7 +1,7 @@
 import { isPrivateReviewAddress, MAX_REVIEW_URL_LENGTH, reviewLink, threadPageLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { useQuota } from "./limits.ts";
-import { canOpenThreadPage, canReview, projectQuota } from "./organizations.ts";
+import { canOpenThreadPage, canReview, inProjectOrganization, projectQuota } from "./organizations.ts";
 import { type EmailEntry, type EmailHeader, type EmailImage, emailImage, MentionEmail } from "./mention-email.ts";
 import { MailError, type MailMessage } from "./signin.ts";
 import type { NotificationRecord, ProjectRecord, Store, StoredMention, ThreadRecord } from "./store.ts";
@@ -68,6 +68,31 @@ export async function validateMentions(store: Store, projectId: string, mentions
     if (valid.length > MAX_MENTIONS) fail("invalid", `Mention up to ${MAX_MENTIONS} people in one comment.`);
   }
   return valid;
+}
+
+/**
+ * Whom someone may mention, from their standing in the project rather than
+ * from where they write: the project's team (its organization) mentions
+ * anyone in the project (`validateMentions`); someone outside it, who may
+ * still review it or open a thread page they are in, mentions only the team
+ * and people in this thread, as the thread page suggests. In a new thread
+ * nobody else is in it yet. A thread from before people in threads were
+ * recorded can't say who is in it, so the project-wide rule stands there.
+ */
+export async function checkMentionReach(
+  store: Store,
+  project: ProjectRecord,
+  thread: ThreadRecord | null,
+  authorId: string,
+  mentions: readonly StoredMention[],
+): Promise<void> {
+  if (mentions.length === 0 || (await inProjectOrganization(store, project, authorId))) return;
+  if (thread !== null && thread.followersReady !== true) return;
+  for (const { userId } of mentions) {
+    if (await inProjectOrganization(store, project, userId)) continue;
+    if (thread !== null && (thread.createdBy === userId || (await store.followers.find(thread._id, userId)) !== null)) continue;
+    fail("invalid", thread === null ? "You can only mention people in the project's team." : "You can only mention people in this thread, or in the project's team.");
+  }
 }
 
 /** What a notification reports: a message that mentions the recipient, or a reply in a thread they are in. */
@@ -302,11 +327,14 @@ export async function listParticipants(
 ): Promise<ParticipantInfo[]> {
   const needle = query.trim().toLowerCase().slice(0, 60);
   const found: ParticipantInfo[] = [];
+  // Someone outside the project's team is offered the team only (`checkMentionReach`); a thread page offers its own people.
+  const teamOnly = user === null || !(await inProjectOrganization(store, project, user._id));
   for (const participant of await store.participants.recent(project._id, SUGGESTION_POOL)) {
     if (participant.userId === user?._id) continue;
     const person = await store.users.get(participant.userId);
     if (person === null || !person.name.toLowerCase().includes(needle)) continue;
     if (!(await canReview(store, project, person._id))) continue;
+    if (teamOnly && !(await inProjectOrganization(store, project, person._id))) continue;
     found.push({ _id: person._id, name: person.name, imageUrl: person.imageUrl });
     if (found.length === MAX_SUGGESTIONS) break;
   }

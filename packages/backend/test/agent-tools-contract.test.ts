@@ -734,6 +734,8 @@ test("a name two people share is refused even when newer people with similar nam
   for (const name of ["Leela", "Lee Ann", "Kalee", "Leeroy", "Ashlee", "Leeds", "Haylee", "Lee Two"]) {
     await t.withIdentity(reviewer(name)).mutation(api.threads.create, { projectId: ids.projectId, anchor, body: "Hi", tags: [], capture: { status: "failed", failureReason: "x" } });
   }
+  // The agent's person isn't in the project's team, so whom it mentions must be in the thread (or the team).
+  await t.withIdentity(reviewer("Leeroy")).mutation(api.threads.reply, { threadId: ids.department, body: "Looking", revision: null });
   const agent = tools();
   await signIn(t, agent);
   const refused = await agent.call("critiqs_reply", { thread: ids.department, body: "Fixed", mention: ["Lee"], backend: BACKEND });

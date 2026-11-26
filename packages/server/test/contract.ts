@@ -3265,23 +3265,61 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(await outcome(fromPage(sam, "Now from the page"))).toBe("allowed");
   });
 
-  test(`${name}: from a thread page, only people in the thread can be mentioned; the page says whether the project is installed`, async () => {
+  test(`${name}: whom someone may mention follows their standing in the project, not where they reply from`, async () => {
     const backend = fresh();
-    const { projectId, threadId, key, sam } = await pagedThread(backend);
-    // Sam commented elsewhere in the project, so the installed panel may mention Sam, but Sam isn't in this thread.
+    const { projectId, threadId, key, riley, mo, sam } = await pagedThread(backend);
+    // Sam, outside the organization, commented elsewhere in the project, so the installed panel used to offer Sam to anyone.
     await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Another page", tags: [], capture: failed }));
-    const [leeId, samId] = [await idOf(backend, lee), await idOf(backend, sam)];
-    const fromPage = (mentions: { userId: string; label: string }[]) =>
-      backend.run((store) => ops.reply(store, dana, { threadId, body: mentions.map((each) => `@${each.label}`).join(" "), revision: null, threadPage: true, mentions }));
-    expect(await outcome(fromPage([mention(leeId, "Lee")]))).toBe("allowed");
-    expect(await outcome(fromPage([mention(samId, "Sam")]))).toBe("invalid: From a thread page, you can only mention people in this thread.");
-    expect(await outcome(backend.run((store) => ops.reply(store, dana, { threadId, body: "@Sam", revision: null, mentions: [mention(samId, "Sam")] })))).toBe("allowed");
-    // Once mentioned there, Sam is in the thread.
-    expect(await outcome(fromPage([mention(samId, "Sam")]))).toBe("allowed");
-    // Not installed yet: Critiqs never loaded with the project's ID.
+    await backend.run((store) => ops.reply(store, riley, { threadId, body: "On it", revision: null }));
+    const [leeId, moId, samId, rileyId] = [await idOf(backend, lee), await idOf(backend, mo), await idOf(backend, sam), await idOf(backend, riley)];
+    const reply = (who: Identity, mentions: { userId: string; label: string }[], threadPage: boolean) =>
+      backend.run((store) =>
+        ops.reply(store, who, { threadId, body: mentions.map((each) => `@${each.label}`).join(" "), revision: null, mentions, ...(threadPage ? { threadPage: true } : {}) }),
+      );
+    // Lee replied in the thread but isn't in the organization: leaving the thread page's flag off changes nothing.
+    for (const threadPage of [true, false]) {
+      expect(await outcome(reply(lee, [mention(samId, "Sam")], threadPage))).toBe("invalid: You can only mention people in this thread, or in the project's team.");
+      expect(await outcome(reply(lee, [mention(moId, "Mo")], threadPage))).toBe("allowed");
+      expect(await outcome(reply(lee, [mention(rileyId, "Riley")], threadPage))).toBe("allowed");
+    }
+    // Nor does editing a reply to add the mention.
+    const lees = (await allMessages(backend, dana, threadId)).filter((message) => message.body === "@Mo");
+    const leeReply = lees.at(-1)!._id;
+    expect(await outcome(backend.run((store) => ops.editMessage(store, lee, { messageId: leeReply, body: "@Mo @Sam", mentions: [mention(moId, "Mo"), mention(samId, "Sam")] })))).toBe(
+      "invalid: You can only mention people in this thread, or in the project's team.",
+    );
+    // In a new thread nobody else is in it yet: someone outside the team mentions the team only.
+    const newThread = (mentions: { userId: string; label: string }[]) =>
+      backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "New", tags: [], capture: failed, mentions }));
+    expect(await outcome(newThread([mention(leeId, "Lee")]))).toBe("invalid: You can only mention people in the project's team.");
+    expect(await outcome(newThread([mention(rileyId, "Riley")]))).toBe("allowed");
+    // The project's team mentions anyone in the project, from either place.
+    for (const threadPage of [true, false]) expect(await outcome(reply(dana, [mention(samId, "Sam")], threadPage))).toBe("allowed");
+    // Suggestions agree: someone outside the team is offered the team, the team everyone.
+    const suggested = async (who: Identity) => (await backend.run((store) => ops.listParticipants(store, who, { projectId, query: "" }))).map((person) => person.name).sort();
+    expect(await suggested(lee)).toEqual(["Dana", "Riley"]);
+    expect(await suggested(riley)).toEqual(["Dana", "Lee", "Mo", "Sam"]);
+    // The page says whether the project is installed: not until Critiqs loads at its address.
     expect((await openPage(backend, dana, key)).project.connectedAt).toBeNull();
     await backend.run((store) => reportConnected(store, { projectId, origin: "https://proto.example" }, 5_000));
     expect((await openPage(backend, dana, key)).project.connectedAt).toBe(5_000);
+  });
+
+  test(`${name}: a thread records whether it was left with the extension, and its page says so; older threads say nothing`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Installed", reviewUrl: "https://proto.example" }));
+    const made = (madeWith?: "extension") =>
+      backend.run((store) => ops.createThread(store, dana, { projectId, anchor, body: "Here", tags: [], capture: failed, ...(madeWith === undefined ? {} : { madeWith }) }));
+    const pageOf = async (threadId: string) => (await openPage(backend, dana, await backend.run((store) => ops.threadPageKey(store, dana, { threadId })))).prototype;
+    expect(await pageOf(await made("extension"))).toMatchObject({ madeWith: "extension" });
+    // Anything else, including every older component, is an install.
+    expect(await pageOf(await made())).toMatchObject({ madeWith: "install" });
+    // A thread from before it was recorded says nothing, so the page treats it as left with an install.
+    const danaId = await idOf(backend, dana);
+    const old = await backend.run((store) =>
+      store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: 1, lastMessageAt: 1, messageCount: 0, followersReady: true }),
+    );
+    expect("madeWith" in (await pageOf(old))).toBe(false);
   });
 
   test(`${name}: a thread from before people in threads were recorded opens for those its discussion names`, async () => {

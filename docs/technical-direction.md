@@ -476,8 +476,13 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   copies the page's own address. In the reply box hashtags tag the thread as
   usual, and `@` suggests only the people in the thread (who wrote in it or
   were mentioned in it), whom the page already shows, never everyone in the
-  project. The server holds replies from the page to the same rule: they may
-  mention only people already in the thread. The browser tab's title names
+  project. Whom someone may mention follows their standing in the project,
+  not where they write from: the project's team (its organization) mentions
+  anyone in the project; someone outside it mentions only the team and people
+  already in the thread, from the thread page, the panel, or an agent alike,
+  and the panel suggests them the team only. In a new thread they mention the
+  team only. Threads from before people in threads were recorded keep the
+  project-wide rule. The browser tab's title names
   no project, since browsers keep titles in history.
 - **Open in prototype.** It opens the page the thread was left on at the
   project's review address (`buildLink`: the review address's origin, the
@@ -489,9 +494,15 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   organization, `requireThread` refuses outsiders. A saved page address that
   can't be read opens the review address itself, as email links do. Without
   a review address it isn't offered, and the page says the comment was left on its saved
-  address. The page also offers the browser extension when the project isn't
-  installed yet (`connectedAt` null: Critiqs never loaded with its ID), or the
-  thread was left before it first did, so with the extension. The extension
+  address. Each thread records how it was left (`madeWith`): the panel says
+  `extension` when it runs in the browser extension's own page, and anything
+  else, including every older component, is an install. The page offers the
+  browser extension only for a thread left with it, saying whether the
+  project is installed now (`connectedAt`). A thread left with an install,
+  or from before this was recorded (when the extension wasn't published, so
+  every thread came from an install), opens where it was left, however long
+  ago the project last loaded. Backends report `threadMadeWith`, and
+  components send `madeWith` only to those. The extension
   doesn't read `?critiqs=`, so the page says to click Critiqs on the opened
   page. Review links, once built, add their own way here.
 - **Where pages are served.** A page link names no deployment, so the website

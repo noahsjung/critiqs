@@ -238,7 +238,16 @@ export interface ThreadRecord {
    * someone shares them.
    */
   pageKey?: string;
+  /**
+   * How it was left: with Critiqs installed on the prototype, or with the
+   * browser extension. Absent on threads from before it was recorded, which
+   * were left with an install: the extension was never published before.
+   */
+  madeWith?: ThreadMadeWith;
 }
+
+/** How a thread was left: with Critiqs installed on the prototype, or with the browser extension. */
+export type ThreadMadeWith = "install" | "extension";
 
 /** A hashtag some of a thread's messages use. */
 export interface TextTag {

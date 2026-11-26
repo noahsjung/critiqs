@@ -174,6 +174,8 @@ export const ARGUMENTS: Record<string, Check> = {
     "mentions?": mentions,
     // Accepted so the handler can say mockups aren't available here, rather than that the field is unexpected.
     "mockup?": object({ mockupId: string, snapshotId: nullable(string), node: nullable(number) }),
+    // Sent only by the panel in the browser extension, to backends that report `threadMadeWith`.
+    "madeWith?": literal("extension"),
   }),
   reply: object({ threadId: string, body: string, revision: nullable(string), "mentions?": mentions, "via?": literal("agent"), "threadPage?": boolean }),
   editMessage: object({ messageId: string, body: string, "mentions?": mentions }),

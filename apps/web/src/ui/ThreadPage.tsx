@@ -97,15 +97,16 @@ export function prototypeLink(reviewUrl: string | null, pageUrl: string, threadI
 }
 
 /**
- * Whether Open in prototype also offers the browser extension: the project
- * isn't installed yet (Critiqs never loaded with its ID), or the thread was
- * left before it first did, so it was made with the extension. Never on an
+ * Whether Open in prototype also offers the browser extension, from the
+ * thread's own record of how it was left: only a thread left with the
+ * extension gets it, saying whether the project is installed now. A thread
+ * left with an install, or from before that was recorded (when every thread
+ * was), opens where it was left, whenever the project last loaded. Never on an
  * older backend, which doesn't say.
  */
-export function extensionWay(connectedAt: number | null | undefined, threadCreatedAt: number): "not-installed" | "made-with-extension" | null {
-  if (connectedAt === undefined) return null;
-  if (connectedAt === null) return "not-installed";
-  return threadCreatedAt < connectedAt ? "made-with-extension" : null;
+export function extensionWay(connectedAt: number | null | undefined, madeWith: "install" | "extension" | undefined): "not-installed" | "made-with-extension" | null {
+  if (madeWith !== "extension" || connectedAt === undefined) return null;
+  return connectedAt === null ? "not-installed" : "made-with-extension";
 }
 
 /** An address as people read it: no scheme, no trailing slash. */
@@ -128,7 +129,7 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
   }, []);
   const target = prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
   const ownLink = `${window.location.origin}${window.location.pathname}`;
-  const extension = extensionWay(thread.project.connectedAt, thread.createdAt);
+  const extension = extensionWay(thread.project.connectedAt, thread.prototype.madeWith);
 
   return (
     <article className="thread-page">
