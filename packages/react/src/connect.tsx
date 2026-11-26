@@ -9,7 +9,7 @@ import type { CritiqsProps } from "./host.ts";
 import { CookieSession } from "./http/session.ts";
 import { httpTransport } from "./http/transport.tsx";
 import type { PageLink } from "./page-layer/link.ts";
-import { Session } from "./session.ts";
+import { Session, type TokenSession } from "./session.ts";
 import { STYLES } from "./styles.ts";
 import { TransportContext } from "./transport.ts";
 
@@ -67,9 +67,17 @@ export function attachHost(parent: Element): { host: HTMLElement; container: HTM
 export interface PanelPage {
   page?: PageLink;
   supplyCapture?: SupplyCapture;
+  /**
+   * The reviewer's sign-in where the panel keeps its own, such as the
+   * extension's side panel, which signs in without a popup and stores the
+   * session in the extension. Convex backends only; otherwise the popup's.
+   */
+  session?: TokenSession;
+  /** A comment to open as a link to it would, such as the one whose pin opened the side panel. */
+  openThread?: string;
 }
 
-export function Connect({ props, host, page, supplyCapture }: { props: CritiqsProps; host: HTMLElement } & PanelPage) {
+export function Connect({ props, host, page, supplyCapture, session, openThread }: { props: CritiqsProps; host: HTMLElement } & PanelPage) {
   const backendUrl = props.backend ?? HOSTED_BACKEND_URL;
   const required = props.requireProjectId === true;
   // Only a required project is checked against the backend, so only its changes start a new check.
@@ -101,7 +109,7 @@ export function Connect({ props, host, page, supplyCapture }: { props: CritiqsPr
 
   if (deployment === null) return null;
   if ("error" in deployment) return required ? null : <Unavailable message={deployment.error} />;
-  return <Connected props={props} host={host} deployment={deployment} page={page} supplyCapture={supplyCapture} />;
+  return <Connected props={props} host={host} deployment={deployment} page={page} supplyCapture={supplyCapture} session={session} openThread={openThread} />;
 }
 
 type ConnectedProps = { props: CritiqsProps; host: HTMLElement; deployment: Deployment } & PanelPage;
@@ -124,8 +132,8 @@ function ConnectedHttp({ props, host, deployment, page, supplyCapture }: Connect
   );
 }
 
-function ConnectedConvex({ props, host, deployment, page, supplyCapture }: ConnectedProps) {
-  const session = useMemo(() => new Session(deployment.signInUrl), [deployment.signInUrl]);
+function ConnectedConvex({ props, host, deployment, page, supplyCapture, session: own, openThread }: ConnectedProps) {
+  const session = useMemo(() => own ?? new Session(deployment.signInUrl), [own, deployment.signInUrl]);
   // Created in an effect so its cleanup closes the same client; StrictMode
   // remounts would otherwise reuse a closed one.
   const [client, setClient] = useState<ConvexReactClient | null>(null);
@@ -144,7 +152,7 @@ function ConnectedConvex({ props, host, deployment, page, supplyCapture }: Conne
   if (transport === null) return null;
   return (
     <TransportContext.Provider value={transport}>
-      {transport.wrap(<App props={props} deployment={deployment} session={session} host={host} page={page} supplyCapture={supplyCapture} />)}
+      {transport.wrap(<App props={props} deployment={deployment} session={session} host={host} page={page} supplyCapture={supplyCapture} openThread={openThread} />)}
     </TransportContext.Provider>
   );
 }

@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Critiqs",
+  "version": "0.0.0",
+  "description": "Comment on any page you can open, without the team installing anything.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5/4g9vkMif5LtPakYIBv7bZti3L+OwUSytcgn5mpeut2xuCN2Qn+vGFf8veh1bH3a6C8C4KkrB3d5YutGsotQLuS82mYa2CRiOeIGkdWl2sUSE+9LjCzLc0yPhcoyZRJrnNKk1osdkmvpkLuGXH/eotwg1sdxhfeBZN+OTU9mCdNhlRAj9pCxEgGazhxAQgwFKxg9dfoTrpT36dELxDYrb2GshY4NPH/Amnn2Syopxtoe8yCXc7I4ClB1AUm1MXLsS2vPgWxXF1+fihTrUSiBWOyoz05839j/JRWLE0wn0f4Sdh7jmpiu4IDwcovcyGIkz3eD4ovzIkE4OAWxubo8QIDAQAB",
+  "minimum_chrome_version": "121",
+  "permissions": ["activeTab", "sidePanel", "scripting", "storage"],
+  "optional_host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "worker.js" },
+  "action": {
+    "default_title": "Critiqs: comment on this page",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+C" }, "description": "Open Critiqs on this page" }
+  }
+}

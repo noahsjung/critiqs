@@ -12,9 +12,20 @@ export const SIDEBAR_MAX = 720;
 const STEP = 24;
 const KEY = "critiqs:sidebar-width";
 
+/** The strip of the page the sidebar leaves beside it, where the panel is drawn over the page. */
+let pageStrip = 160;
+
+/**
+ * For a panel with a window of its own and no page beside the sidebar, such
+ * as the browser extension's side panel: the sidebar may fill the window.
+ */
+export function sidebarFillsWindow() {
+  pageStrip = 0;
+}
+
 /** The widths this window allows: the limits, never wider than leaves a strip of the page beside the sidebar, nor than the window. */
 export function sidebarLimits(): { min: number; max: number } {
-  const max = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - 160));
+  const max = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - pageStrip));
   return { min: Math.min(SIDEBAR_MIN, window.innerWidth), max: Math.min(max, window.innerWidth) };
 }
 

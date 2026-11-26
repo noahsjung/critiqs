@@ -7,7 +7,7 @@ import { creditsArg, type Deployment } from "../deployment.ts";
 import { uploadCapture, uploadFile } from "../capture-upload.ts";
 import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
-import type { Session } from "../session.ts";
+import type { TokenSession } from "../session.ts";
 import type { NewCapture } from "@critiqs/core";
 import type { CritiqsTransport, MockupTransport, NewSnapshot, QueryState } from "../transport.ts";
 import { useAllPages, useQueryState } from "./queries.ts";
@@ -17,7 +17,7 @@ import { useAllPages, useQueryState } from "./queries.ts";
  * subscriptions; changes are Convex mutations; captures are served through the
  * deployment's protected HTTP route.
  */
-export function convexTransport(client: ConvexReactClient, deployment: Deployment, session: Session): CritiqsTransport {
+export function convexTransport(client: ConvexReactClient, deployment: Deployment, session: TokenSession): CritiqsTransport {
   // Whether Convex's latest request for a token got one. Convex reports both a
   // refused token and a missing one as unauthenticated; only the first is a rejection.
   let lastTokenFetched = false;
@@ -234,7 +234,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
  * read back through its `/mockup/snapshot` route, which checks access as
  * reading the mockup does; copies never change, so each is kept once loaded.
  */
-function convexMockups(client: ConvexReactClient, deployment: Deployment, session: Session): MockupTransport {
+function convexMockups(client: ConvexReactClient, deployment: Deployment, session: TokenSession): MockupTransport {
   const mutation = client.mutation.bind(client);
   const change = (result: Promise<unknown>) => result.then(() => undefined);
   const copies = new Map<string, Promise<string>>();

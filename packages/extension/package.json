@@ -1,0 +1,25 @@
+{
+  "name": "@critiqs/extension",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Critiqs for Chromium browsers: comment on any page from the side panel, without the team installing anything.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test",
+    "build": "bun scripts/build.ts",
+    "check:chrome": "bun scripts/check-extension.ts"
+  },
+  "devDependencies": {
+    "@critiqs/backend": "workspace:*",
+    "@critiqs/core": "workspace:*",
+    "@happy-dom/global-registrator": "^20.14.6",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "convex": "^1.46.0",
+    "modern-screenshot": "^4.6.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}
