@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { WEBHOOK_UPDATES_PER_MINUTE } from "@critiqs/server";
-import { addJiraIssue, JIRA_STANDIN_CLIENT_ID, JIRA_STANDIN_SECRET, type JiraStandIn, jiraIssueWebhook, jiraStandIn, jiraTimestamp } from "@critiqs/server/jira-standin";
+import { addJiraIssue, moveJiraIssue, JIRA_STANDIN_CLIENT_ID, JIRA_STANDIN_SECRET, type JiraStandIn, jiraIssueWebhook, jiraStandIn, jiraTimestamp } from "@critiqs/server/jira-standin";
 import { api, internal } from "../convex/_generated/api";
 import { anchor, reviewer, setup } from "./harness";
 import { thread as getThread } from "./pages";
@@ -127,11 +127,31 @@ test("a delivery only says an issue changed: its status is read from Jira with t
   const swapped = { ...genuine, body: JSON.stringify({ ...JSON.parse(genuine.body), webhookEvent: "jira:issue_deleted" }) };
   expect((await deliver(swapped)).status).toBe(200);
   expect(await chip()).toBe("To Do");
-  // Deleted in Jira, and Jira says so: the linker's read finds no issue, and the chip says Deleted.
+  // Deleted in Jira, and the notice says so: the linker's read finds no issue, which Jira also answers for one they may no
+  // longer see, so the chip keeps its last status, marked last known, rather than Deleted.
   const deletion = await jiraIssueWebhook(jira, { event: "jira:issue_deleted", issueId: issue.id, webhookIds: [1000], sentAt: Date.now() });
   jira.issues.splice(jira.issues.findIndex((each) => each.id === issue.id), 1);
   expect((await deliver(deletion)).status).toBe(200);
-  expect(await chip()).toBe("Deleted");
+  expect(await chip()).toBe("To Do");
+});
+
+test("an issue Jira stops showing the linker is never marked Deleted, even after a deletion notice: Jira answers a hidden issue as a missing one, so its last status stays, marked last known", async () => {
+  const { issue, deliver, threadId, dana, updated } = await linked();
+  const shown = async () => (await getThread(dana, { threadId })).tickets?.[0];
+  // Lee loses permission to see the issue (issue security, or a project role removed), and a deletion notice arrives.
+  issue.hiddenFrom = ["557058:lee"];
+  expect((await deliver(await jiraIssueWebhook(jira, { event: "jira:issue_deleted", issueId: issue.id, webhookIds: [1000], sentAt: Date.now() }))).status).toBe(200);
+  expect(await shown()).toMatchObject({ status: { label: "To Do" }, statusStale: true });
+  // Seen again: an ordinary notice clears it.
+  issue.hiddenFrom = [];
+  jira.setStatus(issue.id, { name: "In Progress", categoryKey: "indeterminate" }, jiraTimestamp(Date.now()));
+  await deliver(await updated());
+  expect(await shown()).toMatchObject({ status: { label: "In Progress" }, statusStale: false });
+  // Really deleted, and Jira says so in the notice: its answer to the read is the same 404, so still last known, never Deleted.
+  const deletion = await jiraIssueWebhook(jira, { event: "jira:issue_deleted", issueId: issue.id, webhookIds: [1000], sentAt: Date.now() });
+  jira.issues.splice(jira.issues.findIndex((each) => each.id === issue.id), 1);
+  await deliver(deletion);
+  expect(await shown()).toMatchObject({ status: { label: "In Progress" }, statusStale: true });
 });
 
 test("an issue's address names its site one way only: the site's own host, or Atlassian's gateway with its cloud ID", async () => {
@@ -220,6 +240,33 @@ test("a person's webhook follows only tickets linked with the Jira account it is
   expect(await t.action(internal.trackerWebhooks.follow, { userId: account!.userId, accountId: account!.accountId, tracker: "jira" })).toBe("covered");
   expect(jira.requests).toEqual([]);
   expect(jira.webhooks).toEqual([]);
+});
+
+test("an issue moved to another project stays linked under its new key: search finds it by its old key, a check moves the link, and the webhook follows its new project", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const lee = t.withIdentity(reviewer("Lee"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
+  const threadId = await lee.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
+  await signIn(t, lee);
+  const issue = addJiraIssue(jira, { summary: "Existing" });
+  const oldKey = issue.key;
+  await lee.action(api.tickets.link, { threadId, tracker: "jira", externalId: `${jira.site.cloudId}/${issue.id}`, comment: false });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(jira.webhooks.map((hook) => hook.jqlFilter)).toEqual(["project IN (10001)"]);
+  moveJiraIssue(jira, issue.id, "OPS");
+  jira.setStatus(issue.id, { name: "Done", categoryKey: "done" }, jiraTimestamp(Date.now()));
+  // Searching by its old key finds it, under its new key.
+  expect((await lee.action(api.tickets.search, { tracker: "jira", query: oldKey })).map((found) => found.key)).toEqual([issue.key]);
+  // Opening the thread checks it by its ID: the link takes its new key and page, and its project.
+  await t.run(async (ctx) => {
+    for (const link of await ctx.db.query("ticketLinks").collect()) await ctx.db.patch(link._id, { statusCheckedAt: 0, statusCheckStartedAt: 0 });
+  });
+  await dana.mutation(api.ticketStatus.checkStatus, { threadId });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect((await getThread(dana, { threadId })).tickets?.[0]).toMatchObject({ key: issue.key, url: `https://acme.atlassian.net/browse/${issue.key}`, status: { label: "Done" } });
+  // Lee's webhook now follows the issue's new project, so its deliveries arrive again.
+  expect(jira.webhooks.map((hook) => hook.jqlFilter)).toEqual(["project IN (10002)"]);
 });
 
 test("unlinking the last ticket in a project stops the person's webhook following it", async () => {

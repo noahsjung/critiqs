@@ -14,7 +14,8 @@
 // Not modelled: pagination past one page (projects, labels, webhooks);
 // JQL beyond the queries Critiqs sends (`creator = currentUser() ORDER BY
 // created DESC`, `[project = "<id>" AND ]text ~ "<words>" ORDER BY updated
-// DESC`); permissions within a site (every user sees and edits everything);
+// DESC`); permissions within a site beyond issues hidden from some people
+// (`hiddenFrom`, answered 404 as Jira answers them);
 // workflows (tests set statuses directly); rate limits; the webhook limit of
 // five per app and user; webhook retries; the claims inside Jira's webhook
 // token beyond `iat` and `exp` (Atlassian doesn't document them); and
@@ -67,6 +68,10 @@ export interface JiraStandInIssue {
   created: string;
   creatorId: string;
   properties: Record<string, unknown>;
+  /** Keys it had before it moved to another project, which still find it. */
+  formerKeys?: string[];
+  /** Account IDs that may no longer see it (issue security, or project permissions removed): Jira answers 404 to them, as for an issue that doesn't exist. */
+  hiddenFrom?: string[];
 }
 
 export interface JiraStandIn {
@@ -296,7 +301,11 @@ export function jiraStandIn(options: { users?: JiraStandInUser[]; now?: () => nu
     };
   };
 
-  const findIssue = (idOrKey: string) => standIn.issues.find((issue) => issue.id === idOrKey || issue.key === idOrKey.toUpperCase());
+  // As Jira's Get issue documents it: by ID or key, and "if the identifier doesn't match an issue, a case-insensitive
+  // search and check for moved issues is performed", answering with the issue under its current key.
+  const findIssue = (idOrKey: string) =>
+    standIn.issues.find((issue) => issue.id === idOrKey || issue.key === idOrKey.toUpperCase()) ??
+    standIn.issues.find((issue) => (issue.formerKeys ?? []).includes(idOrKey.toUpperCase()));
 
   /** Who a request is, by its Authorization header, for the way it reached the site; null when Jira wouldn't accept it. */
   function caller(request: Request, via: "gateway" | "site" | "me"): JiraStandInUser | null {
@@ -453,7 +462,8 @@ export function jiraStandIn(options: { users?: JiraStandInUser[]; now?: () => nu
     const issuePath = /^\/rest\/api\/3\/issue\/([^/]+)(\/[a-z]+)?$/.exec(path);
     if (issuePath !== null) {
       const issue = findIssue(decodeURIComponent(issuePath[1]!));
-      if (issue === undefined) return ERROR(404, ["Issue does not exist or you do not have permission to see it."]);
+      // Jira answers an issue the person may not see exactly as one that doesn't exist.
+      if (issue === undefined || (issue.hiddenFrom ?? []).includes(user.accountId)) return ERROR(404, ["Issue does not exist or you do not have permission to see it."]);
       switch (`${method} ${issuePath[2] ?? ""}`) {
         case "GET ":
           return Response.json(issueView(issue, base));
@@ -626,6 +636,18 @@ export function addJiraIssue(standIn: JiraStandIn, issue: { projectKey?: string;
   };
   standIn.issues.push(created);
   return created;
+}
+
+/** Moves an issue to another project, as a person would in Jira: it gets the next key there, and its old key still finds it. */
+export function moveJiraIssue(standIn: JiraStandIn, issueId: string, projectKey: string): JiraStandInIssue {
+  const issue = standIn.issues.find((each) => each.id === issueId);
+  const project = standIn.projects.find((each) => each.key === projectKey);
+  if (issue === undefined || project === undefined) throw new Error(`No issue ${issueId} or project ${projectKey}`);
+  issue.formerKeys = [...(issue.formerKeys ?? []), issue.key];
+  issue.key = `${project.key}-${100 + standIn.issues.length + (issue.formerKeys.length * 10)}`;
+  issue.projectId = project.id;
+  issue.updated = jiraTimestamp(Date.parse(issue.updated.replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) + 1000);
+  return issue;
 }
 
 function base64Url(bytes: Uint8Array): string {

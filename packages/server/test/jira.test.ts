@@ -14,7 +14,7 @@ import {
   readJiraWebhook,
   refreshJiraToken,
 } from "../src/tickets/trackers/jira.ts";
-import { addJiraIssue, adfText, JIRA_STANDIN_CLIENT_ID, JIRA_STANDIN_SECRET, jiraIssueWebhook, jiraStandIn, jiraTimestamp, validAdf } from "./jira-standin.ts";
+import { addJiraIssue, adfText, moveJiraIssue, JIRA_STANDIN_CLIENT_ID, JIRA_STANDIN_SECRET, jiraIssueWebhook, jiraStandIn, jiraTimestamp, validAdf } from "./jira-standin.ts";
 
 const ORIGIN = "https://jira.test";
 const app = { clientId: JIRA_STANDIN_CLIENT_ID, clientSecret: JIRA_STANDIN_SECRET };
@@ -133,6 +133,18 @@ test("search finds an issue by key, or by words with the JQL built as data, on t
   expect(await adapter.search(pasted, "NOPE-1")).toEqual([]);
 });
 
+test("an issue moved to another project is found by its old key under its new one, and a status read says where it is now", async () => {
+  const { adapter, pasted, site, standIn } = setup();
+  const issue = addJiraIssue(standIn, { summary: "Department label is wrong" });
+  const oldKey = issue.key;
+  moveJiraIssue(standIn, issue.id, "OPS");
+  // Jira resolves the old key to the issue as it is now: the same issue, under its new key.
+  expect((await adapter.search(pasted, oldKey)).map((found) => [found.externalId, found.key])).toEqual([[`${site.id}/${issue.id}`, issue.key]]);
+  // Linked as it was before the move, it is read by its ID: its new key, page, and project come back with its status.
+  const held = { tracker: "jira" as const, externalId: `${site.id}/${issue.id}`, key: oldKey, url: `https://acme.atlassian.net/browse/${oldKey}`, title: issue.summary, site: site.id };
+  expect((await adapter.status(pasted, held)).place).toEqual({ key: issue.key, url: `https://acme.atlassian.net/browse/${issue.key}`, title: issue.summary, webhookScope: "10002" });
+});
+
 test("create: ADF text, labels, the creation's ID as an issue property, read back; a retry finds it by that ID", async () => {
   const { adapter, pasted, site, standIn } = setup();
   const creationId = crypto.randomUUID();
@@ -219,7 +231,11 @@ test("the link back is one remote link per thread, the comment and capture reach
   expect(validAdf(standIn.comments[0]!.body)).toBeNull();
   await adapter.attachImage!(pasted, ticket, { data: new Blob([new Uint8Array([1, 2, 3])]), contentType: "image/png", name: "critiqs-capture.png" });
   expect(standIn.attachments).toEqual([{ issueId: issue.id, filename: "critiqs-capture.png", mimeType: "image/png", size: 3 }]);
-  expect(await adapter.status(pasted, ticket)).toEqual({ status: { label: "Done", category: "done" }, asOf: 5_000 });
+  expect(await adapter.status(pasted, ticket)).toEqual({
+    status: { label: "Done", category: "done" },
+    asOf: 5_000,
+    place: { key: issue.key, url: `https://acme.atlassian.net/browse/${issue.key}`, title: "Linked", webhookScope: "10001" },
+  });
   // Another site's issue, or one the person can't see, isn't found.
   expect((await refusal(adapter.status(pasted, { ...ticket, externalId: `other-cloud/${issue.id}` }))).code).toBe("not-found");
   expect((await refusal(adapter.get(pasted, `${site.id}/424242`))).code).toBe("not-found");

@@ -638,7 +638,7 @@ export interface TicketLinkRecord {
    * ticket changed (Jira), its status is read with the linker's token; while
    * one check waits, more deliveries ask for none.
    */
-  statusCheckQueued?: { at: number; deleted: boolean };
+  statusCheckQueued?: { at: number };
   /** What the tracker's status webhooks filter the ticket by (a Jira project's ID), so a person's webhook follows only their linked tickets' scopes. */
   webhookScope?: string;
   /** The tracker account (the tracker's ID for it) the person linked or created the ticket with: status checks use only this account's token. */

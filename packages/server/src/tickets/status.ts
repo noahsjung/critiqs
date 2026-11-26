@@ -136,18 +136,30 @@ export async function applyTicketStatus(store: Store, update: TicketStatusUpdate
  * the same ticket, such as one whose linker can't check it any more. Saved
  * and resolved as `applyTicketStatus` does. One transaction.
  */
-export async function applyCheckedStatus(store: Store, args: { linkId: string; reading: TicketStatusReading; deleted?: boolean }, now: number): Promise<{ updated: number; resolved: string[] }> {
+export async function applyCheckedStatus(
+  store: Store,
+  args: { linkId: string; reading: TicketStatusReading },
+  now: number,
+): Promise<{ updated: number; resolved: string[]; rescoped?: { userId: string; accountId: string; tracker: TrackerId } }> {
   const link = await ticketStore(store).links.get(args.linkId);
-  const reading: StatusReading = args.deleted === true
-    ? { source: "check", asOf: args.reading.asOf ?? now, status: { ...DELETED_STATUS }, deleted: true }
-    : { source: "check", asOf: args.reading.asOf ?? now, status: args.reading.status, deleted: false };
+  const reading: StatusReading = { source: "check", asOf: args.reading.asOf ?? now, status: args.reading.status, deleted: false };
   const linked = link === null || link.state !== "linked" ? null : link;
   // The ticket moved, or was renamed, at the tracker: the same ticket by its permanent ID, so the link follows it.
   const place = args.reading.place;
-  if (linked !== null && place !== undefined && (place.key !== linked.key || place.url !== linked.url || place.title !== linked.title || (place.site !== undefined && place.site !== (linked.site ?? null)))) {
-    await ticketStore(store).links.patch(linked._id, { key: place.key, url: place.url, title: place.title, ...(place.site === undefined ? {} : { site: place.site }) });
+  const rescoped = linked !== null && place?.webhookScope !== undefined && place.webhookScope !== linked.webhookScope;
+  if (linked !== null && place !== undefined && (rescoped || place.key !== linked.key || place.url !== linked.url || place.title !== linked.title || (place.site !== undefined && place.site !== (linked.site ?? null)))) {
+    await ticketStore(store).links.patch(linked._id, {
+      key: place.key,
+      url: place.url,
+      title: place.title,
+      ...(place.site === undefined ? {} : { site: place.site }),
+      ...(place.webhookScope === undefined ? {} : { webhookScope: place.webhookScope }),
+    });
   }
-  return await saveStatus(store, linked === null ? [] : [linked], reading, now);
+  const saved = await saveStatus(store, linked === null ? [] : [linked], reading, now);
+  // In another project now: the linker's status webhook follows the projects of their links, so it is worked out again.
+  const accountId = linked?.accountId ?? linked?.creatorAccountId;
+  return rescoped && accountId !== undefined ? { ...saved, rescoped: { userId: linked!.linkedBy, accountId, tracker: linked!.tracker } } : saved;
 }
 
 async function saveStatus(store: Store, links: TicketLinkRecord[], reading: StatusReading, now: number): Promise<{ updated: number; resolved: string[] }> {
@@ -261,8 +273,6 @@ export type StatusCheck =
       ticket: { tracker: TrackerId; externalId: string; key: string; url: string; title: string; site: string | null };
       /** When the check began: a refusal marks the status stale only if nothing was saved since. */
       startedAt: number;
-      /** A webhook asked for this check and said the ticket was deleted: if the linker's read finds no ticket, it is Deleted. */
-      deletedNotice: boolean;
     }
   /** Nothing to check: the link is gone. */
   | { status: "skip" }
@@ -281,7 +291,6 @@ export async function prepareStatusCheck(store: Store, args: { linkId: string },
   const link = await tickets.links.get(args.linkId);
   if (link === null || link.state !== "linked") return { status: "skip" };
   // The check a webhook asked for starts now: a delivery after this asks for another.
-  const deletedNotice = link.statusCheckQueued?.deleted === true;
   if (link.statusCheckQueued !== undefined) await tickets.links.patch(link._id, { statusCheckQueued: null });
   const person = await linkerAccount(store, link);
   if (person === null) {
@@ -289,7 +298,7 @@ export async function prepareStatusCheck(store: Store, args: { linkId: string },
     return { status: "stale" };
   }
   const { tracker, externalId, key, url, title } = link;
-  return { status: "check", person, projectId: link.projectId, tracker, ticket: { tracker, externalId, key, url, title, site: link.site ?? null }, startedAt: now, deletedNotice };
+  return { status: "check", person, projectId: link.projectId, tracker, ticket: { tracker, externalId, key, url, title, site: link.site ?? null }, startedAt: now };
 }
 
 /**
@@ -312,8 +321,6 @@ export interface StatusCheckSteps {
   token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse): Promise<TrackerToken>;
   /** Saves the status read on the checked link only. */
   save(reading: TicketStatusReading): Promise<unknown>;
-  /** Saves the checked link's ticket as Deleted: a webhook said so, and the linker's read found no ticket. */
-  deleted(): Promise<unknown>;
   /** Marks the status stale, unless a reading was saved after `startedAt`. */
   stale(startedAt: number): Promise<void>;
 }
@@ -341,11 +348,8 @@ export async function checkTicketStatus(steps: StatusCheckSteps, deployment: Tic
     return "updated";
   } catch (error) {
     if (!linkerCannot(error)) return "failed";
-    // Jira signed a deletion and the linker's own read finds no ticket: deleted, not merely hidden from them.
-    if (check.deletedNotice && error instanceof CritiqsError && !(error instanceof TrackerRefusal) && error.code === "not-found") {
-      await steps.deleted();
-      return "updated";
-    }
+    // A ticket the linker's read can't find stays as it was, last known, never Deleted: a tracker that answers a ticket
+    // the person may no longer see as one that doesn't exist (Jira) doesn't say which it is.
     await steps.stale(check.startedAt);
     return "stale";
   }

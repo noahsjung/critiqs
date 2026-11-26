@@ -18,7 +18,7 @@ const statusFields = { status: ticketStatusValidator, asOf: v.union(v.number(), 
 /** What a check read: the status, and where the ticket is now, which the link follows when the ticket moved. */
 const statusReading = v.object({
   ...statusFields,
-  place: v.optional(v.object({ key: v.string(), url: v.string(), title: v.string(), site: v.optional(v.union(v.string(), v.null())) })),
+  place: v.optional(v.object({ key: v.string(), url: v.string(), title: v.string(), site: v.optional(v.union(v.string(), v.null())), webhookScope: v.optional(v.string()) })),
 });
 const statusUpdate = v.object({
   ...statusReading.fields,
@@ -53,7 +53,6 @@ export const check = internalAction({
         prepare: (): Promise<StatusCheck> => ctx.runMutation(internal.ticketStatus.prepare, args),
         token: (person, tracker, use) => trackerToken(ctx, person, tracker, use),
         save: (reading): Promise<unknown> => ctx.runMutation(internal.ticketStatus.saveCheck, { ...args, reading }),
-        deleted: (): Promise<unknown> => ctx.runMutation(internal.ticketStatus.saveCheck, { ...args, reading: { status: { label: "Deleted", category: "canceled" }, asOf: null }, deleted: true }),
         stale: async (startedAt) => void (await ctx.runMutation(internal.ticketStatus.stale, { ...args, startedAt })),
       },
       ticketsDeployment(),
@@ -78,8 +77,13 @@ export const apply = internalMutation({
 
 /** Saves what a check read on the checked link only, and resolves its thread under Resolve when done. */
 export const saveCheck = internalMutation({
-  args: { linkId: v.string(), reading: statusReading, deleted: v.optional(v.boolean()) },
-  handler: async (ctx, args): Promise<{ updated: number; resolved: string[] }> => await applyCheckedStatus(convexStore(ctx), args, Date.now()),
+  args: { linkId: v.string(), reading: statusReading },
+  handler: async (ctx, args): Promise<{ updated: number; resolved: string[] }> => {
+    const { rescoped, ...saved } = await applyCheckedStatus(convexStore(ctx), args, Date.now());
+    // The ticket moved to another project: the linker's status webhook works out what it follows again.
+    if (rescoped !== undefined) await ctx.scheduler.runAfter(0, internal.trackerWebhooks.follow, rescoped);
+    return saved;
+  },
 });
 
 /** A project's ticket settings, for its owners. */

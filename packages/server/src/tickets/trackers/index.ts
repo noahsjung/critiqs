@@ -279,7 +279,8 @@ function checkedPlace(now: TicketPlaceNow, held: HeldTicket, place: TicketPlace,
   if (key === "" || (now.site != null && site === null) || webAddress(now.url) === null) return null;
   const url = place({ key, site, url: now.url }, token);
   if (url === null) return null;
-  return { key, url, title: trackerText(now.title, TRACKER_LIMITS.title), ...(now.site === undefined ? {} : { site }) };
+  const scope = now.webhookScope === undefined ? null : trackerId(now.webhookScope);
+  return { key, url, title: trackerText(now.title, TRACKER_LIMITS.title), ...(now.site === undefined ? {} : { site }), ...(scope === null ? {} : { webhookScope: scope }) };
 }
 
 /**
@@ -464,6 +465,8 @@ export interface TicketPlaceNow {
   title: string;
   /** The site it is in now, where moving it changes that (a GitHub repository); absent where it can't change. */
   site?: string | null;
+  /** What the tracker's status webhooks filter it by now (a Jira project's ID), where people register them. */
+  webhookScope?: string;
 }
 
 /** A ticket's new status from a tracker's webhook, for every thread that links it. */

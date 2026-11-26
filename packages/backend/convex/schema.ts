@@ -647,7 +647,7 @@ export default defineSchema({
     /** Critiqs can't check the status with the linker's account; the status is the last one it knew. */
     statusStale: v.optional(v.boolean()),
     /** A check a status webhook asked for, not yet started, and whether the delivery said the ticket was deleted. */
-    statusCheckQueued: v.optional(v.object({ at: v.number(), deleted: v.boolean() })),
+    statusCheckQueued: v.optional(v.object({ at: v.number() })),
     /** What the tracker's status webhooks filter the ticket by (a Jira project's ID). */
     webhookScope: v.optional(v.string()),
     /** The tracker account the person linked or created it with; status checks use only its token. */

@@ -401,12 +401,9 @@ export async function applyJiraWebhook(store: Store, delivery: Extract<JiraWebho
     if (!(await webhookRoom(store, "jira", site.id, now))) return { checks, limited: true };
     for (const link of linked) {
       const queued = link.statusCheckQueued;
-      if (queued !== undefined && now - queued.at < QUEUED_CHECK_MS) {
-        // The waiting check reads the issue after this change too; it only needs to know of a deletion.
-        if (delivery.deleted && !queued.deleted) await links.patch(link._id, { statusCheckQueued: { at: queued.at, deleted: true } });
-        continue;
-      }
-      await links.patch(link._id, { statusCheckQueued: { at: now, deleted: delivery.deleted } });
+      // The waiting check reads the issue after this change too.
+      if (queued !== undefined && now - queued.at < QUEUED_CHECK_MS) continue;
+      await links.patch(link._id, { statusCheckQueued: { at: now } });
       checks.push(link._id);
     }
   }

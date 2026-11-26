@@ -502,8 +502,15 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
   for a project and issue type in Tags and AI, under Tickets; Create ticket
   offers it there, and drafts fill it as they fill Linear's.
 - **Status.** Jira's status categories map as To Do → open, In Progress →
-  started, and Done → done; Jira has no canceled category, and a deleted issue
-  shows **Deleted**. When someone signed in to Jira links or creates a ticket,
+  started, and Done → done; Jira has no canceled category. Jira never shows
+  **Deleted**: it answers an issue that was deleted and one the person may no
+  longer see with the same 404, and its webhook token doesn't cover the
+  delivery that says "deleted", so such an issue keeps its last status,
+  marked last known. An issue moved to another project keeps its ID: search
+  finds it by its old key, under its new one (as Jira's Get issue resolves
+  moved keys), what is linked is always the issue with its ID, and the check
+  when a thread opens moves the link to its new key, page, and project, after
+  which the linker's webhook follows the new project. When someone signed in to Jira links or creates a ticket,
   their sign-in registers one webhook per site following the projects of the
   tickets they linked there, with the Jira account it is registered as, in
   projects they may still review. Each registration and the daily renewal (a
@@ -524,9 +531,9 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
   most an hour. The token doesn't cover the delivery's body, so a delivery is
   only a notice that an issue changed: Critiqs reads the issue from Jira with
   each linker's own token (once it checks they may still review the project)
-  and saves what Jira says now, never the body's status. A deleted issue
-  shows **Deleted** when the delivery says it was deleted and the linker's
-  read finds no issue. The notice counts only from a current webhook Critiqs
+  and saves what Jira says now, never the body's status. A read that finds
+  no issue leaves the last status, marked last known (see Status). The
+  notice counts only from a current webhook Critiqs
   registered on the one site the issue's address names, by its own host or
   by its cloud ID through Atlassian's gateway: webhook and issue IDs are
   unique only within a site, so the webhook is found by its site and ID

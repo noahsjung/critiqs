@@ -370,13 +370,21 @@ function fieldValue(field: TicketField, value: TicketFieldValue): unknown {
 /** Jira's adapter: issues in a project as one of its issue types, the thread's link as a remote link, and the capture as an attachment. */
 export function jiraAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapter {
   const to = endpointsOf(endpoint);
-  const issue = async (token: TrackerToken, idOrKey: string) => {
-    const site = siteOf(token);
-    const found = parseIssue(site, await call(to, token, `/rest/api/3/issue/${encodeURIComponent(idOrKey)}`, { query: { fields: ISSUE_FIELDS.join(",") } }));
+  /** An issue as Jira answers for an ID or key; a key that moved with its issue to another project answers with its new key. */
+  const read = async (token: TrackerToken, idOrKey: string) => {
+    const found = parseIssue(siteOf(token), await call(to, token, `/rest/api/3/issue/${encodeURIComponent(idOrKey)}`, { query: { fields: ISSUE_FIELDS.join(",") } }));
     if (found === null) throw unexpected("issue unreadable");
-    // Another issue than the one asked for, by its ID or its key, isn't this one: its attachments and comments would go there.
-    const asked = /^\d+$/.test(idOrKey) ? found.externalId === jiraId(site, idOrKey) : found.key.toUpperCase() === idOrKey.toUpperCase();
-    if (!asked) throw unexpected("another issue");
+    return found;
+  };
+  /**
+   * The issue with this ID, which Critiqs links and writes to: another issue
+   * than the one asked for isn't this one, since its attachments and
+   * comments would go there.
+   */
+  const issue = async (token: TrackerToken, id: string) => {
+    if (!/^\d+$/.test(id)) throw unexpected("issue ID");
+    const found = await read(token, id);
+    if (found.externalId !== jiraId(siteOf(token), id)) throw unexpected("another issue");
     return found;
   };
   const search = async (token: TrackerToken, jql: string, maxResults: number, properties: string[] = []) => {
@@ -446,8 +454,10 @@ export function jiraAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapt
     search: async (token, query, destinationId) => {
       const site = siteOf(token);
       const term = query.trim();
+      // By key: Jira finds an issue moved to another project by its old key too, and answers with its key now. It is
+      // offered under that key, and what is linked is the issue with its ID, read again by that ID.
       if (KEY_PATTERN.test(term)) {
-        const found = await issue(token, term.toUpperCase()).catch((error: unknown) => {
+        const found = await read(token, term.toUpperCase()).catch((error: unknown) => {
           if (error instanceof CritiqsError && error.code === "not-found") return null;
           throw error;
         });
@@ -531,7 +541,9 @@ export function jiraAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapt
     },
     status: async (token, ticket) => {
       const found = await issue(token, localId(token, ticket.externalId));
-      return { externalId: found.externalId, status: found.status, asOf: found.asOf };
+      // Where it is now: an issue moved to another project keeps its ID and gets a new key, page, and project.
+      const place = { key: found.key, url: found.url, title: found.title, ...(found.webhookScope === undefined ? {} : { webhookScope: found.webhookScope }) };
+      return { externalId: found.externalId, status: found.status, asOf: found.asOf, place };
     },
     attachImage: async (token, ticket, image) => {
       const form = new FormData();
