@@ -202,7 +202,9 @@ Next.js (App Router and Pages Router) builds are checked by
   flags mention emails left waiting, which means scheduled sending isn't
   running, and a last email that failed. Each backend reports this at
   `/critiqs/health`, which reveals no feedback and no address, only whether a
-  review address exists and whether it is local or private. Each check names its
+  review address exists and whether it is local or private, and nothing about a
+  project limited to its organization, which doctor then says it can't check.
+  Each check names its
   stage and whether it read configuration or something the backend observed;
   doctor sends no email, uploads no screenshot, and posts no comment, and
   reports optional features that are off, such as AI, as information.
@@ -218,16 +220,106 @@ Next.js (App Router and Pages Router) builds are checked by
 Connecting a team-owned Convex deployment requires Critiqs's server functions, not
 just a service URL.
 
-**Agreed:** anyone can register, and any signed-in reviewer using the prototype
-can see and take part in its feedback. Reviewers need no invitation and join no
-member list. The prototype carries the project ID, which is not a secret:
-someone who signs in and obtains the ID can read its feedback without opening
-the prototype. The company guards access to the prototype. Project settings and
-usage are limited to project owners. Projects belong to organizations, and
-billing is limited to an organization's admins
+**Agreed:** anyone can register. By default, any signed-in reviewer using the
+prototype can see and take part in its feedback. Reviewers need no invitation
+and join no member list. The prototype carries the project ID, which is not a
+secret: someone who signs in and obtains the ID can read its feedback without
+opening the prototype. The company guards access to the prototype. Project
+settings and usage are limited to project owners. Projects belong to
+organizations, and billing is limited to an organization's admins
 ([Sign-in and organizations](#sign-in-and-organizations)). Restricting a
 project to a verified company email domain, and enterprise sign-in such as
 Okta, come later.
+
+**Built (2026-11-25):** who can review. Each project has a review access
+setting (`reviewAccess`, labeled **Who can review** in Project setup), which
+only its owners change (`setReviewAccess`):
+
+| Setting | What the project ID grants someone signed in |
+| --- | --- |
+| `anyone` (the default, and every existing project) | Everything a reviewer does: reading and exporting threads, search, downloading captures and page copies, mockups and Critiqs AI, listing participants, commenting, replying, reacting, resolving, tagging. |
+| `organization` | Nothing, unless they are a member of the project's organization. People with a pending invite join when they sign in, so they get access then. |
+
+- **One check.** `requireProject` in `@critiqs/server` checks the setting
+  (`canReview`) for every operation on a project, on both the Convex backend
+  and the self-hosted server. `requireThread` and `requireMessage` resolve a
+  thread or message to its project and pass through it, and Convex's page
+  copies, mockups, and captures (served over HTTP) resolve to their project
+  the same way, so no direct ID reaches a resource around the check. Someone
+  refused gets `forbidden`: "This project is limited to members of its
+  organization." A deleted thread is reported deleted only to those who may
+  review the project.
+- **Emails and mentions.** People who can't review a project aren't suggested
+  for mentions and aren't emailed about it, including emails owed before it
+  was limited.
+- **Reported.** Projects carry `reviewAccess`, and `/critiqs/config` reports
+  `reviewAccess: true`. A component from before the setting never shows the
+  row; one that meets a backend without it sees no `reviewAccess` and shows
+  none either.
+- **Stored.** Convex: an optional field, absent meaning `anyone`. SQLite:
+  `review_access`, added by migration 12 with default `'anyone'`.
+- **Access that ends mid-way.** Work that runs across several transactions
+  checks access again where it would hand data on, not only when it starts:
+  - The email worker checks that the recipient may still review the project
+    while it reads each page of the discussion, before it reads the capture,
+    and right before it gives every kind of email (new, prepared, or legacy)
+    to the mail service (`deliveryAllowed`). A refused delivery is skipped,
+    which discards its prepared email.
+  - Search (`authorizeSearch`) and a mockup turn (`recheckMockupTurn`) check
+    at provider dispatch: a request carries the check as `beforeSend`, and
+    the AI SDK's fetch runs it before each attempt it sends, retries
+    included, so the check also follows any wait for a credit hold. A refusal
+    sends nothing more, releases the hold, and ends the work
+    (`accessCheck`), instead of becoming a notice.
+  - A project's connection test, of its saved settings or a draft, checks the
+    same way before it sends, and again before it returns any result; it
+    records a result only if the person testing still manages the project. A
+    project's model list is returned only to someone who still manages it
+    (`recheckAiManager`).
+  - An upload is checked again where it is saved: in the SQLite transaction
+    that stores the image, and when an R2 or Convex upload is finished. A
+    refused R2 object stays `uploading` until cleanup deletes it; a refused
+    Convex file is deleted at once.
+  - A Convex download (`/capture`, `/mockup/snapshot`) checks access before
+    it fetches the file and again once storage has answered, right before it
+    returns the response, and returns the file only if the thread or copy
+    still uses it. Access that ended, or a thread deleted, while storage
+    answered returns nothing.
+- **Health.** `/critiqs/health` keeps the deployment's own diagnostics
+  public, but for a project limited to its organization it reports the
+  project (`found`, its review address) only to a member who sends their
+  sign-in with the request. Anyone else gets nothing about that project, so
+  `critiqs doctor`, which doesn't sign in, says it can't check such a project
+  rather than failing. An ID that matches no project still reports `missing`,
+  so the absence of `project` does tell someone holding a real ID that it
+  exists; nothing else about it is told.
+
+**Built (2026-11-25):** who may change what. Anyone who may review a project
+resolves and reopens threads (F3), tags and reattaches them, attaches a
+screenshot where capture failed, and reads and changes mockups. Only a
+thread's author or the project's owners delete it; only a message's author
+edits it, and Critiqs AI's messages can't be edited; only a mockup's creator
+or the project's owners delete the mockup; only the project's owners
+organize tag groups and change the project's settings. Reactions, read
+state, and notification choices are each person's own.
+
+- Only a mockup's creator starts its thread, whoever else may review or
+  manage the project; once that thread is deleted, the next is still theirs.
+  Someone else starting it would own the proposal and could keep its creator
+  from deleting the mockup. The older mockup list (`mockups.list`) still
+  shows mockups without a thread.
+- Deleting a mockup deletes its threads, so the thread rule applies to each
+  of them first: a creator who doesn't manage the project can't delete a
+  mockup whose thread someone else started, as threads from before the rule
+  above can be, and nothing is removed. The thread's author or the project's
+  owners delete that thread first.
+- Linking a thread to a mockup checks the thread against the mockup's
+  project before anything else, so a thread in another project, deleted,
+  limited to its organization, or not there at all, gets the same refusal.
+- A thread reports `canDelete` to the person reading it, and the thread
+  window offers **Delete thread** only when it is true. Older backends don't
+  report it, and the window offers it as before. The window closes only once
+  the deletion succeeds, so a refusal shows beside the thread.
 
 **Agreed:** reviewers sign in with their email address and a one-time code
 Critiqs sends them; there is no password. Registration happens on first sign-in.
@@ -777,8 +869,9 @@ increasing within a thread, and replying marks the thread read only if the autho
 had already seen every earlier message.
 
 **Proposed deletion:** hide the thread and record who deleted it and when,
-without immediately erasing its history. How long deleted data is kept and
-whether it can be restored remain open.
+without immediately erasing its history. Built: only the thread's author or the
+project's owners may delete it. How long deleted data is kept and whether it
+can be restored remain open.
 
 For read/unread, store each reviewer's last viewed message and a manual unread
 override. Do not mark unseen replies read. This record does not change anyone
@@ -1362,6 +1455,47 @@ and can fail when elements it owns are removed.
   answer is refused rather than dropping someone's change. When the request
   reaches past the visible part, the component asks again for the rest of the
   page, adding a version each time.
+- **Uploads.** Files uploaded to the deployment's own Convex storage, page
+  copies and (without R2) captures, are reserved first, like R2's
+  `captureFiles`: `generateUploadUrl` records who may upload, to which
+  project, for which purpose (`uploads`: `capture` or `pageCopy`), and returns
+  the deployment's own route (`/capture/upload` or `/mockup/upload`,
+  `?uploadId=`), which the component calls with the reviewer's sign-in. The
+  route checks the reservation and the file's type before reading it, stores
+  it, and records it on the reservation if the uploader may still add to the
+  project. A file is attachable only by its uploader, in that project, for
+  that purpose, and once across captures and page copies. Files stored before
+  reservations have none: their existing captures and copies keep loading,
+  but they can't be attached anew. Deleting a mockup deletes a copy's file
+  only if no thread's capture or other copy uses it, and a refused request
+  deletes only the caller's own unattached page-copy upload.
+
+  Components released before reservations post page copies without the
+  reviewer's sign-in, so each address also carries an upload grant
+  (`&grant=`): a random secret for that reservation alone, stored only as its
+  SHA-256. A request without a sign-in needs the grant; one with a sign-in
+  must be the uploader's and carry the grant too. The grant works once and
+  within 10 minutes, and the file it stores is attachable only by its
+  uploader, so a leaked address lets nobody else attach anything. Returning
+  Convex's own storage upload address to older components instead was
+  rejected: nothing binds the file it stores to the reservation, so any
+  storage ID could later be claimed, and its bytes would escape the limits
+  below. A file stored through an address an older backend gave just before
+  the deploy has no reservation; attaching it is refused with `reupload`,
+  and the component uploads the file again and retries once. Older
+  components show the refusal ("Upload the page copy again."), and trying
+  again works.
+
+  A person has at most 20 unfinished uploads: reserved or uploading in the
+  last 10 minutes, or stored and not yet attached. A project's unfinished
+  uploads hold at most 200 MB, the per-file limit times those 20 places: a
+  reservation counts the most its purpose allows, and a stored file its size.
+  Every 10 minutes, cleanup (`uploads.cleanUp`) removes expired reservations
+  and, in one transaction, deletes files nothing attached within an hour with
+  their reservations; a file that something uses after all is marked
+  attached and kept. A stored file is attachable only within that hour. A
+  file whose route stopped between storing it and recording it on its
+  reservation has nothing pointing to it, and cleanup doesn't find it.
 - **Storage and access.** Page copies are stored as files in the deployment's
   Convex storage and read only through the `/mockup/snapshot` route, which
   checks project access as the capture route does and streams the file as

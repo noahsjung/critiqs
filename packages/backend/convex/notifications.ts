@@ -2,9 +2,11 @@ import {
   advanceReplyEmails,
   applyPreferenceLink,
   beginDelivery,
+  canReview,
   claimDue,
   cleanUpDeliveries,
   completeDeliveries,
+  deliveryAllowed,
   discussionPage,
   freezeDelivery,
   isLocalReviewAddress,
@@ -60,6 +62,12 @@ export const begin = internalQuery({
 export const page = internalQuery({
   args: { id: v.id("deliveries"), claimToken: v.string(), version: v.string(), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, args) => await discussionPage(convexStore(ctx), args),
+});
+
+/** Whether a held delivery may still go out (see `deliveryAllowed`), right before its capture is read and before it is sent. */
+export const allowed = internalQuery({
+  args: { id: v.id("deliveries"), claimToken: v.string() },
+  handler: async (ctx, args) => await deliveryAllowed(convexStore(ctx), args),
 });
 
 export const mentioned = internalQuery({
@@ -126,7 +134,14 @@ export const backfillParticipants = internalMutation({
 /** Mention emails waiting longer than this mean scheduled sending isn't running. */
 const OVERDUE_MS = 10 * 60_000;
 
-/** Whether mention emails are going out, and whether a project exists, for `critiqs doctor`. */
+/**
+ * Whether mention emails are going out, and whether a project exists, for
+ * `critiqs doctor`. A project limited to its organization is described only
+ * to its members, signed in with the request; to anyone else, the report says
+ * nothing about it. An unknown ID is still reported `missing`, which doctor
+ * and the component rely on, so anyone holding a project's ID can tell that
+ * it exists, but nothing more about it.
+ */
 export const health = internalQuery({
   args: { projectId: v.optional(v.string()) },
   handler: async (ctx, { projectId }) => {
@@ -146,7 +161,11 @@ export const health = internalQuery({
       .order("desc")
       .first();
     const id = projectId === undefined ? null : ctx.db.normalizeId("projects", projectId);
-    const project = id === null ? null : await ctx.db.get(id);
+    const store = convexStore(ctx);
+    const found = id === null ? null : await store.projects.get(id);
+    const identity = found === null || (found.reviewAccess ?? "anyone") === "anyone" ? null : await identityOf(ctx);
+    const viewer = identity === null ? null : await store.users.byToken(identity.tokenIdentifier);
+    const project = found === null || (await canReview(store, found, viewer?._id ?? null)) ? found : undefined;
     const waitingSince = Math.min(oldest?.dueAt ?? Infinity, stranded?.leaseUntil ?? Infinity);
     return {
       mentionEmails: {
@@ -154,7 +173,7 @@ export const health = internalQuery({
         waitingSince: Number.isFinite(waitingSince) ? waitingSince : null,
         last: last === null ? null : { status: last.status, at: last.finishedAt ?? null },
       },
-      ...(projectId === undefined
+      ...(projectId === undefined || project === undefined
         ? {}
         : { project: project === null ? "missing" : "found", ...(project === null ? {} : { reviewAddress: project.reviewUrl !== undefined, reviewAddressLocal: isLocalReviewAddress(project.reviewUrl) }) }),
     };

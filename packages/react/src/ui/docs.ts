@@ -45,7 +45,7 @@ export const DOCS: DocTopic[] = [
     summary: "In Browse mode, the side panel shows the project: its name, its comments at a glance, who has access, and its settings.",
     steps: [
       "Comments: how many threads are open and unread. Show comments switches to Comment mode.",
-      "Who has access: anyone who signs in while using this prototype can see and add comments, so control access by controlling who can reach the prototype. You and the people who commented most recently are listed.",
+      "Who has access: anyone who signs in while using this prototype can see and add comments, unless the project's owners limited it to members of its organization in Project setup. You and the people who commented most recently are listed.",
       "Your email notifications: choose which emails you get about this project.",
       "Plan usage: the project's usage against its plan, such as comments this month and Critiqs AI credits today, shown to the project's owners: its organization's admins, and the person who created it.",
       "Project ID: copy it, or open Project setup.",
@@ -173,6 +173,7 @@ export const DOCS: DocTopic[] = [
       "If you are in more than one organization, choose which one the project goes in; it starts as your own.",
       "The project ID names the project; it is not a secret.",
       "Review address: the page mention emails link to. The person who created the project can change it here.",
+      "Who can review: Anyone who signs in, the default, lets anyone with the project ID read and add feedback, so share the prototype's link with clients freely. Organization members limits the project to its organization: invite reviewers to the organization, and they join when they sign in. Only the project's owners change it; everyone else sees it.",
       "Those who manage the project see its plan: Critiqs AI credits, and any other limit near full. All usage lists the rest; Plan and billing, where offered, changes the plan.",
     ],
   },

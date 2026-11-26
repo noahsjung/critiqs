@@ -115,8 +115,17 @@ export function createStructuredModel(connection: Ready, options: { timeoutMs?: 
     async generate<T>(request: StructuredRequest<T>): Promise<Generated<T>> {
       let output: unknown;
       let usage: ModelUsage;
+      // Every attempt the AI SDK sends, retries included, goes through this fetch, so each is checked first.
+      const { beforeSend } = request;
+      const send: typeof globalThis.fetch =
+        beforeSend === undefined
+          ? fetch
+          : (async (input: RequestInfo | URL, init?: RequestInit) => {
+              await beforeSend();
+              return await fetch(input, init);
+            }) as typeof globalThis.fetch;
       try {
-        const model = languageModel(connection, fetch, baseURL);
+        const model = languageModel(connection, send, baseURL);
         const result = await generateText({
           model,
           system: request.system,

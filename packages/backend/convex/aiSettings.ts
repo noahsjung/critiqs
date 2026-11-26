@@ -10,6 +10,7 @@ import {
   preparePersonalTest as preparePersonalTestOp,
   prepareTest as prepareTestOp,
   recordPersonalTest as recordPersonalTestOp,
+  recheckAiManager,
   recordTest as recordTestOp,
   removePersonalAiSettings,
   requirePersonalAiOwner,
@@ -65,7 +66,7 @@ export const settle = internalMutation({
 
 export const recordTest = internalMutation({
   args: { projectId: v.string(), epoch: v.number(), result: v.any() },
-  handler: async (ctx, args) => await recordTestOp(convexStore(ctx), args, Date.now()),
+  handler: async (ctx, args) => run(async () => recordTestOp(convexStore(ctx), await identityOf(ctx), args, Date.now())),
 });
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,12 @@ export const recordPersonalTest = internalMutation({
 export const prepareModelList = internalMutation({
   args: { projectId: v.string() },
   handler: async (ctx, args) => run(async () => prepareModelListOp(convexStore(ctx), await identityOf(ctx), args, Date.now())),
+});
+
+/** Checks the person still manages the project before a request with its settings is sent, and before a test's result or its model list is returned. */
+export const recheckManager = internalQuery({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => run(async () => recheckAiManager(convexStore(ctx), await identityOf(ctx), args)),
 });
 
 /** The person's own settings before listing their provider's models, under the same limit. */

@@ -11,6 +11,7 @@ import {
   getPersonalAiUsage,
   preparePersonalTest,
   prepareTest,
+  recheckAiManager,
   recordPersonalTest,
   recordTest,
   removePersonalAiSettings,
@@ -24,12 +25,12 @@ import { type CreditSteps, HOLD_MS, reserveCredits, settleCredits, worstCaseCred
 import { AiError, type ModelUsage, type StructuredModel, type StructuredRequest } from "../src/ai/model.ts";
 import { testRequest } from "../src/ai/prompts.ts";
 import { createStructuredModel } from "../src/ai/providers.ts";
-import { finalizeSearch, prepareSearch, retrieveSearch, runSearch, SEARCHES_PER_MINUTE } from "../src/ai/search.ts";
+import { authorizeSearch, finalizeSearch, prepareSearch, retrieveSearch, runSearch, SEARCHES_PER_MINUTE } from "../src/ai/search.ts";
 import { keyBinding } from "../src/ai/secrets.ts";
 import { type AiDeployment, chooseConnection, connectionOf, type ManagedAi, prepareSettings, resolveConnection, resolveProjectConnection, sealKey } from "../src/ai/settings.ts";
 import { type Plan, usageKey, utcDay } from "../src/limits.ts";
 import * as ops from "../src/operations.ts";
-import { assignPlan } from "../src/organizations.ts";
+import { assignPlan, ORGANIZATION_ONLY } from "../src/organizations.ts";
 import type { Identity, Store } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 
@@ -54,6 +55,8 @@ export function fakeModel(answer: (request: StructuredRequest<unknown>) => unkno
   const model: StructuredModel = {
     description: "Fake",
     async generate<T>(request: StructuredRequest<T>) {
+      // As the AI SDK path does, right before the request is sent.
+      await request.beforeSend?.();
       prompts.push({ task: request.task, prompt: request.prompt });
       const parsed = request.parse(answer(request as StructuredRequest<unknown>));
       if (parsed === null) throw new AiError("capability", "The model's answer didn't match what Critiqs asked for.");
@@ -106,6 +109,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
   function search(backend: ContractBackend, who: Identity, projectId: string, question: string, model: StructuredModel | null, scope: SearchScope = { status: "all", screen: null }, dep = deployment) {
     return runSearch({
       prepare: () => backend.run((store) => prepareSearch(store, who, { projectId, question, scope }, dep, Date.now())),
+      authorize: () => backend.run((store) => authorizeSearch(store, who, { projectId })),
       retrieve: (query, groups) => backend.run((store) => retrieveSearch(store, who, { projectId, query, groups })),
       finalize: (response) => backend.run((store) => finalizeSearch(store, who, { projectId, response })),
       ...credits(backend),
@@ -584,6 +588,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     };
     const response = await runSearch({
       prepare: () => backend.run((store) => prepareSearch(store, dana, { projectId, question: "department", scope: { status: "all", screen: null } }, withManaged, Date.now())),
+      authorize: () => backend.run((store) => authorizeSearch(store, dana, { projectId })),
       retrieve: (query, groups) => backend.run((store) => retrieveSearch(store, dana, { projectId, query, groups })),
       finalize: (result) => backend.run((store) => finalizeSearch(store, dana, { projectId, response: result })),
       ...credits(backend),
@@ -607,7 +612,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
       retrieveSearch(store, dana, { projectId, query: { terms: ["unclear"], tags: [], groupIds: [], status: "all", screen: null, since: null, until: null }, groups: [] }),
     );
     expect(retrieved.results).toHaveLength(1);
-    await backend.run((store) => ops.removeThread(store, lee, { threadId }));
+    await backend.run((store) => ops.removeThread(store, dana, { threadId }));
     const final = await backend.run((store) =>
       finalizeSearch(store, dana, {
         projectId,
@@ -682,7 +687,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     await saveSettings(backend, projectId);
     const steps = (model: StructuredModel) => ({
       prepare: () => backend.run(async (store) => ({ source: "project" as const, ownerId: projectId, settings: await store.aiSettings.find(projectId), refused: null })),
-      record: (epoch: number, result: AiTestResult) => backend.run((store) => recordTest(store, { projectId, epoch, result }, Date.now())),
+      record: (epoch: number, result: AiTestResult) => backend.run((store) => recordTest(store, dana, { projectId, epoch, result }, Date.now())),
       ...credits(backend),
       model: () => model,
       deployment,
@@ -702,7 +707,8 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
   function testSteps(backend: ContractBackend, who: Identity, projectId: string, dep: AiDeployment, model?: StructuredModel) {
     return {
       prepare: () => backend.run((store) => prepareTest(store, who, { projectId }, dep, Date.now())),
-      record: (epoch: number, result: AiTestResult) => backend.run((store) => recordTest(store, { projectId, epoch, result }, Date.now())),
+      record: (epoch: number, result: AiTestResult) => backend.run((store) => recordTest(store, who, { projectId, epoch, result }, Date.now())),
+      recheck: () => backend.run((store) => recheckAiManager(store, who, { projectId })),
       ...credits(backend),
       model: (connection: Parameters<typeof createStructuredModel>[0]) => model ?? createStructuredModel(connection, { timeoutMs: 5_000 }),
       deployment: dep,
@@ -954,6 +960,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     );
     const response = await runSearch({
       prepare: () => backend.run((store) => prepareSearch(store, who, { projectId, question: "label", scope: { status: "all", screen: null } }, dep, Date.now())),
+      authorize: () => backend.run((store) => authorizeSearch(store, who, { projectId })),
       retrieve: (query, groups) => backend.run((store) => retrieveSearch(store, who, { projectId, query, groups })),
       finalize: (result) => backend.run((store) => finalizeSearch(store, who, { projectId, response: result })),
       ...credits(backend),
@@ -1391,6 +1398,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
           projectId === null
             ? backend.run((store) => preparePersonalModelList(store, who, Date.now()))
             : backend.run((store) => prepareModelList(store, who, { projectId }, Date.now())),
+        ...(projectId === null ? {} : { recheck: () => backend.run((store) => recheckAiManager(store, who, { projectId })) }),
         deployment,
         fetch,
       },
@@ -1482,5 +1490,187 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     expect(JSON.stringify(managed)).not.toContain("strong-model");
     await saveSettings(backend, projectId, { mode: "managed", managedModel: "fast", rule: "project", allowedModels: [] }, dana, twoModels);
     expect((await backend.run((store) => getAiChoice(store, lee, { projectId }, twoModels))).models.map((entry) => entry.id)).toEqual(["fast", "strong"]);
+  });
+
+  test(`${name}: search and model choices of a project limited to its organization are refused to everyone outside it`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend, "Unclear label");
+    const scope: SearchScope = { status: "all", screen: null };
+    const query = { terms: ["unclear"], tags: [], groupIds: [], status: "all" as const, screen: null, since: null, until: null };
+    const retrieved = await backend.run((store) => retrieveSearch(store, lee, { projectId, query, groups: [] }));
+    expect(retrieved.results.map((result) => result.threadId)).toEqual([threadId]);
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    const response = { mode: "ai" as const, notice: null, query, results: retrieved.results, truncated: false, insights: [], insightNotice: null };
+    const refused = "limited to members of its organization";
+    await expect(backend.run((store) => prepareSearch(store, lee, { projectId, question: "label", scope }, deployment, Date.now()))).rejects.toThrow(refused);
+    await expect(backend.run((store) => retrieveSearch(store, lee, { projectId, query, groups: [] }))).rejects.toThrow(refused);
+    // A search begun before the project was limited returns nothing.
+    await expect(backend.run((store) => finalizeSearch(store, lee, { projectId, response }))).rejects.toThrow(refused);
+    await expect(backend.run((store) => getAiChoice(store, lee, { projectId }, deployment))).rejects.toThrow(refused);
+    expect((await backend.run((store) => finalizeSearch(store, dana, { projectId, response }))).results).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Access that ends while Critiqs AI works
+
+  const limit = (backend: ContractBackend, projectId: string) =>
+    backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+
+  /** Takes Dana out of her project's organization, so she no longer manages it. */
+  async function removeDana(backend: ContractBackend, projectId: string) {
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    const danaId = await userIdOf(backend, dana);
+    const membership = (await backend.run((store) => store.memberships.find(organizationId, danaId)))!;
+    await backend.run((store) => store.memberships.delete(membership._id));
+  }
+
+  /** Lee's search of Dana's project with her own key; `after` runs once a step is done, before the model is next asked. */
+  function leeSearches(backend: ContractBackend, projectId: string, model: StructuredModel, after: { prepare?: () => Promise<void>; retrieve?: () => Promise<void> } = {}) {
+    return runSearch({
+      prepare: async () => {
+        const plan = await backend.run((store) => prepareSearch(store, lee, { projectId, question: "label", scope: { status: "all", screen: null } }, deployment, Date.now()));
+        await after.prepare?.();
+        return plan;
+      },
+      authorize: () => backend.run((store) => authorizeSearch(store, lee, { projectId })),
+      retrieve: async (query, groups) => {
+        const retrieved = await backend.run((store) => retrieveSearch(store, lee, { projectId, query, groups }));
+        await after.retrieve?.();
+        return retrieved;
+      },
+      finalize: (response) => backend.run((store) => finalizeSearch(store, lee, { projectId, response })),
+      ...credits(backend),
+      model: () => model,
+      deployment,
+      now: Date.now(),
+    });
+  }
+
+  test(`${name}: a search whose project is limited to its organization after it starts sends the model nothing`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId);
+    const { model, prompts } = fakeModel(() => ({ terms: ["label"], tags: [], groups: [], status: "unspecified", since: "", until: "", screen: "" }));
+    await expect(leeSearches(backend, projectId, model, { prepare: () => limit(backend, projectId) })).rejects.toThrow(ORGANIZATION_ONLY);
+    expect(prompts).toEqual([]);
+  });
+
+  test(`${name}: a search whose project is limited to its organization after the feedback is found sends the model none of it`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId);
+    const { model, prompts } = fakeModel((request) =>
+      request.task === "search" ? { terms: ["label"], tags: [], groups: [], status: "unspecified", since: "", until: "", screen: "" } : { findings: [] },
+    );
+    // The matching feedback is read; then the project is limited, before that feedback goes to the model for insights.
+    await expect(leeSearches(backend, projectId, model, { retrieve: () => limit(backend, projectId) })).rejects.toThrow(ORGANIZATION_ONLY);
+    expect(prompts.map((prompt) => prompt.task)).toEqual(["search"]);
+  });
+
+  test(`${name}: a connection test by someone who stops managing the project while it runs records nothing`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId);
+    const answering = fakeModel(() => ({ status: "ok" }));
+    const model: StructuredModel = {
+      ...answering.model,
+      generate: async (request) => {
+        const answer = await answering.model.generate(request);
+        await removeDana(backend, projectId);
+        return answer;
+      },
+    };
+    await expect(testConnection(testSteps(backend, dana, projectId, deployment, model))).rejects.toThrow("Only the person who set up this project");
+    expect((await backend.run((store) => store.aiSettings.find(projectId)))!.lastTest).toBeUndefined();
+  });
+
+  test(`${name}: a managed search whose project is limited to its organization while its credits are held sends the model nothing`, async () => {
+    const backend = fresh().withPlans({ free: { name: "free", label: "Free", limits: [{ metric: "aiCredits", period: "month", max: 40 } ] } });
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId, { mode: "managed" }, dana, priced);
+    const { model, prompts } = fakeModel(searchAnswer);
+    const steps = credits(backend);
+    let reserved = 0;
+    const search = runSearch({
+      prepare: () => backend.run((store) => prepareSearch(store, lee, { projectId, question: "label", scope: { status: "all", screen: null } }, priced, Date.now())),
+      authorize: () => backend.run((store) => authorizeSearch(store, lee, { projectId })),
+      retrieve: (query, groups) => backend.run((store) => retrieveSearch(store, lee, { projectId, query, groups })),
+      finalize: (response) => backend.run((store) => finalizeSearch(store, lee, { projectId, response })),
+      // The credits are held; then Dana limits the project to her organization, before the request is sent.
+      reserve: async (payer, amount) => {
+        const held = await steps.reserve(payer, amount);
+        reserved++;
+        await limit(backend, projectId);
+        return held;
+      },
+      settle: steps.settle,
+      model: () => model,
+      deployment: priced,
+      now: Date.now(),
+    });
+    await expect(search).rejects.toThrow(ORGANIZATION_ONLY);
+    expect(reserved).toBe(1);
+    expect(prompts).toEqual([]);
+    // Nothing is counted, and the hold is released.
+    expect(await projectCredits(backend, projectId)()).toBe(0);
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    expect(await backend.run((store) => store.creditHolds.held(`aiCredits:${organizationId}`, Date.now()))).toBe(0);
+  });
+
+  test(`${name}: a draft's connection test by someone who stops managing the project while it runs returns them nothing`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId);
+    const answering = fakeModel(() => ({ status: "ok" }));
+    const model: StructuredModel = {
+      ...answering.model,
+      generate: async (request) => {
+        const answer = await answering.model.generate(request);
+        await removeDana(backend, projectId);
+        return answer;
+      },
+    };
+    const draft = { ...ownSettings, projectId, model: "gpt-draft" };
+    await expect(testConnection(testSteps(backend, dana, projectId, deployment, model), draft)).rejects.toThrow("Only the person who set up this project");
+    expect(answering.prompts).toHaveLength(1);
+  });
+
+  test(`${name}: a connection test by someone who stops managing the project before it is sent sends nothing`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId);
+    const { model, prompts } = fakeModel(() => ({ status: "ok" }));
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    const danaId = await userIdOf(backend, dana);
+    const { role, createdAt } = (await backend.run((store) => store.memberships.find(organizationId, danaId)))!;
+    const membership = { organizationId, userId: danaId, role, createdAt };
+    for (const draft of [undefined, { ...ownSettings, projectId, model: "gpt-draft" }]) {
+      const steps = testSteps(backend, dana, projectId, deployment, model);
+      const prepared = steps.prepare;
+      // The test is prepared; then Dana leaves the project's organization, before the request is sent.
+      steps.prepare = async () => {
+        const plan = await prepared();
+        await removeDana(backend, projectId);
+        return plan;
+      };
+      await expect(testConnection(steps, draft)).rejects.toThrow("Only the person who set up this project");
+      // Back in the organization for the next case.
+      await backend.run((store) => store.memberships.insert(membership));
+    }
+    expect(prompts).toEqual([]);
+  });
+
+  test(`${name}: a project's model list isn't returned to someone who stopped managing it while it was fetched`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await saveSettings(backend, projectId);
+    const provider = fakeProvider();
+    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await provider.fetch(input, init);
+      await removeDana(backend, projectId);
+      return response;
+    }) as typeof globalThis.fetch;
+    await expect(listAs(backend, dana, projectId, fetch)).rejects.toThrow("Only the person who set up this project");
+    expect(provider.requests).toHaveLength(1);
   });
 }

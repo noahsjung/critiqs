@@ -141,6 +141,7 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
     createProject: (name, reviewUrl, organizationId) =>
       change("createProject", { name, reviewUrl, ...(organizationId === undefined ? {} : { organizationId }) }),
     setReviewUrl: (args) => change("setReviewUrl", args),
+    setReviewAccess: (args) => change("setReviewAccess", args),
     setOverageCap: (args) => change("setOverageCap", args),
     uploadImage: async (projectId, image) => {
       const response = await fetchFn(`${base}/upload?projectId=${encodeURIComponent(projectId)}`, {

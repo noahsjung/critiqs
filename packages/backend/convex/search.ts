@@ -1,4 +1,4 @@
-import { finalizeSearch, prepareSearch, retrieveSearch } from "@critiqs/server";
+import { authorizeSearch, finalizeSearch, prepareSearch, retrieveSearch } from "@critiqs/server";
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { deployment } from "./lib/ai";
@@ -13,6 +13,12 @@ const scope = v.object({ status: v.union(v.literal("open"), v.literal("resolved"
 export const prepare = internalMutation({
   args: { projectId: v.string(), question: v.string(), scope },
   handler: async (ctx, args) => run(async () => prepareSearch(convexStore(ctx), await identityOf(ctx), args, deployment(), Date.now())),
+});
+
+/** Checks access again right before each request to the model (see `authorizeSearch`). */
+export const authorize = internalQuery({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => run(async () => authorizeSearch(convexStore(ctx), await identityOf(ctx), args)),
 });
 
 export const retrieve = internalQuery({

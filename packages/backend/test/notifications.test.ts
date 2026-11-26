@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { GATHER_MS } from "@critiqs/server";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { anchor, reviewer, setup } from "./harness";
+import { anchor, reviewer, setup, upload } from "./harness";
 
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const realFetch = globalThis.fetch;
@@ -164,7 +164,7 @@ async function captureEmail(prepare: (t: ReturnType<typeof setup>, storageId: Id
   await lee.mutation(api.threads.create, { projectId, anchor, body: "Hi", tags: [], capture: failed });
   const [leeId] = (await dana.query(api.projects.participants, { projectId, query: "lee" })).map((person) => person._id);
   const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 9, 9]);
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob([png], { type: "image/png" })));
+  const storageId = await upload(dana, projectId, png);
   await dana.mutation(api.threads.create, {
     projectId,
     anchor,
@@ -209,7 +209,7 @@ test("a retry after the capture is gone sends the identical request, capture inc
   const projectId = await dana.mutation(api.projects.create, { name: "Pilot review" });
   await lee.mutation(api.threads.create, { projectId, anchor, body: "Hi", tags: [], capture: failed });
   const [leeId] = (await dana.query(api.projects.participants, { projectId, query: "lee" })).map((person) => person._id);
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob([new Uint8Array([137, 80, 78, 71, 1])], { type: "image/png" })));
+  const storageId = await upload(dana, projectId, new Uint8Array([137, 80, 78, 71, 1]));
   await dana.mutation(api.threads.create, {
     projectId,
     anchor,
@@ -288,7 +288,7 @@ async function longMention(options: { projectName: string; count: number; captur
   await lee.mutation(api.threads.create, { projectId, anchor, body: "Hi", tags: [], capture: failed });
   const [leeId] = (await dana.query(api.projects.participants, { projectId, query: "lee" })).map((person) => person._id);
   const storageId =
-    options.capture === undefined ? null : await t.run((ctx) => ctx.storage.store(new Blob([options.capture as Uint8Array<ArrayBuffer>], { type: "image/png" })));
+    options.capture === undefined ? null : await upload(dana, projectId, options.capture as Uint8Array<ArrayBuffer>);
   const body = (i: number) => `#${i}#`.padEnd(10_000, "<");
   const threadId = await dana.mutation(api.threads.create, {
     projectId,

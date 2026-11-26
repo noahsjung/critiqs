@@ -62,8 +62,9 @@ export function checkSnapshotLayout(layout: { width: number; height: number; scr
  */
 export function checkLinkedThreads(projectId: string, threads: readonly (ThreadRecord | null)[], linked: number): void {
   for (const thread of threads) {
-    if (thread === null || thread.status === "deleted") fail("invalid", "A comment to link was deleted.");
-    if (thread.projectId !== projectId) fail("invalid", "Link threads from the mockup's own project.");
+    // Another project's thread is refused before anything about it, such as whether it was deleted, is told.
+    if (thread === null || thread.projectId !== projectId) fail("invalid", "Link threads from the mockup's own project.");
+    if (thread.status === "deleted") fail("invalid", "A comment to link was deleted.");
     if (thread.mockup !== undefined) fail("invalid", "Only feedback threads can be linked to a mockup.");
   }
   if (linked + threads.length > MOCKUP_RULES.links) fail("invalid", `A mockup links up to ${MOCKUP_RULES.links} threads.`);

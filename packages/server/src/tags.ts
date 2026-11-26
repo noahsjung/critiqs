@@ -241,7 +241,7 @@ export async function projectTags(store: Store, project: ProjectRecord, userId: 
 
 async function requireOrganizer(store: Store, identity: Identity | null, projectId: string) {
   const user = await requireUser(store, identity);
-  const project = await requireProject(store, projectId);
+  const project = await requireProject(store, user, projectId);
   if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", "Only the person who set up this project can organize its tags.");
   return { user, project };
 }

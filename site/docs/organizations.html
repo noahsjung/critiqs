@@ -172,7 +172,7 @@
             <p class="doc-lede title-2">Manage Critiqs organizations, invite teammates by email, and see what admins, members, and reviewers can do.</p>
           </header>
 <p>An organization owns Critiqs projects and holds their <a href="/docs/plans-and-limits">Critiqs Cloud plan</a>, shared usage limits, and billing.</p>
-<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Reviewers do not join your organization. Anyone who can reach your staging or preview build and signs in with an email code can view threads, comment, and use Mockup mode without an organization invite. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>By default, reviewers do not join your organization. Anyone who can reach your staging or preview build and signs in with an email code can view threads, comment, and use Mockup mode without an organization invite. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud. To limit a project to your organization instead, set its <strong>Who can review</strong> to <strong>Organization members</strong> (see <a href="/docs/projects#access-and-what-the-project-id-protects">Projects</a>); then only members can review it, so invite reviewers as members.</p>
 </div>
 <h2 id="how-organizations-work">How organizations work<a class="anchor" href="#how-organizations-work"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>When you set up your first Critiqs project, Critiqs creates a home organization for you (named <code>&lt;Your name&gt;&#39;s organization</code>) and makes you its admin.</p>
@@ -196,7 +196,19 @@
 <td>Comment, reply, react, mention, resolve threads, export, use Mockup mode</td>
 <td>Yes</td>
 <td>Yes</td>
-<td>Yes (on builds they can reach)</td>
+<td>Yes, unless the project is limited to <strong>Organization members</strong></td>
+</tr>
+<tr>
+<td>Delete a thread</td>
+<td>Their own, and any in the organization&#39;s projects</td>
+<td>Their own, and any in projects they created</td>
+<td>Their own, unless the project is limited to <strong>Organization members</strong></td>
+</tr>
+<tr>
+<td>Change a project&#39;s <strong>Who can review</strong></td>
+<td>Yes</td>
+<td>Projects they created</td>
+<td>No</td>
 </tr>
 <tr>
 <td>Create projects in the organization</td>

@@ -97,6 +97,22 @@ export async function projectAccess(store: Store, project: ProjectRecord, userId
   return (await projectRole(store, project, userId)).access;
 }
 
+/** Why someone outside a project's organization is refused when the project is limited to its members. */
+export const ORGANIZATION_ONLY = "This project is limited to members of its organization. Ask one of its admins to invite you.";
+
+/**
+ * Whether a person may review a project: read its feedback, add to it, and
+ * download its captures and page copies. Anyone signed in may, unless its
+ * owners limited it to members of its organization (`reviewAccess`). Every
+ * project-scoped operation checks this through `requireProject`.
+ */
+export async function canReview(store: Store, project: ProjectRecord, userId: string | null): Promise<boolean> {
+  if ((project.reviewAccess ?? "anyone") === "anyone") return true;
+  if (userId === null) return false;
+  const { organization } = await projectOrganization(store, project);
+  return (await roleIn(store, project, organization, userId)) !== null;
+}
+
 /** The plan covering something, and where its organization-wide usage counts. */
 export interface Coverage {
   plan: OrganizationPlan | null;

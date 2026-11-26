@@ -29,7 +29,7 @@ import { Critiqs } from "critiqs-react";
 
 When the variable is unset, Critiqs renders nothing on the page and makes zero network requests.
 
-To run a client or stakeholder review, share your staging or preview URL. Reviewers need no browser extension, repository access, or organization invite: they open the link and sign in with an email code. Because anyone who can open a build with a project ID can see that project's feedback, guard access to your staging or preview environment itself.
+To run a client or stakeholder review, share your staging or preview URL. Reviewers need no browser extension, repository access, or organization invite: they open the link and sign in with an email code. Because anyone who signs in with a project's ID can read its feedback, guard access to your staging or preview environment itself, or keep the feedback inside your team: set the project's **Who can review** to **Organization members** in Project setup and invite each reviewer to your organization. See [Projects](/docs/projects#access-and-what-the-project-id-protects).
 
 ## 3. Name builds clearly and pass view context
 

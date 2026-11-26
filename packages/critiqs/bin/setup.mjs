@@ -718,6 +718,11 @@ function isPrivateIpv6(host) {
  * with what to do. `stage` says which part of setup it is about, and `basis`
  * whether it reports configuration or something the backend observed.
  */
+/** A project limited to its organization's members: the backend tells doctor, which doesn't sign in, nothing about it. */
+function restrictedProject(project) {
+  return `doctor can't check ${project}: the backend describes projects limited to their organization only to signed-in members. Check it in the Critiqs sidebar's Project setup.`;
+}
+
 export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetchFn = fetch, now = Date.now(), env: shell = process.env, envFile = null }) {
   const checks = [];
   const add = (status, name, detail, stage, basis = "configuration") => checks.push({ status, name, detail, stage, basis });
@@ -801,6 +806,8 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
     add("warn", "Project", `${at} reads its project ID from ${setting.variable}, which ${setting.fromShell ? "this shell's environment doesn't set" : "no .env file here sets"}, so ${hidden} on this computer. Run npx critiqs init to create or connect a project and set it.`, "project");
   } else if (setting !== null && !isValidProjectId(projectId)) {
     add("fail", "Project", `${setting.variable} in ${setting.where} is ${JSON.stringify(projectId.slice(0, 80))}, not a Critiqs project ID, so ${hidden} wherever it's used. Set it to the ID from project setup in the Critiqs sidebar, or run npx critiqs init.`, "project");
+  } else if (setting !== null && health.project === undefined) {
+    add("warn", "Project", restrictedProject(`${projectId} (${setting.variable} in ${setting.where})`), "project", "observed");
   } else if (setting !== null && health.project === "found") {
     add("pass", "Project", `${projectId} (${setting.variable} in ${setting.where}) exists on this backend.`, "project", "observed");
   } else if (setting !== null) {
@@ -808,6 +815,7 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
   } else if (props.projectId.kind !== "literal") add("warn", "Project", `${at} sets its project ID from code, so doctor can't check it.`, "project");
   else if (!isValidProjectId(projectId)) add("fail", "Project", `"${projectId}" is not a Critiqs project ID.`, "project");
   else if (health.project === "found") add("pass", "Project", `${projectId} exists on this backend.`, "project", "observed");
+  else if (health.project === undefined) add("warn", "Project", restrictedProject(projectId), "project", "observed");
   else add("fail", "Project", `${projectId} doesn't exist on this backend. Check the ID, or the backend it points to.`, "project", "observed");
 
   if (setting !== null) {

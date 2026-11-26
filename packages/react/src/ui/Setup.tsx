@@ -1,10 +1,10 @@
-import { isPrivateReviewAddress, type OrganizationSummary, type ProjectInfo, validReviewUrl } from "@critiqs/core";
+import { isPrivateReviewAddress, type OrganizationSummary, type ProjectInfo, type ReviewAccess, validReviewUrl } from "@critiqs/core";
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import type { Reviewer } from "../session.ts";
 import { errorMessage, useTransport } from "../transport.ts";
 import { copyText } from "./common.tsx";
 import { OpenBillingContext } from "./BillingDialog.tsx";
-import { Meter, NEAR_LIMIT, Select } from "./ds.tsx";
+import { Meter, NEAR_LIMIT, Select, type SelectOption, SettingRow } from "./ds.tsx";
 import { amount, ceilingOf, type UsageRow, usageName, usageText } from "./usage.ts";
 
 /**
@@ -200,6 +200,14 @@ function ProjectReady({
     notify(`${what} copied`);
   };
 
+  if (project.status === "error" && project.code === "forbidden") {
+    return (
+      <div className="setup">
+        <h3>No access to this project</h3>
+        <p>{project.message}</p>
+      </div>
+    );
+  }
   if (project.status === "error") {
     return (
       <div className="setup">
@@ -257,8 +265,13 @@ function ProjectReady({
         </>
       )}
       {project.status === "ready" && <ReviewAddress project={project.data} notify={notify} />}
+      {project.status === "ready" && <WhoCanReview project={project.data} notify={notify} />}
       {project.status === "ready" && <PlanUsage project={project.data} className="setup-section" />}
-      <p className="note">Anyone who can open the prototype and sign in sees its feedback.</p>
+      <p className="note">
+        {project.status === "ready" && project.data.reviewAccess === "organization"
+          ? "Only members of the project's organization see its feedback."
+          : "Anyone who can open the prototype and sign in sees its feedback."}
+      </p>
       <div>
         <button type="button" className="btn primary" onClick={onDone}>
           {configured ? backLabel : "Start commenting"}
@@ -437,6 +450,56 @@ function ReviewAddress({ project, notify }: { project: ProjectInfo; notify: (mes
         </form>
       )}
       {error !== null && <div className="error">{error}</div>}
+    </section>
+  );
+}
+
+const REVIEW_ACCESS_LABELS: Record<ReviewAccess, string> = {
+  anyone: "Anyone who signs in",
+  organization: "Organization members",
+};
+
+/**
+ * Who can review the project. Its owners choose, and the choice saves at
+ * once; everyone else sees it. Backends before the setting report none, so
+ * the row isn't shown.
+ */
+function WhoCanReview({ project, notify }: { project: ProjectInfo; notify: (message: string) => void }) {
+  const transport = useTransport();
+  const [saving, setSaving] = useState<ReviewAccess | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (project.reviewAccess === undefined) return null;
+  const value = saving ?? project.reviewAccess;
+  const options: SelectOption[] = [
+    { value: "anyone", label: REVIEW_ACCESS_LABELS.anyone, detail: "Anyone with the project ID" },
+    { value: "organization", label: REVIEW_ACCESS_LABELS.organization, detail: project.organization?.name ?? "Invite reviewers to it" },
+  ];
+  const choose = async (next: ReviewAccess) => {
+    setSaving(next);
+    setError(null);
+    try {
+      await transport.setReviewAccess({ projectId: project._id, reviewAccess: next });
+      notify(next === "organization" ? "Only organization members can review now" : "Anyone who signs in can review now");
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setSaving(null);
+    }
+  };
+  return (
+    <section className="setup-section" aria-label="Who can review">
+      {error !== null && <div className="error">{error}</div>}
+      <div className="ds-group">
+        <SettingRow label="Who can review">
+          {(labelId) =>
+            project.isOwner ? (
+              <Select value={value} options={options} labelledBy={labelId} disabled={saving !== null} onChange={(next) => void choose(next as ReviewAccess)} />
+            ) : (
+              <span aria-labelledby={labelId}>{REVIEW_ACCESS_LABELS[value]}</span>
+            )
+          }
+        </SettingRow>
+      </div>
     </section>
   );
 }

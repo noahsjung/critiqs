@@ -124,6 +124,8 @@ export default defineSchema({
     organizationId: v.optional(v.id("organizations")),
     /** Present when the project was created in onboarding with at least one answer. */
     onboarding: v.optional(projectOnboardingValidator),
+    /** Who can review it: anyone who signs in, or only members of its organization. Absent means anyone. */
+    reviewAccess: v.optional(v.union(v.literal("anyone"), v.literal("organization"))),
   })
     .index("by_creator", ["createdBy"])
     .index("by_organization", ["organizationId"]),
@@ -174,6 +176,33 @@ export default defineSchema({
     createdAt: v.number(),
     cleanupAt: v.optional(v.number()),
   }).index("by_cleanup", ["cleanupAt"]).index("by_uploader_status", ["uploadedBy", "status"]),
+
+  /**
+   * An upload to Convex's own storage, reserved by someone who may add to the
+   * project, for one purpose: a capture or screenshot, or a mockup's page
+   * copy. Its file is attachable only by them, there, for that, and once.
+   */
+  uploads: defineTable({
+    projectId: v.id("projects"),
+    uploadedBy: v.id("users"),
+    purpose: v.union(v.literal("capture"), v.literal("pageCopy")),
+    status: v.union(v.literal("reserved"), v.literal("uploading"), v.literal("ready"), v.literal("attached")),
+    /**
+     * SHA-256 of the upload grant, the one-use secret in the upload address,
+     * which lets a request without the reviewer's sign-in (released
+     * components post page copies without it) use this reservation.
+     */
+    grantHash: v.optional(v.string()),
+    /** The stored file, once the upload route has stored it. */
+    storageId: v.optional(v.id("_storage")),
+    /** Its bytes, once stored. */
+    size: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_storage", ["storageId"])
+    .index("by_uploader_status", ["uploadedBy", "status", "createdAt"])
+    .index("by_project_status", ["projectId", "status", "createdAt"])
+    .index("by_status", ["status", "createdAt"]),
 
   threads: defineTable({
     projectId: v.id("projects"),

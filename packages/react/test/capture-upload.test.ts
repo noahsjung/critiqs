@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { uploadCapture } from "../src/capture-upload.ts";
+import { uploadCapture, uploadFile } from "../src/capture-upload.ts";
 
 const site = "https://example.convex.site";
 const image = new Blob(["png"], { type: "image/png" });
@@ -39,4 +39,19 @@ test("expired sign-in, server refusal and malformed upload results produce usefu
   await expect(uploadCapture(url, site, image, async () => null)).rejects.toThrow("Sign in again");
   await expect(uploadCapture(url, site, image, async () => "token", (async () => new Response("provider details", { status: 503 })) as unknown as typeof fetch)).rejects.toThrow("could not be uploaded");
   await expect(uploadCapture(url, site, image, async () => "token", (async () => Response.json({ storageId: null })) as unknown as typeof fetch)).rejects.toThrow("could not be uploaded");
+});
+
+test("page copies go to the deployment's own route with the token, and to an older backend's storage address without it", async () => {
+  const requests: Request[] = [];
+  const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(new Request(url, init));
+    return Response.json({ storageId: "copy" });
+  }) as typeof fetch;
+  const html = new Blob(["<html></html>"], { type: "text/html" });
+  expect(await uploadFile(`${site}/mockup/upload?uploadId=u`, site, html, async () => "secret", fetchFn, "page copy")).toBe("copy");
+  expect(requests[0]!.headers.get("Authorization")).toBe("Bearer secret");
+  expect(requests[0]!.headers.get("Content-Type")).toBe("text/html");
+  await uploadFile("https://example.convex.cloud/api/storage/upload?token=t", site, html, async () => "secret", fetchFn, "page copy");
+  expect(requests[1]!.headers.has("Authorization")).toBe(false);
+  await expect(uploadFile("https://evil.test/mockup/upload", site, html, async () => "secret", fetchFn, "page copy")).rejects.toThrow("The page copy upload address is not trusted.");
 });

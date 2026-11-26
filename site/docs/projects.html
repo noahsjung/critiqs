@@ -237,8 +237,34 @@ npx critiqs-react init --<span class="hljs-built_in">dir</span> apps/admin</code
 <div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>If the review address points to <code>localhost</code> or a private network address (such as a <code>.ts.net</code> address), Critiqs displays a warning because reviewers outside that machine or network cannot open email links.</p>
 </div>
 <h2 id="access-and-what-the-project-id-protects">Access and what the project ID protects<a class="anchor" href="#access-and-what-the-project-id-protects"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>A project ID is public configuration, not a secret. Anyone who signs in with a verified email while using a build that carries the project ID can read threads, post comments, and participate in that project. There is no invitation list or member roster.</p>
-<p>Control who can review by controlling who can reach your staging, preview, or QA build (for example, through your hosting provider&#39;s preview authentication, VPN, or app login). Project settings, <strong>Review address</strong>, <strong>Tags and AI</strong>, and the <strong>&lt;plan name&gt; plan</strong> usage block are restricted to organization admins and the person who created the project while they remain a member of the organization.</p>
+<p>A project ID is public configuration, not a secret: it ships in your app&#39;s JavaScript, so anyone who can load a build can find it. What it grants depends on the project&#39;s <strong>Who can review</strong> setting:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Who can review</th>
+<th>What someone who signs in with the project ID can do</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Anyone who signs in</strong> (default)</td>
+<td>Everything a reviewer does: read and export threads, search, download captures and page copies, use Mockup mode, see who has commented, comment, reply, react, and resolve threads. They don&#39;t need to open your build to do this.</td>
+</tr>
+<tr>
+<td><strong>Organization members</strong></td>
+<td>Nothing, unless they are a member of the project&#39;s organization. Everyone else is refused with &quot;This project is limited to members of its organization.&quot;</td>
+</tr>
+</tbody></table>
+</div>
+<p>With <strong>Anyone who signs in</strong>, there is no invitation list or member roster, so sharing a staging link with a client just works. Control who can review by controlling who can reach your staging, preview, or QA build (for example, through your hosting provider&#39;s preview authentication, VPN, or app login), and remember that the project ID alone is enough to read the feedback.</p>
+<p>With <strong>Organization members</strong>, only people in the project&#39;s organization can review. To add a reviewer, <a href="/docs/organizations">invite them to the organization</a> as a member; they join the next time they sign in with that email address. People outside the organization are no longer suggested for mentions and get no more emails about the project.</p>
+<h3 id="change-who-can-review">Change who can review<a class="anchor" href="#change-who-can-review"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<ol>
+<li>Open the <strong>Project</strong> panel in <strong>Browse mode</strong> and click <strong>Project setup</strong>.</li>
+<li>Under <strong>Who can review</strong>, choose <strong>Anyone who signs in</strong> or <strong>Organization members</strong>. The change applies at once.</li>
+</ol>
+<p>Only the project&#39;s owners (organization admins, and the person who created the project while they remain a member) can change it; everyone else sees the current setting. Project settings, <strong>Review address</strong>, <strong>Tags and AI</strong>, and the <strong>&lt;plan name&gt; plan</strong> usage block are restricted to the same people.</p>
+<h3 id="who-can-delete-a-thread">Who can delete a thread<a class="anchor" href="#who-can-delete-a-thread"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Anyone who can review a project can resolve and reopen its threads. Only a thread&#39;s author or the project&#39;s owners can delete it.</p>
         </article>
         <nav class="pager" aria-label="Previous and next">
           <a class="pager-link prev" href="/docs/install"><span class="caption-4">Previous</span><span class="title-3">Install Critiqs</span></a>
@@ -255,6 +281,8 @@ npx critiqs-react init --<span class="hljs-built_in">dir</span> apps/admin</code
             <li class="toc-h2"><a href="#one-project-per-app-in-a-monorepo">One project per app in a monorepo</a></li>
             <li class="toc-h2"><a href="#set-the-review-address">Set the review address</a></li>
             <li class="toc-h2"><a href="#access-and-what-the-project-id-protects">Access and what the project ID protects</a></li>
+            <li class="toc-h3"><a href="#change-who-can-review">Change who can review</a></li>
+            <li class="toc-h3"><a href="#who-can-delete-a-thread">Who can delete a thread</a></li>
           </ul>
         </nav>
         <a class="md-link caption-4" href="/docs/projects.md">View as Markdown</a>

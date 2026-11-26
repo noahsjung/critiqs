@@ -249,6 +249,11 @@ export async function fetchModelList(
 /** What listing models needs from its backend: whose settings, checked and counted against the per-minute limit. */
 export interface ModelListSteps {
   prepare(): Promise<{ source: ConnectionSource; ownerId: string; settings: StoredConnection | null }>;
+  /**
+   * Checks again, once the provider has answered, that the person may still
+   * see the list: for a project's, that they still manage it. Throws if not.
+   */
+  recheck?(): Promise<void>;
   deployment: AiDeployment;
   timeoutMs?: number;
   /** For tests: the underlying fetch. */
@@ -261,6 +266,12 @@ export interface ModelListSteps {
  * never stored. Failures come back as a result, like a connection test.
  */
 export async function listModels(steps: ModelListSteps, draft?: AiModelListDraft): Promise<AiModelListResult> {
+  const result = await listedModels(steps, draft);
+  await steps.recheck?.();
+  return result;
+}
+
+async function listedModels(steps: ModelListSteps, draft?: AiModelListDraft): Promise<AiModelListResult> {
   const { source, ownerId, settings } = await steps.prepare();
   const prepared = await modelListTarget(source, ownerId, settings, draft, steps.deployment);
   if (!prepared.ok) return { ok: false, code: "config", message: prepared.reason };

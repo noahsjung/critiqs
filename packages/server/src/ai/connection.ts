@@ -7,7 +7,7 @@ import type { AiSettingsRecord, Identity, PersonalAiSettingsRecord, Store, Store
 import { askPaid, type CreditSteps, includesPersonalAi, NO_PERSONAL_AI } from "./credits.ts";
 import { requeueUngrouped } from "./grouping.ts";
 import { MODEL_LISTS_PER_MINUTE } from "./model-lists.ts";
-import { toAiError, type StructuredModel } from "./model.ts";
+import { accessCheck, toAiError, type StructuredModel } from "./model.ts";
 import { testRequest } from "./prompts.ts";
 import {
   type AiDeployment,
@@ -39,7 +39,7 @@ export const TESTS_PER_MINUTE = 10;
 /** The project, its settings, and the signed-in person who manages it; anyone else is refused. One transaction. */
 export async function requireAiManager(store: Store, identity: Identity | null, projectId: string) {
   const user = await requireUser(store, identity);
-  const project = await requireProject(store, projectId);
+  const project = await requireProject(store, user, projectId);
   if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", "Only the person who set up this project can change its AI settings.");
   return { user, project, settings: await store.aiSettings.find(project._id) };
 }
@@ -47,7 +47,7 @@ export async function requireAiManager(store: Store, identity: Identity | null, 
 /** The settings as those who manage the project see them. Reads only, so it runs in queries. */
 export async function getAiSettings(store: Store, identity: Identity | null, args: { projectId: string }, deployment: AiDeployment): Promise<AiSettingsView> {
   const { user } = await currentReviewer(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const project = await requireProject(store, user, args.projectId);
   if ((await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("forbidden", "Only the person who set up this project can change its AI settings.");
   return settingsView(await store.aiSettings.find(project._id), deployment);
 }
@@ -126,9 +126,13 @@ async function limitTests(store: Store, userId: string, now: number) {
   }
 }
 
-/** Records a test of the saved settings, unless they changed meanwhile. One transaction. */
-export async function recordTest(store: Store, args: { projectId: string; epoch: number; result: AiTestResult }, now: number): Promise<void> {
-  const settings = await store.aiSettings.find(args.projectId);
+/**
+ * Records a test of the saved settings, unless they changed meanwhile, if the
+ * person testing still manages the project: they may have lost that while
+ * the test ran. One transaction.
+ */
+export async function recordTest(store: Store, identity: Identity | null, args: { projectId: string; epoch: number; result: AiTestResult }, now: number): Promise<void> {
+  const { settings } = await requireAiManager(store, identity, args.projectId);
   if (settings === null || settings.epoch !== args.epoch) return;
   await store.aiSettings.patch(settings._id, { lastTest: { ok: args.result.ok, at: now, message: args.result.message } });
 }
@@ -231,6 +235,15 @@ export async function prepareModelList(store: Store, identity: Identity | null, 
   return { source: "project" as const, ownerId: project._id, settings };
 }
 
+/**
+ * Checks the person still manages the project, before a request with its
+ * settings is sent and before what came back, a connection test's result or
+ * its provider's model list, is returned to them. One transaction.
+ */
+export async function recheckAiManager(store: Store, identity: Identity | null, args: { projectId: string }): Promise<void> {
+  await requireAiManager(store, identity, args.projectId);
+}
+
 /** Before listing the person's own provider's models: their settings, under the same per-minute limit. One transaction. */
 export async function preparePersonalModelList(store: Store, identity: Identity | null, now: number) {
   const user = await requireUser(store, identity);
@@ -245,7 +258,7 @@ export async function preparePersonalModelList(store: Store, identity: Identity 
  */
 export async function getAiChoice(store: Store, identity: Identity | null, args: { projectId: string }, deployment: AiDeployment): Promise<AiChoiceView> {
   const { user } = await currentReviewer(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const project = await requireProject(store, user, args.projectId);
   const choice = chooseConnection(
     {
       projectId: project._id,
@@ -268,6 +281,12 @@ export interface TestSteps extends CreditSteps {
   /** Whose settings are tested: the project's, checking its owner, or the signed-in person's own. */
   prepare(): Promise<{ source: ConnectionSource; ownerId: string; settings: StoredConnection | null }>;
   record(epoch: number, result: AiTestResult): Promise<void>;
+  /**
+   * For a project's test, checks the person still manages it (see
+   * `recheckAiManager`): before each attempt to send the test request, and
+   * before any result, of saved settings or a draft, is returned. Throws if not.
+   */
+  recheck?(): Promise<void>;
   model(connection: Extract<ResolvedConnection, { ready: true }>): StructuredModel;
   deployment: AiDeployment;
 }
@@ -278,6 +297,12 @@ export interface TestSteps extends CreditSteps {
  * or a draft before it is saved (whose typed key is used only for the test).
  */
 export async function testConnection(steps: TestSteps, draft?: SettingsInput): Promise<AiTestResult> {
+  const result = await tested(steps, draft);
+  await steps.recheck?.();
+  return result;
+}
+
+async function tested(steps: TestSteps, draft?: SettingsInput): Promise<AiTestResult> {
   const { source, ownerId, settings } = await steps.prepare();
   let connection: ResolvedConnection;
   let tested: ChosenConnection | null;
@@ -294,10 +319,12 @@ export async function testConnection(steps: TestSteps, draft?: SettingsInput): P
   }
   if (!connection.ready) return { ok: false, code: "config", message: connection.reason };
   let result: AiTestResult;
+  const access = steps.recheck === undefined ? null : accessCheck(steps.recheck);
+  const request = access === null ? testRequest() : { ...testRequest(), beforeSend: access.beforeSend };
   try {
     const model = steps.model(connection);
-    if (tested === null) await model.generate(testRequest());
-    else await askPaid(steps, tested, model, testRequest());
+    if (tested === null) await model.generate(request);
+    else await askPaid(steps, tested, model, request);
     result = {
       ok: true,
       message:
@@ -306,6 +333,7 @@ export async function testConnection(steps: TestSteps, draft?: SettingsInput): P
           : `Connected to ${AI_PROVIDERS.find((entry) => entry.id === connection.provider)!.label} with ${connection.model}; structured answers work.`,
     };
   } catch (error) {
+    access?.rethrow();
     if (error instanceof CritiqsError) throw error;
     const failure = toAiError(error);
     result = { ok: false, code: failure.code, message: failure.message };

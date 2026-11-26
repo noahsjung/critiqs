@@ -11,7 +11,7 @@ committed dates. See the [product brief](brief.md),
 | --- | --- |
 | F1 | Install a React package in a controlled host app by adding one component, with no other configuration. Before the project is set up, the sidebar shows project setup instead of comments. A toolbar at the bottom center switches between Browse mode, which allows normal interaction, and Comment mode, which lets reviewers select an element. |
 | F2 | Identify reviewers through sign-in with an email address and a one-time code; no password and no outside sign-in provider. Anyone can register on first sign-in. Show authors' chosen display names and timestamps. Authors can edit their own comments and replies. |
-| F3 | Share threads, replies, and simple reactions. Anyone with project access can resolve, reopen, or delete a thread. |
+| F3 | Share threads, replies, and simple reactions. Anyone with project access can resolve or reopen a thread; its author or the project's owners can delete it. |
 | F4 | Use Open, Resolved, and Deleted only. Resolved also serves as archive. Show open threads by default; a filter reveals resolved threads. |
 | F5 | Keep read/unread personal. Opening a thread's content marks it read; new replies make it unread until viewed. Allow Mark unread. Seeing a pin or list entry alone does not mark it read. |
 | F6 | Save the original image, context, and prototype version when supplied. If capture fails, explain the failure, save the comment anyway, and allow an attached screenshot. |
@@ -20,7 +20,7 @@ committed dates. See the [product brief](brief.md),
 | F9 | Provide a sidebar that always lists threads, with context groups, date sorting, and filters for unread, open/resolved, tags, and current screen/all screens. Keep threads from earlier versions. |
 | F10 | Give every thread and reply a shareable link. After sign-in and access checks, open the requested message and restore its context where possible. Saved context is the fallback. |
 | F11 | Support project tags, initially Bug, UX copy change, Design change request, and User feedback, and free hashtags written in comments, such as `#wording`. Typing `#` suggests the project's tags; draft and posted tags look distinct from each other and from mentions, and selecting a posted tag filters by it. Shared tag groups, such as Copy & wording, gather related tags for filtering. Collect selected threads and export readable Markdown and structured JSON. Preserve each discussion. |
-| F12 | Store shared feedback in Critiqs Cloud by default, or in the team's own Convex deployment, with captures in private R2 or Convex file storage. Any signed-in reviewer using the prototype has project access and sees all of its feedback; the company guards access to the prototype itself. |
+| F12 | Store shared feedback in Critiqs Cloud by default, or in the team's own Convex deployment, with captures in private R2 or Convex file storage. By default, any signed-in reviewer using the prototype has project access and sees all of its feedback, and the company guards access to the prototype itself; a project's owners can limit it to its organization's members. |
 | F13 | Let reviewers mention people who have commented in the project, in a new comment, a reply, or an edit, and email the people mentioned with a link to the message. The email shows the thread's saved capture or attached screenshot and the whole discussion, so recipients understand it before opening it. Suggestions show names, not email addresses. Reviewers can mute or unsubscribe. |
 | F14 | Offer Critiqs Cloud plans to organizations: Free, Plus, and Pro, with limits such as AI credits, projects, reviewers, or comments that can change without code changes, and payment by card through checkout. See [Plans and payment](#plans-and-payment). |
 | F15 | Set up Critiqs Cloud or a team-owned Convex deployment with `critiqs init`, entering only the keys a service needs. An MCP server and agent instructions let coding agents do the same. |
@@ -114,6 +114,12 @@ In the first release, any signed-in reviewer using the prototype can see and tak
 part in all of its feedback. The company controls who can reach the prototype,
 so reviewers need no invitation and join no member list. People sign up
 themselves. Sign-in still identifies each author.
+
+**Built (2026-11-25):** a project's owners can limit it to members of its
+organization (**Who can review** in Project setup). Then the project ID grants
+nothing to anyone else; invited people join when they sign in. The default
+stays **Anyone who signs in**, so sharing a prototype's link with a client
+keeps working ([technical direction](technical-direction.md#hosting-and-access)).
 
 **Agreed (2026-11-23), not built:** projects belong to organizations. An
 organization holds the people who build prototypes and pay for Critiqs Cloud,

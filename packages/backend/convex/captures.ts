@@ -6,6 +6,7 @@ import { internalAction, internalMutation, internalQuery, mutation, type Mutatio
 import { captureProvider, r2Config, r2Storage } from "./lib/r2";
 import { convexStore, identityOf, run } from "./lib/store";
 import { captureFileValidator } from "./lib/validators";
+import { checkUpload, markUploadAttached, reserveUpload } from "./uploads";
 
 const UPLOAD_MS = UPLOAD_MINUTES * 60_000;
 const RETRY_MS = 10 * 60_000;
@@ -15,16 +16,16 @@ function invalid(message: string): never {
   throw new ConvexError({ code: "invalid", message });
 }
 
-/** A fresh one-use reservation, or the existing native Convex upload URL. */
+/** A fresh one-use reservation: in R2, or in Convex's own storage (see `uploads.ts`). */
 export const generateUploadUrl = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args): Promise<string> => run(async () => {
     const store = convexStore(ctx);
     const identity = await identityOf(ctx);
     await operations.authorizeUpload(store, identity, args);
-    if (captureProvider() === "convex") return await ctx.storage.generateUploadUrl();
-    const config = r2Config();
     const user = await operations.requireUser(store, identity);
+    if (captureProvider() === "convex") return await reserveUpload(ctx, { projectId: args.projectId, userId: user._id as Id<"users">, purpose: "capture" });
+    const config = r2Config();
     let pending = 0;
     for (const status of ["reserved", "uploading", "ready"] as const) {
       pending += (await ctx.db.query("captureFiles")
@@ -66,15 +67,23 @@ export const beginUpload = internalMutation({
   }),
 });
 
-/** Metadata becomes attachable only after the server's R2 PUT has succeeded. */
+/**
+ * Metadata becomes attachable only after the server's R2 PUT has succeeded,
+ * and only if the uploader may still add to the project: access can end while
+ * the image is stored. A refused upload stays `uploading` until its cleanup
+ * time, when the object is deleted.
+ */
 export const finishUpload = internalMutation({
   args: { fileId: v.id("captureFiles"), size: v.number() },
   handler: async (ctx, args): Promise<void> => run(async () => {
-    const user = await operations.requireUser(convexStore(ctx), await identityOf(ctx));
+    const store = convexStore(ctx);
+    const identity = await identityOf(ctx);
+    const user = await operations.requireUser(store, identity);
     const file = await ctx.db.get(args.fileId);
     if (file === null || file.uploadedBy !== user._id || file.status !== "uploading" || file.createdAt + UPLOAD_MS <= Date.now()) {
       invalid("This screenshot upload expired. Upload it again.");
     }
+    await operations.authorizeUpload(store, identity, { projectId: file.projectId });
     if (!Number.isSafeInteger(args.size) || args.size <= 0 || args.size > MAX_IMAGE_BYTES) invalid("Images are limited to 10 MB.");
     await ctx.db.patch(file._id, { status: "ready", size: args.size });
   }),
@@ -83,8 +92,12 @@ export const finishUpload = internalMutation({
 /** Checks bindings in the same transaction as attachment, quota charging, and status change. */
 export async function checkAttachment(ctx: MutationCtx, fileId: string, projectId: string, identity: Identity | null) {
   const id = ctx.db.normalizeId("captureFiles", fileId);
-  if (id === null) return;
   const user = await operations.requireUser(convexStore(ctx), identity);
+  if (id === null) {
+    const storageId = ctx.db.system.normalizeId("_storage", fileId);
+    if (storageId === null) invalid("The uploaded image was not found.");
+    return await checkUpload(ctx, storageId, { projectId, userId: user._id, purpose: "capture" });
+  }
   const file = await ctx.db.get(id);
   if (file?.status === "attached") invalid("This image already belongs to a thread.");
   if (file === null || file.status !== "ready" || file.projectId !== projectId || file.uploadedBy !== user._id) {
@@ -95,6 +108,8 @@ export async function checkAttachment(ctx: MutationCtx, fileId: string, projectI
 export async function markAttached(ctx: MutationCtx, fileId: string) {
   const id = ctx.db.normalizeId("captureFiles", fileId);
   if (id !== null) await ctx.db.patch(id, { status: "attached", cleanupAt: undefined });
+  const storageId = ctx.db.system.normalizeId("_storage", fileId);
+  if (storageId !== null) await markUploadAttached(ctx, storageId);
 }
 
 /** Both legacy Convex IDs and R2 metadata IDs remain valid. */

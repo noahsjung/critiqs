@@ -71,6 +71,24 @@ You can also set or update it in the app: open the **Project** panel in **Browse
 
 ## Access and what the project ID protects
 
-A project ID is public configuration, not a secret. Anyone who signs in with a verified email while using a build that carries the project ID can read threads, post comments, and participate in that project. There is no invitation list or member roster.
+A project ID is public configuration, not a secret: it ships in your app's JavaScript, so anyone who can load a build can find it. What it grants depends on the project's **Who can review** setting:
 
-Control who can review by controlling who can reach your staging, preview, or QA build (for example, through your hosting provider's preview authentication, VPN, or app login). Project settings, **Review address**, **Tags and AI**, and the **\<plan name\> plan** usage block are restricted to organization admins and the person who created the project while they remain a member of the organization.
+| Who can review | What someone who signs in with the project ID can do |
+| --- | --- |
+| **Anyone who signs in** (default) | Everything a reviewer does: read and export threads, search, download captures and page copies, use Mockup mode, see who has commented, comment, reply, react, and resolve threads. They don't need to open your build to do this. |
+| **Organization members** | Nothing, unless they are a member of the project's organization. Everyone else is refused with "This project is limited to members of its organization." |
+
+With **Anyone who signs in**, there is no invitation list or member roster, so sharing a staging link with a client just works. Control who can review by controlling who can reach your staging, preview, or QA build (for example, through your hosting provider's preview authentication, VPN, or app login), and remember that the project ID alone is enough to read the feedback.
+
+With **Organization members**, only people in the project's organization can review. To add a reviewer, [invite them to the organization](/docs/organizations) as a member; they join the next time they sign in with that email address. People outside the organization are no longer suggested for mentions and get no more emails about the project.
+
+### Change who can review
+
+1. Open the **Project** panel in **Browse mode** and click **Project setup**.
+2. Under **Who can review**, choose **Anyone who signs in** or **Organization members**. The change applies at once.
+
+Only the project's owners (organization admins, and the person who created the project while they remain a member) can change it; everyone else sees the current setting. Project settings, **Review address**, **Tags and AI**, and the **\<plan name\> plan** usage block are restricted to the same people.
+
+### Who can delete a thread
+
+Anyone who can review a project can resolve and reopen its threads. Only a thread's author or the project's owners can delete it.

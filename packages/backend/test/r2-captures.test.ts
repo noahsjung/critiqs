@@ -22,6 +22,8 @@ async function fixture() {
   const objects = new Map<string, ArrayBuffer>();
   const methods: string[] = [];
   const failures = { put: false, get: false, remove: false };
+  /** Runs while R2 stores an object, as someone else acts meanwhile. */
+  const during: { put: (() => Promise<unknown>) | null } = { put: null };
   // Private in-process S3 fixture; the actual aws4fetch signer generates every request.
   globalThis.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
     const request = new Request(input, options);
@@ -38,6 +40,7 @@ async function fixture() {
       if (request.headers.get("Content-Length") !== String(bytes.byteLength)) return new Response(null, { status: 411 });
       if (objects.has(key)) throw new Error("Evidence overwritten");
       objects.set(key, bytes);
+      await during.put?.();
       return new Response(null, { status: 200 });
     }
     if (request.method === "DELETE") {
@@ -56,7 +59,7 @@ async function fixture() {
   const upload = (url: URL, body: BodyInit = "original screenshot", type = "image/png") => dana.fetch(url.pathname + url.search, { method: "POST", headers: { "Content-Type": type }, body });
   const create = (storageId: Id<"captureFiles">) => dana.mutation(api.threads.create, { projectId, anchor, body: "Look", tags: [], capture: { status: "captured", storageId } });
   const ready = async () => (await (await upload(await reserve())).json()).storageId as Id<"captureFiles">;
-  return { t, dana, lee, projectId, objects, methods, failures, reserve, upload, create, ready };
+  return { t, dana, lee, projectId, objects, methods, failures, during, reserve, upload, create, ready };
 }
 
 test("R2 roundtrip stores exact bytes outside Convex and checks every read", async () => {
@@ -74,6 +77,22 @@ test("R2 roundtrip stores exact bytes outside Convex and checks every read", asy
   await f.dana.mutation(api.threads.remove, { threadId });
   expect((await f.lee.fetch(`/capture?threadId=${threadId}`)).status).toBe(404);
   expect(f.objects.size).toBe(1);
+});
+
+test("a screenshot stored after its project was limited to the organization is never attachable, and is cleaned up", async () => {
+  const f = await fixture();
+  const url = new URL(await f.lee.mutation(api.captures.generateUploadUrl, { projectId: f.projectId }));
+  // Dana limits the project to her organization, which Lee isn't in, while R2 stores Lee's image.
+  f.during.put = () => f.dana.mutation(api.projects.setReviewAccess, { projectId: f.projectId, reviewAccess: "organization" });
+  const response = await f.lee.fetch(url.pathname + url.search, { method: "POST", headers: { "Content-Type": "image/png" }, body: "late screenshot" });
+  expect(response.status).toBe(403);
+  const fileId = url.searchParams.get("fileId") as Id<"captureFiles">;
+  expect(await f.t.run(ctx => ctx.db.get(fileId))).toMatchObject({ status: "uploading" });
+  expect(f.objects.size).toBe(1);
+  // Once its upload time is over, cleanup deletes the object.
+  await f.t.run(ctx => ctx.db.patch(fileId, { cleanupAt: Date.now() - 1 }));
+  await f.t.action(internal.captures.cleanUp, {});
+  expect(f.objects.size).toBe(0);
 });
 
 test("streamed screenshots reach R2 with an explicit byte length", async () => {
@@ -217,8 +236,11 @@ test("reviewer-supplied R2 screenshots attach after capture failure and legacy i
   const storageId = await f.ready();
   await f.dana.mutation(api.threads.attachScreenshot, { threadId, storageId });
   expect(await (await f.lee.fetch(`/capture?threadId=${threadId}`)).text()).toBe("original screenshot");
+  // A capture stored in Convex before uploads were reserved still loads, but such a file can't be attached anew.
   const legacy = await f.t.run(ctx => ctx.storage.store(new Blob(["legacy bytes"], { type: "image/png" })));
-  const oldThread = await f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "old", tags: [], capture: { status: "captured", storageId: legacy } });
+  await expect(f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "new", tags: [], capture: { status: "captured", storageId: legacy } })).rejects.toThrow("Upload the screenshot again.");
+  const oldThread = await f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "old", tags: [], capture: { status: "failed", failureReason: "x" } });
+  await f.t.run(ctx => ctx.db.patch(oldThread, { capture: { status: "captured", storageId: legacy } }));
   expect(await (await f.lee.fetch(`/capture?threadId=${oldThread}`)).text()).toBe("legacy bytes");
 });
 

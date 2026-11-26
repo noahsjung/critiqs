@@ -9,7 +9,8 @@ These definitions describe the intended product, not completed features.
 | Term | Meaning |
 | --- | --- |
 | Prototype / host app | The interactive application being reviewed. Critiqs is installed inside it; it remains a separate library. |
-| Critiqs project | The shared feedback space for one prototype. Any signed-in reviewer using the prototype can access it. It belongs to an organization. |
+| Critiqs project | The shared feedback space for one prototype. Any signed-in reviewer using the prototype can access it, unless its owners limit it to its organization. It belongs to an organization. |
+| Who can review (review access) | A project's setting for who may read and add to its feedback: **Anyone who signs in** (the default; the project ID is enough) or **Organization members** (only members of the project's organization). Only the project's owners change it. |
 | Project owner | Someone who can change a project's settings: an admin of its organization, or the person who created it while they are still a member. Before organizations, only the person who created it. |
 | Project setup | What the sidebar shows before a prototype's project exists: sign-in and creating the project. |
 | Critiqs Cloud | Critiqs's paid hosted service, with a free plan: backend, sign-in, and email run by Critiqs. The default. |

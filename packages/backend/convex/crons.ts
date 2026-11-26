@@ -9,6 +9,7 @@ crons.interval("send mention emails", { minutes: 1 }, internal.notificationEmail
 crons.interval("send plan alert emails", { minutes: 1 }, internal.notificationEmails.deliverPlanAlerts, {});
 crons.interval("remove old mention emails", { hours: 24 }, internal.notifications.cleanUp, {});
 crons.interval("remove unused R2 screenshots", { minutes: 10 }, internal.captures.cleanUp, {});
+crons.interval("remove expired uploads and unused files in Convex storage", { minutes: 10 }, internal.uploads.cleanUp, {});
 crons.interval("group new tags", { minutes: 1 }, internal.ai.groupTags, {});
 crons.interval("remove expired AI request counters", { hours: 1 }, internal.grouping.cleanUpRateLimits, {});
 crons.interval("report Critiqs AI usage to billing", { minutes: 1 }, internal.billing.reportUsage, {});

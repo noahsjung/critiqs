@@ -75,7 +75,11 @@ export const setStatus = mutation({
   handler: async (ctx, args) => run(async () => operations.setStatus(convexStore(ctx), await identityOf(ctx), args)),
 });
 
-/** Soft delete: hides the thread and records who deleted it, keeping its history. A mockup thread's mockup leaves the Mockup list. */
+/**
+ * Soft delete: hides the thread and records who deleted it, keeping its
+ * history. Only its author or the project's owners may. A mockup thread's
+ * mockup leaves the Mockup list.
+ */
 export const remove = mutation({
   args: { threadId: v.id("threads") },
   handler: async (ctx, args) =>
@@ -117,8 +121,8 @@ export const attachScreenshot = mutation({
   handler: async (ctx, { threadId, storageId }) =>
     run(async () => {
       const identity = await identityOf(ctx);
-      await operations.requireUser(convexStore(ctx), identity);
-      const { thread } = await operations.requireThread(convexStore(ctx), threadId);
+      const user = await operations.requireUser(convexStore(ctx), identity);
+      const { thread } = await operations.requireThread(convexStore(ctx), user, threadId);
       await checkAttachment(ctx, storageId, thread.projectId, identity);
       await operations.attachScreenshot(convexStore(ctx), identity, { threadId, fileId: storageId });
       await markAttached(ctx, storageId);

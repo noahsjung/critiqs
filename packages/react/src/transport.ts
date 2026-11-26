@@ -1,4 +1,5 @@
 import type {
+  ReviewAccess,
   AiChoiceView,
   BillingChange,
   BillingPlan,
@@ -118,6 +119,8 @@ export interface CritiqsTransport {
    */
   createProject(name: string, reviewUrl: string | null, organizationId?: string): Promise<string>;
   setReviewUrl(args: { projectId: string; reviewUrl: string }): Promise<void>;
+  /** Sets who can review the project, for its owners; on backends whose projects report `reviewAccess`. */
+  setReviewAccess(args: { projectId: string; reviewAccess: ReviewAccess }): Promise<void>;
   /** Sets how many Critiqs AI credits past the plan's an organization may use each month, null for no cap, or `default` for the plan's; for its admins, on backends whose configuration reports `overageCap`. */
   setOverageCap(args: { organizationId: string; cap: number | null | "default" }): Promise<void>;
   /** Uploads an image for a new thread or a supplied screenshot; returns its file ID. */

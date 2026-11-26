@@ -3,7 +3,7 @@ import { CritiqsError, fail } from "../errors.ts";
 import { currentReviewer, requireProject, requireUser } from "../operations.ts";
 import type { Identity, MessageRecord, Store, ThreadRecord } from "../store.ts";
 import { MAX_GROUPS, threadTags } from "../tags.ts";
-import { toAiError, type StructuredModel, type StructuredRequest } from "./model.ts";
+import { accessCheck, toAiError, type StructuredModel, type StructuredRequest } from "./model.ts";
 import { fitCandidates, type InsightCandidate, insightsRequest, interpretRequest } from "./prompts.ts";
 import { askPaid, type CreditSteps } from "./credits.ts";
 import { type AiDeployment, type ChosenConnection, chooseConnection, type ResolvedConnection, resolveConnection } from "./settings.ts";
@@ -85,7 +85,7 @@ export async function prepareSearch(
   now: number,
 ): Promise<SearchPlan> {
   const user = await requireUser(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const project = await requireProject(store, user, args.projectId);
   const question = args.question.trim();
   if (question === "") fail("invalid", "Type what to look for.");
   if (question.length > MAX_QUESTION) fail("invalid", `Searches are limited to ${MAX_QUESTION} characters.`);
@@ -147,8 +147,8 @@ export async function retrieveSearch(
   identity: Identity | null,
   args: { projectId: string; query: SearchQuery; groups: Pick<SearchGroup, "id" | "tagKeys" | "partial">[] },
 ): Promise<Retrieved> {
-  await currentReviewer(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const { user } = await currentReviewer(store, identity);
+  const project = await requireProject(store, user, args.projectId);
   const { query } = args;
   let truncated = false;
   const matched = new Map<string, MessageRecord[]>();
@@ -236,8 +236,8 @@ export async function retrieveSearch(
  * Insights keep only citations of results still shown. One transaction.
  */
 export async function finalizeSearch(store: Store, identity: Identity | null, args: { projectId: string; response: SearchResponse }): Promise<SearchResponse> {
-  await currentReviewer(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const { user } = await currentReviewer(store, identity);
+  const project = await requireProject(store, user, args.projectId);
   const results: SearchResult[] = [];
   for (const result of args.response.results) {
     const id = store.normalizeId("threads", result.threadId);
@@ -252,9 +252,22 @@ export async function finalizeSearch(store: Store, identity: Identity | null, ar
   return { ...args.response, results, insights };
 }
 
+/**
+ * Checks the reviewer may still search the project, right before each
+ * attempt to send a request to the model, retries included: access can end
+ * while a search runs, even while its credits are held, and the request
+ * carries the project's tags, groups, and feedback. One transaction.
+ */
+export async function authorizeSearch(store: Store, identity: Identity | null, args: { projectId: string }): Promise<void> {
+  const { user } = await currentReviewer(store, identity);
+  await requireProject(store, user, args.projectId);
+}
+
 /** What a search needs from its backend: each step its own transaction, and a model for a connection. */
 export interface SearchSteps extends CreditSteps {
   prepare(): Promise<SearchPlan>;
+  /** See `authorizeSearch`; throws when the reviewer may no longer search the project. Runs before each attempt to send a request to the model. */
+  authorize(): Promise<void>;
   retrieve(query: SearchQuery, groups: SearchGroup[]): Promise<Retrieved>;
   finalize(response: SearchResponse): Promise<SearchResponse>;
   model(connection: Extract<ResolvedConnection, { ready: true }>): StructuredModel;
@@ -263,12 +276,15 @@ export interface SearchSteps extends CreditSteps {
 }
 
 function refusalOrAiError(error: unknown): string {
+  // Refusals other than an exhausted allowance, such as lost access, end the search.
+  if (error instanceof CritiqsError && error.code !== "limit") throw error;
   return error instanceof CritiqsError && error.code === "limit" ? error.message : toAiError(error).message;
 }
 
 /** Runs a search: interpret with AI when available, retrieve, summarize with citations, and check access again. */
 export async function runSearch(steps: SearchSteps): Promise<SearchResponse> {
   const plan = await steps.prepare();
+  const access = accessCheck(steps.authorize);
   const basic = basicQuery(plan.question, plan.scope);
   let notice = plan.aiUnavailable;
   let ask: (<T>(request: StructuredRequest<T>) => Promise<T>) | null = null;
@@ -277,7 +293,7 @@ export async function runSearch(steps: SearchSteps): Promise<SearchResponse> {
     const connection = await resolveConnection(chosen, steps.deployment);
     if (connection.ready) {
       const model = steps.model(connection);
-      ask = async (request) => (await askPaid(steps, chosen, model, request)).output;
+      ask = async (request) => (await askPaid(steps, chosen, model, { ...request, beforeSend: access.beforeSend })).output;
     } else notice = connection.reason;
   }
   let query = basic;
@@ -309,6 +325,8 @@ export async function runSearch(steps: SearchSteps): Promise<SearchResponse> {
       };
       mode = "ai";
     } catch (error) {
+      // Lost access ends the search, whatever the model code made of it.
+      access.rethrow();
       notice = refusalOrAiError(error);
       ask = null;
     }
@@ -322,6 +340,7 @@ export async function runSearch(steps: SearchSteps): Promise<SearchResponse> {
       insights = answer.findings;
       if (insights.length === 0) insightNotice = "The model found no finding it could support with these threads.";
     } catch (error) {
+      access.rethrow();
       insightNotice = `No insights: ${refusalOrAiError(error)}`;
     }
   }

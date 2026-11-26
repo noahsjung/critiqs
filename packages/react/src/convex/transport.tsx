@@ -1,13 +1,14 @@
 import { api } from "@critiqs/backend/api";
 import type { Page, ReactionRow, ThreadDetail, ThreadDetailPage } from "@critiqs/core";
 import { ConvexProviderWithAuth, type ConvexReactClient, useConvexAuth, usePaginatedQuery } from "convex/react";
-import type { GenericId as Id } from "convex/values";
+import { ConvexError, type GenericId as Id } from "convex/values";
 import { type ReactNode, useCallback, useSyncExternalStore } from "react";
 import { creditsArg, type Deployment } from "../deployment.ts";
-import { uploadCapture } from "../capture-upload.ts";
+import { uploadCapture, uploadFile } from "../capture-upload.ts";
 import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
 import type { Session } from "../session.ts";
+import type { NewCapture } from "@critiqs/core";
 import type { CritiqsTransport, MockupTransport, NewSnapshot, QueryState } from "../transport.ts";
 import { useAllPages, useQueryState } from "./queries.ts";
 
@@ -39,6 +40,32 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
   const mutation = client.mutation.bind(client);
   /** Runs a change whose result the interface doesn't use. */
   const change = (result: Promise<unknown>) => result.then(() => undefined);
+  /** Images just uploaded, by file ID, so a thread refused for its file can upload it again (`retryUpload`). */
+  const images = recentUploads<{ projectId: string; image: Blob }>();
+  const uploadImage = async (projectId: string, image: Blob) => {
+    const uploadUrl = await mutation(api.captures.generateUploadUrl, { projectId: projectId as Id<"projects"> });
+    const storageId = await uploadCapture(uploadUrl, deployment.siteUrl, image, () => session.fetchAccessToken({ forceRefreshToken: false }));
+    images.set(storageId, { projectId, image });
+    return storageId;
+  };
+  const startThread = (args: Parameters<CritiqsTransport["createThread"]>[0], capture: NewCapture) =>
+    mutation(api.threads.create, {
+      projectId: args.projectId as Id<"projects">,
+      anchor: args.anchor,
+      body: args.body,
+      tags: args.tags,
+      mentions: args.mentions.map(({ userId, label }) => ({ userId: userId as Id<"users">, label })),
+      capture: capture.status === "captured" ? { status: "captured", storageId: capture.fileId as Id<"_storage"> | Id<"captureFiles"> } : capture,
+      ...(args.mockup === undefined
+        ? {}
+        : {
+            mockup: {
+              mockupId: args.mockup.mockupId as Id<"mockups">,
+              snapshotId: args.mockup.snapshotId as Id<"mockupSnapshots"> | null,
+              node: args.mockup.node,
+            },
+          }),
+    });
 
   return {
     wrap: (children: ReactNode) => (
@@ -82,33 +109,25 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       mutation(api.projects.create, { name, reviewUrl, ...(organizationId === undefined ? {} : { organizationId }) }),
     setReviewUrl: ({ projectId, reviewUrl }) =>
       change(mutation(api.projects.setReviewUrl, { projectId: projectId as Id<"projects">, reviewUrl })),
+    setReviewAccess: ({ projectId, reviewAccess }) =>
+      change(mutation(api.projects.setReviewAccess, { projectId: projectId as Id<"projects">, reviewAccess })),
     setOverageCap: ({ organizationId, cap }) =>
       change(mutation(api.organizations.setOverageCap, { organizationId: organizationId as Id<"organizations">, cap })),
-    uploadImage: async (projectId, image) => {
-      const uploadUrl = await mutation(api.captures.generateUploadUrl, { projectId: projectId as Id<"projects"> });
-      return await uploadCapture(uploadUrl, deployment.siteUrl, image, () => session.fetchAccessToken({ forceRefreshToken: false }));
+    uploadImage,
+    createThread: async (args) => {
+      const { capture } = args;
+      if (capture.status === "failed") return await startThread(args, capture);
+      try {
+        return await retryUpload(
+          capture.fileId,
+          images,
+          (fileId) => startThread(args, { status: "captured", fileId }),
+          (file) => uploadImage(file.projectId, file.image),
+        );
+      } finally {
+        images.delete(capture.fileId);
+      }
     },
-    createThread: ({ projectId, anchor, body, tags, capture, mentions, mockup }) =>
-      mutation(api.threads.create, {
-        projectId: projectId as Id<"projects">,
-        anchor,
-        body,
-        tags,
-        mentions: mentions.map(({ userId, label }) => ({ userId: userId as Id<"users">, label })),
-        capture:
-          capture.status === "captured"
-            ? { status: "captured", storageId: capture.fileId as Id<"_storage"> | Id<"captureFiles"> }
-            : capture,
-        ...(mockup === undefined
-          ? {}
-          : {
-              mockup: {
-                mockupId: mockup.mockupId as Id<"mockups">,
-                snapshotId: mockup.snapshotId as Id<"mockupSnapshots"> | null,
-                node: mockup.node,
-              },
-            }),
-      }),
     reply: ({ threadId, body, revision, mentions }) =>
       mutation(api.threads.reply, {
         threadId: threadId as Id<"threads">,
@@ -130,8 +149,15 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
     remove: (threadId) => change(mutation(api.threads.remove, { threadId: threadId as Id<"threads"> })),
     setTags: ({ threadId, tags }) => change(mutation(api.threads.setTags, { threadId: threadId as Id<"threads">, tags })),
     reattach: ({ threadId, location }) => change(mutation(api.threads.reattach, { threadId: threadId as Id<"threads">, location })),
-    attachScreenshot: ({ threadId, fileId }) =>
-      change(mutation(api.threads.attachScreenshot, { threadId: threadId as Id<"threads">, storageId: fileId as Id<"_storage"> | Id<"captureFiles"> })),
+    attachScreenshot: async ({ threadId, fileId }) => {
+      const attach = (storageId: string) =>
+        change(mutation(api.threads.attachScreenshot, { threadId: threadId as Id<"threads">, storageId: storageId as Id<"_storage"> | Id<"captureFiles"> }));
+      try {
+        return await retryUpload(fileId, images, attach, (file) => uploadImage(file.projectId, file.image));
+      } finally {
+        images.delete(fileId);
+      }
+    },
     markRead: ({ threadId, seenThrough }) => change(mutation(api.threads.markRead, { threadId: threadId as Id<"threads">, seenThrough })),
     markUnread: (threadId) => change(mutation(api.threads.markUnread, { threadId: threadId as Id<"threads"> })),
 
@@ -218,6 +244,14 @@ function convexMockups(client: ConvexReactClient, deployment: Deployment, sessio
     if (html !== undefined) copies.set(snapshotId, Promise.resolve(html));
   };
   const snapshotArgs = (snapshot: NewSnapshot) => ({ ...snapshot, storageId: snapshot.storageId as Id<"_storage"> });
+  const uploadSnapshot = async (projectId: string, html: string) => {
+    const uploadUrl = await mutation(api.mockups.generateUploadUrl, { projectId: projectId as Id<"projects"> });
+    // Current backends route the upload through the deployment, which takes the reviewer's token; older ones gave a storage address.
+    const file = new Blob([html], { type: "text/html" });
+    const storageId = await uploadFile(uploadUrl, deployment.siteUrl, file, () => session.fetchAccessToken({ forceRefreshToken: false }), fetch, "page copy");
+    uploaded.set(storageId, html);
+    return storageId;
+  };
   const getMockup = (mockupId: string) => client.query(api.mockups.get, { mockupId: mockupId as Id<"mockups"> });
 
   return {
@@ -226,29 +260,40 @@ function convexMockups(client: ConvexReactClient, deployment: Deployment, sessio
     useMockup: (mockupId) => useQueryState(api.mockups.get, mockupId === null ? "skip" : { mockupId: mockupId as Id<"mockups"> }),
     useMockupsForThread: (threadId) => useQueryState(api.mockups.forThread, { threadId: threadId as Id<"threads"> }),
     getMockup,
-    uploadSnapshot: async (projectId, html) => {
-      const uploadUrl = await mutation(api.mockups.generateUploadUrl, { projectId: projectId as Id<"projects"> });
-      const response = await fetch(uploadUrl, { method: "POST", headers: { "Content-Type": "text/html" }, body: html });
-      const result = response.ok ? ((await response.json()) as { storageId?: unknown }) : {};
-      if (typeof result.storageId !== "string") throw new Error("The page copy could not be uploaded.");
-      uploaded.set(result.storageId, html);
-      return result.storageId;
-    },
+    uploadSnapshot,
     create: async ({ projectId, title, source, snapshot, linkedThreadIds = [] }) => {
-      const mockupId = await client.action(api.mockups.create, {
-        projectId: projectId as Id<"projects">,
-        title,
-        source,
-        snapshot: snapshotArgs(snapshot),
-        ...(linkedThreadIds.length === 0 ? {} : { linkedThreadIds: linkedThreadIds as Id<"threads">[] }),
-      });
+      let storageId = snapshot.storageId;
+      const mockupId = await retryUpload(
+        snapshot.storageId,
+        uploaded,
+        (fileId) => {
+          storageId = fileId;
+          return client.action(api.mockups.create, {
+            projectId: projectId as Id<"projects">,
+            title,
+            source,
+            snapshot: snapshotArgs({ ...snapshot, storageId: fileId }),
+            ...(linkedThreadIds.length === 0 ? {} : { linkedThreadIds: linkedThreadIds as Id<"threads">[] }),
+          });
+        },
+        (html) => uploadSnapshot(projectId, html),
+      );
       const snapshotId = (await getMockup(mockupId)).snapshots[0]!._id;
-      remember(snapshotId, snapshot.storageId);
+      remember(snapshotId, storageId);
       return { mockupId, snapshotId };
     },
     addSnapshot: async ({ mockupId, snapshot }) => {
-      const snapshotId = await client.action(api.mockups.addSnapshot, { mockupId: mockupId as Id<"mockups">, snapshot: snapshotArgs(snapshot) });
-      remember(snapshotId, snapshot.storageId);
+      let storageId = snapshot.storageId;
+      const snapshotId = await retryUpload(
+        snapshot.storageId,
+        uploaded,
+        (fileId) => {
+          storageId = fileId;
+          return client.action(api.mockups.addSnapshot, { mockupId: mockupId as Id<"mockups">, snapshot: snapshotArgs({ ...snapshot, storageId: fileId }) });
+        },
+        async (html) => uploadSnapshot((await getMockup(mockupId)).projectId, html),
+      );
+      remember(snapshotId, storageId);
       return snapshotId;
     },
     loadSnapshot: (snapshotId) => {
@@ -283,6 +328,47 @@ function convexMockups(client: ConvexReactClient, deployment: Deployment, sessio
         ...(model === undefined ? {} : { model }),
       }),
   };
+}
+
+/** Whether a change was refused for a file that can only be uploaded again (`reupload` in the backend's `uploads.ts`). */
+function needsReupload(error: unknown): boolean {
+  return error instanceof ConvexError && (error.data as { reupload?: unknown } | null)?.reupload === true;
+}
+
+/**
+ * Runs a change that attaches an uploaded file. If the backend refuses the
+ * file itself, such as one stored through an address an older backend gave
+ * just before a newer one was deployed, uploads it again and retries once.
+ */
+async function retryUpload<F, T>(
+  fileId: string,
+  files: Map<string, F>,
+  attach: (fileId: string) => Promise<T>,
+  upload: (file: F) => Promise<string>,
+): Promise<T> {
+  try {
+    return await attach(fileId);
+  } catch (error) {
+    const file = files.get(fileId);
+    if (!needsReupload(error) || file === undefined) throw error;
+    files.delete(fileId);
+    return await attach(await upload(file));
+  }
+}
+
+/** The last few uploads by file ID; older ones are forgotten, so files never attached don't pile up. */
+function recentUploads<F>(keep = 4): Map<string, F> {
+  const files = new Map<string, F>();
+  const set = files.set.bind(files);
+  files.set = (key, value) => {
+    set(key, value);
+    for (const oldest of files.keys()) {
+      if (files.size <= keep) break;
+      files.delete(oldest);
+    }
+    return files;
+  };
+  return files;
 }
 
 function flatten<T>(state: QueryState<{ page: T[] }[]>): QueryState<T[]> {

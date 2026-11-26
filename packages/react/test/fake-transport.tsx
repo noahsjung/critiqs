@@ -41,6 +41,10 @@ export interface FakeBackend {
   /** Whether the backend checked the token and refused it; otherwise an unaccepted sign-in is temporary. */
   rejected?: boolean;
   project: ProjectInfo | undefined;
+  /** The backend's refusal of the project, such as to someone outside an organization it's limited to. */
+  projectError?: { code: string; message: string };
+  /** Saves who can review the project; resolves by default. */
+  setReviewAccess?: (args: { projectId: string; reviewAccess: "anyone" | "organization" }) => Promise<void>;
   threads: ThreadSummary[] | undefined;
   thread?: ThreadDetail;
   /** Discussions by thread ID, where tests open more than one; others get `thread`. */
@@ -49,6 +53,8 @@ export interface FakeBackend {
   mockups?: FakeMockups;
   exportPage?: () => Promise<ExportPage>;
   reply?: (args: { threadId: string; body: string; mentions: { userId: string; label: string }[] }) => Promise<string>;
+  /** Deleting a thread; without it, deleting succeeds. */
+  removeThread?: (threadId: string) => Promise<void>;
   participants?: ParticipantInfo[];
   /** Plan usage shown to the project's owner; none by default, as on a backend without plans. */
   usage?: ProjectUsage | null;
@@ -99,7 +105,8 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
       isAuthenticated: backend.authenticated ?? true,
       rejected: backend.rejected ?? false,
     }),
-    useProject: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.project)),
+    useProject: (projectId) =>
+      projectId === null ? { status: "loading" } : backend.projectError !== undefined ? { status: "error", ...backend.projectError } : ready(backend.project),
     useMyProjects: () => ready(backend.project === undefined ? undefined : [backend.project]),
     useMyOrganizations: (enabled) => (enabled ? ready(backend.organizations ?? []) : { status: "loading" }),
     useOrganization: (organizationId) =>
@@ -123,6 +130,10 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     useUsage: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.usage ?? null)),
     setNotificationSettings: async (args) => void backend.calls?.push({ name: "setNotificationSettings", args }),
     setReviewUrl: async (args) => void backend.calls?.push({ name: "setReviewUrl", args }),
+    setReviewAccess: async (args) => {
+      backend.calls?.push({ name: "setReviewAccess", args });
+      if (backend.setReviewAccess !== undefined) await backend.setReviewAccess(args);
+    },
     setOverageCap: async (args) => void backend.calls?.push({ name: "setOverageCap", args }),
     syncReviewer: async () => "Dana",
     createProject: async (name, reviewUrl, organizationId) => {
@@ -138,7 +149,7 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     editMessage: none,
     toggleReaction: none,
     setStatus: none,
-    remove: none,
+    remove: async (threadId) => await backend.removeThread?.(threadId),
     setTags: none,
     reattach: none,
     attachScreenshot: none,

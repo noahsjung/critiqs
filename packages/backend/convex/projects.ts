@@ -44,6 +44,12 @@ export const setReviewUrl = mutation({
   handler: async (ctx, args) => run(async () => operations.setReviewUrl(convexStore(ctx), await identityOf(ctx), args)),
 });
 
+/** Who can review the project: anyone who signs in, or only its organization's members. Only those who manage the project may change it. */
+export const setReviewAccess = mutation({
+  args: { projectId: v.id("projects"), reviewAccess: v.union(v.literal("anyone"), v.literal("organization")) },
+  handler: async (ctx, args) => run(async () => operations.setReviewAccess(convexStore(ctx), await identityOf(ctx), args)),
+});
+
 /** Mention suggestions: people who have commented in the project, by name. */
 export const participants = query({
   args: { projectId: v.id("projects"), query: v.string() },

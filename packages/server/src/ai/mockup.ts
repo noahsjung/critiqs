@@ -1,10 +1,10 @@
 import { MOCKUP_NODE_ATTRIBUTE, type MockupEdit, parseEdits } from "@critiqs/core";
 import { CritiqsError, fail } from "../errors.ts";
 import { MOCKUP_RULES, type VersionEdits } from "../mockups.ts";
-import { requireThread, requireUser } from "../operations.ts";
+import { currentReviewer, requireThread, requireUser } from "../operations.ts";
 import type { Identity, ProjectRecord, Store, ThreadRecord, UserRecord } from "../store.ts";
 import { askPaid, type CreditSteps } from "./credits.ts";
-import { type JsonSchema, type StructuredModel, type StructuredRequest, toAiError } from "./model.ts";
+import { accessCheck, type JsonSchema, type StructuredModel, type StructuredRequest, toAiError } from "./model.ts";
 import { quote } from "./prompts.ts";
 import { type AiDeployment, type ChosenConnection, chooseConnection, type ResolvedConnection, resolveConnection } from "./settings.ts";
 
@@ -244,7 +244,7 @@ export async function authorizeMockupTurn(
   now: number,
 ): Promise<MockupTurnAccess> {
   const user = await requireUser(store, identity);
-  const { thread, project } = await requireThread(store, args.threadId);
+  const { thread, project } = await requireThread(store, user, args.threadId);
   const { mockup } = thread;
   if (mockup === undefined) fail("invalid", "Critiqs AI answers only in mockup threads.");
   if (!(await store.rateLimits.hit(`mockup-ai:${user._id}`, MOCKUP_AI.requestsPerMinute, 60_000, now))) {
@@ -275,9 +275,23 @@ export async function conversationOf(store: Store, threadId: string, limit: numb
   return result;
 }
 
+/**
+ * Checks the reviewer may still ask in this mockup thread, right before each
+ * attempt to send the request to the model, retries included: access can end
+ * between preparing a turn, which reads the thread and its linked feedback,
+ * and sending it, even while its credits are held. One transaction.
+ */
+export async function recheckMockupTurn(store: Store, identity: Identity | null, args: { threadId: string }): Promise<void> {
+  const { user } = await currentReviewer(store, identity);
+  const { thread } = await requireThread(store, user, args.threadId);
+  if (thread.mockup === undefined) fail("invalid", "Critiqs AI answers only in mockup threads.");
+}
+
 /** What one turn needs from its backend: each step its own transaction, and a model for a connection. */
 export interface MockupTurnSteps extends CreditSteps {
   prepare(): Promise<{ connection: ChosenConnection; input: MockupTurnInput; head: number }>;
+  /** See `recheckMockupTurn`; throws when the reviewer may no longer ask. Runs before each attempt to send the request to the model. */
+  authorize(): Promise<void>;
   /** Saves the reply and, when it has changes, the next version; refuses if the mockup's version is no longer `head`. */
   finalize(answer: MockupAnswer, head: number): Promise<{ messageId: string; version: number | null }>;
   model(connection: Extract<ResolvedConnection, { ready: true }>): StructuredModel;
@@ -289,10 +303,12 @@ export async function runMockupTurn(steps: MockupTurnSteps): Promise<{ messageId
   const plan = await steps.prepare();
   const connection = await resolveConnection(plan.connection, steps.deployment);
   if (!connection.ready) fail("unavailable", connection.reason);
+  const access = accessCheck(steps.authorize);
   let answer: MockupAnswer;
   try {
-    ({ output: answer } = await askPaid(steps, plan.connection, steps.model(connection), mockupRequest(plan.input)));
+    ({ output: answer } = await askPaid(steps, plan.connection, steps.model(connection), { ...mockupRequest(plan.input), beforeSend: access.beforeSend }));
   } catch (error) {
+    access.rethrow();
     if (error instanceof CritiqsError) throw error;
     fail("unavailable", `Critiqs AI couldn't answer. ${toAiError(error).message}`);
   }
