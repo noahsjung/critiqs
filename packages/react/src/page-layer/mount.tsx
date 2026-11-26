@@ -1,4 +1,4 @@
-import { type PageTransport, panelEndpoint } from "@critiqs/core";
+import { type PageLimits, type PageTransport, panelEndpoint } from "@critiqs/core";
 import { createRoot } from "react-dom/client";
 import type { MockupPlace, SupplyCapture } from "../App.tsx";
 import { attachHost, Connect } from "../connect.tsx";
@@ -47,6 +47,8 @@ export type PanelOptions = Omit<CritiqsProps, "getContext" | "restoreContext"> &
   openThread?: string;
   /** Where Mockup mode opens, since the panel isn't drawn over the page: such as a window of its own. */
   mockups?: MockupPlace;
+  /** How much the page layer's messages may carry: `UNTRUSTED_PAGE_LIMITS` for a frame Critiqs doesn't trust, such as a review link's. */
+  pageLimits?: PageLimits;
 };
 
 /** A running panel: remove it, closing its connection to the page layer. */
@@ -64,10 +66,10 @@ export interface MountedPanel {
  * page layer answers, and connects again whenever the page layer restarts,
  * such as after the frame loads another page.
  */
-export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, mockups, ...props }: PanelOptions): MountedPanel {
+export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, mockups, pageLimits, ...props }: PanelOptions): MountedPanel {
   const { host, container: inner } = attachHost(container);
   const root = createRoot(inner);
-  const link = new PageLink(panelEndpoint(transport, { channel }));
+  const link = new PageLink(panelEndpoint(transport, { channel, ...(pageLimits === undefined ? {} : { limits: pageLimits }) }));
   let destroyed = false;
   const ready = new Promise<void>((resolve) => {
     const stop = link.subscribe(() => {

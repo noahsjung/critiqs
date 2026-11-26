@@ -1,0 +1,66 @@
+import { Resolver } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
+import net from "node:net";
+import { nodeNetwork } from "@critiqs/server/public-web";
+import { buildAssets } from "../scripts/build-assets.ts";
+import { ConfigError, parseProxyConfig, type ProxyConfig, proxyPolicy } from "../src/config.ts";
+import { type MemoryLease, memoryDirectory, type ReviewDirectory } from "../src/directory.ts";
+import { createEgress } from "../src/egress.ts";
+import { cachedReputation, fixtureReputation, webRiskProvider } from "../src/reputation.ts";
+import { createReviewProxy } from "../src/server.ts";
+
+// Runs the proxy: `bun run serve` (which passes --max-http-header-size=65536).
+// Settings come from the environment (src/config.ts). It listens on
+// CRITIQS_PROXY_LISTEN (default 127.0.0.1) and PORT (default the domain's
+// port, or 5120), behind an ingress that terminates TLS for the wildcard domain.
+
+/** Request headers the server accepts, Cookie included, so cookies a sibling frame host planted can't make it refuse a request. */
+const HEADER_BYTES = 64 * 1024;
+
+/** The leases to serve. On a `.localhost` domain, CRITIQS_PROXY_DEV_LEASES (JSON) can hold test leases; a deployment reads its backend's. */
+function directoryFrom(config: ProxyConfig, env: Record<string, string | undefined>): ReviewDirectory {
+  const dev = env.CRITIQS_PROXY_DEV_LEASES;
+  if (dev !== undefined && dev !== "") {
+    if (!config.local) throw new ConfigError("CRITIQS_PROXY_DEV_LEASES is only for a .localhost domain.");
+    return memoryDirectory(JSON.parse(dev) as MemoryLease[]);
+  }
+  throw new ConfigError("No lease directory: the backend's directory isn't wired into this build yet. On a .localhost domain, set CRITIQS_PROXY_DEV_LEASES.");
+}
+
+/** Sends this server a request with 32 KiB of cookies and checks it isn't refused for its headers. */
+async function headersAccepted(port: number, hostname: string): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const socket = net.connect(port, hostname, () => socket.end(`GET / HTTP/1.1\r\nHost: self-check.invalid\r\nCookie: c=${"x".repeat(32 * 1024)}\r\nConnection: close\r\n\r\n`));
+    let reply = "";
+    socket.on("data", (chunk) => (reply += chunk));
+    socket.on("close", () => resolve(!reply.startsWith("HTTP/1.1 431")));
+    socket.on("error", () => resolve(false));
+  });
+}
+
+try {
+  const env = process.env;
+  const config = parseProxyConfig(env);
+  const web = nodeNetwork({ http, https, Resolver });
+  const reputation = cachedReputation(config.webRiskKey !== null ? webRiskProvider(config.webRiskKey) : fixtureReputation());
+  const policy = proxyPolicy(config);
+  const egress = {
+    primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits }),
+    asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits }),
+  };
+  const proxy = createReviewProxy(config, { directory: directoryFrom(config, env), egress, assets: await buildAssets() });
+  const hostname = env.CRITIQS_PROXY_LISTEN ?? "127.0.0.1";
+  const port = Number(env.PORT ?? (config.domain.port || 5120));
+  const server = Bun.serve({ hostname, port, fetch: (request) => proxy.fetch(request) });
+  if (!(await headersAccepted(port, hostname))) {
+    server.stop(true);
+    throw new ConfigError(`Start the proxy with bun --max-http-header-size=${HEADER_BYTES} (bun run serve), so a frame host's planted cookies can't make it refuse other frames.`);
+  }
+  setInterval(() => void proxy.reportUsage(), 60_000).unref();
+  console.log(`Review proxy for ${config.domain.origin} on http://${hostname}:${port}`);
+} catch (error) {
+  if (!(error instanceof ConfigError)) throw error;
+  console.error(error.message);
+  process.exit(1);
+}

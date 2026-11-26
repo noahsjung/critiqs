@@ -3,7 +3,39 @@
 `@critiqs/review-proxy` serves a prototype inside a review page's frame. It
 is a deployed app, never a published package.
 
-This first part is the proxy's network layer:
+## Serving frames
+
+Each viewer's lease gets its own random frame host,
+`v-<26 base32 characters>.<CRITIQS_PROXY_DOMAIN>`, which the proxy resolves
+through a `ReviewDirectory` (`src/directory.ts`): the backend's answer says
+which prototype origin and owner-approved origins the host serves, and for
+how long. The prototype's origin is served at the host's root; review links
+are read-only and credential-free (GET and HEAD only, no cookies or
+`Authorization` either way, no WebSockets or service workers).
+
+- `src/server.ts` checks, before fetching anything: the Host is the domain or
+  one label under it (421 otherwise), header and URL sizes (Cookie aside),
+  the method, no upgrade, a top-level open (a notice, never the prototype),
+  the lease, and the lease's request window and read slots.
+- `src/html.ts` parses pages with parse5, maps every address, removes
+  `<base>`, CSP and refresh `<meta>` tags, nested frames, `srcdoc`, `ping` and
+  `download`, and puts the runtime shim and the page layer first in `<head>`.
+- `src/css.ts` maps every `url()` and `@import` with css-tree's tokenizer.
+- `src/urls.ts` maps addresses: other sites' files only through
+  `/__critiqs/a/<signature>/…` paths the proxy itself wrote (an HMAC over the
+  lease, class and URL), owner-approved origins through `/__critiqs/o/<slot>/`,
+  and links to other sites to a signed notice.
+- `src/pages.ts` holds the proxy's own notices and the frame's
+  Content-Security-Policy.
+- `runtime/shim.ts` maps addresses scripts build at run time, keeps cookies
+  in the document's memory, refuses service workers and follows GET forms;
+  `runtime/layer.ts` runs the page layer for the review page around the frame.
+
+`bun run serve` starts it (with `--max-http-header-size=65536`, so cookies a
+sibling frame host planted can't make it refuse requests).
+`bun run check:proxy` runs the Chrome check against local fixture sites.
+
+## Network layer
 
 - `src/config.ts` reads the settings (`CRITIQS_PROXY_DOMAIN`,
   `CRITIQS_WEB_ORIGINS`, `CRITIQS_PROXY_BACKEND`, `CRITIQS_PROXY_SECRET`,
