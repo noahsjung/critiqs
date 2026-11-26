@@ -51,6 +51,19 @@ export interface CritiqsHandlerOptions {
    * traffic is kept off private networks. On by default.
    */
   addressCheck?: false;
+  /**
+   * The Critiqs website that setup links in developer setup emails open, such
+   * as `https://critiqs.app`: HTTPS, or HTTP on this computer. Without it,
+   * `publicUrl`, or `email`, this server sends no setup emails.
+   */
+  webUrl?: string;
+  /**
+   * The public address of the app this server runs in, such as
+   * `https://app.example.com`: HTTPS, or HTTP on this computer. Report links
+   * in developer setup emails start with it, then `basePath`. Without it,
+   * `webUrl`, or `email`, this server sends no setup emails.
+   */
+  publicUrl?: string;
 }
 
 export interface CritiqsAiOptions {

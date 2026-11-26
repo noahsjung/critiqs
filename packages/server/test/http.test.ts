@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { AddressCheckDeps } from "../src/address-check.ts";
 import { createCritiqsHandler, type CritiqsAiOptions, type CritiqsHandler, type HostUser } from "../src/http/index.ts";
 import { ADDRESS_CHECKS_PER_HOUR, ADDRESS_CHECKS_PER_PERSON_PER_HOUR, claimAddressCheck } from "../src/onboarding.ts";
-import type { MailMessage } from "../src/signin.ts";
+import { MailError, type Mailer, type MailMessage } from "../src/signin.ts";
 import { bunDriver } from "../src/sqlite/index.ts";
 import { anchor } from "./contract.ts";
 
@@ -21,6 +21,9 @@ async function server(
     ai?: CritiqsAiOptions;
     aiFetch?: typeof fetch;
     addressCheck?: AddressCheckDeps | false;
+    webUrl?: string;
+    publicUrl?: string;
+    mailer?: Mailer;
   } = {},
 ) {
   const sent = options.mail ?? [];
@@ -30,7 +33,9 @@ async function server(
     ai: options.ai,
     ...(options.aiFetch === undefined ? {} : { aiFetch: options.aiFetch }),
     ...(options.addressCheck === undefined ? {} : { addressCheck: options.addressCheck }),
-    mailer: { send: async (message) => void sent.push(message) },
+    ...(options.webUrl === undefined ? {} : { webUrl: options.webUrl }),
+    ...(options.publicUrl === undefined ? {} : { publicUrl: options.publicUrl }),
+    mailer: options.mailer ?? { send: async (message) => void sent.push(message) },
   });
   handlers.push(handler);
   return { handler, sent };
@@ -93,6 +98,7 @@ test("reports itself as a server in the host app, current with the component", a
     overageCap: true,
     addressCheck: true,
     onboardingAnswers: true,
+    developerEmails: false,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -827,4 +833,144 @@ test("onboarding saves the person's answers and creates a project with its answe
   ] as const) {
     expect((await b.api(name, args)).status).toBe(400);
   }
+});
+
+/** People the host app signs in, chosen per request by a test header. */
+const people: Record<string, HostUser> = {
+  dana: { id: "1", name: "Dana", email: "dana@acme.test" },
+  sam: { id: "2", name: "Sam", email: "sam@acme.test" },
+  lee: { id: "3", name: "Lee", email: "lee@acme.test" },
+};
+const asPerson = (request: Request) => people[request.headers.get("X-Test-Person") ?? ""] ?? null;
+
+function personBrowser(handler: CritiqsHandler, who: string) {
+  const api = async (name: string, args: Record<string, unknown> = {}) => {
+    const response = await handler.fetch(
+      new Request(`${SITE}/critiqs/api/${name}`, {
+        method: "POST",
+        headers: { "X-Critiqs-Request": "1", "Content-Type": "application/json", Origin: SITE, "X-Test-Person": who },
+        body: JSON.stringify(args),
+      }),
+    );
+    return { status: response.status, body: (await response.json()) as { value?: any; error?: { code: string; message: string } } };
+  };
+  return { api };
+}
+
+test("a project's owner emails its setup steps; the developer opens the setup link; a report stops further emails", async () => {
+  const { handler, sent } = await server({ identify: asPerson, webUrl: "https://critiqs.example/", publicUrl: "https://app.example.com/" });
+  // A request from inside the network first: report links still use the configured public address.
+  await handler.fetch(new Request("http://backend.internal.test/critiqs/critiqs/health"));
+  expect((await (await handler.fetch(new Request(`${SITE}/critiqs/critiqs/config`))).json()).developerEmails).toBe(true);
+  const dana = personBrowser(handler, "dana");
+  const projectId = (await dana.api("createProject", { name: "Acme", reviewUrl: "https://acme.example", onboarding: { codeAccess: "nobody" }, stack: "react" })).body.value;
+  const result = await dana.api("sendDeveloperSetup", { projectId, emails: ["Sam@acme.test", "nope"] });
+  expect(result.body.value).toEqual([
+    { email: "sam@acme.test", status: "sent", sendId: expect.stringMatching(/^e_/), invite: "created" },
+    { email: "nope", status: "invalid", message: "Enter a valid email address." },
+  ]);
+  const sendId = result.body.value[0].sendId;
+  // Only the setup email goes out: the organization invite sends none of its own.
+  expect(sent.map((email) => [email.to, email.fromName, email.replyTo, email.idempotencyKey])).toEqual([
+    ["sam@acme.test", "Dana via Critiqs", "dana@acme.test", `critiqs-developer:${sendId}:0`],
+  ]);
+  expect(sent[0]!.text).toContain(`Setup steps: https://critiqs.example/setup/${sendId}`);
+  expect((await dana.api("developerSends", { projectId })).body.value).toEqual([
+    { sendId, email: "sam@acme.test", status: "sent", lastSentAt: expect.any(Number) },
+  ]);
+  // The developer, signed in with that address, sees the steps; someone else sees nothing, as for a send that doesn't exist.
+  const shown = await personBrowser(handler, "sam").api("developerSetup", { sendId });
+  expect(shown.body.value).toMatchObject({ projectId, projectName: "Acme", stack: { id: "react" }, installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`], inviterName: "Dana" });
+  const lee = personBrowser(handler, "lee");
+  expect((await lee.api("developerSetup", { sendId })).status).toBe(404);
+  // A copied message links to the project instead: anyone signed in sees it, as with `project`, but only its managers see the saved stack.
+  expect((await lee.api("projectSetup", { projectId })).body.value).toEqual({
+    projectId,
+    projectName: "Acme",
+    address: "https://acme.example/",
+    stack: null,
+    installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`],
+  });
+  expect((await dana.api("projectSetup", { projectId })).body.value).toMatchObject({ stack: { id: "react", label: "React (Vite)", installable: true } });
+  expect((await personBrowser(handler, "nobody").api("projectSetup", { projectId })).body.error?.code).toBe("unauthenticated");
+  expect((await lee.api("developerSetup", { sendId: "e_00000000000000000000000000000000" })).body).toEqual((await lee.api("developerSetup", { sendId })).body);
+  expect((await lee.api("developerSends", { projectId })).status).toBe(403);
+  expect((await lee.api("sendDeveloperSetup", { projectId, emails: ["x@acme.test"] })).status).toBe(403);
+  // The report link asks first, since mail scanners open links; confirming stops emails to that inbox.
+  const reportUrl = /Report it: (\S+)/.exec(sent[0]!.text)![1]!;
+  expect(reportUrl.startsWith("https://app.example.com/critiqs/developer-emails/report?token=")).toBe(true);
+  const ask = await handler.fetch(new Request(reportUrl));
+  expect(await ask.text()).toContain("Stop emails from Critiqs to this address?");
+  const token = new URL(reportUrl).searchParams.get("token")!;
+  const post = (value: string) =>
+    handler.fetch(new Request(`${SITE}/critiqs/developer-emails/report`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: value }).toString() }));
+  expect(await (await post(`${token}x`)).text()).toContain("Link not recognized");
+  const leesProject = (await lee.api("createProject", { name: "Lee's" })).body.value;
+  expect((await lee.api("sendDeveloperSetup", { projectId: leesProject, emails: ["sam+x@acme.test"] })).body.value[0].status).toBe("sent");
+  expect(await (await post(token)).text()).toContain("Critiqs won&#39;t email this address again.");
+  const other = (await lee.api("createProject", { name: "Another" })).body.value;
+  expect((await lee.api("sendDeveloperSetup", { projectId: other, emails: ["sam@acme.test"] })).body.value).toEqual([{ email: "sam@acme.test", status: "suppressed" }]);
+});
+
+test("a setup email the mail service refuses is recorded as failed, and can be sent again at once", async () => {
+  let refuse = true;
+  const sent: MailMessage[] = [];
+  const mailer: Mailer = {
+    send: async (message) => {
+      if (refuse) throw new MailError("The email service refused the message (422).", { confirmed: true });
+      sent.push(message);
+    },
+  };
+  const { handler } = await server({ identify: asPerson, webUrl: "https://critiqs.example", publicUrl: "https://app.example.com", mailer });
+  const dana = personBrowser(handler, "dana");
+  const projectId = (await dana.api("createProject", { name: "Acme" })).body.value;
+  expect((await dana.api("sendDeveloperSetup", { projectId, emails: ["sam@acme.test"] })).body.value[0].status).toBe("sent");
+  expect((await dana.api("developerSends", { projectId })).body.value[0].status).toBe("failed");
+  refuse = false;
+  expect((await dana.api("sendDeveloperSetup", { projectId, emails: ["sam@acme.test"] })).body.value[0].status).toBe("sent");
+  expect((await dana.api("developerSends", { projectId })).body.value[0].status).toBe("sent");
+  expect(sent.map((email) => email.idempotencyKey.endsWith(":1"))).toEqual([true]);
+});
+
+test("without webUrl or publicUrl a server sends no setup emails and reserves nothing; an invalid one stops it from starting", async () => {
+  for (const missing of [{ publicUrl: "https://app.example.com" }, { webUrl: "https://critiqs.example" }]) {
+    const { handler, sent } = await server({ identify: asPerson, ...missing });
+    expect((await (await handler.fetch(new Request(`${SITE}/critiqs/critiqs/config`))).json()).developerEmails).toBe(false);
+    const dana = personBrowser(handler, "dana");
+    const projectId = (await dana.api("createProject", { name: "Acme" })).body.value;
+    expect(await dana.api("sendDeveloperSetup", { projectId, emails: ["sam@acme.test"] })).toEqual({
+      status: 410,
+      body: { error: { code: "unavailable", message: "This Critiqs server can't send setup emails. Copy the message instead." } },
+    });
+    expect((await dana.api("developerSends", { projectId })).body.value).toEqual([]);
+    expect(sent).toEqual([]);
+  }
+  const { handler } = await server({ identify: asPerson });
+  const dana = personBrowser(handler, "dana");
+  const projectId = (await dana.api("createProject", { name: "Acme" })).body.value;
+  await expect(server({ webUrl: "http://critiqs.example" })).rejects.toThrow("webUrl must be an https:// address");
+  await expect(server({ publicUrl: "http://app.example.com" })).rejects.toThrow("publicUrl must be an https:// address");
+  await expect(server({ publicUrl: "https://app.example.com/?x=1" })).rejects.toThrow("publicUrl must be an https:// address");
+  expect((await dana.api("sendDeveloperSetup", { projectId, emails: Array(4).fill("a@acme.test") })).status).toBe(400);
+});
+
+test("the report page's form posts back to its own address, so a proxy prefix in publicUrl survives", async () => {
+  const { handler, sent } = await server({ identify: asPerson, webUrl: "https://critiqs.example", publicUrl: "https://example.test/outside" });
+  // A proxy serves the app under /outside and strips it before the request reaches Critiqs.
+  const outside = (url: URL, init?: RequestInit) =>
+    url.origin === "https://example.test" && url.pathname.startsWith("/outside/")
+      ? handler.fetch(new Request(`${SITE}${url.pathname.slice("/outside".length)}${url.search}`, init))
+      : Promise.resolve(new Response("Not found", { status: 404 }));
+  const dana = personBrowser(handler, "dana");
+  const projectId = (await dana.api("createProject", { name: "Acme" })).body.value;
+  await dana.api("sendDeveloperSetup", { projectId, emails: ["sam@acme.test"] });
+  const reportUrl = new URL(/Report it: (\S+)/.exec(sent[0]!.text)![1]!);
+  expect(reportUrl.pathname).toBe("/outside/critiqs/developer-emails/report");
+  const page = await outside(reportUrl);
+  const form = /<form method="post"(?: action="([^"]*)")?>/.exec(await page.text())!;
+  // The browser resolves the form's action against the page's own address.
+  const action = new URL(form[1] ?? "", reportUrl);
+  const posted = await outside(action, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: reportUrl.searchParams.get("token")! }).toString() });
+  expect([action.pathname, posted.status]).toEqual(["/outside/critiqs/developer-emails/report", 200]);
+  expect(await posted.text()).toContain("Critiqs won&#39;t email this address again.");
 });

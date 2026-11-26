@@ -110,3 +110,19 @@ export function preferencePage(base: string, token: string, description: string)
      </form>`,
   );
 }
+
+/**
+ * Asks before reporting a setup email as unwanted, since mail scanners open
+ * links in emails. The form posts back to the page's own address, so a proxy
+ * prefix in front of this server stays in it.
+ */
+export function reportPage(token: string, question: string): Response {
+  return page(
+    "Unwanted email",
+    `<h1>Unwanted email</h1><p>${escape(question)}</p>
+     <form method="post">
+       <input type="hidden" name="token" value="${escape(token)}">
+       <div class="actions"><button class="primary" type="submit">Stop these emails</button></div>
+     </form>`,
+  );
+}

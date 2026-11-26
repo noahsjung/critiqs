@@ -20,6 +20,7 @@ export * from "./organizations.ts";
 export * from "./plan-alerts.ts";
 export * from "./onboarding.ts";
 export * from "./address-check.ts";
+export * from "./developer-setup.ts";
 export * as tags from "./tags.ts";
 export { STARTER_GROUPS, registerTagsForBackfill, threadTags, textTagLabels, messageHashtags, backfillHashtags, updateTextTags } from "./tags.ts";
 export * from "./ai/model.ts";

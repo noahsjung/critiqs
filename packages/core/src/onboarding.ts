@@ -555,10 +555,71 @@ export function startingTags(purpose: Purpose | undefined): readonly string[] {
 // Sending to a developer.
 
 export const MAX_DEVELOPER_INVITES_PER_PROJECT = 3;
-/** How long after an invite its Resend is offered. */
-export const DEVELOPER_INVITE_RESEND_MS = 24 * 60 * 60 * 1000;
 /** Developer emails one person can send in a day, across projects. */
 export const DEVELOPER_INVITES_PER_PERSON_PER_DAY = 5;
+
+/** A limit that refused a developer email: the project's developers, the person's day, the inbox's day, or the deployment's hour. */
+export type DeveloperLimit = "developers" | "person" | "inbox" | "deployment";
+
+/**
+ * What a send did about the developer joining the project's organization,
+ * which happens only when an admin of it sends. `created`: they were invited
+ * and join when they sign in. `pending`: an invite to it was already
+ * waiting. `member`: they're already in it. `limit`: the organization's
+ * invites for the day were used up, so they weren't invited. `none`: the
+ * sender isn't an admin of it, so no one is invited.
+ */
+export type DeveloperInvite = "created" | "pending" | "member" | "limit" | "none";
+
+/**
+ * What sending setup steps did for one address, as given. `sent`: Critiqs
+ * took the email to send, and `invite` says what it did about the project's
+ * organization, separately from the email. `already-sent`: the address
+ * already got this project's email, or may have; each address gets one. A
+ * refused address (`already-sent`, `limit`, `suppressed`, or `invalid`) left
+ * nothing recorded and used no limit.
+ */
+export type DeveloperSendResult =
+  | { email: string; status: "sent"; sendId: string; invite: DeveloperInvite }
+  | { email: string; status: "already-sent"; sendId: string }
+  | { email: string; status: "limit"; limit: DeveloperLimit; message: string }
+  | { email: string; status: "suppressed" }
+  | { email: string; status: "invalid"; message: string };
+
+/**
+ * A developer setup email's state. `sent`: the mail service took it.
+ * `failed`: it certainly wasn't delivered, because every attempt was
+ * refused, or its inbox opted out before the first; sending again sends a
+ * new email. `uncertain`: not answered yet, or an answer was lost, so it may
+ * have been delivered; it counts as sent and is retried only under its own
+ * key.
+ */
+export type DeveloperSendStatus = "sent" | "uncertain" | "failed";
+
+/** One address a project sent setup steps to, for the people who manage it. */
+export interface DeveloperSendSummary {
+  sendId: string;
+  email: string;
+  status: DeveloperSendStatus;
+  /** When the email went out: the attempt the mail service accepted, else its first attempt, else when it was reserved. */
+  lastSentAt: number;
+}
+
+/** What a project's setup page shows: the project, its address, its saved stack, and how to install Critiqs in it. */
+export interface ProjectSetup {
+  projectId: string;
+  projectName: string;
+  /** The project's review address, shown as text. */
+  address: string | null;
+  stack: StackInfo | null;
+  /** `installCommands` for an installable or unknown stack; null when the stack isn't installable yet. */
+  installCommands: readonly string[] | null;
+}
+
+/** What a setup link shows the developer it was sent to: the project's setup, and who asked. */
+export interface DeveloperSetup extends ProjectSetup {
+  inviterName: string;
+}
 
 /** The commands, in order, that install Critiqs in an installable stack, for a project ID the backend issued. */
 export function installCommands(projectId: string): readonly string[] {

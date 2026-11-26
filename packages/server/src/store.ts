@@ -90,6 +90,46 @@ export interface InviteRecord {
   acceptedAt?: number;
 }
 
+/** A developer setup email exactly as first prepared, so a retry under its key sends the same request. */
+export interface StoredMail {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  fromName: string;
+  replyTo: string;
+}
+
+/**
+ * One time a setup email was handed to the mail service under its key, and
+ * its answer: `accepted`, `refused` (certainly not delivered), or null while
+ * none came, because it is still out, its answer was lost, or the worker
+ * stopped after claiming it.
+ */
+export interface DeveloperAttempt {
+  at: number;
+  answer: "accepted" | "refused" | null;
+}
+
+/** The setup email a project sent to one developer's address. */
+export interface DeveloperSendRecord {
+  _id: string;
+  projectId: string;
+  /** The exact address it goes to, normalized, fixed when the record is created; one record per project and address. */
+  email: string;
+  /** Who asked for the current email. */
+  sentBy: string;
+  createdAt: number;
+  /** When the current email was reserved: counted, but not yet handed to the mail service. */
+  reservedAt: number;
+  /** The current email's number, from 0, in its idempotency key; an email that replaces a failed one gets the next. */
+  emailNumber: number;
+  /** The current email's attempts, oldest first; its status follows from them (`sendStatus`). */
+  attempts: DeveloperAttempt[];
+  /** The current email, once prepared. */
+  message?: StoredMail;
+}
+
 /** A usage counter for one metric, organization, person, or project, and period. */
 export interface UsageRecord {
   _id: string;
@@ -469,12 +509,17 @@ export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organiza
 export type DeliveryChanges = Partial<
   Pick<DeliveryRecord, "status" | "attempts" | "dueAt" | "claimToken" | "leaseUntil" | "message" | "payload" | "finishedAt" | "reason">
 >;
+/** Changes to a send record; a null message clears it, for a new email. */
+export type DeveloperSendChanges = Partial<Pick<DeveloperSendRecord, "sentBy" | "reservedAt" | "emailNumber" | "attempts">> & { message?: StoredMail | null };
 export type PreferenceChanges = Partial<Pick<PreferenceRecord, "mentionEmails" | "replyEmails" | "mutedProjects">>;
 export type ReadStateChanges = Partial<Pick<ReadStateRecord, "lastReadAt" | "manualUnread">>;
 
 export interface Store {
   /** The ID if `raw` is a well-formed ID for that table in this backend, else null. */
-  normalizeId(table: "projects" | "threads" | "messages" | "files" | "users" | "deliveries" | "tagGroups" | "organizations" | "invites", raw: string): string | null;
+  normalizeId(
+    table: "projects" | "threads" | "messages" | "files" | "users" | "deliveries" | "tagGroups" | "organizations" | "invites" | "developerSends",
+    raw: string,
+  ): string | null;
 
   users: {
     byToken(tokenIdentifier: string): Promise<UserRecord | null>;
@@ -510,6 +555,20 @@ export interface Store {
     pendingForOrganization(organizationId: string, limit: number): Promise<InviteRecord[]>;
     /** Invites to this normalized address no one has accepted yet, in any organization, oldest first; at most `limit`. */
     pendingForEmail(email: string, limit: number): Promise<InviteRecord[]>;
+  };
+  developerSends: {
+    get(id: string): Promise<DeveloperSendRecord | null>;
+    find(projectId: string, email: string): Promise<DeveloperSendRecord | null>;
+    /** A project's send records, oldest first; at most `limit`. */
+    forProject(projectId: string, limit: number): Promise<DeveloperSendRecord[]>;
+    insert(send: New<DeveloperSendRecord>): Promise<string>;
+    patch(id: string, changes: DeveloperSendChanges): Promise<void>;
+  };
+  /** Inboxes whose people reported Critiqs's email as unwanted; they get no more developer or invite emails. */
+  emailSuppressions: {
+    has(inbox: string): Promise<boolean>;
+    /** Adds the inbox; nothing changes when it is already listed. */
+    add(inbox: string, now: number): Promise<void>;
   };
   projects: {
     get(id: string): Promise<ProjectRecord | null>;

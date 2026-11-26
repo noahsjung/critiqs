@@ -99,7 +99,11 @@ it with other browsers, add `VITE_CRITIQS_PROJECT_ID=<project ID>` to
 A deployment that runs the sign-in service sets `CRITIQS_AUTH_PRIVATE_KEY` (an
 ES256 private JWK), `CRITIQS_AUTH_ISSUER` (its own `.convex.site` URL),
 `RESEND_API_KEY`, and `CRITIQS_EMAIL_FROM` (an address on a domain verified in
-Resend, such as `Critiqs <sign-in@example.com>`). A team's own deployment that
+Resend, such as `Critiqs <sign-in@example.com>`). Developer setup emails link
+to the Critiqs website named by `CRITIQS_WEB_URL`, `https://critiqs.app` when
+unset. A self-hosted SQLite server sends them only with its `webUrl` and
+`publicUrl` options; `publicUrl` is the app's public address, which the emails'
+report links start with. A team's own deployment that
 trusts Critiqs Cloud's sign-in sets only `CRITIQS_AUTH_ISSUER`, to Critiqs Cloud's
 sign-in service.
 

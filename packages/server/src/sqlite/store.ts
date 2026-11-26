@@ -2,6 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { type PageRequest, type Role, tagKey, type TeamSize } from "@critiqs/core";
 import type {
   DeliveryRecord,
+  DeveloperAttempt,
+  DeveloperSendRecord,
+  StoredMail,
   InviteRecord,
   PlanAlertKind,
   PlanAlertRecord,
@@ -40,7 +43,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -479,6 +482,25 @@ export const MIGRATIONS: Migration[] = [
   ALTER TABLE users ADD COLUMN team_size TEXT;
   ALTER TABLE projects ADD COLUMN onboarding TEXT;
   `,
+  // Developer setup emails: one record per project and developer address,
+  // with its email's attempts as JSON, and the inboxes that reported
+  // Critiqs's email as unwanted.
+  `
+  CREATE TABLE developer_sends (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    sent_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    reserved_at INTEGER NOT NULL,
+    email_number INTEGER NOT NULL,
+    attempts TEXT NOT NULL,
+    message TEXT
+  );
+  CREATE UNIQUE INDEX developer_sends_by_project_email ON developer_sends (project_id, email);
+  CREATE TABLE email_suppressions (inbox TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+  `,
 ];
 
 /**
@@ -574,8 +596,9 @@ const PREFIX = {
   invites: "i",
   planAlerts: "l",
   creditHolds: "v",
+  developerSends: "e",
 } as const;
-const ID_PATTERN = /^[uptmrsfacdnqghkxwjyobilv]_[0-9a-f]{32}$/;
+const ID_PATTERN = /^[uptmrsfacdnqghkxwjyobilve]_[0-9a-f]{32}$/;
 
 function newId(table: keyof typeof PREFIX): string {
   return `${PREFIX[table]}_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -825,6 +848,17 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     invitedBy: row.invited_by,
     createdAt: row.created_at,
     ...(row.accepted_at === null ? {} : { acceptedAt: row.accepted_at }),
+  });
+  const developerSend = (row: DeveloperSendRow): DeveloperSendRecord => ({
+    _id: row.id,
+    projectId: row.project_id,
+    email: row.email,
+    sentBy: row.sent_by,
+    createdAt: row.created_at,
+    reservedAt: row.reserved_at,
+    emailNumber: row.email_number,
+    attempts: JSON.parse(row.attempts) as DeveloperAttempt[],
+    ...(row.message === null ? {} : { message: JSON.parse(row.message) as StoredMail }),
   });
   const project = (row: ProjectRow): ProjectRecord => ({
     _id: row.id,
@@ -1128,6 +1162,50 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           .map(membership),
       forOrganization: async (organizationId, limit) =>
         sql.all<MembershipRow>("SELECT * FROM memberships WHERE organization_id = ? ORDER BY seq LIMIT ?", [organizationId, limit]).map(membership),
+    },
+
+    developerSends: {
+      get: async (id) => {
+        const row = sql.get<DeveloperSendRow>("SELECT * FROM developer_sends WHERE id = ?", [id]);
+        return row === undefined ? null : developerSend(row);
+      },
+      find: async (projectId, email) => {
+        const row = sql.get<DeveloperSendRow>("SELECT * FROM developer_sends WHERE project_id = ? AND email = ?", [projectId, email]);
+        return row === undefined ? null : developerSend(row);
+      },
+      forProject: async (projectId, limit) =>
+        sql.all<DeveloperSendRow>("SELECT * FROM developer_sends WHERE project_id = ? ORDER BY seq LIMIT ?", [projectId, limit]).map(developerSend),
+      insert: async (record) => {
+        const id = newId("developerSends");
+        sql.run(
+          `INSERT INTO developer_sends (id, project_id, email, sent_by, created_at, reserved_at, email_number, attempts, message)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            record.projectId,
+            record.email,
+            record.sentBy,
+            record.createdAt,
+            record.reservedAt,
+            record.emailNumber,
+            json(record.attempts),
+            record.message === undefined ? null : json(record.message),
+          ],
+        );
+        return id;
+      },
+      patch: async (id, changes) =>
+        patch("developer_sends", id, {
+          sent_by: changes.sentBy,
+          reserved_at: changes.reservedAt,
+          email_number: changes.emailNumber,
+          attempts: changes.attempts === undefined ? undefined : json(changes.attempts),
+          message: changes.message === undefined ? undefined : changes.message === null ? null : json(changes.message),
+        }),
+    },
+    emailSuppressions: {
+      has: async (inbox) => sql.get("SELECT 1 FROM email_suppressions WHERE inbox = ?", [inbox]) !== undefined,
+      add: async (inbox, now) => sql.run("INSERT INTO email_suppressions (inbox, created_at) VALUES (?, ?) ON CONFLICT(inbox) DO NOTHING", [inbox, now]),
     },
 
     invites: {
@@ -1838,6 +1916,18 @@ interface MembershipRow {
   user_id: string;
   role: string;
   created_at: number;
+}
+interface DeveloperSendRow {
+  seq: number;
+  id: string;
+  project_id: string;
+  email: string;
+  sent_by: string;
+  created_at: number;
+  reserved_at: number;
+  email_number: number;
+  attempts: string;
+  message: string | null;
 }
 interface InviteRow {
   seq: number;

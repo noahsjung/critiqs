@@ -1,3 +1,4 @@
+import { REPORT_PATH } from "@critiqs/server";
 import { randomSecret, type ReviewerProfile } from "./tokens";
 
 /** What a sign-in is for, as the pages name it. Match `DEVICE_SITE` and `DEVICE_ACCESS_SITE` in deviceSignIn.ts. */
@@ -172,6 +173,19 @@ export function preferencePage(token: string, description: string): Response {
      <form method="post" action="/notifications/preferences">
        <input type="hidden" name="token" value="${escape(token)}">
        <div class="actions"><button class="primary" type="submit">Confirm</button></div>
+     </form>`,
+  );
+}
+
+/** Asks before reporting a setup email as unwanted, since mail scanners open links in emails. */
+export function reportPage(token: string, question: string): Response {
+  return page(
+    "Unwanted email",
+    `<h1>Unwanted email</h1>
+     <p>${escape(question)}</p>
+     <form method="post" action="${REPORT_PATH}">
+       <input type="hidden" name="token" value="${escape(token)}">
+       <div class="actions"><button class="primary" type="submit">Stop these emails</button></div>
      </form>`,
   );
 }

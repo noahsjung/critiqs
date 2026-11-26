@@ -9,7 +9,7 @@ import { listMyOrganizations } from "../src/organizations.ts";
 import type { Plan } from "../src/limits.ts";
 import { anchor, type ContractBackend, defineContract, reviewer } from "./contract.ts";
 import { defineAiContract } from "./contract-ai.ts";
-import { defineOnboardingContract } from "./contract-onboarding.ts";
+import { defineDeveloperEmailContract, defineOnboardingContract } from "./contract-onboarding.ts";
 
 function sqliteBackend(plans?: Record<string, Plan>): ContractBackend {
   const live = { ...plans };
@@ -33,6 +33,7 @@ function sqliteBackend(plans?: Record<string, Plan>): ContractBackend {
 defineContract("SQLite", () => sqliteBackend());
 defineAiContract("SQLite", () => sqliteBackend());
 defineOnboardingContract("SQLite", () => sqliteBackend());
+defineDeveloperEmailContract("SQLite", () => sqliteBackend());
 
 test("SQLite: operations on one database run one at a time", async () => {
   const store = new SqliteStore(bunDriver(new Database(":memory:")));

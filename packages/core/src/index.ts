@@ -12,3 +12,4 @@ export * from "./ai.ts";
 export * from "./mockup.ts";
 export * from "./local-host.ts";
 export * from "./onboarding.ts";
+export * from "./inbox.ts";

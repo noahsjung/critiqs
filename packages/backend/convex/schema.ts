@@ -10,6 +10,7 @@ import {
   profileValidator,
   projectOnboardingValidator,
   roleValidator,
+  storedMailValidator,
   teamSizeValidator,
   revisionValidator,
   threadMockupValidator,
@@ -90,6 +91,26 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_organization_pending", ["organizationId", "acceptedAt"])
     .index("by_email_pending", ["email", "acceptedAt"]),
+
+  /** The setup email a project sent to one developer's address; see `DeveloperSendRecord` in @critiqs/server. */
+  developerSends: defineTable({
+    projectId: v.id("projects"),
+    /** The exact address it goes to, normalized, fixed when the record is created. */
+    email: v.string(),
+    sentBy: v.id("users"),
+    createdAt: v.number(),
+    /** When the current email was reserved. */
+    reservedAt: v.number(),
+    /** The current email's number, from 0, in its idempotency key. */
+    emailNumber: v.number(),
+    /** The current email's attempts at the mail service, oldest first, each with its answer, or null while none came. */
+    attempts: v.array(v.object({ at: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.null()) })),
+    /** The current email exactly as first prepared, so a retry sends the same request. */
+    message: v.optional(storedMailValidator),
+  }).index("by_project_email", ["projectId", "email"]),
+
+  /** Inboxes whose people reported Critiqs's email as unwanted; they get no more developer or invite emails. */
+  emailSuppressions: defineTable({ inbox: v.string(), createdAt: v.number() }).index("by_inbox", ["inbox"]),
 
   /** A Critiqs project: the shared feedback space for one prototype. */
   projects: defineTable({

@@ -9,10 +9,12 @@ const options: Same<Omit<Published.CritiqsHandlerOptions, "database" | "addressC
 // Optional properties don't affect assignability, so compare the option names too: a server option the published types forgot fails here.
 const optionNames: Same<keyof Published.CritiqsHandlerOptions, Exclude<keyof Real.CritiqsHandlerOptions, "mailer" | "aiModel" | "aiFetch">> = true;
 const addressCheck: Same<Published.CritiqsHandlerOptions["addressCheck"], false | undefined> = true;
+// Developer setup emails need both addresses: the website setup links open, and this server's public one for report links.
+const emailLinks: Same<Pick<Published.CritiqsHandlerOptions, "webUrl" | "publicUrl">, { webUrl?: string; publicUrl?: string }> = true;
 const user: Same<Published.HostUser, Real.HostUser> = true;
 const ai: Same<Published.CritiqsAiOptions, Real.CritiqsAiOptions> = true;
 const handler: Same<Omit<Published.CritiqsHandler, never>, Omit<Real.CritiqsHandler, "store">> = true;
 
 test("critiqs/server's published types match the server", () => {
-  expect([options, optionNames, addressCheck, user, ai, handler]).toEqual([true, true, true, true, true, true]);
+  expect([options, optionNames, addressCheck, emailLinks, user, ai, handler]).toEqual([true, true, true, true, true, true, true]);
 });
