@@ -812,6 +812,33 @@ await step("22", "In the Mockup tab, start a thread on an element of the copy: c
   return `The mockup thread "Make this button green" opened in the Mockup panel. Panel text: "${text.slice(0, 260)}"`;
 });
 
+await step("22b", "Reload the page's tab while the Mockup tab is open: the Mockup tab says, on top of the copy, to click the Critiqs icon on the page; after that click the notice goes", async (shots) => {
+  await other.page.reload();
+  await mockupTab.bringToFront();
+  const notice = mockupTab.getByText("Click the Critiqs icon on the page");
+  await notice.waitFor({ timeout: 15_000 });
+  await Bun.sleep(500);
+  const box = (await notice.boundingBox())!;
+  // What a person sees at the notice's middle: the topmost element there, looking through Critiqs's shadow roots.
+  const topmost: string = await mockupTab.evaluate(({ x, y }: { x: number; y: number }) => {
+    let element = document.elementFromPoint(x, y);
+    while (element?.shadowRoot != null) {
+      const inner = element.shadowRoot.elementFromPoint(x, y);
+      if (inner === null || inner === element) break;
+      element = inner;
+    }
+    if (element === null) return "nothing";
+    return (element.textContent ?? "").includes("Click the Critiqs icon on the page") ? "the notice" : `<${element.tagName.toLowerCase()} class="${element.getAttribute("class") ?? ""}">`;
+  }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  await shoot("mockup-page-reloaded", shots);
+  if (topmost !== "the notice") throw new Error(`The notice is in the Mockup tab but hidden: the topmost element at its middle is ${topmost}.`);
+  await clickIcon(other);
+  await mockupTab.bringToFront();
+  await notice.waitFor({ state: "hidden", timeout: 15_000 });
+  await shoot("mockup-page-back", shots);
+  return "After the reload the Mockup tab shows \"Click the Critiqs icon on the page\" on top of the copy; after a click on the icon there, the notice goes";
+});
+
 await step("23", "Leave Mockup mode (V): the Mockup tab closes and the page's tab, with its side panel, is in front again", async (shots) => {
   await mockupTab.bringToFront();
   await mockupTab.locator("body").click({ position: { x: 5, y: 5 } }).catch(() => undefined);

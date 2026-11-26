@@ -39,7 +39,9 @@ This workspace is private: it isn't published to npm.
   beneath it. The tab freezes the page through a page layer of its own there
   and shows Critiqs's Mockup panel; Mockup threads are made there as when
   installed. Holding O to compare with the live page isn't offered there, and
-  leaving Mockup mode (V) closes the tab and goes back to the page.
+  leaving Mockup mode (V) closes the tab and goes back to the page. When the
+  page reloads, the Mockup tab says on top of the copy to click the Critiqs
+  icon on the page; the copy and its threads keep working meanwhile.
 
 | File | Runs in |
 | --- | --- |

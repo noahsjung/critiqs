@@ -82,7 +82,11 @@ function Signed({ deployment, session, chrome, tabId, projectId, request }: Conn
     <>
       <div ref={box} />
       {waiting && (
-        <Screen title="Click the Critiqs icon on the page" line="Mockup mode freezes the page in the tab you came from. Chrome lets Critiqs see it again after a click on the icon there." />
+        // Over the copy and Critiqs's panel, which fill the tab: the copy and its threads still work meanwhile.
+        <div className="xt-mockup-notice warning" role="status">
+          <strong>Click the Critiqs icon on the page</strong>
+          <span>Mockup mode freezes the page in the tab you came from. Chrome lets Critiqs see it again after a click on the icon there.</span>
+        </div>
       )}
     </>
   );
