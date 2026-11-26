@@ -324,7 +324,7 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
     if (parsed.releases.length === 0) notes.push(`${path}: no release`);
   }
   const read = (commit: string, path: string) => git(cwd, "show", `${commit}:${path}`).catch(() => null);
-  const { dependenciesOnly, shipped, packages } = await shippedChanges(cwd, mergeBase, head, diff, new Map(group.map((pkg) => [pkg.dir, pkg.name])), read);
+  const { dependenciesOnly, shipped, packages, reasons } = await shippedChanges(cwd, mergeBase, head, diff, new Map(group.map((pkg) => [pkg.dir, pkg.name])), read);
   if (notes.length === 0 && errors.length === 0) {
     // A dependency update that changes nothing a package ships, such as an
     // action's version or a test tool's, releases nothing and needs no note.
@@ -336,9 +336,10 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
       errors.push(`These dependency updates ship in ${packages.join(", ")}, so they need a patch note naming those packages, such as \`bun run changeset add --patch ${packages.join(",")} -m "Update <dependency> to <version>."\`:`,
         ...listed(shipped));
     }
+    errors.push(...reasons);
   }
   if (shipped.length > 0 && releases === 0 && errors.length === 0) {
-    errors.push("These files ship in Critiqs packages, so a no-release note does not cover them; add a patch, minor, or major note naming those packages:", ...listed(shipped));
+    errors.push("These files ship in Critiqs packages, so a no-release note does not cover them; add a patch, minor, or major note naming those packages:", ...listed(shipped), ...reasons);
   }
   return { ok: errors.length === 0, kind: "notes", messages: errors.length > 0 ? errors : notes };
 }

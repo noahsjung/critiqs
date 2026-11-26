@@ -97,28 +97,50 @@ the note, not whether the type is right.
 ### Dependency updates
 
 A pull request that only changes dependency versions (ranges in
-`package.json` files, `bun.lock` files, and the actions the workflows use)
-needs no note when none of the updates ships in a released package. Most of
-Dependabot's weekly pull requests are like that and pass as they are. An
-update ships when a package's users install it or a package's build puts its
-code in:
+`package.json` files, the versions `bun.lock` files resolve, and the actions
+the workflows use) needs no note when none of the updates
+ships in a released package. Most of Dependabot's weekly pull requests are
+like that and pass as they are. An update ships when a package's users
+install it, or a package's build puts its code in or runs it:
 
 - a `dependencies`, `peerDependencies`, or `optionalDependencies` range of a
   package under `packages/`; a private workspace's ranges ship in the released
   packages that bundle it;
-- a `devDependencies` package that a shipped file under `packages/` imports
-  and that the package doesn't leave to its users (`critiqs` bundles React from
-  its development dependencies), or whose command a package's build script
-  runs (such as `tsc` or `svelte-package`);
-- a version the root `bun.lock` resolves for any of these, or for what they
-  depend on, except what the package's users install themselves.
+- anything a package's build bundles into its published files, at any depth,
+  even when its users install it too (`critiqs` bundles `convex`, React, and
+  the AI SDK into its browser and server builds), as
+  [`scripts/bundled-dependencies.json`](../scripts/bundled-dependencies.json)
+  lists it;
+- the commands a package's build runs, such as `tsc` or `svelte-package`, and
+  what they depend on;
+- a version, registry, or integrity the root `bun.lock` records for any of
+  these, and a patch to one.
 
-Type packages, test tools, workspaces outside `packages/`, other projects'
-lockfiles (`site-src/bun.lock`), and actions ship nothing. For an update that
-ships, `release-notes` fails, lists the updates, names the packages, and
-suggests the command. Check out the pull request's branch, add that `patch`
-note with a summary such as "Update the AI SDK to 7.0.177.", and push it to
-the branch. A no-release note does not cover an update that ships.
+`scripts/bundled-dependencies.json` comes from the builds themselves.
+`bun scripts/bundled-dependencies.ts write` packs every released package the
+way publishing does (`npm pack`, or `release:build` for the gem and the Python
+packages) while Bun's bundler reports every file it reads, then reads the
+packed files back. For each package it lists the npm packages whose code its
+files hold, including a bundle another package built and it copies (the gem
+and the Python packages carry `critiqs`'s `element.js`), and the commands its
+build runs. `bun run test` runs the same with `check` and fails when a
+package's files take in anything the list leaves out, so after changing a
+build or what it bundles, run `write` and commit the file. The gate reads the
+list at both the pull request's base and its head, so removing a name never
+lets an update through, and counts every update as shipped in a package the
+list doesn't name.
+
+What the gate can't tell apart needs a note: a `bun.lock` change other than
+resolved versions and the workspaces' ranges (such as its overrides or
+trusted dependencies), a `bun.lock` it can't read, and any other file, such as
+`bunfig.toml` or `.npmrc`.
+
+Type packages, test tools, workspaces outside `packages/`, and other projects'
+lockfiles (`site-src/bun.lock`) ship nothing. For an update that ships,
+`release-notes` fails, lists the updates, names the packages, and suggests
+the command. Check out the pull request's branch, add that `patch` note with
+a summary such as "Update the AI SDK to 7.0.177.", and push it to the branch.
+A no-release note does not cover an update that ships.
 
 ## What CI checks
 

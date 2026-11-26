@@ -38,7 +38,12 @@ bun run check            # build, typecheck, and test every package, the release
 
 `bun run check` is `bun run typecheck` followed by `bun run test`. The test
 step includes `check:package`, which packs `critiqs` and `critiqs-react` and
-installs them in scratch React 18 and 19 apps under your system's temporary directory. If that
+installs them in scratch React 18 and 19 apps, and `check:bundled`, which packs
+every released package (the gem and Python packages too) and fails when one
+bundles a dependency that `scripts/bundled-dependencies.json` leaves out; after
+changing a package's build or what it bundles, run
+`bun scripts/bundled-dependencies.ts write` and commit that file. Both work
+under your system's temporary directory. If that
 directory is small or held in memory, point `TMPDIR` at a directory on disk
 outside the repository:
 
@@ -110,12 +115,13 @@ form.
 ### Dependency updates
 
 A pull request that only changes dependency versions needs no release note
-when none of the updates ships in a Critiqs package: actions, type packages,
-test tools, and the apps, examples, and site outside `packages/`. Most of
-Dependabot's weekly pull requests pass as they are.
+when none of the updates ships in a Critiqs package: type packages, test tools,
+and the apps, examples, and site outside `packages/`. Most of Dependabot's
+weekly pull requests pass as they are.
 
 When an update does ship (a range users install, or code a package's build
-bundles or runs), `release-notes` fails, lists the updates, and suggests a
+bundles or runs, at any depth, as `scripts/bundled-dependencies.json` lists
+it), `release-notes` fails, lists the updates, and suggests a
 `patch` note naming the packages. Push that note to the pull request's branch,
 for example:
 

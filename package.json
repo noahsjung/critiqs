@@ -9,11 +9,12 @@
   ],
   "scripts": {
     "typecheck": "bun run build && bun run --filter '*' typecheck",
-    "test": "bun run test:unit && bun run check:package",
+    "test": "bun run test:unit && bun run check:package && bun run check:bundled",
     "test:unit": "bun run --filter '*' test && bun run test:release",
     "check": "bun run typecheck && bun run test",
     "build": "bun run --filter './packages/*' build",
     "check:package": "bun scripts/check-package.ts",
+    "check:bundled": "bun scripts/bundled-dependencies.ts check",
     "test:release": "bun test ./scripts/",
     "changeset": "changeset",
     "check:consumers": "bun scripts/check-consumers.ts && bun run --filter './packages/*' check:consumer",

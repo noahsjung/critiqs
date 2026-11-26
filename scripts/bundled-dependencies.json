@@ -1,0 +1,111 @@
+{
+  "about": "Written by `bun scripts/bundled-dependencies.ts write` from each released package's real build: `bundles` lists the npm packages whose code is in its published files, `runs` the npm packages whose commands its build runs. The release notes gate reads it; `bun run test` fails when a build takes in something it leaves out.",
+  "packages": {
+    "critiqs": {
+      "bundles": [
+        "@ai-sdk/anthropic",
+        "@ai-sdk/gateway",
+        "@ai-sdk/google",
+        "@ai-sdk/openai",
+        "@ai-sdk/openai-compatible",
+        "@ai-sdk/provider",
+        "@ai-sdk/provider-utils",
+        "@vercel/oidc",
+        "@workflow/serde",
+        "ai",
+        "aws4fetch",
+        "convex",
+        "eventsource-parser",
+        "modern-screenshot",
+        "react",
+        "react-dom",
+        "scheduler",
+        "zod"
+      ],
+      "runs": [
+        "typescript"
+      ]
+    },
+    "critiqs-angular": {
+      "bundles": [],
+      "runs": []
+    },
+    "critiqs-astro": {
+      "bundles": [],
+      "runs": []
+    },
+    "critiqs-django": {
+      "bundles": [
+        "convex",
+        "modern-screenshot",
+        "react",
+        "react-dom",
+        "scheduler"
+      ],
+      "runs": []
+    },
+    "critiqs-flask": {
+      "bundles": [
+        "convex",
+        "modern-screenshot",
+        "react",
+        "react-dom",
+        "scheduler"
+      ],
+      "runs": []
+    },
+    "critiqs-vue": {
+      "bundles": [],
+      "runs": [
+        "typescript"
+      ]
+    },
+    "critiqs-nuxt": {
+      "bundles": [],
+      "runs": [
+        "typescript"
+      ]
+    },
+    "critiqs-rails": {
+      "bundles": [
+        "@ai-sdk/anthropic",
+        "@ai-sdk/gateway",
+        "@ai-sdk/google",
+        "@ai-sdk/openai",
+        "@ai-sdk/openai-compatible",
+        "@ai-sdk/provider",
+        "@ai-sdk/provider-utils",
+        "@vercel/oidc",
+        "@workflow/serde",
+        "ai",
+        "aws4fetch",
+        "convex",
+        "eventsource-parser",
+        "modern-screenshot",
+        "react",
+        "react-dom",
+        "scheduler",
+        "zod"
+      ],
+      "runs": [
+        "typescript"
+      ]
+    },
+    "critiqs-react": {
+      "bundles": [],
+      "runs": [
+        "typescript"
+      ]
+    },
+    "critiqs-solid": {
+      "bundles": [],
+      "runs": [
+        "typescript"
+      ]
+    },
+    "critiqs-svelte": {
+      "bundles": [],
+      "runs": []
+    }
+  }
+}
