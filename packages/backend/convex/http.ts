@@ -30,6 +30,7 @@ import {
 } from "./lib/pages";
 import { linkSecret } from "./lib/links";
 import { developerEmailSetup } from "./onboarding";
+import { threadPageWebsite } from "./notifications";
 import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadSnapshot } from "./captureHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
@@ -90,7 +91,8 @@ http.route({
       // `reviewAccess`: projects report who can review them (`reviewAccess` on projects), and their owners
       // limit them to their organization's members (`projects:setReviewAccess`).
       // `threadPages`: thread pages (`threads:page`, `threads:pageKey`, `threadPage` on `threads:reply`, and
-      // `/capture?threadPage=<key>`).
+      // `/capture?threadPage=<key>`). `website`: the Critiqs website that serves them for this deployment, where
+      // **Share** and emails link (`<website>/t/<key>`); absent without `CRITIQS_WEB_URL`, where they link to the prototype.
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
@@ -113,6 +115,7 @@ http.route({
         overageCap: true,
         reviewAccess: true,
         threadPages: true,
+        ...(threadPageWebsite() === null ? {} : { website: threadPageWebsite() }),
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,

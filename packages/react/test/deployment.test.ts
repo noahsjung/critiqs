@@ -139,3 +139,14 @@ test("offers paying for plans only where the backend reports it", async () => {
   expect((await resolveDeployment("https://team.convex.cloud", config(true))).billing).toBe(true);
   expect((await resolveDeployment("https://team.convex.cloud", config(undefined))).billing).toBe(false);
 });
+
+test("links Share to thread pages only where the backend reports them and the website that serves them", async () => {
+  const config = (extra: Record<string, unknown>) =>
+    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, ...extra })) as unknown as typeof fetch;
+  const website = async (extra: Record<string, unknown>) => (await resolveDeployment("https://team.convex.cloud", config(extra))).website;
+  expect(await website({ threadPages: true, website: "https://critiqs.example" })).toBe("https://critiqs.example");
+  expect(await website({ threadPages: true, website: "https://critiqs.example/app/" })).toBe("https://critiqs.example/app/");
+  expect(await website({ threadPages: true })).toBeUndefined();
+  expect(await website({ website: "https://critiqs.example" })).toBeUndefined();
+  for (const odd of ["javascript:alert(1)", "not a url", 42, "ftp://critiqs.example"]) expect(await website({ threadPages: true, website: odd })).toBeUndefined();
+});

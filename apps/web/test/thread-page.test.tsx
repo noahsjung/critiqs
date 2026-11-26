@@ -383,6 +383,23 @@ describe("loading a thread page's image from Convex", () => {
   };
   const token = async () => "token";
 
+  test("the page key goes in a request header, never in the image's address, which servers and their logs record", async () => {
+    const original = globalThis.fetch;
+    const asked: { url: string; headers: Headers }[] = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      asked.push({ url: String(url), headers: new Headers(init?.headers) });
+      return new Response(new Uint8Array([137]), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      await convexBackend({} as never, null, { siteUrl: "https://site.example", getToken: token }).loadThreadPageCapture(KEY);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(asked.map((each) => each.url)).toEqual(["https://site.example/capture"]);
+    expect(asked[0]!.headers.get("X-Critiqs-Thread-Page")).toBe(KEY);
+    expect(asked[0]!.headers.get("Authorization")).toBe("Bearer token");
+  });
+
   test("none to give (404) is no image; other failures, and a sign-in that can't refresh, can be tried again", async () => {
     expect(await load(token, async () => new Response("", { status: 404 }))).toBeNull();
     expect(await load(token, async () => new Response(new Uint8Array([137]), { status: 200 }))).toBeInstanceOf(Blob);
@@ -390,4 +407,11 @@ describe("loading a thread page's image from Convex", () => {
     await expect(load(token, async () => Promise.reject(new TypeError("offline")))).rejects.toThrow();
     await expect(load(async () => null, async () => new Response(new Uint8Array([137]), { status: 200 }))).rejects.toThrow();
   });
+});
+
+test("the website sends only its origin as the referrer, so a page key never leaves in one, even to its own address", async () => {
+  // A host can keep /t/<key> out of its logs (docs/technical-direction.md, "Thread page links"), but the page's own
+  // requests, such as its scripts, would still name the page in their Referer under the browser's default policy.
+  const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
+  expect(html).toContain('<meta name="referrer" content="strict-origin" />');
 });

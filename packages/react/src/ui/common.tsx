@@ -279,10 +279,30 @@ export function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: num
   );
 }
 
-/** Copies text, falling back for browsers that block the asynchronous clipboard. */
-export async function copyText(text: string): Promise<void> {
+/**
+ * Copies text, and says whether the browser let it: false when it refused.
+ * Text still on its way, such as a link the backend makes, fails the copy
+ * with its own error if it fails.
+ */
+export async function copyText(text: string | Promise<string>): Promise<boolean> {
+  if (typeof text !== "string") {
+    // Safari copies only while the click is being handled, so the clipboard is handed the text as a promise there.
+    if (typeof ClipboardItem !== "undefined" && typeof navigator.clipboard?.write === "function") {
+      const blob = text.then((value) => new Blob([value], { type: "text/plain" }));
+      // The text's own failure is reported below, from `text`.
+      blob.catch(() => undefined);
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+        return true;
+      } catch {
+        // A browser that takes no promise: copy once the text is here, below.
+      }
+    }
+    text = await text;
+  }
   try {
     await navigator.clipboard.writeText(text);
+    return true;
   } catch {
     const field = document.createElement("textarea");
     field.value = text;
@@ -290,8 +310,14 @@ export async function copyText(text: string): Promise<void> {
     field.style.opacity = "0";
     document.body.appendChild(field);
     field.select();
-    document.execCommand("copy");
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
     field.remove();
+    return copied;
   }
 }
 

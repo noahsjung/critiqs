@@ -1,7 +1,7 @@
-import { isPrivateReviewAddress, MAX_REVIEW_URL_LENGTH, reviewLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
+import { isPrivateReviewAddress, MAX_REVIEW_URL_LENGTH, reviewLink, threadPageLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { useQuota } from "./limits.ts";
-import { canReview, projectQuota } from "./organizations.ts";
+import { canOpenThreadPage, canReview, projectQuota } from "./organizations.ts";
 import { type EmailEntry, type EmailHeader, type EmailImage, emailImage, MentionEmail } from "./mention-email.ts";
 import { MailError, type MailMessage } from "./signin.ts";
 import type { NotificationRecord, ProjectRecord, Store, StoredMention, ThreadRecord } from "./store.ts";
@@ -120,6 +120,38 @@ export async function queueFollowerScan(store: Store, thread: ThreadRecord, now:
     stage: "scan",
     cursor: null,
   });
+}
+
+/** A new page key: 128 random bits, as 22 base64url characters. */
+export function newThreadPageKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * A thread's page key, made the first time it is shared or emailed if the
+ * thread is older than thread pages. A thread from before followers were
+ * recorded also has the email worker record them, so the people in it can
+ * open the page.
+ */
+export async function ensureThreadPageKey(store: Store, thread: ThreadRecord, now: number): Promise<string> {
+  if (thread.pageKey !== undefined) return thread.pageKey;
+  const pageKey = newThreadPageKey();
+  await store.threads.patch(thread._id, { pageKey });
+  await queueFollowerScan(store, thread, now);
+  return pageKey;
+}
+
+/**
+ * Makes the page key of a held delivery's thread, if it is older than thread
+ * pages, so its email can link to the page. One delivery at a time, so each
+ * step reads one thread, however large.
+ */
+export async function makeDeliveryPageKey(store: Store, args: { id: string; claimToken: string }, now: number): Promise<void> {
+  const delivery = await store.deliveries.get(args.id);
+  if (delivery === null || delivery.status !== "sending" || delivery.claimToken !== args.claimToken) return;
+  const thread = await store.threads.get(delivery.threadId);
+  if (thread !== null && thread.status !== "deleted") await ensureThreadPageKey(store, thread, now);
 }
 
 /**
@@ -370,6 +402,16 @@ export const MAX_LINK_LENGTH = MAX_REVIEW_URL_LENGTH + 100;
 const MAX_RESTARTS = 3;
 
 /**
+ * Where a deployment's emails link a thread: `website` is the Critiqs website
+ * that serves this deployment's thread pages, and emails link to the thread's
+ * page there (`<website>/t/<key>`). Without one, they link to the project's
+ * review address, as before thread pages.
+ */
+export interface EmailLinks {
+  website?: string | null;
+}
+
+/**
  * Takes up to `limit` deliveries that are ready, marking them as held by this
  * worker's `claimToken` for a while. A delivery that has used all its
  * attempts is given up instead. Returns the claimed IDs.
@@ -402,6 +444,10 @@ export type DeliveryStart =
   /** Another worker holds it now. */
   | { kind: "lost" }
   | { kind: "skip"; reason: string }
+  /** Its thread, older than thread pages, needs its page key first (`makeDeliveryPageKey`); then begin again. */
+  | { kind: "page-key" }
+  /** Not ready to go out yet: tried again a minute later, without using an attempt. */
+  | { kind: "wait"; reason: string }
   /** Already prepared: send the stored request if one of `mentionIds` still mentions the reviewer. */
   | { kind: "prepared"; fileId: string; idempotencyKey: string; mentionIds: string[] }
   /** Prepared before emails were stored as files. */
@@ -420,7 +466,7 @@ export async function beginDelivery(
     claimToken: string;
     /** A signed mute (one project) or unsubscribe (all) link for a reviewer. */
     preferenceUrl: (scope: LinkScope) => Promise<string>;
-  },
+  } & EmailLinks,
 ): Promise<DeliveryStart> {
   const delivery = await store.deliveries.get(args.id);
   if (delivery === null || delivery.status !== "sending" || delivery.claimToken !== args.claimToken) return { kind: "lost" };
@@ -442,6 +488,19 @@ export async function beginDelivery(
   if (sentTo !== undefined && sentTo !== recipient.email) return { kind: "skip", reason: "The reviewer's email address changed." };
   if (delivery.payload !== undefined) return { kind: "prepared", fileId: delivery.payload.fileId, idempotencyKey, mentionIds };
   if (delivery.message !== undefined) return { kind: "legacy", message: { ...delivery.message, idempotencyKey }, mentionIds };
+  // With a website for thread pages, the email links to the thread's page, once its recipient can open it.
+  let page: string | null = null;
+  if (args.website) {
+    if (thread.pageKey === undefined) return { kind: "page-key" };
+    if (await canOpenThreadPage(store, project, thread, recipient._id)) page = threadPageLink(args.website, thread.pageKey);
+    // In a thread from before people in it were recorded, its people get in once the worker has recorded them, which
+    // it does a page of the discussion per step before each run's emails, within minutes: wait for that. Past an hour,
+    // something has stopped it, and anyone the page still wouldn't let in gets the prototype's link, as before thread
+    // pages, rather than one that wouldn't open.
+    else if (thread.followersReady !== true && Date.now() - delivery.createdAt < MAX_WAIT_MS) {
+      return { kind: "wait", reason: "Waiting until the thread's page opens for its recipient." };
+    }
+  }
   const capture = thread.capture;
   const info = capture.status === "failed" ? null : await store.files.info(capture.fileId);
   return {
@@ -471,6 +530,7 @@ export async function beginDelivery(
               },
       mute: await args.preferenceUrl({ userId: recipient._id, projectId: project._id }),
       unsubscribe: await args.preferenceUrl({ userId: recipient._id, projectId: null }),
+      ...(page === null ? {} : { threadPage: page }),
     },
   };
 }
@@ -593,6 +653,8 @@ export interface DeliverySteps {
   allowed(): Promise<boolean>;
   page(args: { version: string; cursor: string | null }): Promise<DiscussionPage>;
   stillMentions(messageId: string): Promise<boolean>;
+  /** See `makeDeliveryPageKey`. */
+  pageKey(): Promise<void>;
   freeze(args: { version: string; fileId: string; to: string }): Promise<"frozen" | "changed" | "lost">;
   /** A stored file, or null if there is none. Throws when storage can't be reached. */
   readFile(fileId: string): Promise<Blob | null>;
@@ -604,14 +666,31 @@ export interface DeliverySteps {
 }
 
 /** How sending went; null when another worker took the delivery over. */
-export type DeliveryOutcome = { result: "sent" | "skipped" | "failed"; reason?: string } | null;
+export type DeliveryOutcome = { result: DeliveryResult; reason?: string } | null;
+
+/** How a delivery's try ended: `deferred` when it wasn't ready to go out, tried again soon without using an attempt. */
+export type DeliveryResult = "sent" | "skipped" | "failed" | "deferred";
+
+/** How long an email that isn't ready yet waits before it is tried again. */
+const DEFER_MS = 60_000;
+/** How long an email waits, from when it was first owed, for its thread's people to be recorded. */
+const MAX_WAIT_MS = 60 * 60_000;
 
 /** Sends one claimed delivery: prepares and stores its email the first time, then sends that stored email. */
 export async function deliverOne(steps: DeliverySteps): Promise<DeliveryOutcome> {
+  let madeKey = false;
   for (let restarts = 0; ; restarts++) {
     const start = await steps.begin();
     if (start.kind === "lost") return null;
     if (start.kind === "skip") return { result: "skipped", reason: start.reason };
+    if (start.kind === "wait") return { result: "deferred", reason: start.reason };
+    if (start.kind === "page-key") {
+      if (madeKey) return { result: "failed", reason: "The thread's page link couldn't be made." };
+      await steps.pageKey();
+      madeKey = true;
+      restarts--;
+      continue;
+    }
     if (start.kind === "prepared" || start.kind === "legacy") {
       if (!(await anyStillMentions(steps, start.mentionIds))) return { result: "skipped", reason: "The mention was removed." };
       // Each send checks access right before it; finishing as skipped discards the prepared email.
@@ -721,12 +800,17 @@ function messageLink(project: ProjectRecord, messageId: string, threadId: string
  */
 export async function completeDeliveries(
   store: Store,
-  outcomes: { deliveryId: string; claimToken: string; result: "sent" | "skipped" | "failed"; reason?: string }[],
+  outcomes: { deliveryId: string; claimToken: string; result: DeliveryResult; reason?: string }[],
   now: number,
 ): Promise<void> {
   for (const outcome of outcomes) {
     const delivery = await store.deliveries.get(outcome.deliveryId);
     if (delivery === null || delivery.status !== "sending" || delivery.claimToken !== outcome.claimToken) continue;
+    if (outcome.result === "deferred") {
+      // The claim counted an attempt that never reached the mail service; it is given back.
+      await store.deliveries.patch(delivery._id, { status: "pending", dueAt: now + DEFER_MS, attempts: Math.max(0, delivery.attempts - 1), reason: outcome.reason });
+      continue;
+    }
     const final = outcome.result !== "failed" || delivery.attempts >= MAX_ATTEMPTS;
     if (outcome.result === "sent") {
       await store.deliveries.patch(delivery._id, { status: "sent", finishedAt: now });

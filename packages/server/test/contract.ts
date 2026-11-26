@@ -438,6 +438,8 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     readFile?: (fileId: string, read: () => Promise<Blob | null>) => Promise<Blob | null>;
     /** Sees each request before it counts as sent; throws to fail it. */
     send?: (body: Blob, idempotencyKey: string) => Promise<void>;
+    /** The website that serves this deployment's thread pages, as a backend configured with one passes it. */
+    website?: string;
   }
 
   /** Claims due deliveries and sends each through the shared steps, as a backend's worker does, without completing them. */
@@ -447,11 +449,13 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     const sends: { deliveryId: string; message: MailMessage; body: string }[] = [];
     const skipped: { deliveryId: string; reason: string }[] = [];
     const failed: { deliveryId: string; reason: string }[] = [];
+    const deferred: { deliveryId: string; reason: string }[] = [];
     for (const id of ids) {
       let pages = 0;
       let checks = 0;
       const outcome = await notify.deliverOne({
-        begin: () => backend.run((store) => notify.beginDelivery(store, { id, claimToken: token, ...links })),
+        begin: () =>
+          backend.run((store) => notify.beginDelivery(store, { id, claimToken: token, ...links, ...(hooks.website === undefined ? {} : { website: hooks.website }) })),
         allowed: async () => {
           await hooks.beforeAllowed?.(++checks);
           return await backend.run((store) => notify.deliveryAllowed(store, { id, claimToken: token }));
@@ -462,6 +466,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
           return page;
         },
         stillMentions: (messageId) => backend.run((store) => notify.stillMentions(store, { id, claimToken: token, messageId })),
+        pageKey: () => backend.run((store) => notify.makeDeliveryPageKey(store, { id, claimToken: token }, now)),
         freeze: async (args) => {
           await hooks.beforeFreeze?.();
           return await backend.run((store) => notify.freezeDelivery(store, { id, claimToken: token, ...args }));
@@ -478,8 +483,9 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
       });
       if (outcome?.result === "skipped") skipped.push({ deliveryId: id, reason: outcome.reason! });
       if (outcome?.result === "failed") failed.push({ deliveryId: id, reason: outcome.reason! });
+      if (outcome?.result === "deferred") deferred.push({ deliveryId: id, reason: outcome.reason! });
     }
-    return { ids, sends, skipped, failed };
+    return { ids, sends, skipped, failed, deferred };
   }
 
   /** A small valid PNG, or one of `size` bytes. */
@@ -839,6 +845,162 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(text).toContain(`Open: https://proto.example/app/?critiqs=${legacyThread}.`);
     expect(text).not.toContain("xxxxxxxxxx");
     expect(text).not.toContain("https://proto.example/?critiqs");
+  });
+
+  /**
+   * A project with a review address where Lee and Riley have commented, so
+   * they can be mentioned; Dana is its owner.
+   */
+  async function reviewedProject(backend: ContractBackend) {
+    const riley = reviewer("Riley");
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype", reviewUrl: "https://proto.example/app" }));
+    const started: string[] = [];
+    for (const who of [lee, riley]) {
+      started.push(await backend.run((store) => ops.createThread(store, who, { projectId, anchor, body: `${who.name} was here`, tags: [], capture: failed })));
+    }
+    return { projectId, riley, leeThread: started[0]!, rileyThread: started[1]!, leeId: await idOf(backend, lee), rileyId: await idOf(backend, riley) };
+  }
+
+  const WEBSITE = "https://critiqs.example/app/";
+  const pageKeyOf = async (backend: ContractBackend, threadId: string) => (await backend.run((store) => store.threads.get(threadId)))!.pageKey;
+  const threadOf = async (backend: ContractBackend, deliveryId: string) => (await backend.run((store) => store.deliveries.get(deliveryId)))!.threadId;
+
+  test(`${name}: with a website, mention, reply, and edit emails link to the thread's page instead of the prototype`, async () => {
+    const backend = fresh();
+    const { projectId, riley, leeId, rileyId, leeThread: replied, rileyThread: edited } = await reviewedProject(backend);
+    // A new comment that mentions Lee.
+    const started = await backend.run((store) =>
+      ops.createThread(store, dana, { projectId, anchor, body: "@Lee look here", tags: [], capture: failed, mentions: [mention(leeId, "Lee")] }),
+    );
+    // A reply that mentions Riley, in a thread Lee started: Lee gets the reply email.
+    await backend.run((store) => ops.reply(store, dana, { threadId: replied, body: "@Riley can you check?", revision: null, mentions: [mention(rileyId, "Riley")] }));
+    // An edit that newly mentions Lee, in a thread Riley started.
+    const messageId = await backend.run((store) => ops.reply(store, dana, { threadId: edited, body: "Looks fine", revision: null }));
+    await backend.run((store) => ops.editMessage(store, dana, { messageId, body: "@Lee looks fine?", mentions: [mention(leeId, "Lee")] }));
+
+    const { sends, failed: failures } = await sendDue(backend, Date.now() + notify.GATHER_MS + 60_000, "worker", { website: WEBSITE });
+    expect(failures).toEqual([]);
+    const byThread = new Map<string, MailMessage[]>();
+    for (const send of sends) {
+      const threadId = await threadOf(backend, send.deliveryId);
+      byThread.set(threadId, [...(byThread.get(threadId) ?? []), send.message]);
+    }
+    // Lee: the new comment's mention, the reply in Lee's thread, and the edit's mention. Riley: the mention in Lee's
+    // thread, and the reply in Riley's own.
+    expect(sends.map((send) => send.message.to).sort()).toEqual(["lee@example.com", "lee@example.com", "lee@example.com", "riley@example.com", "riley@example.com"]);
+    expect(sends.map((send) => send.message.subject.split(":")[0]).sort()).toEqual(["Dana mentioned you", "Dana mentioned you", "Dana mentioned you", "Dana replied", "Dana replied"]);
+    expect([...byThread.keys()].sort()).toEqual([started, replied, edited].sort());
+    for (const [threadId, messages] of byThread) {
+      const key = await pageKeyOf(backend, threadId);
+      expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      const link = `https://critiqs.example/app/t/${key}`;
+      for (const message of messages) {
+        expect(message.text).toContain(`Open the comment: ${link}\n`);
+        expect(message.html).toContain(`<a href="${link}"`);
+        // The page shows the whole thread, so no comment repeats a link of its own, and none goes to the prototype.
+        expect(message.html).not.toContain("Open this comment");
+        expect(message.text).not.toContain("Open: ");
+        expect(`${message.text}${message.html}`).not.toContain("critiqs=");
+        expect(`${message.text}${message.html}`).not.toContain("proto.example");
+        expect(`${message.text}${message.html}`).not.toContain(threadId);
+      }
+    }
+    void riley;
+  });
+
+  test(`${name}: an older thread gets its page key when it is emailed, the one Share gives, which opens the page for the person emailed`, async () => {
+    const backend = fresh();
+    const { projectId, leeId } = await reviewedProject(backend);
+    const danaId = await idOf(backend, dana);
+    const at = Date.now() - 60_000;
+    // Saved before thread pages and reply emails: no page key, no record of who is in it.
+    const older = async () =>
+      await backend.run(async (store) => {
+        const id = await store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: at, lastMessageAt: at, messageCount: 1 });
+        await store.messages.insert({ threadId: id, authorId: danaId, body: "Old question", createdAt: at, editedAt: null, revision: null });
+        return id;
+      });
+    // Without a website, emailing it makes no key and links to the prototype, as before.
+    const before = await older();
+    await backend.run((store) => ops.reply(store, dana, { threadId: before, body: "@Lee still?", revision: null, mentions: [mention(leeId, "Lee")] }));
+    const plain = await sendDue(backend, Date.now() + notify.GATHER_MS + 60_000, "plain");
+    expect(plain.sends).toHaveLength(1);
+    expect(plain.sends[0]!.message.text).toContain(`https://proto.example/app?critiqs=${before}.`);
+    expect(await pageKeyOf(backend, before)).toBeUndefined();
+
+    const threadId = await older();
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "@Lee what do you think?", revision: null, mentions: [mention(leeId, "Lee")] }));
+    expect(await pageKeyOf(backend, threadId)).toBeUndefined();
+    const { sends } = await sendDue(backend, Date.now() + notify.GATHER_MS + 120_000, "worker", { website: WEBSITE });
+    expect(sends).toHaveLength(1);
+    const key = await pageKeyOf(backend, threadId);
+    expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(sends[0]!.message.text).toContain(`Open the comment: https://critiqs.example/app/t/${key}\n`);
+    // Share gives the same key, and the page opens for Lee, who was mentioned.
+    expect(await backend.run((store) => ops.threadPageKey(store, dana, { threadId }))).toBe(key!);
+    const opened = await backend.run((store) => ops.getThreadPage(store, lee, { key: key! }, page));
+    expect(opened.page.map((message) => message.body)).toEqual(["Old question", "@Lee what do you think?"]);
+  });
+
+  /**
+   * A thread from before page keys and before people in threads were recorded, where Lee was mentioned then, and an
+   * email to Lee about it still waiting, as one queued before the upgrade.
+   */
+  async function legacyMention(backend: ContractBackend, attempts = 0, at = Date.now() - 60_000) {
+    const { projectId, leeId } = await reviewedProject(backend);
+    const danaId = await idOf(backend, dana);
+    return await backend.run(async (store) => {
+      const threadId = await store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: at, lastMessageAt: at, messageCount: 1 });
+      const messageId = await store.messages.insert({ threadId, authorId: danaId, body: "@Lee old question", createdAt: at, editedAt: null, revision: null, mentions: [{ userId: leeId, label: "Lee" }] });
+      const deliveryId = await store.deliveries.insert({ recipientId: leeId, projectId, threadId, status: "pending", attempts, dueAt: at, createdAt: at });
+      await store.notifications.insert({ deliveryId, recipientId: leeId, messageId, authorId: danaId, createdAt: at });
+      return { threadId, deliveryId };
+    });
+  }
+
+  test(`${name}: an email links to the page only once its recipient can open it, waiting for an older thread's people to be recorded`, async () => {
+    const backend = fresh();
+    // On its last attempt, so waiting must neither use it up nor give up on the page link.
+    const { threadId, deliveryId } = await legacyMention(backend, notify.MAX_ATTEMPTS - 1);
+    const now = Date.now() + 60_000;
+    // The key is made as the email starts, but who is in the thread isn't recorded yet, so Lee couldn't open the page.
+    const first = await sendDue(backend, now, "first", { website: WEBSITE });
+    expect(first.sends).toEqual([]);
+    expect(first.failed).toEqual([]);
+    expect(first.deferred).toEqual([{ deliveryId, reason: "Waiting until the thread's page opens for its recipient." }]);
+    const key = await pageKeyOf(backend, threadId);
+    expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    await expect(backend.run((store) => ops.getThreadPage(store, lee, { key: key! }, page))).rejects.toThrow("This thread doesn't exist, or you can't open it.");
+    await backend.run((store) => notify.completeDeliveries(store, [{ deliveryId, claimToken: "first", result: "deferred", reason: first.deferred[0]!.reason }], now));
+    // Waiting costs no attempt, and the email is tried again a minute later, not after the mail service's pauses.
+    expect(await backend.run((store) => store.deliveries.get(deliveryId))).toMatchObject({ status: "pending", attempts: notify.MAX_ATTEMPTS - 1, dueAt: now + 60_000 });
+    // The worker records who is in the thread before its next try, and Lee's link then opens.
+    const second = await sendDue(backend, now + 60_000, "second", { website: WEBSITE });
+    expect(second.sends).toHaveLength(1);
+    expect(second.sends[0]!.message.text).toContain(`Open the comment: https://critiqs.example/app/t/${key}\n`);
+    expect((await backend.run((store) => ops.getThreadPage(store, lee, { key: key! }, page))).page.map((message) => message.body)).toEqual(["@Lee old question"]);
+  });
+
+  test(`${name}: an email that has waited an hour for its thread's people stops waiting and links to the prototype`, async () => {
+    const backend = fresh();
+    // Owed for two hours: recording a thread's people takes minutes, so something has stopped it.
+    const { threadId, deliveryId } = await legacyMention(backend, 0, Date.now() - 2 * 60 * 60_000);
+    const { sends, deferred } = await sendDue(backend, Date.now() + 60_000, "worker", { website: WEBSITE });
+    expect(deferred).toEqual([]);
+    expect(sends.map((send) => send.deliveryId)).toEqual([deliveryId]);
+    expect(sends[0]!.message.text).toContain(`Open the comment: https://proto.example/app?critiqs=${threadId}.`);
+  });
+
+  test(`${name}: someone the page wouldn't let in, once its people are recorded, gets the prototype's link rather than one that wouldn't open`, async () => {
+    const backend = fresh();
+    const { threadId, deliveryId } = await legacyMention(backend);
+    // Recorded, but without Lee: as if Lee's mention had been lost from the record.
+    await backend.run((store) => store.threads.patch(threadId, { followersReady: true }));
+    const { sends, deferred } = await sendDue(backend, Date.now() + 60_000, "worker", { website: WEBSITE });
+    expect(deferred).toEqual([]);
+    expect(sends.map((send) => send.deliveryId)).toEqual([deliveryId]);
+    expect(sends[0]!.message.text).toContain(`Open the comment: https://proto.example/app?critiqs=${threadId}.`);
+    expect(sends[0]!.message.text).not.toContain("critiqs.example/app/t/");
   });
 
   test(`${name}: an email shows the whole discussion in order, beyond one page, with authors, times, and links`, async () => {

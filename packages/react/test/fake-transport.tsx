@@ -55,6 +55,8 @@ export interface FakeBackend {
   reply?: (args: { threadId: string; body: string; mentions: { userId: string; label: string }[] }) => Promise<string>;
   /** Deleting a thread; without it, deleting succeeds. */
   removeThread?: (threadId: string) => Promise<void>;
+  /** A thread's page key, for Share on a backend with thread pages; without it, the call is refused as on an older backend. */
+  threadPageKey?: (threadId: string) => Promise<string>;
   participants?: ParticipantInfo[];
   /** Plan usage shown to the project's owner; none by default, as on a backend without plans. */
   usage?: ProjectUsage | null;
@@ -155,6 +157,11 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     attachScreenshot: none,
     markRead: async (args) => void backend.calls?.push({ name: "markRead", args }),
     markUnread: none,
+    threadPageKey: async (threadId) => {
+      backend.calls?.push({ name: "threadPageKey", args: { threadId } });
+      if (backend.threadPageKey === undefined) throw new Error("Could not find public function for 'threads:pageKey'.");
+      return await backend.threadPageKey(threadId);
+    },
     exportThreads: (projectId, threadIds, cancelled) =>
       loadExport(() => backend.exportPage?.() ?? Promise.reject(new Error("No export")), projectId, threadIds, cancelled),
     loadCapture: async () => null,

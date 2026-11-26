@@ -351,14 +351,74 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   0.3.x and earlier read the thread and its project ID (`threads:get`), its
   capture, and reply. New threads get a key; an older thread gets one the
   first time someone shares it (`threads:pageKey`, `threadPageKey`), which
-  anyone who may review the thread may do. The key opens only the page, so
-  it grants nothing the rule above doesn't.
+  anyone who may review the thread may do, or the first time it is emailed
+  (below). The key opens only the page, so it grants nothing the rule above
+  doesn't.
+- **Where links go.** On a Convex deployment with `CRITIQS_WEB_URL` set,
+  mention and reply emails, and **Copy link** in the thread window, link to
+  the thread's page there instead of the prototype. `/critiqs/config`
+  reports that address as `website`, beside `threadPages`. Without it (a
+  team's own deployment unless it sets one, and every self-hosted server,
+  whose `webUrl` is only for setup emails), they link to the prototype as
+  before.
+  - **Emails.** The email's one link, **Open the comment**, opens the page,
+    and comments carry no links of their own, since the page shows the whole
+    thread. An email whose thread is older than thread pages first makes its
+    key, in a step of its own (`makeDeliveryPageKey`, one thread per
+    transaction), which queues the scan of who is in the thread as **Share**
+    does. The email links to the page only once its recipient can open it
+    (`canOpenThreadPage`): the people emailed are in the thread (mentioned, or
+    followers, which reply emails need), but in a thread from before people
+    in threads were recorded, they get in only once that scan has run (the
+    worker runs it, a page of the discussion per step, before each run's
+    emails, within minutes), so the email waits for it: it goes back in line
+    at once and is tried again a minute later (`deferred`), and waiting uses
+    none of its attempts at the mail service. Past an hour from when it was
+    first owed, something has stopped the scan, so the email stops waiting.
+    Anyone the page still wouldn't let in then, or once the thread's people
+    are recorded, gets the prototype's link, as before, rather than a link
+    that wouldn't open. An email already prepared is sent unchanged under its key,
+    as every retry is, since the mail service may have received it.
+  - **Only an origin.** The website serves pages at `/t/<key>` on its own
+    origin, so a `CRITIQS_WEB_URL` with a path (such as
+    `https://critiqs.example/reviews`) turns no page links on; setup emails
+    still use it as before.
+  - **Copy link.** The thread window asks for the key (`threads:pageKey`) and
+    copies `<website>/t/<key>`. It hands the clipboard the link while it is
+    still on its way, so browsers that copy only during the click, such as
+    Safari, still copy it. A refused key says why and copies nothing; a
+    browser that refuses to copy gets the link shown instead of "copied". **Copy link to message** still opens the prototype
+    at that message, since a page shows the whole thread. The Chrome
+    extension's panel is the same panel, so it follows.
+- **Keeping keys out of logs.** A key opens the page for anyone the page lets
+  in, so it shouldn't sit in records many people can read.
+  - The website asks for the page's image with the key in a header
+    (`X-Critiqs-Thread-Page` on `/capture`), not the address, which request
+    logs record; both backends still accept `?threadPage=<key>`. A backend
+    from before the header answers it `400 Missing threadId`, and its CORS
+    answer doesn't allow the header, so deploy the backend before the
+    website.
+  - The website's HTML sets `<meta name="referrer" content="strict-origin">`,
+    so its own requests, such as for its scripts, carry only its origin, never
+    `/t/<key>`.
+  - The website app logs no addresses, and `threads:page` and replies pass the
+    key as a function argument, which Convex doesn't log.
+  - The page's own request, `GET /t/<key>`, still reaches the website's host,
+    and no code can keep it out of that host's request log. Where the website
+    is hosted on Vercel: send no log drain from the website's project, or
+    filter `/t/` paths out of it at the destination; keep its log retention
+    at the plan's default; don't turn on Web Analytics or Speed Insights for
+    it, which record page paths, unless their `beforeSend` replaces
+    `/t/<key>` with `/t`; and let only the people who run it see its logs.
+    Keeping the key out of the request entirely would mean a link that holds
+    it after `#`, a change to `threadPageLink` that is not made.
 - **Reading.** `threads:page` (Convex, paginated like `threads:get`) and the
   self-hosted `threadPage` call return the thread as `threads:get` does, plus
   the project's name, its review address, and the anchor's page and screen
   for **Open in prototype** (`ThreadPageDetail`). The image downloads from
-  `/capture?threadPage=<key>`, checked like the page before storage is read
-  and again once it has answered, as `/capture?threadId=` is.
+  `/capture` with the key in the `X-Critiqs-Thread-Page` header (or
+  `?threadPage=<key>`), checked like the page before storage is read and
+  again once it has answered, as `/capture?threadId=` is.
 - **Replying.** From the page, replies go through `threads:reply` (`reply`)
   with `threadPage: true`, which applies the page's rule instead of the
   project's, and gives someone signed out the page's one answer; without it,
@@ -379,7 +439,7 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   page, "This comment isn't available", which says to sign in with another
   address or ask to be added, and never whether the thread exists. A deleted
   thread says so, as the backend tells only those who could open it.
-  Otherwise it shows the capture (through `/capture?threadPage=`), the
+  Otherwise it shows the capture (through `/capture`, key in a header), the
   discussion live, with names, times, mentions, and hashtags as the panel
   draws them (its `MessageBody`, `Avatar`, and time format, imported from
   `packages/react/src` as the rest of `apps/web` is), the thread's tags, its

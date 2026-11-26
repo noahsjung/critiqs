@@ -10,7 +10,7 @@ import { readUploadBody, storeUpload } from "./uploads";
 export const CAPTURE_CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Critiqs-Thread-Page",
   Vary: "Authorization",
 };
 
@@ -69,7 +69,7 @@ const DOWNLOAD_HEADERS = {
 
 /**
  * A thread's image, by its thread's ID (`threadId`) or by its thread page's
- * key (`threadPage`), each after the same checks as reading the thread or
+ * key (the `X-Critiqs-Thread-Page` header, or `threadPage`), each after the same checks as reading the thread or
  * opening the page. Access is checked before a file is fetched and again once
  * it has been, right before any of it is returned: access, or the file
  * itself, can change while storage answers. A thread's image is returned only
@@ -79,7 +79,8 @@ export const downloadCapture = httpAction(async (ctx, request): Promise<Response
   try {
     const params = new URL(request.url).searchParams;
     const threadId = params.get("threadId");
-    const key = params.get("threadPage");
+    // The website sends a page key in a header, keeping it out of the address, which request logs record.
+    const key = request.headers.get("X-Critiqs-Thread-Page") ?? params.get("threadPage");
     if (threadId === null && key === null) return new Response("Missing threadId", { status: 400, headers: CAPTURE_CORS });
     const authorized = async () =>
       key !== null

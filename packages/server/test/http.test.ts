@@ -292,6 +292,8 @@ test("a thread page, its image, and replies from it reach the people in the thre
   });
   expect(shown.body.value.messages.map((message: { body: string }) => message.body)).toEqual(["Look", "Agreed"]);
   expect(new Uint8Array(await (await lee.request(`/critiqs/capture?threadPage=${key}`)).arrayBuffer())).toEqual(png);
+  // The key can come in a header instead, keeping it out of the address that access logs record.
+  expect(new Uint8Array(await (await lee.request("/critiqs/capture", { headers: { "X-Critiqs-Thread-Page": key } })).arrayBuffer())).toEqual(png);
   expect((await lee.api("reply", { threadId, body: "From the page", revision: null, threadPage: true })).status).toBe(200);
 
   const sam = await signIn(handler, sent, "sam@example.com", "Sam");
@@ -428,6 +430,28 @@ test("emails people mentioned, with working mute links", async () => {
   const token = new URL(link).searchParams.get("token")!;
   await handler.fetch(new Request(`${SITE}/critiqs/notifications/preferences`, { method: "POST", body: new URLSearchParams({ token }) }));
   expect((await lee.api("notificationSettings", { projectId })).body.value).toEqual({ mentionEmails: true, replyEmails: true, projectMuted: true });
+});
+
+test("a self-hosted server keeps emails and Share on the prototype's links, even with a website for setup emails", async () => {
+  // Its API answers only its own site, so a page on Critiqs's website couldn't reach it.
+  const { handler, sent } = await server({ webUrl: "https://critiqs.example", publicUrl: "https://app.example.com" });
+  const config = await (await handler.fetch(new Request(`${SITE}/critiqs/critiqs/config`))).json();
+  expect(config.threadPages).toBe(true);
+  expect(config.website).toBeUndefined();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  const projectId = (await dana.api("createProject", { name: "Pilot", reviewUrl: `${SITE}/app` })).body.value;
+  const threadId = (await lee.api("createThread", { projectId, anchor, body: "Hi", tags: [], capture: { status: "failed", failureReason: "x" } })).body.value;
+  const leeId = (await (await lee.request("/critiqs/me")).json()).reviewer.id;
+  await dana.api("reply", { threadId, body: "@Lee look", revision: null, mentions: [{ userId: leeId, label: "Lee" }] });
+  await handler.store.transaction(async (store) => {
+    for (const delivery of await store.deliveries.due(Date.now() + 120_000, 10)) await store.deliveries.patch(delivery._id, { dueAt: 0 });
+  });
+  const before = sent.length;
+  await handler.deliverMentionEmails();
+  const email = sent[before]!;
+  expect(email.text).toContain(`Open the comment: ${SITE}/app?critiqs=${threadId}.`);
+  expect(email.text).not.toContain("critiqs.example/t/");
 });
 
 /** Dana's captured thread mentioning Lee, with a later reply that doesn't, ready to send. */

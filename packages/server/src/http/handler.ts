@@ -46,6 +46,8 @@ import {
   beginDelivery,
   advanceReplyEmails,
   claimDue,
+  type DeliveryResult,
+  makeDeliveryPageKey,
   cleanUpDeliveries,
   completeDeliveries,
   deliverOne,
@@ -720,10 +722,13 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     }
   }
 
-  /** A thread's image by its thread's ID, or by its thread page's key (`threadPage`), after the same checks as reading either. */
+  /**
+   * A thread's image by its thread's ID, or by its thread page's key (the `X-Critiqs-Thread-Page` header, which keeps
+   * it out of the address that access logs record, or `threadPage`), after the same checks as reading either.
+   */
   async function capture(request: Request): Promise<Response> {
     const params = new URL(request.url).searchParams;
-    const key = params.get("threadPage");
+    const key = request.headers.get("X-Critiqs-Thread-Page") ?? params.get("threadPage");
     const threadId = params.get("threadId") ?? "";
     const identity = await identityOf(request);
     try {
@@ -1011,7 +1016,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       const origin = publicOrigin;
       const preferenceUrl = async (scope: LinkScope) =>
         `${origin ?? ""}${base}/notifications/preferences?token=${encodeURIComponent(await preferenceToken(linkSecret, scope))}`;
-      const outcomes: { deliveryId: string; claimToken: string; result: "sent" | "skipped" | "failed"; reason?: string }[] = [];
+      const outcomes: { deliveryId: string; claimToken: string; result: DeliveryResult; reason?: string }[] = [];
       for (const id of ids) {
         if (mailer === null || origin === null) {
           outcomes.push({ deliveryId: id, claimToken, result: "skipped", reason: "Email isn't set up for this server." });
@@ -1024,6 +1029,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
           allowed: () => store.transaction((s) => deliveryAllowed(s, { id, claimToken })),
           page: ({ version, cursor }) => store.transaction((s) => discussionPage(s, { id, claimToken, version, cursor })),
           stillMentions: (messageId) => store.transaction((s) => stillMentions(s, { id, claimToken, messageId })),
+          // This server passes no website, so its emails never ask for a page key; the step is here for completeness.
+          pageKey: () => store.transaction((s) => makeDeliveryPageKey(s, { id, claimToken }, Date.now())),
           freeze: ({ version, fileId, to }) => store.transaction((s) => freezeDelivery(s, { id, claimToken, version, fileId, to })),
           readFile: async (fileId) => {
             const file = store.readFile(fileId);
@@ -1035,7 +1042,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
             sender.sendPrepared ? await sender.sendPrepared(body, idempotencyKey) : await sender.send(preparedMessage(await body.text(), idempotencyKey)),
           sendMessage: (message) => sender.send(message),
         });
-        if (outcome !== null) outcomes.push({ deliveryId: id, claimToken, ...outcome });
+        // An email that isn't ready goes back in line at once, with its attempt, rather than after the rest of the batch.
+        if (outcome?.result === "deferred") await store.transaction((s) => completeDeliveries(s, [{ deliveryId: id, claimToken, ...outcome }], Date.now()));
+        else if (outcome !== null) outcomes.push({ deliveryId: id, claimToken, ...outcome });
       }
       await store.transaction((s) => completeDeliveries(s, outcomes, Date.now()));
       if (ids.length < BATCH) break;

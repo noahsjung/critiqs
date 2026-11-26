@@ -8,6 +8,7 @@ import {
   parseLink,
   removeLink,
   type SearchScope,
+  threadPageLink,
   type SidebarFilters,
   type TargetLocation,
   type ViewState,
@@ -458,6 +459,14 @@ export function App({
     (pageUrl: string, threadId: string, messageId: string | null) =>
       buildLink(window.location.origin, pageUrl, { threadId, messageId }),
     [],
+  );
+  // A thread's shared link: its page on the Critiqs website, where the backend reports one, so it opens on phones and
+  // for people without Critiqs installed; otherwise the prototype's link, as before thread pages.
+  const website = deployment.website;
+  const shareLink = useCallback(
+    async (pageUrl: string, threadId: string) =>
+      website === undefined ? linkFor(pageUrl, threadId, null) : threadPageLink(website, await transport.threadPageKey(threadId)),
+    [website, transport, linkFor],
   );
 
   // ---------------------------------------------------------------------------
@@ -1097,6 +1106,7 @@ export function App({
               version={props.version ?? null}
               reveal={reveal}
               linkFor={(pageUrl, messageId) => linkFor(pageUrl, selected.threadId, messageId)}
+              shareLink={(pageUrl) => shareLink(pageUrl, selected.threadId)}
               targetShown={targetShown}
               reply={replies[selected.threadId] ?? EMPTY_REPLY}
               onDraft={(draft) => updateReply(selected.threadId, (reply) => ({ ...reply, draft }))}

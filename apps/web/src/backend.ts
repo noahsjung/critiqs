@@ -178,7 +178,8 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
       const token = await captures.getToken();
       // Signed in but the token didn't refresh, such as offline: worth trying again.
       if (token === null) throw new Error("Couldn't confirm your sign-in to load the image.");
-      const response = await fetch(`${captures.siteUrl}/capture?threadPage=${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${token}` } });
+      // The key goes in a header: request logs record addresses, and a key opens the page for anyone the page lets in.
+      const response = await fetch(`${captures.siteUrl}/capture`, { headers: { Authorization: `Bearer ${token}`, "X-Critiqs-Thread-Page": key } });
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`The image couldn't be loaded (${response.status}).`);
       return await response.blob();

@@ -1,0 +1,5 @@
+---
+"critiqs-react": minor
+---
+
+Emails and **Copy link** open a thread's page on the Critiqs website where the deployment has one. On a Convex deployment with `CRITIQS_WEB_URL` set to the website's origin, mention and reply emails link to the thread's page (`<website>/t/<key>`) instead of the prototype, as their one link, once the person emailed can open it; an older thread gets its page key when it is first emailed. `/critiqs/config` reports that address as `website`, and the thread window's **Copy link** copies the page's link where the backend reports `threadPages` and a `website`; **Copy link to message** still opens the prototype, and a browser that refuses to copy is told so. Without `CRITIQS_WEB_URL`, and on self-hosted servers, links are unchanged. `/capture` also takes a thread page's key in the `X-Critiqs-Thread-Page` header, which keeps it out of the address that request logs record; deploy the backend before a website that sends it. The email worker's steps (`DeliverySteps`) gain `pageKey`, backed by the new `makeDeliveryPageKey`, and a delivery's try can end `deferred`: tried again a minute later without using an attempt.

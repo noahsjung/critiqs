@@ -21,7 +21,7 @@ import {
 import { isLocalReviewAddress } from "./notify.ts";
 import { currentReviewer, requireUser } from "./operations.ts";
 import { escapeHtml, type MailMessage, normalizeEmail } from "./signin.ts";
-import type { Identity, MembershipRecord, OrganizationRecord, OverageCapChoice, ProjectRecord, Store, UserRecord } from "./store.ts";
+import type { Identity, MembershipRecord, OrganizationRecord, OverageCapChoice, ProjectRecord, Store, ThreadRecord, UserRecord } from "./store.ts";
 
 // Organizations own projects and the Critiqs Cloud plan.
 
@@ -567,4 +567,27 @@ function inviteMessage(parts: { to: string; organization: string; inviter: strin
 export function shorten(text: string): string {
   const clean = text.replace(/\s+/g, " ").replace(new RegExp(CONTROL_CHARACTERS, "g"), "").trim();
   return clean.length > MAX_NAME_SHOWN ? `${clean.slice(0, MAX_NAME_SHOWN - 1)}…` : clean;
+}
+
+/**
+ * Who may open a thread page: someone signed in who may review its project
+ * (`canReview`, so the project's **Who can review** applies first) and who
+ * either belongs to the project's organization or is already in the thread:
+ * started it, replied in it, or was mentioned in it.
+ */
+export async function canOpenThreadPage(store: Store, project: ProjectRecord, thread: ThreadRecord, userId: string | null): Promise<boolean> {
+  if (userId === null || !(await canReview(store, project, userId))) return false;
+  return (await inProjectOrganization(store, project, userId)) || (await inThread(store, thread, userId));
+}
+
+/**
+ * Whether someone started the thread, replied in it, or was mentioned in it,
+ * as its followers record: one indexed read, never the discussion, which can
+ * be larger than one Convex transaction may read. In a thread from before
+ * followers were recorded, the email worker records them once someone shares
+ * it (`threadPageKey`) or it is first emailed; until then, earlier people in
+ * it are refused.
+ */
+async function inThread(store: Store, thread: ThreadRecord, userId: string): Promise<boolean> {
+  return thread.createdBy === userId || (await store.followers.find(thread._id, userId)) !== null;
 }

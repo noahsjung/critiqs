@@ -55,6 +55,12 @@ export interface EmailHeader {
   capture: { size: number; caption: string } | { note: string };
   mute: string;
   unsubscribe: string;
+  /**
+   * The thread's page on the Critiqs website, where the deployment has one.
+   * It shows the whole thread, so it is the email's one link, and comments
+   * carry no links of their own.
+   */
+  threadPage?: string;
 }
 
 /** A capture read for attaching, or why it can't be shown. */
@@ -104,8 +110,9 @@ export class MentionEmail {
     for (const entry of entries) {
       if (entry.reported) this.reported.push(entry);
       this.first ??= entry;
-      this.html.add(entryHtml(entry));
-      this.text?.add(`${this.count === 0 ? "" : "\n\n"}${entryText(entry)}`);
+      const shown = this.header.threadPage === undefined ? entry : { ...entry, link: null };
+      this.html.add(entryHtml(shown));
+      this.text?.add(`${this.count === 0 ? "" : "\n\n"}${entryText(shown)}`);
       this.count++;
       this.fit();
     }
@@ -170,7 +177,7 @@ export class MentionEmail {
     for (const entry of told) if (!authors.includes(shorten(entry.authorName))) authors.push(shorten(entry.authorName));
     const who = authors.length === 1 ? authors[0]! : `${authors.slice(0, -1).join(", ")} and ${authors.at(-1)}`;
     const what = told.length === 1 ? "a comment" : `${told.length} comments`;
-    const link = this.reported.at(-1)?.link ?? null;
+    const link = header.threadPage ?? this.reported.at(-1)?.link ?? null;
     const topic = clean(this.first?.body ?? "").replace(/\s+/g, " ").trim();
     const snippet = topic.length > 60 ? `${topic.slice(0, 59).trimEnd()}…` : topic;
     const action = mentions.length > 0 ? "mentioned you" : "replied";
