@@ -1,12 +1,29 @@
-import { type CodeAccess, inboxOf, isPrivateHost, MAX_DEVELOPER_INVITES_PER_PROJECT, type Role, type StackId, type TeamSize, validReviewUrl } from "@critiqs/core";
+import {
+  type AddressCheck,
+  AVAILABLE_WAYS,
+  type CodeAccess,
+  inboxOf,
+  isLocalAddress,
+  isPrivateHost,
+  MAX_DEVELOPER_INVITES_PER_PROJECT,
+  type RecommendationReason,
+  recommend,
+  type Role,
+  type StackId,
+  type TeamSize,
+  validReviewUrl,
+  type Way,
+} from "@critiqs/core";
 import type { NewProject } from "./backend.ts";
 import { copy } from "./copy.ts";
 
 // Onboarding as data: three screens and one reducer over them.
 //
 //   address  What should your team review? (a link, or "It's not online yet")
-//   who      Who will add Critiqs to it? Choosing creates the project.
-//   setup    The command to run, or the email to a developer.
+//   who      Who will add Critiqs to it? The recommended way first, then the
+//            others; choosing creates the project.
+//   setup    The command to run, the email to a developer, or the browser
+//            extension, with the other ways below it.
 //
 // Sign-in happens between the first two, when the person continues. The
 // address check runs quietly after sign-in; its only use is the stack saved
@@ -18,11 +35,63 @@ import { copy } from "./copy.ts";
 export const STEPS = ["address", "who", "setup"] as const;
 export type StepId = (typeof STEPS)[number];
 
-/** Who adds Critiqs to the prototype: the person, or a developer they send the steps to. */
-export type Who = "me" | "developer";
+/**
+ * Who adds Critiqs to the prototype: the person, a developer they send the
+ * steps to, or no one for now, because the team reviews with the browser
+ * extension.
+ */
+export type Who = "me" | "developer" | "extension";
 
-/** The code-access answer saved with the project for each choice. */
-export const CODE_ACCESS_OF: Record<Who, CodeAccess> = { me: "self", developer: "teammate" };
+/** The code-access answer saved with the project for each choice; choosing the extension answers nothing about the code. */
+export const CODE_ACCESS_OF: Record<Who, CodeAccess | undefined> = { me: "self", developer: "teammate", extension: undefined };
+
+/** The way in each choice is. */
+const WAY_OF: Record<Who, Way> = { me: "install", developer: "send-to-developer", extension: "extension" };
+
+/** The choice for a way the website offers, or null for one it has no screen for yet. */
+function whoOf(way: Way): Who | null {
+  return (Object.keys(WAY_OF) as Who[]).find((who) => WAY_OF[who] === way) ?? null;
+}
+
+/**
+ * What the address check found, for the recommendation: nothing to check
+ * without an address, an address on this computer or a private network, or
+ * the check's result. Until the result arrives, or when the check failed, the
+ * address counts as one Critiqs couldn't reach: every way that needs an
+ * address is still offered, so the choices don't move when it answers.
+ */
+export function checkFor(url: string | null | undefined, found: AddressCheck | null): AddressCheck {
+  if (typeof url !== "string") return { kind: "none" };
+  if (isLocalAddress(new URL(url))) return { kind: "local" };
+  return found ?? { kind: "unreachable" };
+}
+
+/** The choices onboarding offers, best first: the recommended one, then the others, and why the first is recommended. */
+export interface Choices {
+  order: Who[];
+  reason: RecommendationReason;
+}
+
+/**
+ * The choices for the second screen, from `recommend` with the ways Critiqs
+ * offers today. Nothing has been answered yet there: role and team size come
+ * after setup, and this screen is the code question itself.
+ */
+export function choicesFor(check: AddressCheck): Choices {
+  const { primary, others, reason } = recommend({}, check, AVAILABLE_WAYS);
+  return { order: [primary, ...others].flatMap((way) => whoOf(way) ?? []), reason };
+}
+
+/**
+ * The other ways in, best first, under the one chosen: `recommend` with what
+ * the choice says about the code. Choosing the extension says nothing, so its
+ * others follow the default order.
+ */
+export function otherWays(who: Who, check: AddressCheck): Who[] {
+  const codeAccess = CODE_ACCESS_OF[who];
+  const { primary, others } = recommend(codeAccess === undefined ? {} : { codeAccess }, check, AVAILABLE_WAYS);
+  return [primary, ...others].flatMap((way) => whoOf(way) ?? []).filter((other) => other !== who);
+}
 
 /**
  * The prototype's address as the person gives it. `url` is set once they
@@ -93,7 +162,8 @@ export type FlowAction =
   | { type: "address-none" }
   | { type: "back" }
   | { type: "choose"; who: Who; key: string }
-  | { type: "switch-who" }
+  /** Shows another way on the setup screen; the project stays as created. */
+  | { type: "switch-who"; who: Who }
   | { type: "developers"; developers: string[] }
   | { type: "organization"; organizationId: string }
   /** The attempt's request went out. */
@@ -166,7 +236,7 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       if (state.step !== "who" || state.create.status === "creating") return state;
       return { ...state, who: action.who, create: { status: "creating", key: action.key, sent: false } };
     case "switch-who":
-      return state.step === "setup" && state.who !== null ? { ...state, who: state.who === "me" ? "developer" : "me" } : state;
+      return state.step === "setup" && state.who !== null ? { ...state, who: action.who } : state;
     case "developers":
       return { ...state, developers: action.developers.slice(0, MAX_DEVELOPER_INVITES_PER_PROJECT) };
     case "organization":

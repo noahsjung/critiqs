@@ -120,7 +120,7 @@ async function load(Socket: unknown) {
   globalThis.WebSocket = Socket as typeof WebSocket;
   const container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
-  await act(async () => root!.render(<Connected deployment={deployment} createKeys={false}><p>Page</p></Connected>));
+  await act(async () => root!.render(<Connected deployment={deployment} features={{ createKeys: false, addressEdits: false }}><p>Page</p></Connected>));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
   });

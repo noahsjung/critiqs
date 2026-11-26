@@ -23,6 +23,7 @@ const title = (page: Element) => page.querySelector("h1")?.textContent;
 const created = (backend: ReturnType<typeof fakeBackend>) => backend.calls.filter((call) => call.name === "createProject").map((call) => call.args[0] as NewProject);
 const I_WILL = /^I will/;
 const MY_DEVELOPER = /^My developer will/;
+const NO_ONE = /^No one, for now/;
 
 describe("the first screen: the link", () => {
   test("one field, Continue, and a quiet It's not online yet; the heading has focus", async () => {
@@ -92,6 +93,56 @@ describe("the first screen: the link", () => {
 });
 
 describe("the second screen: who adds Critiqs", () => {
+  test("the recommended way first, marked, with why; the extension once there's a link", async () => {
+    const page = await render(<Flow from={atWho()} />);
+    await settle();
+    const choices = [...page.querySelectorAll(".choice")];
+    expect(choices.map((choice) => choice.querySelector(".choice-label")?.textContent)).toEqual(["I willRecommended", "My developer will", "No one, for now"]);
+    expect(choices[0]?.className).toContain("recommended");
+    expect(page.querySelectorAll(".badge").length).toBe(1);
+    const why = page.querySelector(".choices")?.getAttribute("aria-describedby");
+    expect(page.querySelector(`[id="${why}"]`)?.textContent).toBe("Adding Critiqs to the code is the main way: everyone who opens the prototype can comment, with nothing to install.");
+    const offline = await render(<Flow from={flowReducer(initialFlow(SAM), { type: "address-none" })} />);
+    expect(button(offline, NO_ONE)).toBeUndefined();
+    expect(button(offline, I_WILL)).toBeDefined();
+  });
+
+  test("No one, for now creates the project without a code answer and shows how to get the extension, honestly", async () => {
+    const backend = fakeBackend({ addressEdits: true });
+    const page = await render(<Flow from={atWho()} />, { backend });
+    await click(button(page, NO_ONE));
+    await settle();
+    expect(created(backend)[0]).toMatchObject({ name: "acme-proto", reviewUrl: "https://acme-proto.vercel.app/", answers: {} });
+    expect(title(page)).toBe("Review it with the Critiqs extension");
+    expect(text(page)).toContain("It isn't in the Chrome Web Store yet.");
+    expect(page.querySelector("a")?.getAttribute("href")).toBe("https://github.com/noahsjung/critiqs/tree/main/packages/extension#build-and-load-it-unpacked");
+    // The origin goes on the project's address list, so the extension finds the project there.
+    expect(backend.calls.filter((call) => call.name === "addProjectAddress").map((call) => call.args)).toEqual([[PROJECT_ID, "https://acme-proto.vercel.app"]]);
+    expect(text(page)).toContain("It finds acme-proto by its address, and you can comment.");
+    // The other ways, best first.
+    expect([...page.querySelectorAll(".other-ways button")].map((each) => each.textContent)).toEqual(["I'll add it myself", "Someone else will add it"]);
+    await click(button(page, "Someone else will add it"));
+    expect(title(page)).toBe("Send the steps to your developer");
+    expect([...page.querySelectorAll(".other-ways button")].map((each) => each.textContent)).toEqual(["Review it with the extension instead", "I'll add it myself"]);
+  });
+
+  test("the extension's way without address edits, or when adding fails, says to add the site to the project in the extension", async () => {
+    for (const backend of [fakeBackend(), fakeBackend({ addressEdits: true, addProjectAddress: async () => Promise.reject(new Error("forbidden")) })]) {
+      const page = await render(<Flow from={atWho()} />, { backend });
+      await click(button(page, NO_ONE));
+      await settle();
+      expect(text(page)).toContain("Choose Add to a project, then acme-proto, and you can comment.");
+    }
+  });
+
+  test("on the team's own backend, the extension's way gives the build command for it", async () => {
+    const backend = fakeBackend({ componentBackend: "https://happy-otter-123.convex.cloud" });
+    const page = await render(<Flow from={atWho()} />, { backend });
+    await click(button(page, NO_ONE));
+    await settle();
+    expect(text(page)).toContain("CRITIQS_BACKEND=https://happy-otter-123.convex.cloud bun run build");
+  });
+
   test("two choices, and Back; the link is checked quietly, with https:// added, once", async () => {
     const backend = fakeBackend();
     const page = await render(<Flow from={atWho()} />, { backend });

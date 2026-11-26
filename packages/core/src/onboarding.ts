@@ -501,13 +501,19 @@ export interface Recommendation {
 
 /**
  * The ways Critiqs offers today. `install` is always offered, whatever the set:
- * every other way leads back to it.
+ * every other way leads back to it. Review links, shared builds, and Allow
+ * Critiqs stay off until they are built; adding one here offers it wherever
+ * the recommendation places it.
  */
-export const AVAILABLE_WAYS: ReadonlySet<Way> = new Set<Way>(["install", "send-to-developer"]);
+export const AVAILABLE_WAYS: ReadonlySet<Way> = new Set<Way>(["install", "send-to-developer", "extension"]);
 
-/** Ways that work without installing, by what the address check found. */
+/**
+ * Ways that work without installing, by what the address check found. The
+ * extension works on any page a reviewer can open, so a public page offers it
+ * after a review link, and in its place while review links are off.
+ */
 const WAYS_TODAY: Record<AddressCheck["kind"], readonly Way[]> = {
-  public: ["review-link"],
+  public: ["review-link", "extension"],
   "sign-in": ["extension", "share-build"],
   local: ["extension", "share-build"],
   blocked: ["allow-critiqs", "extension"],

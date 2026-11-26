@@ -376,7 +376,7 @@ describe("loading a thread page's image from Convex", () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async () => answer()) as unknown as typeof fetch;
     try {
-      return await convexBackend({} as never, null, { siteUrl: "https://site.example", getToken }, false).loadThreadPageCapture(KEY);
+      return await convexBackend({} as never, null, { siteUrl: "https://site.example", getToken }, { createKeys: false, addressEdits: false }).loadThreadPageCapture(KEY);
     } finally {
       globalThis.fetch = original;
     }
@@ -391,7 +391,7 @@ describe("loading a thread page's image from Convex", () => {
       return new Response(new Uint8Array([137]), { status: 200 });
     }) as unknown as typeof fetch;
     try {
-      await convexBackend({} as never, null, { siteUrl: "https://site.example", getToken: token }, false).loadThreadPageCapture(KEY);
+      await convexBackend({} as never, null, { siteUrl: "https://site.example", getToken: token }, { createKeys: false, addressEdits: false }).loadThreadPageCapture(KEY);
     } finally {
       globalThis.fetch = original;
     }

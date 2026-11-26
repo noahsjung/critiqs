@@ -105,7 +105,7 @@ export const APP_STYLES = `
 .quiet.back { align-self: flex-start; margin: -12px 0 -12px -2px; }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; margin-top: 4px; }
 
-/* Who will add Critiqs: two choices, each a single tap. */
+/* Who will add Critiqs: the recommended way first, each a single tap. */
 .choices { display: flex; flex-direction: column; gap: 12px; }
 .choice { display: flex; align-items: center; gap: 16px; width: 100%; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
   color: var(--text); text-align: left; cursor: pointer; transition: border-color 300ms var(--ease), background-color 300ms var(--ease), transform 500ms var(--ease); }
@@ -119,6 +119,14 @@ export const APP_STYLES = `
 .choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .choice-label { font-size: 17px; line-height: 24px; font-weight: 600; }
 .choice-detail { font-size: 14px; line-height: 20px; color: var(--muted); }
+.choice.recommended { border-color: var(--line-strong); }
+.choice-label .badge { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; line-height: 20px; font-weight: 500; vertical-align: 2px; }
+.other-ways { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+/* The extension's steps, numbered. */
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
+.steps li { padding-left: 4px; }
+.steps a { color: var(--accent); }
 .spinner { width: 18px; height: 18px; flex: none; border: 2px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: spin 800ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .organization { display: flex; align-items: center; gap: 12px; }

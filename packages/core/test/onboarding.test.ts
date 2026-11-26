@@ -631,30 +631,32 @@ describe("recommendation", () => {
 
   test("follows the answers and the address check", () => {
     const cases: [string, OnboardingAnswers, AddressCheck, ReadonlySet<Way>, ReturnType<typeof recommend>][] = [
-      ["can change the code", { codeAccess: "self" }, publicCheck, ALL, { primary: "install", others: ["review-link", "send-to-developer"], reason: "can-change-code" }],
+      ["can change the code", { codeAccess: "self" }, publicCheck, ALL, { primary: "install", others: ["review-link", "extension", "send-to-developer"], reason: "can-change-code" }],
       ["can change the code, local", { codeAccess: "self" }, { kind: "local" }, ALL, { primary: "install", others: ["extension", "share-build", "send-to-developer"], reason: "can-change-code" }],
       ["an engineer who skipped the question", { role: "engineer" }, { kind: "blocked" }, ALL, { primary: "install", others: ["allow-critiqs", "extension", "send-to-developer"], reason: "can-change-code" }],
-      ["an engineer who said No", { role: "engineer", codeAccess: "nobody" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "install"], reason: "no-code-access" }],
-      ["a teammate, public", { codeAccess: "teammate" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "install"], reason: "someone-else-changes-code" }],
+      ["an engineer who said No", { role: "engineer", codeAccess: "nobody" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "extension", "install"], reason: "no-code-access" }],
+      ["a teammate, public", { codeAccess: "teammate" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "extension", "install"], reason: "someone-else-changes-code" }],
       [
         "a teammate, clients reviewing a public page",
         { codeAccess: "teammate", feedbackFrom: ["clients"] },
         publicCheck,
         ALL,
-        { primary: "send-to-developer", others: ["review-link", "install"], reason: "someone-else-changes-code" },
+        { primary: "send-to-developer", others: ["review-link", "extension", "install"], reason: "someone-else-changes-code" },
       ],
       ["a teammate, behind a sign-in", { codeAccess: "teammate" }, checks[1]!, ALL, { primary: "send-to-developer", others: ["extension", "share-build", "install"], reason: "someone-else-changes-code" }],
       ["a teammate, local", { codeAccess: "teammate" }, { kind: "local" }, ALL, { primary: "send-to-developer", others: ["extension", "share-build", "install"], reason: "someone-else-changes-code" }],
       ["nobody, blocked", { codeAccess: "nobody" }, { kind: "blocked" }, ALL, { primary: "send-to-developer", others: ["allow-critiqs", "extension", "install"], reason: "no-code-access" }],
       ["nobody, unreachable", { codeAccess: "nobody" }, { kind: "unreachable" }, ALL, { primary: "send-to-developer", others: ["extension", "share-build", "install"], reason: "no-code-access" }],
-      ["skipped, public", {}, publicCheck, ALL, { primary: "install", others: ["send-to-developer", "review-link"], reason: "install-is-default" }],
+      ["skipped, public", {}, publicCheck, ALL, { primary: "install", others: ["send-to-developer", "review-link", "extension"], reason: "install-is-default" }],
       ["a designer who skipped, blocked", { role: "designer" }, { kind: "blocked" }, ALL, { primary: "install", others: ["send-to-developer", "allow-critiqs", "extension"], reason: "install-is-default" }],
-      // Today's ways.
-      ["can change the code, today", { codeAccess: "self" }, publicCheck, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer"], reason: "can-change-code" }],
-      ["a teammate, today", { codeAccess: "teammate" }, checks[1]!, AVAILABLE_WAYS, { primary: "send-to-developer", others: ["install"], reason: "someone-else-changes-code" }],
-      ["skipped, today", {}, { kind: "local" }, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer"], reason: "install-is-default" }],
+      // Today's ways: the extension stands in for review links on a public page.
+      ["can change the code, today", { codeAccess: "self" }, publicCheck, AVAILABLE_WAYS, { primary: "install", others: ["extension", "send-to-developer"], reason: "can-change-code" }],
+      ["a teammate, today", { codeAccess: "teammate" }, checks[1]!, AVAILABLE_WAYS, { primary: "send-to-developer", others: ["extension", "install"], reason: "someone-else-changes-code" }],
+      ["skipped, today", {}, { kind: "local" }, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer", "extension"], reason: "install-is-default" }],
+      ["skipped, no address yet, today", {}, { kind: "none" }, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer"], reason: "install-is-default" }],
       // A missing way gives its place to the next.
       ["a teammate, without sending", { codeAccess: "teammate" }, publicCheck, new Set<Way>(["review-link"]), { primary: "review-link", others: ["install"], reason: "someone-else-changes-code" }],
+      ["a teammate, with only the extension", { codeAccess: "teammate" }, publicCheck, new Set<Way>(["extension"]), { primary: "extension", others: ["install"], reason: "someone-else-changes-code" }],
       ["nobody, with nothing else offered", { codeAccess: "nobody" }, { kind: "blocked" }, new Set<Way>(), { primary: "install", others: [], reason: "no-code-access" }],
     ];
     for (const [name, answers, check, available, expected] of cases) expect([name, recommend(answers, check, available)]).toEqual([name, expected]);

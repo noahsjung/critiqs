@@ -50,10 +50,14 @@ export interface Backend {
   componentBackend: string | null;
   /** The backend takes `idempotencyKey` on creates; older ones refuse arguments they don't know. */
   createKeys: boolean;
+  /** The backend adds one address to a project's address list (`projects:addAddress`), which the browser extension finds projects by. */
+  addressEdits: boolean;
   checkAddress(address: string): Promise<AddressCheck>;
   saveAboutYou(answers: { role?: Role; teamSize?: TeamSize }): Promise<void>;
   createProject(project: NewProject): Promise<string>;
   sendDeveloperSetup(projectId: string, emails: string[]): Promise<DeveloperSendResult[]>;
+  /** Adds an address to the project's address list, for its owners; returns the list. Only with `addressEdits`. */
+  addProjectAddress(projectId: string, address: string): Promise<string[]>;
   /** A project's setup, read once: its name, address, saved stack, and commands. */
   projectSetup(projectId: string): Promise<ProjectSetup>;
   useOrganizations(enabled: boolean): QueryState<OrganizationSummary[]>;
@@ -131,14 +135,17 @@ export function failureCode(error: unknown): string {
   return describeError(error).code;
 }
 
+/** What a backend reports it can do, beyond what every backend the website works with does. */
+export type BackendFeatures = Pick<Backend, "createKeys" | "addressEdits">;
+
 /**
  * The deployment at `given`, as critiqs-react's `resolveDeployment` finds
- * it, and whether it takes create keys: `createKeys` in the same reading of
- * its `/critiqs/config`, so a backend that reports it is never treated as
- * one that doesn't. Backends that don't say get no keys, so an older one is
- * never sent an argument it refuses.
+ * it, and what it can do: `createKeys` and `addressEdits` in the same
+ * reading of its `/critiqs/config`, so a backend that reports one is never
+ * treated as one that doesn't. Backends that don't say get neither, so an
+ * older one is never sent a call or an argument it refuses.
  */
-export async function resolveBackend(given: string, fetchFn: typeof fetch = fetch): Promise<{ deployment: Deployment; createKeys: boolean }> {
+export async function resolveBackend(given: string, fetchFn: typeof fetch = fetch): Promise<{ deployment: Deployment } & BackendFeatures> {
   const configs = new Map<string, unknown>();
   const reading = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await fetchFn(input, init);
@@ -147,14 +154,14 @@ export async function resolveBackend(given: string, fetchFn: typeof fetch = fetc
     return response;
   }) as typeof fetch;
   const deployment = await resolveDeployment(given, reading);
-  const config = configs.get(`${deployment.siteUrl}/critiqs/config`) as { createKeys?: unknown } | null | undefined;
-  return { deployment, createKeys: config?.createKeys === true };
+  const config = configs.get(`${deployment.siteUrl}/critiqs/config`) as Record<string, unknown> | null | undefined;
+  return { deployment, createKeys: config?.createKeys === true, addressEdits: config?.addressEdits === true };
 }
 
-export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, createKeys: boolean): Backend {
+export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, features: BackendFeatures): Backend {
   return {
     componentBackend,
-    createKeys,
+    ...features,
     checkAddress: (address) => client.action(api.addressCheck.check, { address }),
     saveAboutYou: async (answers) => {
       await client.mutation(api.onboarding.saveAboutYou, answers);
@@ -169,6 +176,7 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
         ...(stack === null ? {} : { stack }),
       }),
     sendDeveloperSetup: (projectId, emails) => client.mutation(api.onboarding.sendDeveloperSetup, { projectId, emails }),
+    addProjectAddress: (projectId, address) => client.mutation(api.projects.addAddress, { projectId: projectId as Id<"projects">, address }),
     projectSetup: (projectId) => client.query(api.onboarding.projectSetup, { projectId }),
     useOrganizations: (enabled) => useQueryState(api.organizations.mine, enabled ? {} : "skip"),
     useProject: (projectId) => useQueryState(api.projects.get, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),

@@ -1,5 +1,6 @@
 import {
   backendSetting,
+  parseProjectAddress,
   type DeveloperInvite,
   type DeveloperSendResult,
   type DeveloperSendSummary,
@@ -9,7 +10,7 @@ import {
   type ProjectInfo,
   STACKS,
 } from "@critiqs/core";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { failureMessage, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
@@ -17,8 +18,11 @@ import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
 import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand, ScriptTagStep } from "./parts.tsx";
 
-// The two ways to add Critiqs to the prototype: run one command, or send the
-// steps to a developer.
+// The ways in: run one command, send the steps to a developer, or review
+// with the browser extension, with nothing added to the prototype.
+
+/** How to build the extension and load it into Chrome, until it is in the Chrome Web Store. */
+export const EXTENSION_GUIDE = "https://github.com/noahsjung/critiqs/tree/main/packages/extension#build-and-load-it-unpacked";
 
 /** The setup page a copied message links to: this site's, by project ID, which shows the install steps to anyone signed in. */
 export function projectSetupUrl(projectId: string, origin = window.location.origin): string {
@@ -367,4 +371,67 @@ export function SendPanelView({
       </form>
     </>
   );
+}
+
+/** Whether the extension will find the project by its address: being added, added, or not (no address the list takes, or the backend can't add one). */
+type Listing = "adding" | "listed" | "unlisted";
+
+/**
+ * "No one, for now": review with the browser extension. It says honestly how
+ * to get the extension today, since it isn't in the Chrome Web Store yet,
+ * and adds the prototype's origin to the project's address list, where the
+ * extension looks a page's project up, so it finds this one. `onDone` runs
+ * once the person opens the guide or copies the build command.
+ */
+export function ExtensionPanel({ project, prototype, email, onDone }: { project: CreatedProject; prototype: string | null; email: string | null; onDone?: () => void }) {
+  const backend = useBackend();
+  const address = prototype ?? project.reviewUrl;
+  const origin = listableOrigin(address);
+  const [listing, setListing] = useState<Listing>(origin !== null && backend.addressEdits ? "adding" : "unlisted");
+  useEffect(() => {
+    if (origin === null || !backend.addressEdits) return;
+    let current = true;
+    // Adding an address already listed changes nothing, so showing this again is safe.
+    backend.addProjectAddress(project.id, origin).then(
+      () => current && setListing("listed"),
+      () => current && setListing("unlisted"),
+    );
+    return () => void (current = false);
+  }, [backend, project.id, origin]);
+  const host = address === null ? null : shownHost(address);
+  const build = backend.componentBackend === null ? null : [`CRITIQS_BACKEND=${backend.componentBackend} bun run build`];
+  return (
+    <>
+      <Heading title={copy.extension.title} lead={copy.extension.lead(host)} />
+      <ol className="steps">
+        <li>
+          <strong>{copy.extension.getTitle}</strong> {copy.extension.get}{" "}
+          <a href={EXTENSION_GUIDE} target="_blank" rel="noreferrer noopener" onClick={onDone}>
+            {copy.extension.guide}
+          </a>
+        </li>
+        {build !== null && (
+          <li className="stacked">
+            <span>{copy.extension.ownBackend}</span>
+            <Command commands={build} onCopied={onDone} />
+          </li>
+        )}
+        <li>
+          <strong>{copy.extension.openTitle(host)}</strong> {copy.extension.open(email)}{" "}
+          <span role="status">{listing === "adding" ? copy.extension.listing : listing === "listed" ? copy.extension.found(project.name) : copy.extension.choose(project.name)}</span>
+        </li>
+      </ol>
+    </>
+  );
+}
+
+/** The origin of the prototype's address, when a project's address list can hold it; null otherwise. */
+export function listableOrigin(address: string | null): string | null {
+  if (address === null) return null;
+  try {
+    const parsed = parseProjectAddress(new URL(address).origin);
+    return "error" in parsed ? null : parsed.address;
+  } catch {
+    return null;
+  }
 }

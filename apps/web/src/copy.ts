@@ -1,4 +1,4 @@
-import { listOr, PACKAGE_STACK_NAMES, type Role, type TeamSize } from "@critiqs/core";
+import { listOr, PACKAGE_STACK_NAMES, type RecommendationReason, type Role, type TeamSize } from "@critiqs/core";
 
 // Every string the website's app shows. Short, plain, and in the order people
 // read it: one heading, at most one line under it, and buttons that say what
@@ -45,6 +45,15 @@ export const copy = {
     lead: "It's a small change to the prototype's code.",
     me: { label: "I will", detail: "I can edit the code" },
     developer: { label: "My developer will", detail: "Email them the steps" },
+    extension: { label: "No one, for now", detail: "Review it in Chrome with the Critiqs extension" },
+    recommended: "Recommended",
+    /** One sentence under the choices: why the first one is recommended. */
+    reason: {
+      "install-is-default": "Adding Critiqs to the code is the main way: everyone who opens the prototype can comment, with nothing to install.",
+      "can-change-code": "You can change the code, so Critiqs can go right into the prototype.",
+      "someone-else-changes-code": "Someone else changes the code, so they can add Critiqs for everyone.",
+      "no-code-access": "You can't change the code, so whoever does can add Critiqs for everyone.",
+    } satisfies Record<RecommendationReason, string>,
     creating: "Setting up your project…",
     failed: "Your project couldn't be set up. Try again.",
     organization: "Project goes in",
@@ -82,7 +91,6 @@ export const copy = {
     customBackend: (whose: string, where: string) => `This project is on ${whose} own Critiqs backend, not Critiqs Cloud. Add this ${where}, so Critiqs connects there:`,
     copyProperty: "Copy setting",
     propertyCopied: "Setting copied",
-    switch: "Someone else will add it",
   },
 
   developers: {
@@ -122,7 +130,6 @@ export const copy = {
     organizationLoading: "Checking your organization before sending…",
     copyMessageInstead: "Copy message instead",
     sendAnother: "Send to another developer",
-    switch: "I'll add it myself",
     invite: {
       before: (organization: string) => `They'll also be invited to ${organization}.`,
       created: (email: string, organization: string) => `${email} is invited to ${organization}.`,
@@ -131,6 +138,25 @@ export const copy = {
       limit: (email: string, organization: string) => `${organization} can't invite anyone else today, so ${email} wasn't invited.`,
       theOrganization: "your organization",
     },
+  },
+
+  ways: {
+    /** The other ways in, under the one chosen. */
+    switchTo: { me: "I'll add it myself", developer: "Someone else will add it", extension: "Review it with the extension instead" },
+  },
+
+  extension: {
+    title: "Review it with the Critiqs extension",
+    lead: (host: string | null) => `Comment right on ${host ?? "your prototype"} in Chrome, Edge, Brave, or Arc. Nothing changes in its code.`,
+    getTitle: "Get the extension.",
+    get: "It isn't in the Chrome Web Store yet. Until it is, someone on your team can build it from Critiqs's code and load it into Chrome.",
+    guide: "How to load the extension",
+    ownBackend: "This project is on your team's own Critiqs backend, so build the extension for it, in the Critiqs code's packages/extension folder:",
+    openTitle: (host: string | null) => (host === null ? "Open your prototype" : `Open ${host}`),
+    open: (email: string | null) => (email === null ? "and click Critiqs in the toolbar, then sign in." : `and click Critiqs in the toolbar, then sign in with ${email}.`),
+    listing: "Adding the address so the extension finds this project…",
+    found: (projectName: string) => `It finds ${projectName} by its address, and you can comment.`,
+    choose: (projectName: string) => `Choose Add to a project, then ${projectName}, and you can comment.`,
   },
 
   about: {
