@@ -441,13 +441,20 @@ test("SQLite: upgrading a version 9 database counts each organization's images f
   });
 });
 
-test("SQLite: upgrading a version 11 database shortens project names longer than 200 characters and keeps the rest", async () => {
+/** The schema version just before `shortenLongProjectNames`, the migration the next three tests upgrade through. */
+const BEFORE_NAME_LIMIT = 17;
+
+test("SQLite: the name-shortening migration is the one after version 17", () => {
+  expect((MIGRATIONS[BEFORE_NAME_LIMIT] as { name?: string }).name).toBe("shortenLongProjectNames");
+});
+
+test(`SQLite: upgrading a version ${BEFORE_NAME_LIMIT} database shortens project names longer than 200 characters and keeps the rest`, async () => {
   const driver = bunDriver(new Database(":memory:"));
-  for (const migration of MIGRATIONS.slice(0, 11)) {
+  for (const migration of MIGRATIONS.slice(0, BEFORE_NAME_LIMIT)) {
     if (typeof migration === "string") driver.exec(migration);
     else migration(driver);
   }
-  driver.exec("PRAGMA user_version = 11");
+  driver.exec(`PRAGMA user_version = ${BEFORE_NAME_LIMIT}`);
   const dana = `u_${"1".repeat(32)}`;
   driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
   const names: Record<string, string> = {
@@ -473,15 +480,15 @@ test("SQLite: upgrading a version 11 database shortens project names longer than
   expect(stored[`p_${"6".repeat(32)}`]).toMatch(/^before\u0000x+… [0-9a-z]{11}$/);
 });
 
-test("SQLite: upgrading a version 11 database stored as UTF-16 shortens names without garbling them", async () => {
+test(`SQLite: upgrading a version ${BEFORE_NAME_LIMIT} database stored as UTF-16 shortens names without garbling them`, async () => {
   for (const encoding of ["UTF-16le", "UTF-16be"]) {
     const driver = bunDriver(new Database(":memory:"));
     driver.exec(`PRAGMA encoding = '${encoding}'`);
-    for (const migration of MIGRATIONS.slice(0, 11)) {
+    for (const migration of MIGRATIONS.slice(0, BEFORE_NAME_LIMIT)) {
       if (typeof migration === "string") driver.exec(migration);
       else migration(driver);
     }
-    driver.exec("PRAGMA user_version = 11");
+    driver.exec(`PRAGMA user_version = ${BEFORE_NAME_LIMIT}`);
     const dana = `u_${"1".repeat(32)}`;
     driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
     const long = `prototype-${"é".repeat(300)}`;
@@ -495,11 +502,11 @@ test("SQLite: upgrading a version 11 database stored as UTF-16 shortens names wi
 
 test("SQLite: the name upgrade reads long names a few at a time", async () => {
   const driver = bunDriver(new Database(":memory:"));
-  for (const migration of MIGRATIONS.slice(0, 11)) {
+  for (const migration of MIGRATIONS.slice(0, BEFORE_NAME_LIMIT)) {
     if (typeof migration === "string") driver.exec(migration);
     else migration(driver);
   }
-  driver.exec("PRAGMA user_version = 11");
+  driver.exec(`PRAGMA user_version = ${BEFORE_NAME_LIMIT}`);
   const dana = `u_${"1".repeat(32)}`;
   driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
   for (let i = 0; i < 40; i++) {

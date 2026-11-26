@@ -269,8 +269,8 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
 /**
  * Whether the lookup may return a project whose address matched: the person
  * belongs to the organization that owns it, or opened it through an install.
- * When projects can limit who may review them, that check joins this one, so
- * a project the person may no longer review isn't found either.
+ * A project limited to its organization is found only by someone who may
+ * still review it, so one the person may no longer review isn't found.
  */
 async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<boolean> {
   // A row from before its project's organization changed is stale; the list is saved again before it counts.

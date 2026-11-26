@@ -111,7 +111,7 @@ SQLite behave the same:
   code units, cut between characters, followed by "… " and 11 letters and
   digits computed from the whole name (`shortenProjectName`), so two long
   names that share their start stay different, and a shortened name never
-  equals one that fits. SQLite's schema version 12 does this on start,
+  equals one that fits. SQLite's schema version 18 does this on start,
   finding names by their bytes, since SQLite's `length` stops at a NUL. On
   Convex, run `npx convex run projects:shortenLongNames` once after
   deploying; it pages through projects and can run again safely. Until it
@@ -827,7 +827,7 @@ tool, instead of approving every session.
   MCP server send its tokens to no other address, even a backend whose
   `/critiqs/config` names the same sign-in service, and say how to sign in for
   it instead: the origin on its own, and a command with the origin in single
-  quotes (`npx critiqs-react sign-in --backend '<origin>'`). A later sign-in
+  quotes (`npx critiqs sign-in --backend '<origin>'`). A later sign-in
   to the same service by the same person adds its backend; by someone else, it
   starts over. A renewal another process made meanwhile is held to the same
   check.

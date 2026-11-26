@@ -2,6 +2,7 @@ import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { MAX_MANAGEABLE_PROJECTS, MAX_PROJECT_ADDRESSES } from "@critiqs/core";
 import type { Plan } from "../src/limits.ts";
 import * as ops from "../src/operations.ts";
+import { ORGANIZATION_ONLY } from "../src/organizations.ts";
 import {
   addProjectAddress,
   findProjectsForOrigin,
@@ -193,6 +194,35 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
     expect(await lookup(backend, kim, "https://rival.example.com")).toEqual({ status: "none" });
     await expect(opened(backend, kim, "not-a-project")).rejects.toMatchObject({ code: "not-found" });
     await expect(opened(backend, null as unknown as Identity, acme)).rejects.toMatchObject({ code: "unauthenticated" });
+  });
+
+  test(`${name}: a project limited to its organization isn't found by someone who opened it, and refuses them its address operations`, async () => {
+    const backend = fresh();
+    const acme = await create(backend, dana, "Acme");
+    await setList(backend, dana, acme, ["https://acme.example.com"]);
+    await join(backend, lee, acme, "member");
+    await opened(backend, kim, acme);
+    expect(await found(backend, kim, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
+
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId: acme, reviewAccess: "organization" }));
+
+    // Kim's earlier open no longer counts, and the lookup answers as for an origin no project lists.
+    expect(await lookup(backend, kim, "https://acme.example.com")).toEqual({ status: "none" });
+    const refused = { code: "forbidden", message: ORGANIZATION_ONLY };
+    await expect(opened(backend, kim, acme)).rejects.toMatchObject(refused);
+    await expect(backend.run((store) => getProjectAddresses(store, kim, { projectId: acme }))).rejects.toMatchObject(refused);
+    await expect(setList(backend, kim, acme, ["https://kim.example.com"])).rejects.toMatchObject(refused);
+    await expect(backend.run((store) => addProjectAddress(store, kim, { projectId: acme, address: "https://kim.example.com" }))).rejects.toMatchObject(refused);
+    await expect(backend.run((store) => removeProjectAddress(store, kim, { projectId: acme, address: "https://acme.example.com" }))).rejects.toMatchObject(refused);
+
+    // Members still find it, its owner still manages it, and the list is unchanged.
+    expect(await found(backend, lee, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
+    expect(await found(backend, dana, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
+    expect(await backend.run((store) => getProjectAddresses(store, dana, { projectId: acme }))).toEqual(["https://acme.example.com"]);
+
+    // Opening it to anyone again lets Kim's earlier open count again.
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId: acme, reviewAccess: "anyone" }));
+    expect(await found(backend, kim, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
   });
 
   test(`${name}: recording an opened project again keeps one record and usually writes nothing`, async () => {
