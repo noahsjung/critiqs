@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { aiTicketText, draftedSections, plainText, STANDARD_OUTLINE, ticketBody, ticketCaptureMissing, ticketLinkComment, type TicketMarkdown, webAddress } from "@critiqs/core";
+import { aiTicketText, draftedSections, markdownText, plainText, STANDARD_OUTLINE, ticketBody, ticketCaptureMissing, ticketLinkComment, type TicketMarkdown, webAddress } from "@critiqs/core";
 import { markdownToAdf, plainAdf } from "../src/tickets/trackers/adf.ts";
 import { adfText, validAdf } from "./jira-standin.ts";
 
@@ -99,5 +99,28 @@ test("any text converts to a document Jira takes, with no text node empty", () =
     const converted = doc(markdown);
     const problem = validAdf(converted);
     if (problem !== null) throw new Error(`${JSON.stringify(markdown)}: ${problem}`);
+  }
+});
+
+test("text escaped for ticket Markdown reaches Jira as exactly that text, in each place Critiqs puts it, with no marks or other nodes", () => {
+  const pieces = [
+    "[", "]", "(", ")", "<", ">", "!", "`", "```", "~~~", "*", "**", "_", "__", "~", "#", "-", "+", "=", "|", "\\", "&", "&amp;", "&#60;", ":", "/", "//", ".", "@", "$",
+    "1.", "1)", "> ", "- ", "* ", "# ", "<!--", "<b>", "www.evil.example", "https://evil.example/a", "mailto:a@b.co", "a@b.co", "[x](https://e.x)", "*a*", "_b_", "a_b_c",
+    "The Save button is wrong.", "It reads Sales; expected Support (row 3)!", " ", " ", "x", "ü",
+  ];
+  let state = 11;
+  const next = () => (state = (state * 1103515245 + 12345) & 0x7fffffff);
+  for (let round = 0; round < 3000; round++) {
+    let value = "";
+    for (let count = 1 + (next() % 10); count > 0; count--) value += pieces[next() % pieces.length];
+    const written = value.replace(/\s+/g, " ").trim();
+    if (written === "") continue;
+    for (const markdown of [markdownText(value), `- Screen: ${markdownText(value)}`, `Created from Critiqs by ${markdownText(value)}.`]) {
+      const converted = doc(markdown);
+      const nodes = converted.content.flatMap((block) => (block.type === "paragraph" || block.type === "heading" ? (block.content ?? []) : []));
+      expect({ value, blocks: converted.content.length, marks: nodes.some((node) => node.type === "text" && node.marks !== undefined) }).toEqual({ value, blocks: 1, marks: false });
+    }
+    // A paragraph of the text alone reads as the text, word for word.
+    expect({ value, text: adfText(doc(markdownText(value))) }).toEqual({ value, text: `${written}\n` });
   }
 });

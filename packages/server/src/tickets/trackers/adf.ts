@@ -431,7 +431,8 @@ function parseInline(text: string, marks: AdfMark[]): AdfInline[] {
       continue;
     }
     if (char === "<") {
-      const auto = /^<([a-z][a-z0-9+.-]{1,31}:[^\s<>]*)>/i.exec(rest) ?? /^<([^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>/.exec(rest);
+      // CommonMark's email autolink, whose address has no backslash, so an escaped character is never part of one.
+      const auto = /^<([a-z][a-z0-9+.-]{1,31}:[^\s<>]*)>/i.exec(rest) ?? /^<([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)>/.exec(rest);
       if (auto !== null) {
         flush();
         const address = auto[1]!;
