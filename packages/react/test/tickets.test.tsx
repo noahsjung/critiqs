@@ -1122,3 +1122,21 @@ test("a project default the person can't create tickets in falls back to their f
   await click(button(shadow, "Create ticket…"));
   expect(rowSelect(dialog(shadow, "Create ticket")!, "Team")!.textContent).toContain("Design");
 });
+
+test("templates from an organization's .github repository say where they come from, and a Linear workspace template is saved for every team", async () => {
+  const groups = async (tracker: TrackerId): Promise<TrackerTemplateGroup[]> =>
+    tracker === "github"
+      ? [{ destination: { id: "acme/api", name: "acme/api", key: null }, templates: [{ id: "acme/.github:bug.md", name: "Organization bug" }], from: "acme/.github" }]
+      : [{ destination: { id: "*", name: "Workspace templates (every team)", key: null }, templates: [{ id: "tpl-ws", name: "Workspace template" }] }];
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB], templateSettings: { on: true, templates: [] }, trackerTemplates: groups } });
+  const shadow = await mount(data, { ...DRAFTING, trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "oauth" }] }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect(settings.querySelector('[role="group"][aria-label="acme/api"]')!.textContent).toContain("From acme/.github: this repository has no templates of its own, so GitHub uses these.");
+  expect(settings.querySelector('[role="group"][aria-label="Workspace templates (every team)"] .note')).toBeNull();
+  await click(switchFor(settings, "Workspace template"));
+  expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({
+    projectId: "project",
+    on: true,
+    templates: [{ tracker: "linear", destinationId: "*", templateId: "tpl-ws", name: "Workspace template" }],
+  });
+});

@@ -366,18 +366,20 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
       some(
         (await templates(token, destinationId)).map((group) => {
           const destination = checkedDestination(group.destination);
-          return destination === null ? null : { destination, templates: some(group.templates.map(checkedChoice)) };
+          const from = group.from === undefined ? "" : trackerText(group.from, TRACKER_LIMITS.name);
+          return destination === null ? null : { destination, templates: some(group.templates.map(checkedChoice)), ...(from === "" ? {} : { from }) };
         }),
       );
   }
   if (template) {
-    checked.template = async (token, templateId) => {
-      const found = await template(token, templateId);
+    checked.template = async (token, templateId, destinationId) => {
+      const found = await template(token, templateId, destinationId);
       if (found === null) return null;
       const choice = checkedChoice(found);
-      const destinationId = trackerId(found.destinationId);
+      // A template for another destination than the one asked about doesn't apply here.
+      if (found.destinationId !== destinationId) return null;
       // A template's text longer than a ticket's couldn't make one.
-      if (choice === null || destinationId === null || found.body.length > TRACKER_LIMITS.templateText) throw unreadable("template");
+      if (choice === null || trackerId(destinationId) === null || found.body.length > TRACKER_LIMITS.templateText) throw unreadable("template");
       return { ...choice, destinationId, body: found.body };
     };
   }
@@ -546,8 +548,12 @@ export interface TrackerAdapter {
    * destination, or of one destination; absent where the tracker has none.
    */
   templates?(token: TrackerToken, destinationId?: string): Promise<TrackerTemplateGroup[]>;
-  /** One ticket template with its text, read fresh for a draft; null when the tracker no longer has it. */
-  template?(token: TrackerToken, templateId: string): Promise<TrackerTemplate | null>;
+  /**
+   * One ticket template with its text, read fresh for a draft in a
+   * destination; null when the tracker no longer has it, or it doesn't apply
+   * there. Its `destinationId` is the destination asked about.
+   */
+  template?(token: TrackerToken, templateId: string, destinationId: string): Promise<TrackerTemplate | null>;
   /** The labels a ticket in the destination can take; absent where the tracker has none. */
   labels?(token: TrackerToken, destinationId: string): Promise<TrackerLabel[]>;
   /**

@@ -1,4 +1,5 @@
 import {
+  EVERY_DESTINATION,
   ticketCaptureMissing,
   type NewTicket,
   type TicketDestination,
@@ -347,7 +348,9 @@ const TEMPLATE_NOT_OFFERED = "This project doesn't offer that template here. Cho
 /** The templates a project offers in a destination, by ID: none while its templates are off. */
 export function offeredTemplates(record: TicketSettingsRecord | null, tracker: TrackerId, destinationId: string): string[] {
   if (record?.templatesOn !== true) return [];
-  return record.templates.filter((choice) => choice.tracker === tracker && choice.destinationId === destinationId).map((choice) => choice.templateId);
+  return record.templates
+    .filter((choice) => choice.tracker === tracker && (choice.destinationId === destinationId || choice.destinationId === EVERY_DESTINATION))
+    .map((choice) => choice.templateId);
 }
 
 /** Refuses a creation whose creator's connected account isn't the one they started it with. */

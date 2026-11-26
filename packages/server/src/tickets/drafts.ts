@@ -5,6 +5,7 @@ import {
   type DraftedSection,
   draftedMarkdown,
   draftedSections,
+  EVERY_DESTINATION,
   fillableSections,
   type ExportPageLoader,
   type ExportThread,
@@ -110,6 +111,7 @@ function parseChoices(templates: TicketTemplateChoice[]): TicketTemplateChoice[]
     const pasted = pastesTemplates(choice.tracker);
     const body = choice.body?.replace(/\r\n?/g, "\n") ?? "";
     if (pasted && body.trim() === "") fail("invalid", "Paste the template's text.");
+    if (pasted && destinationId === EVERY_DESTINATION) fail("invalid", "Choose the project and issue type the template is for.");
     if (pasted && body.length > MAX_PASTED_TEMPLATE_LENGTH) fail("invalid", `Keep a template under ${MAX_PASTED_TEMPLATE_LENGTH.toLocaleString("en-US")} characters.`);
     if (!pasted && choice.body !== undefined) fail("invalid", "Choose templates from the list.");
     parsed.push({ tracker: choice.tracker, destinationId, templateId, name: name.slice(0, 200), ...(pasted ? { body } : {}) });
@@ -277,7 +279,7 @@ export async function ticketDraftOptions(steps: DraftSteps, deployment: TicketsD
       : [
           ...pasted,
           ...(await adapter.templates(token, args.destinationId))
-            .flatMap((group) => (group.destination.id === args.destinationId ? group.templates : []))
+            .flatMap((group) => (group.destination.id === args.destinationId || group.destination.id === EVERY_DESTINATION ? group.templates : []))
             .filter((template) => fromTracker.includes(template.id)),
         ];
   const labels = keys.size === 0 || adapter.labels === undefined ? [] : suggestLabels(await adapter.labels(token, args.destinationId).catch(() => []), keys);
@@ -316,7 +318,7 @@ async function readTemplate(plan: DraftPlan, tracker: TrackerId, deployment: Tic
   const pasted = plan.pasted.find((template) => template.id === plan.template!.templateId);
   if (pasted !== undefined) return { ...pasted, destinationId: plan.template.destinationId };
   const adapter = trackerAdapter(tracker, deployment, fetchFn);
-  const template = adapter.template === undefined ? null : await adapter.template(await token(), plan.template.templateId);
+  const template = adapter.template === undefined ? null : await adapter.template(await token(), plan.template.templateId, plan.template.destinationId);
   if (template === null || template.destinationId !== plan.template.destinationId) {
     fail("not-found", `${trackerLabel(tracker)} no longer has this template. Choose another, or Critiqs's standard format.`);
   }

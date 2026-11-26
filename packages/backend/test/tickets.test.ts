@@ -271,6 +271,7 @@ test("a project's owner turns on a Linear team's templates; a reviewer drafts in
   expect(groups.map((group) => [group.destination.name, group.templates.map((template) => template.name)])).toEqual([
     ["Design", ["Copy change"]],
     ["Engineering", ["Bug report", "Feature request"]],
+    ["Workspace templates (every team)", ["Workspace template"]],
   ]);
   expect((await lee.action(api.tickets.options, { threadId, tracker: "linear", destinationId: "team-eng" })).templates).toEqual([]);
   await dana.mutation(api.tickets.saveTemplateSettings, { projectId, on: true, templates: [{ tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" }] });

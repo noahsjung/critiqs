@@ -247,7 +247,7 @@ test("GitHub attack: a template file's text past what a ticket holds is refused,
   const { standIn, github } = recorded();
   const big = `---\nname: ${"N".repeat(5_000)}\n---\n${"x".repeat(60_000)}`;
   standIn.intercept = (method, path) => (method === "GET" && path === "/repos/acme/web/contents/.github/ISSUE_TEMPLATE/big.md" ? new Response(big, { headers: { "Content-Type": "text/plain" } }) : undefined);
-  const read = await outcome(github.template!(PAT, "acme/web:big.md"));
+  const read = await outcome(github.template!(PAT, "acme/web:big.md", "acme/web"));
   expect(read.ok && read.value !== null && read.value.body.length > 50_000).toBe(false);
   standIn.intercept = (method, path) =>
     method === "GET" && path === "/repos/acme/web/contents/.github/ISSUE_TEMPLATE"
@@ -297,7 +297,7 @@ test("GitHub attack: a repository named . or .., which GitHub forbids, is never 
   for (const name of ["acme/..", "acme/.", "../.."]) {
     expect((await outcome(github.labels!(PAT, name))).ok).toBe(false);
     expect((await outcome(github.search(PAT, "label", name))).ok).toBe(false);
-    expect(await outcome(github.template!(PAT, `${name}:bug.md`))).toMatchObject({ ok: true, value: null });
+    expect(await outcome(github.template!(PAT, `${name}:bug.md`, name))).toMatchObject({ ok: true, value: null });
   }
   // An issue key naming one isn't looked up as one either.
   await outcome(github.search(PAT, "acme/..#1"));

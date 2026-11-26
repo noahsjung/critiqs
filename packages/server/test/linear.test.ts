@@ -401,7 +401,7 @@ test("create applies a template and adds labels only when given them", async () 
   expect(sentQuery(0).variables.input).toEqual({ teamId: "t1", title: "T", description: "B", templateId: "tpl-1", labelIds: ["label-bug"] });
 });
 
-test("templates are each team's issue templates, by team name, skipping workspace templates and ones Critiqs can't read", async () => {
+test("templates are each team's issue templates, by team name, then the workspace's for every team, skipping ones Critiqs can't read", async () => {
   requests.length = 0;
   const eng = { id: "team-eng", name: "Engineering", key: "ENG" };
   const des = { id: "team-des", name: "Design", key: null };
@@ -428,27 +428,38 @@ test("templates are each team's issue templates, by team name, skipping workspac
         { id: "tpl-feature", name: "Feature" },
       ],
     },
+    { destination: { id: "*", name: "Workspace templates (every team)", key: null }, templates: [{ id: "tpl-ws", name: "Workspace template" }] },
   ]);
-  expect(sentQuery(0).query).toContain('templateSearch(filter: { type: { eq: "issue" }, team: { null: false } }');
-  // One team's: asked for by its ID.
+  expect(sentQuery(0).query).toContain('templateSearch(filter: { type: { eq: "issue" } }');
+  // One team's, asked for by its ID, then the workspace's.
   replies.push({ body: { data: { templateSearch: [{ id: "tpl-bug", name: "Bug report", team: eng }] } } });
-  expect(await linearAdapter({ baseUrl }).templates!(key, "team-eng")).toEqual([{ destination: eng, templates: [{ id: "tpl-bug", name: "Bug report" }] }]);
+  replies.push({ body: { data: { templateSearch: [{ id: "tpl-ws", name: "Workspace template", team: null }] } } });
+  expect(await linearAdapter({ baseUrl }).templates!(key, "team-eng")).toEqual([
+    { destination: eng, templates: [{ id: "tpl-bug", name: "Bug report" }] },
+    { destination: { id: "*", name: "Workspace templates (every team)", key: null }, templates: [{ id: "tpl-ws", name: "Workspace template" }] },
+  ]);
   expect(sentQuery(1).variables).toEqual({ team: "team-eng" });
+  expect(sentQuery(2).query).toContain("team: { null: true }");
   // An answer without the list is Linear's problem, said in words.
   replies.push({ body: { data: { templateSearch: null } } });
   expect((await refusal(linearAdapter({ baseUrl }).templates!(key))).message).toContain("(no templates)");
 });
 
-test("a template is read with its Markdown text and team; one Linear no longer has is null", async () => {
+test("a template is read with its Markdown text for a team: the team's own or the workspace's; another team's, or one Linear no longer has, is null", async () => {
   requests.length = 0;
   replies.push({ body: { data: { templateSearch: [{ id: "tpl-bug", name: "Bug report", team: { id: "team-eng", name: "Engineering", key: "ENG" }, content: "## Summary\n\n## Steps\n" }] } } });
-  expect(await linearAdapter({ baseUrl }).template!(key, "tpl-bug")).toEqual({ id: "tpl-bug", name: "Bug report", destinationId: "team-eng", body: "## Summary\n\n## Steps\n" });
+  expect(await linearAdapter({ baseUrl }).template!(key, "tpl-bug", "team-eng")).toEqual({ id: "tpl-bug", name: "Bug report", destinationId: "team-eng", body: "## Summary\n\n## Steps\n" });
   expect(sentQuery(0).variables).toEqual({ id: "tpl-bug" });
   // No body in Linear: an empty one.
   replies.push({ body: { data: { templateSearch: [{ id: "tpl-empty", name: "Empty", team: { id: "team-eng", name: "Engineering" }, content: null }] } } });
-  expect((await linearAdapter({ baseUrl }).template!(key, "tpl-empty"))?.body).toBe("");
+  expect((await linearAdapter({ baseUrl }).template!(key, "tpl-empty", "team-eng"))?.body).toBe("");
   replies.push({ body: { data: { templateSearch: [] } } });
-  expect(await linearAdapter({ baseUrl }).template!(key, "gone")).toBeNull();
+  expect(await linearAdapter({ baseUrl }).template!(key, "gone", "team-eng")).toBeNull();
+  // Another team's template doesn't apply; the workspace's applies to every team.
+  replies.push({ body: { data: { templateSearch: [{ id: "tpl-bug", name: "Bug report", team: { id: "team-eng", name: "Engineering" }, content: "x" }] } } });
+  expect(await linearAdapter({ baseUrl }).template!(key, "tpl-bug", "team-des")).toBeNull();
+  replies.push({ body: { data: { templateSearch: [{ id: "tpl-ws", name: "Workspace", team: null, content: "## Notes\n" }] } } });
+  expect(await linearAdapter({ baseUrl }).template!(key, "tpl-ws", "team-des")).toEqual({ id: "tpl-ws", name: "Workspace", destinationId: "team-des", body: "## Notes\n" });
 });
 
 test("labels are the team's and the workspace's, without label groups, as Linear names them, each with its single-select group", async () => {

@@ -54,6 +54,12 @@ export interface GithubApp {
 const API_VERSION = "2022-11-28";
 /** Where a repository keeps its issue templates and issue forms. */
 const TEMPLATE_FOLDER = ".github/ISSUE_TEMPLATE";
+/**
+ * The repository whose templates GitHub uses for an owner's repositories that
+ * have no template folder of their own: an organization's or account's default
+ * community health files.
+ */
+const SHARED_REPOSITORY = ".github";
 /** Most templates read in one repository, and most repositories read for templates at once. */
 const MAX_TEMPLATES = 25;
 const MAX_TEMPLATE_REPOSITORIES = 30;
@@ -511,10 +517,10 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
     return user.login;
   };
 
-  /** A repository's template files, by name, in GitHub's order; none when it has no template folder. */
-  const templateFiles = async (token: TrackerToken, repository: { owner: string; name: string }): Promise<string[]> => {
+  /** A repository's template files, by name, in GitHub's order; null when it has no template folder. */
+  const templateFiles = async (token: TrackerToken, repository: { owner: string; name: string }): Promise<string[] | null> => {
     const answer = await send(to, token, repoPath(repository, "contents", ...TEMPLATE_FOLDER.split("/")));
-    if (answer.response.status === 404) return [];
+    if (answer.response.status === 404) return null;
     requireOk(answer, token);
     if (!Array.isArray(answer.body)) return [];
     return answer.body
@@ -531,14 +537,47 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
     return typeof answer.body === "string" ? parseGithubTemplate(fileName, answer.body) : null;
   };
 
-  const templateGroup = async (token: TrackerToken, destination: TicketDestination): Promise<TrackerTemplateGroup> => {
-    const repository = repositoryOf(destination.id);
-    const templates: { id: string; name: string }[] = [];
-    for (const file of await templateFiles(token, repository)) {
-      const template = await readTemplate(token, repository, file);
-      if (template !== null) templates.push({ id: `${destination.id}:${file}`, name: template.name });
+  /**
+   * Where a repository's issue templates come from, as GitHub decides: its own
+   * template folder, or, when it has none, its owner's `.github` repository's
+   * (an organization's or account's default templates), with the files there.
+   */
+  const templateSource = async (token: TrackerToken, repository: { owner: string; name: string }): Promise<{ source: { owner: string; name: string }; files: string[]; shared: boolean }> => {
+    const own = await templateFiles(token, repository);
+    if (own !== null || repository.name.toLowerCase() === SHARED_REPOSITORY) return { source: repository, files: own ?? [], shared: false };
+    const shared = { owner: repository.owner, name: SHARED_REPOSITORY };
+    return { source: shared, files: (await templateFiles(token, shared)) ?? [], shared: true };
+  };
+
+  /**
+   * A template, by its ID, that applies to the destination: one of the
+   * repository's own, or one of its owner's `.github` repository's when the
+   * repository has no template folder; null otherwise, or when GitHub no
+   * longer has it.
+   */
+  const applyingTemplate = async (token: TrackerToken, templateId: string, destinationId: string): Promise<GithubTemplateFile | null> => {
+    const match = TEMPLATE_ID.exec(templateId);
+    if (match === null) return null;
+    const [, sourceId, fileName] = match as unknown as [string, string, string];
+    if (!TEMPLATE_FILE.test(fileName) || CONFIG_FILE.test(fileName)) return null;
+    const destination = repositoryOf(destinationId);
+    const source = repositoryOf(sourceId);
+    if (sourceId.toLowerCase() !== destinationId.toLowerCase()) {
+      const shared = source.owner.toLowerCase() === destination.owner.toLowerCase() && source.name.toLowerCase() === SHARED_REPOSITORY;
+      if (!shared || (await templateFiles(token, destination)) !== null) return null;
     }
-    return { destination, templates };
+    return await readTemplate(token, source, fileName);
+  };
+
+  const templateGroup = async (token: TrackerToken, destination: TicketDestination): Promise<TrackerTemplateGroup> => {
+    const { source, files, shared } = await templateSource(token, repositoryOf(destination.id));
+    const sourceId = `${source.owner}/${source.name}`;
+    const templates: { id: string; name: string }[] = [];
+    for (const file of files) {
+      const template = await readTemplate(token, source, file);
+      if (template !== null) templates.push({ id: `${sourceId}:${file}`, name: template.name });
+    }
+    return { destination, templates, ...(shared ? { from: sourceId } : {}) };
   };
 
   const labels = async (token: TrackerToken, destinationId: string): Promise<TrackerLabel[]> => {
@@ -626,8 +665,7 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
         const repository = repositoryOf(input.destinationId);
         // A template's own labels, as GitHub adds them when a person picks it: only those the repository has.
         if (input.templateId !== null) {
-          const template = TEMPLATE_ID.exec(input.templateId);
-          const file = template === null || template[1]!.toLowerCase() !== input.destinationId.toLowerCase() ? null : await readTemplate(token, repository, template[2]!);
+          const file = await applyingTemplate(token, input.templateId, input.destinationId);
           if (file === null) return { status: "refused", error: new TrackerRefusal("invalid", "GitHub no longer has this template. Choose another, or Critiqs's standard format.") };
           if (file.labels.length > 0) {
             const known = new Map((await labels(token, input.destinationId)).map((label) => [label.name.toLowerCase(), label.name]));
@@ -713,12 +751,8 @@ export function githubAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       }
       return groups.sort((a, b) => a.destination.name.localeCompare(b.destination.name));
     },
-    template: async (token, templateId): Promise<TrackerTemplate | null> => {
-      const match = TEMPLATE_ID.exec(templateId);
-      if (match === null) return null;
-      const [, destinationId, fileName] = match as unknown as [string, string, string];
-      if (!TEMPLATE_FILE.test(fileName) || CONFIG_FILE.test(fileName)) return null;
-      const file = await readTemplate(token, repositoryOf(destinationId), fileName);
+    template: async (token, templateId, destinationId): Promise<TrackerTemplate | null> => {
+      const file = await applyingTemplate(token, templateId, destinationId);
       return file === null ? null : { id: templateId, name: file.name, destinationId, body: file.body };
     },
     labels,

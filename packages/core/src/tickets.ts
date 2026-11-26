@@ -264,9 +264,23 @@ export interface TicketTemplateSettings {
 
 /** A destination's templates in the tracker, for an owner choosing which to offer. */
 export interface TrackerTemplateGroup {
+  /** Where the templates apply: one destination, or `EVERY_DESTINATION` for templates that belong to none (a Linear workspace's). */
   destination: TicketDestination;
   templates: TicketTemplate[];
+  /**
+   * Where the templates come from when not the destination itself: a GitHub
+   * organization's `.github` repository, whose templates a repository without
+   * its own uses. Absent for the destination's own.
+   */
+  from?: string;
 }
+
+/**
+ * The destination ID of templates that apply wherever the tracker's tickets go,
+ * such as a Linear workspace's templates, which belong to no team. A project
+ * that offers one offers it in every destination of that tracker.
+ */
+export const EVERY_DESTINATION = "*";
 
 /** What linking a thread to an existing ticket sends. */
 export interface TicketLinkInput {

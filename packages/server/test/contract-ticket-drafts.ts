@@ -210,8 +210,36 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
           { id: "tpl-feature", name: "Feature request" },
         ],
       },
+      // The workspace's templates belong to no team: one group, offered for every team.
+      { destination: { id: "*", name: "Workspace templates (every team)", key: null }, templates: [{ id: "tpl-workspace", name: "Workspace template" }] },
     ]);
     expect(linear.tokens).toEqual(["lin_api_dana"]);
+  });
+
+  test(`${name}: a Linear workspace template an owner turns on is offered in every team, fills the draft, and creates the issue from it`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend);
+    const linear = linearStandIn();
+    await connect(backend, lee);
+    const workspace: TicketTemplateChoice = { tracker: "linear", destinationId: "*", templateId: "tpl-workspace", name: "Workspace template" };
+    // Off, it isn't offered.
+    await save(backend, dana, projectId, false, [workspace]);
+    expect((await options(backend, lee, linear, threadId, "team-des")).templates).toEqual([]);
+    await save(backend, dana, projectId, true, [workspace, bug]);
+    // Every team offers it; Engineering also its own Bug report.
+    expect((await options(backend, lee, linear, threadId, "team-des")).templates).toEqual([{ id: "tpl-workspace", name: "Workspace template" }]);
+    expect((await options(backend, lee, linear, threadId, "team-eng")).templates.map((template) => template.id).sort()).toEqual(["tpl-bug", "tpl-workspace"]);
+    // Choosing it fills the draft from its text, in any team.
+    expect((await draft(backend, lee, linear, threadId, { destinationId: "team-des", templateId: "tpl-workspace" })).body).toContain("## Notes");
+    // A team's template is still refused in another team.
+    expect((await refusal(draft(backend, lee, linear, threadId, { destinationId: "team-des", templateId: "tpl-bug" }))).code).toBe("invalid");
+    // The issue is created from it in Linear.
+    await create(backend, lee, linear, { threadId, destinationId: "team-des", templateId: "tpl-workspace" });
+    expect(linear.issues.at(-1)).toMatchObject({ teamId: "team-des", templateId: "tpl-workspace" });
+    // A Jira template pasted for every destination is refused: it must name its project and issue type.
+    expect((await refusal(save(backend, dana, projectId, true, [{ tracker: "jira", destinationId: "*", templateId: "pasted-1", name: "Bug", body: "## Steps" }]))).message).toBe(
+      "Choose the project and issue type the template is for.",
+    );
   });
 
   // -------------------------------------------------------------------------

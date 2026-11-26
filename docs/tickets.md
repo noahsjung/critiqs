@@ -302,8 +302,10 @@ reading them from Linear for each draft; choosing one fills the draft from it
 new issue is created from that template, so Linear applies its other
 defaults, such as labels, under the person's title and text. Turning templates
 off keeps the choice for next time, and doesn't stop a retry from finding an
-issue Linear already created from one. Built: team templates only; a workspace's
-templates, which belong to no team, aren't offered yet.
+issue Linear already created from one. Built: team templates, and the
+workspace's templates, which belong to no team: they are listed as one group,
+**Workspace templates (every team)**, and one the owner turns on is offered in
+every team.
 
 **Proposed:** a template can be matched to a tag, so a thread tagged Bug starts
 from the team's bug template.
@@ -718,8 +720,14 @@ Self-hosted deployments get the same features:
   endpoint (GitHub's own address only, no redirects, 15 seconds, 2 MB), and
   every answer is checked (IDs and addresses, names and titles cut, lists
   capped, a template's text at most 50,000 characters).
-- **Not built:** organization-wide default templates from an organization's
-  `.github` repository, assignees, and Projects fields.
+- **Organization templates.** A repository with no `.github/ISSUE_TEMPLATE`
+  folder of its own uses its owner's `.github` repository's templates, as
+  GitHub does: Tags and AI lists them under that repository, saying they come
+  from `owner/.github`, and a draft or a new issue in that repository can use
+  them. A repository with its own folder never uses them. The person's token
+  must reach the `.github` repository (with the GitHub App, it must be
+  installed there too); otherwise the repository shows no templates.
+- **Not built:** assignees, and Projects fields.
 
 ## Order of work
 

@@ -10,11 +10,11 @@
 // don't change. Issue transfers move an issue to another repository under a
 // new number; whether its node ID stays is not documented, so a test chooses.
 //
-// Not modeled: pagination beyond what a test fills, the `Link` header, ETags
+// An organization's default templates are a `.github` repository a test adds
+// with its own template files. Not modeled: pagination beyond what a test fills, the `Link` header, ETags
 // and 304s, GitHub's search ranking and index delay (search is a plain word
-// match), secondary rate limits beyond what `intercept` answers,
-// organization-wide default templates from a `.github`
-// repository, labels GitHub might create when named on a new issue (the
+// match), secondary rate limits beyond what `intercept` answers, labels
+// GitHub might create when named on a new issue (the
 // stand-in refuses unknown labels), and how issue-form answers render.
 
 import type { TicketsDeployment } from "../src/tickets/accounts.ts";

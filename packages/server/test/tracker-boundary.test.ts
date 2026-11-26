@@ -171,7 +171,7 @@ test("templates and labels a tracker sends keep only IDs Critiqs can use, with n
   expect(groups.flatMap((group) => group.templates.map((template) => template.id))).toEqual(["tpl-1"]);
   expect(groups[0]!.templates[0]!.name.length).toBeLessThanOrEqual(200);
   reply = () => Response.json({ data: { templateSearch: [{ id: "tpl-1", name: "Bug", team, content: "x".repeat(60_000) }] } });
-  expect((await refusal(linearAdapter({ baseUrl: baseUrl() }).template!(key, "tpl-1"))).code).toBe("unavailable");
+  expect((await refusal(linearAdapter({ baseUrl: baseUrl() }).template!(key, "tpl-1", "t1"))).code).toBe("unavailable");
   reply = () => Response.json({ data: { issueLabels: { nodes: [{ id: "l".repeat(5_000), name: "Long ID" }, { id: "label-1", name: "B".repeat(5_000), parent: { id: "g".repeat(5_000), groupType: null } }] } } });
   const labels = await linearAdapter({ baseUrl: baseUrl() }).labels!(key, "t1");
   expect(labels.map((label) => label.id)).toEqual(["label-1"]);

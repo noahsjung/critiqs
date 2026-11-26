@@ -259,6 +259,7 @@ function TrackerTemplates({ projectId, tracker, state }: { projectId: string; tr
           {loaded.data.map((group) => (
             <div key={group.destination.id} className="ds-group" role="group" aria-label={group.destination.name}>
               <div className="ds-group-label">{group.destination.name}</div>
+              {group.from !== undefined && <p className="note">From {group.from}: this repository has no templates of its own, so GitHub uses these.</p>}
               {group.templates.map((template) => (
                 <SettingRow key={template.id} label={template.name}>
                   {(labelId) => (
