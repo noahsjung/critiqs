@@ -45,7 +45,7 @@ test("the text carries the thread's link, context, and whole discussion", () => 
   const { body } = ticketText(thread, { attribution: { name: "Dana" }, link: review, captureNote: "uploaded" });
   expect(body).toContain("- Link: [open the thread](");
   // Reviewers' and the app's text is escaped, so it renders exactly as written.
-  expect(body).toContain("- Screen: user\\-details");
+  expect(body).toContain("- Screen: user-details");
   expect(body).toContain('- Target: `user.department`, "Sales", record user\\:alex');
   expect(body).toContain("- Scope: this record only");
   expect(body).toContain("- Revision: abc123");

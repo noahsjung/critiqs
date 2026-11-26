@@ -5,27 +5,98 @@
 // a link, image, HTML, or any other structure there. Ticket text is built
 // only from Critiqs's own Markdown and these functions' output.
 
-/**
- * Every ASCII punctuation character CommonMark or GitHub's Markdown gives a
- * meaning to, anywhere in a line: all but `, ; ? ! ' " %`, which mean
- * something only inside a link, image, or HTML tag, each of which needs a
- * `[` or `<`, both escaped. The rest escaped, no link, autolink, image, HTML,
- * entity, code, emphasis, heading, list, quote, or table can form.
- */
-const MARKDOWN_PUNCTUATION = /[#$&()*+\-./:<=>@[\\\]^_`{|}~]/g;
-
 /** Text on one line: every run of whitespace, line breaks included, one space. */
 function oneLine(value: unknown): string {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
+const WORD = /[\p{L}\p{N}]/u;
+const SPACE = /\s/u;
+
+/**
+ * Characters that open something wherever they are: code spans, links and
+ * images, tables, and GitHub's math. Each is escaped everywhere.
+ */
+const ALWAYS = new Set(["`", "[", "]", "|", "$"]);
+
+/**
+ * Where the line's first character starts a block, the index to escape:
+ * a heading (`#`), a quote (`>`), a list item (`-`, `+`, `*`, or digits and
+ * `.` or `)`), a rule or a heading's underline (`---`, `===`). -1 otherwise.
+ */
+function blockStart(text: string): number {
+  if (/^#{1,6}(?:\s|$)/.test(text) || text.startsWith(">") || /^[-+*](?:\s|$)/.test(text) || /^[-\s]+$/.test(text) || /^=+$/.test(text)) return 0;
+  const ordered = /^\d{1,9}[.)](?:\s|$)/.exec(text);
+  return ordered === null ? -1 : ordered[0].trimEnd().length - 1;
+}
+
+/**
+ * Whether the character at `index` can mean something to a Markdown
+ * renderer there (CommonMark, GitHub's Markdown, and the common linkifiers),
+ * so it must be escaped. The text's ends count as anything, since Critiqs's
+ * own Markdown sits around it.
+ */
+function opens(chars: string[], index: number): boolean {
+  const char = chars[index]!;
+  const before = chars[index - 1];
+  const after = chars[index + 1];
+  const space = (neighbour: string | undefined) => neighbour !== undefined && SPACE.test(neighbour);
+  const word = (neighbour: string | undefined) => neighbour !== undefined && WORD.test(neighbour);
+  if (ALWAYS.has(char)) return true;
+  switch (char) {
+    // An escape, or a line break at the end of a line.
+    case "\\":
+      return after === undefined || ASCII_PUNCTUATION.test(after);
+    // Emphasis and strikethrough open and close inside words too; between spaces they are text.
+    case "*":
+    case "~":
+      return !(space(before) && space(after));
+    // `_` is text inside a word and between spaces.
+    case "_":
+      return !((word(before) && word(after)) || (space(before) && space(after)));
+    // An HTML tag, comment, declaration, or instruction, or an autolink.
+    case "<":
+      return after === undefined || /[A-Za-z/!?]/.test(after);
+    // A character reference.
+    case "&":
+      return /^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31})(?:;|$)/.test(chars.slice(index).join(""));
+    // A domain's dot, which turns a word into a web or email address, and the dot of `www.`.
+    case ".":
+      return word(after) || after === "-" || after === "_" || /www$/i.test(chars.slice(Math.max(0, index - 3), index).join(""));
+    // An address's scheme, such as `https:` or `mailto:`.
+    case ":":
+      return before !== undefined && /[A-Za-z]/.test(before) && after !== undefined && !space(after);
+    // A scheme-relative address.
+    case "/":
+      return after === "/";
+    // An email address.
+    case "@":
+      return before !== undefined && !space(before) && (word(after) || after === "-" || after === "_" || after === ".");
+    // A link's address after its text, which some renderers read even when the brackets are escaped.
+    case "(":
+      return before === "]";
+    // A heading's closing `#`s, at the end.
+    case "#":
+      return (before === undefined || space(before)) && chars.slice(index).every((each) => each === "#");
+    default:
+      return false;
+  }
+}
+
 /**
  * Text as Markdown that renders exactly as written, on one line, as part of
- * a paragraph, list item, or heading: line breaks become spaces, and every
- * character that could form Markdown is escaped.
+ * a paragraph, list item, or heading: line breaks become spaces, and a
+ * character is escaped only where a Markdown renderer would give it a
+ * meaning (`opens`, `blockStart`), so ordinary sentences have no
+ * backslashes. No link, autolink, image, HTML, entity, code, emphasis,
+ * heading, list, quote, rule, or table can form.
  */
 export function markdownText(value: unknown): string {
-  return oneLine(value).replace(MARKDOWN_PUNCTUATION, "\\$&");
+  const chars = Array.from(oneLine(value));
+  const start = blockStart(chars.join(""));
+  // `blockStart` counts UTF-16 units; it only ever points at ASCII at the line's start, before any other character.
+  return chars.map((char, index) => (index === start || opens(chars, index) ? `\\${char}` : char)).join("");
 }
 
 /**

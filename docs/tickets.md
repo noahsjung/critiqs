@@ -108,7 +108,10 @@ accepts images.
 Everything in ticket text that people or trackers wrote (comments, names,
 tags, the page's details) renders exactly as written, as Critiqs shows it:
 Critiqs escapes it, so none of it can form a link, image, HTML, code block,
-heading, or other structure in the tracker. The thread's link is the only
+heading, or other structure in the tracker. A character is escaped only where
+Markdown would read it (a full stop after a number at the start of a line, a
+`*` that could start emphasis, a dot inside an address), so ordinary sentences
+show no backslashes in the Create dialog. The thread's link is the only
 link Critiqs writes. The page's address leaves out its query
 and fragment, which can carry a prototype's sign-in token. The Markdown
 export, a file the team downloads, keeps comments' own Markdown.
