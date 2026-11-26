@@ -1,0 +1,64 @@
+{
+  "name": "critiqs-nuxt",
+  "version": "0.3.0",
+  "description": "Critiqs's Nuxt module: add critiqs-nuxt to modules to comment on a prototype, discuss feedback, and find its context.",
+  "license": "MIT",
+  "keywords": [
+    "nuxt",
+    "nuxt-module",
+    "vue",
+    "feedback",
+    "comments",
+    "review",
+    "prototype",
+    "design review"
+  ],
+  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/nuxt#readme",
+  "bugs": {
+    "url": "https://github.com/noahsjung/Critiqs/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/module.d.mts",
+      "import": "./dist/module.mjs"
+    }
+  },
+  "main": "./dist/module.mjs",
+  "types": "./dist/module.d.mts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --isolate",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  },
+  "dependencies": {
+    "@nuxt/kit": "^4.0.0",
+    "critiqs": "0.3.0",
+    "critiqs-vue": "0.3.0"
+  },
+  "peerDependencies": {
+    "nuxt": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "nuxt": "^4.7.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noahsjung/Critiqs.git",
+    "directory": "packages/nuxt"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
