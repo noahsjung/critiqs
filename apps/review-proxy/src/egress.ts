@@ -1,4 +1,4 @@
-import { isIdentityProvider, isLocalAddress } from "@critiqs/core";
+import { hostOf, isIdentityProvider, isLocalAddress } from "@critiqs/core";
 import { acceptableAddress, isBlockedHost, type PublicWeb, type PublicWebPolicy, resolvePublicAddress } from "@critiqs/server/public-web";
 import type { ProxyLimits } from "./config.ts";
 import { lowercaseHeaders, outboundHeaders, type RequestClass } from "./headers.ts";
@@ -18,6 +18,15 @@ export interface EgressDeps {
   reputation: ReputationCheck;
   /** `Critiqs-Review/1 (...)` for a link's own address, `Critiqs-Asset/1` for third-party assets: two egresses. */
   userAgent: string;
+  /**
+   * What the reputation check is asked about each hop: its origin and path
+   * (`path`, the default), or only its origin (`origin`), which the provider
+   * answers once for every file there. A property of the egress, never of a
+   * request, so nothing a browser says can narrow the check: the egress for a
+   * link's own and owner-approved origins checks paths, the one for
+   * third-party static files checks hosts.
+   */
+  reputationScope?: "path" | "origin";
   limits: Pick<ProxyLimits, "hopTimeoutMs" | "headersTimeoutMs" | "maxRedirects">;
 }
 
@@ -47,17 +56,26 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const MORE_SIGN_IN: readonly { host: string; path?: string }[] = [{ host: "appleid.apple.com" }, { host: "vercel.com", path: "/login" }];
 
 function isSignIn(url: URL): boolean {
-  return isIdentityProvider(url) || MORE_SIGN_IN.some(({ host, path }) => url.hostname === host && (path === undefined || url.pathname === path || url.pathname.startsWith(`${path}/`)));
+  return isIdentityProvider(url) || MORE_SIGN_IN.some(({ host, path }) => hostOf(url) === host && (path === undefined || url.pathname === path || url.pathname.startsWith(`${path}/`)));
 }
 
-/** Why a URL may not be fetched, checked without the network; null when it may be. */
-export function refusedLocally(url: URL, policy: PublicWebPolicy): EgressRefusal | null {
+/**
+ * The URL as every later check and the connection see it, with its host in
+ * canonical form, or why it may not be fetched, checked without the network.
+ */
+export function checkedLocally(url: URL, policy: PublicWebPolicy): URL | EgressRefusal {
   const parsed = acceptableAddress(url.href);
   if (typeof parsed === "string") return "unreachable";
   // Only the scheme's default port, as the address check.
   if (parsed.port !== "") return "unreachable";
   if (isLocalAddress(parsed) || isBlockedHost(parsed.hostname, policy)) return "unreachable";
-  return null;
+  return parsed;
+}
+
+/** Why a URL may not be fetched, checked without the network; null when it may be. */
+export function refusedLocally(url: URL, policy: PublicWebPolicy): EgressRefusal | null {
+  const checked = checkedLocally(url, policy);
+  return typeof checked === "string" ? checked : null;
 }
 
 export interface Egress {
@@ -69,10 +87,14 @@ export function createEgress(deps: EgressDeps): Egress {
     async fetch(request) {
       const started = Date.now();
       let url = request.url;
+      // The origin redirects must stay within, in the same canonical form as each hop.
+      const allowed = acceptableAddress(request.origin);
+      if (typeof allowed === "string") return { kind: "refused", reason: "unreachable" };
       let hops = 0;
       for (;;) {
-        const local = refusedLocally(url, deps.policy);
-        if (local !== null) return { kind: "refused", reason: local };
+        const checked = checkedLocally(url, deps.policy);
+        if (typeof checked === "string") return { kind: "refused", reason: checked };
+        url = checked;
         // One deadline for this hop's connection and headers, inside the whole request's.
         const left = deps.limits.headersTimeoutMs - (Date.now() - started);
         if (left <= 0) return { kind: "refused", reason: "unreachable" };
@@ -81,9 +103,7 @@ export function createEgress(deps: EgressDeps): Egress {
         const timer = setTimeout(() => hop.abort(new Error("The upstream hop took too long.")), Math.min(deps.limits.hopTimeoutMs, left));
         let response: Awaited<ReturnType<PublicWeb["fetchPinned"]>>;
         try {
-          // Pages are checked by their path; assets by their origin, which the
-          // provider answers once for every file there.
-          const asked = request.class === "document" ? url : new URL("/", url);
+          const asked = (deps.reputationScope ?? "path") === "path" ? url : new URL("/", url);
           if (!(await deps.reputation.allows(asked, signal))) return { kind: "refused", reason: "unsafe" };
           const address = await resolvePublicAddress(url, deps.web.resolve, signal, deps.policy);
           if (address === null) return { kind: "refused", reason: "unreachable" };
@@ -103,7 +123,7 @@ export function createEgress(deps: EgressDeps): Egress {
         if (hops > deps.limits.maxRedirects) return { kind: "refused", reason: "unreachable" };
         const next = acceptableAddress(location, url);
         if (typeof next === "string") return { kind: "refused", reason: "unreachable" };
-        if (next.origin !== request.origin) {
+        if (next.origin !== allowed.origin) {
           // Another origin, even http to https: never dialed.
           if (request.class !== "document") return { kind: "refused", reason: "unreachable" };
           return { kind: "left", url: next.origin, signIn: isSignIn(next) };

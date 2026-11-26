@@ -32,8 +32,10 @@ describe("parseProxyConfig", () => {
     ["the backend's own site", { ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://review.convex.site", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site", CRITIQS_WEB_RISK_API_KEY: "k" }],
     ["a short secret", { ...LOCAL, CRITIQS_PROXY_SECRET: "short" }],
     ["a malformed egress block", { ...LOCAL, CRITIQS_PROXY_EGRESS: "203.0.113.10/33" }],
-    ["a public domain without a reputation key", { ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site" }],
+    ["a public domain without a reputation key", { ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site", CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list" }],
     ["a limit that isn't a number", { ...LOCAL, CRITIQS_PROXY_LIMIT_ASSET_BYTES: "lots" }],
+    ["a public domain without a cookie isolation setting", { ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site", CRITIQS_WEB_RISK_API_KEY: "k" }],
+    ["a public domain with an unknown cookie isolation setting", { ...LOCAL, CRITIQS_PROXY_DOMAIN: "https://critiqs-review.net", CRITIQS_WEB_ORIGINS: "https://critiqs.app", CRITIQS_PROXY_BACKEND: "https://x.convex.site", CRITIQS_WEB_RISK_API_KEY: "k", CRITIQS_PROXY_COOKIE_ISOLATION: "yes" }],
   ];
   for (const [name, env] of refused) test(`refuses ${name}`, () => expect(() => parseProxyConfig(env)).toThrow(ConfigError));
 
@@ -45,11 +47,13 @@ describe("parseProxyConfig", () => {
       CRITIQS_PROXY_SECRET: "a-test-secret-that-is-long-enough-to-pass",
       CRITIQS_PROXY_EGRESS: "203.0.113.10/32, 2001:db8::/48",
       CRITIQS_WEB_RISK_API_KEY: "key",
+      CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
     });
     expect(config.local).toBe(false);
+    expect(config.cookieIsolation).toBe("public-suffix-list");
     expect(config.egress).toEqual(["203.0.113.10/32", "2001:db8::/48"]);
     expect(proxyPolicy(config)).toEqual({
-      blockedHosts: ["critiqs-review.net", "critiqs.app", "www.critiqs.app", "brazen-snail-591.convex.site"],
+      blockedHosts: ["critiqs-review.net", "critiqs.app", "www.critiqs.app", "brazen-snail-591.convex.site", "brazen-snail-591.convex.cloud"],
       blockedCidrs: ["203.0.113.10/32", "2001:db8::/48"],
       denyTransitionIpv6: true,
     });

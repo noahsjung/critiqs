@@ -1,4 +1,7 @@
+import { canonicalHost, siteOf } from "@critiqs/core";
 import { parseCidr, type PublicWebPolicy } from "@critiqs/server/public-web";
+
+export { siteOf };
 
 // The proxy's settings, all from the environment, so the domain, the website
 // and the backend are chosen at deploy time. Anything unsafe stops the
@@ -82,11 +85,28 @@ export interface ProxyConfig {
   webRiskKey: string | null;
   /** Whether the domain is a `.localhost` one: a computer's own test stack. */
   local: boolean;
+  /**
+   * How a deployment keeps one frame host's cookies from reaching the others
+   * (CRITIQS_PROXY_COOKIE_ISOLATION), required on a public domain. Frame hosts
+   * run other people's pages with same-origin scripts, and until the domain is
+   * on the Public Suffix List those scripts can set cookies on the whole
+   * domain; a browser that keeps a megabyte of them (Firefox does) then sends
+   * them with every other frame's requests, which a server refuses for their
+   * size. `public-suffix-list`: the domain is listed, so browsers refuse such
+   * cookies. `ingress-drops-cookies`: the server in front accepts request
+   * headers of at least 2 MiB and removes Cookie before the proxy. `local`: a
+   * `.localhost` test stack.
+   */
+  cookieIsolation: CookieIsolation;
   limits: ProxyLimits;
 }
 
+export type CookieIsolation = "public-suffix-list" | "ingress-drops-cookies" | "local";
+const COOKIE_ISOLATION: readonly CookieIsolation[] = ["public-suffix-list", "ingress-drops-cookies"];
+
 const MIN_SECRET_BYTES = 32;
 
+/** An origin setting, its host in canonical form. */
 function origin(text: string, name: string): URL {
   let url: URL;
   try {
@@ -98,22 +118,21 @@ function origin(text: string, name: string): URL {
   if (url.username !== "" || url.password !== "" || url.pathname !== "/" || url.search !== "" || url.hash !== "") {
     throw new ConfigError(`${name} must be an origin only, without a path, query, or credentials.`);
   }
+  const host = canonicalHost(url.hostname);
+  if (host === null) throw new ConfigError(`${name} must be an address such as https://example.com.`);
+  if (!url.hostname.startsWith("[")) url.hostname = host;
   return url;
 }
 
 function isLocalhost(host: string): boolean {
-  return host === "localhost" || host.endsWith(".localhost");
+  const name = canonicalHost(host) ?? "";
+  return name === "localhost" || name.endsWith(".localhost");
 }
 
-/**
- * A host's site, for telling whether two hosts can share cookies. Without the
- * Public Suffix List this is the last two labels (`app.critiqs.app` →
- * `critiqs.app`), which treats `co.uk` names as one site: it refuses more
- * than needed, never less.
- */
-export function siteOf(host: string): string {
-  const labels = host.toLowerCase().replace(/\.+$/, "").split(".");
-  return labels.slice(-2).join(".");
+/** On a deployed domain, plain http would let anyone on the network read or change what it carries. */
+function secure(url: URL, name: string, local: boolean): URL {
+  if (!local && url.protocol !== "https:") throw new ConfigError(`${name} must use https:// when CRITIQS_PROXY_DOMAIN isn't a .localhost domain.`);
+  return url;
 }
 
 function numberSetting(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -138,12 +157,12 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
     .split(",")
     .map((text) => text.trim())
     .filter((text) => text !== "")
-    .map((text) => origin(text, "CRITIQS_WEB_ORIGINS").origin);
+    .map((text) => secure(origin(text, "CRITIQS_WEB_ORIGINS"), "CRITIQS_WEB_ORIGINS", local).origin);
   if (webOrigins.length === 0) throw new ConfigError("Set CRITIQS_WEB_ORIGINS to the website origins that show review links.");
 
   const backendText = env.CRITIQS_PROXY_BACKEND;
   if (backendText === undefined || backendText === "") throw new ConfigError("Set CRITIQS_PROXY_BACKEND to the backend's HTTP address.");
-  const backend = origin(backendText, "CRITIQS_PROXY_BACKEND");
+  const backend = secure(origin(backendText, "CRITIQS_PROXY_BACKEND"), "CRITIQS_PROXY_BACKEND", local);
 
   // The frames' domain must be its own site: lease hosts run other people's
   // pages with same-origin scripts, so they must never share cookies with the
@@ -161,6 +180,16 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
     .map((text) => text.trim())
     .filter((text) => text !== "");
   for (const block of egress) if (parseCidr(block) === null) throw new ConfigError(`CRITIQS_PROXY_EGRESS has ${JSON.stringify(block)}, which isn't an address block such as 203.0.113.10/32.`);
+
+  const isolationText = env.CRITIQS_PROXY_COOKIE_ISOLATION?.trim() ?? "";
+  let cookieIsolation: CookieIsolation;
+  if (local) cookieIsolation = "local";
+  else if ((COOKIE_ISOLATION as readonly string[]).includes(isolationText)) cookieIsolation = isolationText as CookieIsolation;
+  else {
+    throw new ConfigError(
+      `Set CRITIQS_PROXY_COOKIE_ISOLATION to public-suffix-list once ${domain.hostname} is on the Public Suffix List, or to ingress-drops-cookies when the server in front removes Cookie headers: until then one frame host's cookies can stop every other review link in Firefox.`,
+    );
+  }
 
   const webRiskKey = env.CRITIQS_WEB_RISK_API_KEY?.trim() || null;
   if (webRiskKey === null && !local) throw new ConfigError("Set CRITIQS_WEB_RISK_API_KEY: without a URL reputation check, review links serve only on a .localhost domain.");
@@ -180,8 +209,18 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
     assetUserAgent: ASSET_USER_AGENT,
     webRiskKey,
     local,
+    cookieIsolation,
     limits,
   };
+}
+
+/**
+ * Convex serves one deployment under two names, `<name>.convex.cloud` (its
+ * API) and `<name>.convex.site` (its HTTP actions): both are the backend.
+ */
+function backendNames(hostname: string): string[] {
+  const convex = /^([a-z0-9-]+)\.convex\.(?:site|cloud)$/.exec(hostname);
+  return convex === null ? [hostname] : [`${convex[1]}.convex.site`, `${convex[1]}.convex.cloud`];
 }
 
 /**
@@ -192,7 +231,7 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
  */
 export function proxyPolicy(config: Pick<ProxyConfig, "domain" | "webOrigins" | "backend" | "egress">): PublicWebPolicy {
   return {
-    blockedHosts: [config.domain.hostname, ...config.webOrigins.map((text) => new URL(text).hostname), config.backend.hostname],
+    blockedHosts: [config.domain.hostname, ...config.webOrigins.map((text) => new URL(text).hostname), ...backendNames(config.backend.hostname)],
     blockedCidrs: config.egress,
     denyTransitionIpv6: true,
   };

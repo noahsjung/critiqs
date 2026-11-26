@@ -1,7 +1,7 @@
 import type { Resolver } from "node:dns/promises";
 import type http from "node:http";
 import type https from "node:https";
-import { MAX_REVIEW_URL_LENGTH } from "@critiqs/core";
+import { canonicalHost, hostOf, isHostWithin, MAX_REVIEW_URL_LENGTH } from "@critiqs/core";
 import { fail } from "./errors.ts";
 
 // Reaching the public web, and only the public web, from Critiqs's servers.
@@ -62,7 +62,13 @@ export function parsePrototypeAddress(input: string): URL {
   return url;
 }
 
-/** `text` read against `base`, when it is a plain `http:` or `https:` address without a username or password; otherwise why not. */
+/**
+ * `text` read against `base`, when it is a plain `http:` or `https:` address
+ * without a username or password; otherwise why not. The host comes back in
+ * canonical form (`canonicalHost`: no trailing dot), and a host that has no
+ * canonical form (`a..b`, `localhost..`) is malformed, so every later check
+ * sees the one spelling DNS will.
+ */
 export function acceptableAddress(text: string, base?: URL): URL | "malformed" | "scheme" | "credentials" {
   let url: URL;
   try {
@@ -72,6 +78,9 @@ export function acceptableAddress(text: string, base?: URL): URL | "malformed" |
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return "scheme";
   if (url.username !== "" || url.password !== "") return "credentials";
+  const host = hostOf(url);
+  if (host === null) return "malformed";
+  if (!url.hostname.startsWith("[")) url.hostname = host;
   return url;
 }
 
@@ -220,16 +229,17 @@ export function inCidr(address: string, cidr: Cidr): boolean {
   return parsed.value >> shift === cidr.value >> shift;
 }
 
-function bareHost(hostname: string): string {
-  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
-}
-
-/** Whether a host name is one the policy refuses, or under one. */
+/**
+ * Whether a host name is one the policy refuses, or under one, compared in
+ * canonical form. A host with no canonical form is refused: it can't be told
+ * apart from a refused one.
+ */
 export function isBlockedHost(hostname: string, policy: PublicWebPolicy = {}): boolean {
-  const host = bareHost(hostname);
+  const host = canonicalHost(hostname);
+  if (host === null) return true;
   return (policy.blockedHosts ?? []).some((blocked) => {
-    const name = bareHost(blocked);
-    return name !== "" && (host === name || host.endsWith(`.${name}`));
+    const name = canonicalHost(blocked);
+    return name !== null && isHostWithin(host, name);
   });
 }
 
