@@ -4,6 +4,17 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "format": false,
-  "ignore": ["@critiqs/*"],
-  "privatePackages": { "version": true, "tag": false }
+  "ignore": [
+    "@critiqs/*"
+  ],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  },
+  "fixed": [
+    [
+      "critiqs",
+      "critiqs-*"
+    ]
+  ]
 }

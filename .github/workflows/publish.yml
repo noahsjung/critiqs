@@ -1,39 +1,74 @@
 name: Publish
 
-# Publishes the critiqs-react version recorded on main to the public npm
-# registry. Only a maintainer starts it, naming the version; it never runs on
-# pushes or pull requests. The `npm` environment requires a reviewer's
-# approval, and npm trusted publishing (OpenID Connect) replaces stored
-# tokens. See docs/releasing.md.
+# Publishes every Critiqs package at the version recorded on main: npm
+# packages (each after the ones it depends on), the gem to RubyGems, and the
+# Python packages to PyPI. Only a maintainer starts it, naming the version; it never runs on
+# pushes or pull requests. Each registry's job waits for a reviewer's approval
+# in its own environment and uses that registry's trusted publishing (OpenID
+# Connect) instead of stored tokens. A package version a registry already has
+# is skipped, so a partly failed run can be rerun. See docs/releasing.md.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: The critiqs-react version on main to publish, such as 0.3.0
+        description: The Critiqs version on main to publish, such as 0.4.0
         required: true
         type: string
 
 permissions: {}
 
 concurrency:
-  group: npm-publish
+  group: publish
   cancel-in-progress: false
 
+env:
+  VERSION: ${{ inputs.version }}
+
 jobs:
-  publish:
+  # Every check, with no publishing rights.
+  verify:
     if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: bun install --frozen-lockfile
+      # Gem and Python builds vendor the shared package's bundle, so build it first.
+      - run: bun run build
+      - name: Check this version may be published
+        run: bun scripts/publish.ts verify --version "$VERSION"
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run check:consumers
+
+  npm:
+    needs: [verify]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
       contents: read
-      id-token: write # npm trusted publishing and provenance
-    env:
-      VERSION: ${{ inputs.version }}
+      id-token: write # npm trusted publishing
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
-          fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -43,13 +78,81 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-      - name: Check this version may be published
-        run: bun scripts/publish.ts verify --version "$VERSION"
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run check:consumers
-      - name: Publish
-        working-directory: packages/react
-        # Trusted publishing adds provenance automatically when the source
-        # repository is public. Forcing it would reject this private source repo.
-        run: npm publish --access public
+      - run: bun run build
+      - name: Publish to npm
+        # Runs `npm publish --access public` in each package npm doesn't have
+        # yet, each after the ones it depends on. Trusted publishing adds provenance
+        # automatically when the source repository is public.
+        run: bun scripts/publish.ts publish --registry npm --version "$VERSION"
+
+  rubygems:
+    needs: [npm]
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      contents: read
+      id-token: write # RubyGems trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Build the gems RubyGems doesn't have yet
+        run: bun scripts/publish.ts stage --registry rubygems --version "$VERSION" --out rubygems-dist
+      - name: Get a short-lived RubyGems key
+        if: hashFiles('rubygems-dist/*.gem') != ''
+        uses: rubygems/configure-rubygems-credentials@v2.2.0
+        with:
+          # Needed only for a gem's first push through a pending trusted publisher.
+          owner: ${{ vars.RUBYGEMS_OWNER }}
+      - name: Push to RubyGems
+        if: hashFiles('rubygems-dist/*.gem') != ''
+        run: |
+          set -euo pipefail
+          for gem in rubygems-dist/*.gem; do gem push "$gem"; done
+
+  pypi:
+    needs: [npm]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Build the Python packages PyPI doesn't have yet
+        run: bun scripts/publish.ts stage --registry pypi --version "$VERSION" --out pypi-dist
+      - name: Upload to PyPI
+        if: hashFiles('pypi-dist/*') != ''
+        uses: pypa/gh-action-pypi-publish@v1.14.3
+        with:
+          packages-dir: pypi-dist/
+          skip-existing: true
+          # Attestations name the source repository publicly; turn them on
+          # once the repository is public.
+          attestations: false

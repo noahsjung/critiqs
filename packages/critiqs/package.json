@@ -1,0 +1,70 @@
+{
+  "name": "critiqs",
+  "version": "0.3.0",
+  "description": "Critiqs for any web app: comment on an interactive prototype, discuss feedback, and find its context. Framework packages build on this one.",
+  "license": "MIT",
+  "keywords": [
+    "feedback",
+    "comments",
+    "review",
+    "prototype",
+    "design review",
+    "web component"
+  ],
+  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/critiqs#readme",
+  "bugs": {
+    "url": "https://github.com/noahsjung/Critiqs/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./element": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.js"
+    },
+    "./router": {
+      "types": "./dist/router.d.ts",
+      "import": "./dist/router.js"
+    }
+  },
+  "sideEffects": [
+    "./dist/element.js"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --isolate",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.6",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "convex": "^1.46.0",
+    "modern-screenshot": "^4.6.0",
+    "@critiqs/core": "workspace:*"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noahsjung/Critiqs.git",
+    "directory": "packages/critiqs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

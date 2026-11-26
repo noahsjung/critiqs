@@ -16,8 +16,11 @@ release version, follow
 [versioning and compatibility](docs/technical-direction.md#versioning-and-compatibility).
 
 Every pull request adds a release note in `.changeset/`, following
-[releasing](docs/releasing.md): `patch`, `minor`, or `major` for
-`critiqs-react` (which bundles `packages/core`, `server`, and `backend`),
-chosen from what the diff does to host apps, or a no-release note that says
-why nothing ships. Do not edit other notes, `version` fields, or changelogs;
-the generated release pull request does that, and a person merges it.
+[releasing](docs/releasing.md): `patch`, `minor`, or `major` naming each
+Critiqs package the change ships in (`critiqs`, `critiqs-react`, and the
+other `critiqs-*` packages; a change to `packages/core`, `server`, or
+`backend` names the packages that bundle it), chosen from what the diff does
+to host apps, or a no-release note that says why nothing ships. All Critiqs
+packages ship at one shared version. Do not edit other notes, `version`
+fields, or changelogs; the generated release pull request does that, and a
+person merges it.
