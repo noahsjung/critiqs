@@ -64,6 +64,29 @@ function freePort(): number {
   return port!;
 }
 
+/** Whether nothing listens on `port` now. */
+function isFree(port: number): boolean {
+  try {
+    Bun.serve({ port, hostname: "127.0.0.1", fetch: () => new Response() }).stop(true);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Two free ports in a row, for a local Convex deployment and its HTTP
+ * address: the packages find the second by adding one to the first (as Convex's own 3210 and 3211).
+ */
+function freePair(): [number, number] {
+  if (nextPort > 0) return [nextPort++, nextPort++];
+  for (let i = 0; i < 50; i++) {
+    const port = freePort();
+    if (port < 65_535 && isFree(port + 1)) return [port, port + 1];
+  }
+  throw new Error("Found no two free ports in a row for the local Convex deployment.");
+}
+
 async function targets(): Promise<Target[]> {
   if (args.includes("--current")) {
     const shared = `file:${await pack("packages/critiqs", work)}`;
@@ -196,7 +219,7 @@ function convex(): Promise<string> {
     await rm(join(dir, "convex/_generated"), { recursive: true, force: true }).catch(() => {});
     await cp(join(ROOT, "packages/backend/convex/_generated"), join(dir, "convex/_generated"), { recursive: true });
     await symlink(join(ROOT, "packages/backend/node_modules"), join(dir, "node_modules"));
-    const [cloud, site] = [freePort(), freePort()];
+    const [cloud, site] = freePair();
     const env = { ...process.env, CONVEX_AGENT_MODE: "anonymous", CONVEX_TMPDIR: process.env.TMPDIR };
     const log = Bun.file(join(dir, "convex.log"));
     const child = Bun.spawn(
@@ -343,7 +366,9 @@ async function flow(url: string, label: string) {
     page.on("dialog", (dialog: { accept(): Promise<void> }) => dialog.accept());
     await page.goto(url);
     const critiqs = page.locator("critiqs-root");
-    await critiqs.locator("[role=toolbar]").first().waitFor({ timeout: 30_000 });
+    await expectIn(page, label, "Critiqs's toolbar didn't appear", () => critiqs.locator("[role=toolbar]").first().isVisible()).catch((error: Error) => {
+      throw new Error(`${error.message}${errors.length > 0 ? ` Page errors: ${errors.join("; ").slice(0, 600)}` : ""}`);
+    });
     await shot(page, `${label}-1-loaded`);
 
     // Sign in.
