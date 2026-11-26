@@ -117,6 +117,10 @@ happened there:
   when Linear revoked it or no longer accepts it: an access token Linear's
   API refuses, a refresh token Linear won't refresh with (one that still
   works is spent, and its new tokens revoked).
+- **GitHub sign-in:** the app's grant for the person is deleted
+  (`DELETE /applications/{client_id}/grant`), which ends every token the app
+  holds for them. The app stays installed on the organization's
+  repositories; only the organization can remove it.
 - **When the tracker can't be told** (unreachable, or it refused), Your
   trackers says that Critiqs can still reach the account and how to end it in
   the tracker; Critiqs tries again a minute, ten minutes, and an hour later.

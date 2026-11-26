@@ -128,6 +128,21 @@ test("GitHub sign-in: the window goes to GitHub with PKCE, comes back with a cod
   expect(github.refreshTokens.has(spent!)).toBe(false);
 });
 
+test("disconnecting a GitHub sign-in deletes the app's grant at GitHub, so neither of its tokens works there any more", async () => {
+  withApp();
+  const { t, dana } = await project();
+  await signIn(t, dana);
+  const [row] = await t.run((ctx) => ctx.db.query("trackerAccounts").collect());
+  const access = (await decryptToken(KEY, trackerTokenBinding("github", row!.userId), row!.access))!;
+  const refresh = (await decryptToken(KEY, trackerTokenBinding("github", row!.userId), row!.refresh!))!;
+  expect(github.accessTokens.has(access)).toBe(true);
+  await dana.mutation(api.trackers.disconnect, { tracker: "github" });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(github.requests).toContain(`DELETE /applications/${github.app.clientId}/grant`);
+  expect(github.accessTokens.has(access)).toBe(false);
+  expect(github.refreshTokens.has(refresh)).toBe(false);
+});
+
 test("GitHub sign-in into an account with none of the Critiqs email's addresses saves nothing, and the window says so", async () => {
   withApp();
   const { t, dana } = await project();

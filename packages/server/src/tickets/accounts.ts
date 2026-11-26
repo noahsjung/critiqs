@@ -6,7 +6,7 @@ import { currentReviewer, requireUser } from "../operations.ts";
 import { canReview } from "../organizations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
 import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken } from "./trackers/index.ts";
-import { exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
+import { deleteGithubGrant, exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
 import { exchangeLinearCode, LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, linearAuthorizeUrl, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
@@ -102,6 +102,8 @@ export interface TrackerSignIn {
   refresh(refreshToken: string, now: number, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<SignInTokens>;
   /** Where an organization installs the app to reach its repositories (GitHub). */
   installUrl?: string;
+  /** Ends a sign-in at the tracker, where it offers a call that does: true when the tracker no longer accepts its tokens. */
+  end?(tokens: { access: string | null; refresh: string | null }, fetchFn?: typeof fetch, now?: number): Promise<boolean>;
 }
 
 /** The tracker's sign-in on this deployment; null where its operator registered no app, so people paste a token. */
@@ -113,6 +115,8 @@ export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment)
       authorizeUrl: (input) => linearAuthorizeUrl(deployment.linearAppUrl, { clientId: app.clientId, ...input }),
       exchange: (input, now, fetchFn) => exchangeLinearCode(endpoint(fetchFn), app, input, now),
       refresh: (refreshToken, now, signal, fetchFn) => refreshLinearToken(endpoint(fetchFn), app, refreshToken, now, signal),
+      // Linear's revocation, refresh token first, then the access token, each checked: Linear's 400 alone proves nothing.
+      end: async (tokens, fetchFn, now = Date.now()) => await endLinearSignIn(endpoint(fetchFn), app, tokens, now),
     };
   }
   if (tracker === "github" && deployment.github !== null) {
@@ -123,6 +127,8 @@ export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment)
       exchange: (input, now, fetchFn) => exchangeGithubCode(endpoint(fetchFn), app, input, now),
       refresh: (refreshToken, now, signal, fetchFn) => refreshGithubToken(endpoint(fetchFn), app, refreshToken, now, signal),
       installUrl: githubInstallUrl(deployment.githubAppUrl, app.slug),
+      // Deleting the app's grant for the person ends every token it holds for them.
+      end: async ({ access }, fetchFn) => access !== null && (await deleteGithubGrant({ baseUrl: deployment.githubApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) }, app, access)),
     };
   }
   return null;
@@ -296,16 +302,18 @@ export type TrackerEnd = "ended" | "kept" | "failed";
 
 /**
  * Ends a disconnected account at its tracker, where an API call can: a
- * Linear sign-in is revoked, refresh token first. A pasted token can't be
- * ended by another caller in any tracker, so it is `kept`: valid until the
- * person removes it there. `failed` when the tracker couldn't be reached,
- * refused, or still accepts a token afterwards; the person is told, and the
- * sign-in ends when its tokens expire or they remove Critiqs at the tracker.
+ * Linear sign-in's tokens are revoked, and a GitHub sign-in's grant is
+ * deleted, which ends all its tokens. A pasted token can't be ended by
+ * another caller in any tracker, so it is `kept`: valid until the person
+ * removes it there. `failed` when the tracker couldn't be reached, refused,
+ * still accepts a token afterwards, or offers no such call; the person is
+ * told, and the sign-in ends when its tokens expire or they remove Critiqs at
+ * the tracker.
  */
 export async function endTrackerAccount(deployment: TicketsDeployment, account: DisconnectedAccount, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<TrackerEnd> {
   if (account.method !== "oauth") return "kept";
   const key = deployment.encryptionKey;
-  if (key === null || account.tracker !== "linear" || deployment.linear === null) return "failed";
+  if (key === null || trackerSignIn(account.tracker, deployment)?.end === undefined) return "failed";
   const binding = trackerTokenBinding(account.tracker, account.userId);
   const refresh = account.refresh === null ? null : await decryptToken(key, binding, account.refresh);
   const access = await decryptToken(key, binding, account.access);
@@ -319,8 +327,8 @@ export async function endTrackerAccount(deployment: TicketsDeployment, account: 
  * got after the person cancelled it by disconnecting.
  */
 export async function endTrackerSignIn(deployment: TicketsDeployment, tracker: TrackerId, tokens: { access: string | null; refresh: string | null }, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<boolean> {
-  if (tracker !== "linear" || deployment.linear === null) return false;
-  return await endLinearSignIn({ fetch: fetchFn, baseUrl: deployment.linearApiUrl }, deployment.linear, tokens, now);
+  const end = trackerSignIn(tracker, deployment)?.end;
+  return end !== undefined && (await end(tokens, fetchFn, now));
 }
 
 /**

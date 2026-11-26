@@ -316,6 +316,19 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
       back.searchParams.set("code", code);
       return new Response(null, { status: 302, headers: { Location: back.toString() } });
     }
+    // Delete an app authorization (https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-authorization):
+    // the app's client ID and secret by Basic authentication, the user's access token in the body; 204, and every token of
+    // the app for that user stops working.
+    if (request.method === "DELETE" && path === `/applications/${standIn.app.clientId}/grant`) {
+      if (authorization !== `Basic ${btoa(`${standIn.app.clientId}:${standIn.app.clientSecret}`)}`) return message("Requires authentication", 401);
+      const body: unknown = await request.json().catch(() => null);
+      const token = typeof body === "object" && body !== null && typeof (body as { access_token?: unknown }).access_token === "string" ? (body as { access_token: string }).access_token : "";
+      const owner = standIn.accessTokens.get(token)?.login;
+      if (owner === undefined) return message("Validation Failed", 422);
+      for (const [access, entry] of standIn.accessTokens) if (entry.login === owner) standIn.accessTokens.delete(access);
+      for (const [refresh, login] of standIn.refreshTokens) if (login === owner) standIn.refreshTokens.delete(refresh);
+      return new Response(null, { status: 204 });
+    }
     if (request.method === "POST" && path === "/login/oauth/access_token") {
       const form = new URLSearchParams(await request.text());
       const fail = (error: string, description: string) => json({ error, error_description: description, error_uri: "https://docs.github.com/apps" });

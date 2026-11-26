@@ -759,6 +759,35 @@ export async function refreshGithubToken(endpoint: TrackerEndpointOptions, app: 
   );
 }
 
+/**
+ * Ends a person's sign-in at GitHub: deletes the app's grant for them
+ * (https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-authorization),
+ * which ends every token the app holds for them, with the app's client ID
+ * and secret by Basic authentication and one of their access tokens. True
+ * when GitHub answered 204; false when it couldn't be reached, or refused,
+ * as it does a token that no longer works (422).
+ */
+export async function deleteGithubGrant(endpoint: TrackerEndpointOptions, app: GithubApp, accessToken: string): Promise<boolean> {
+  const to = endpointOf(endpoint, GITHUB_API_URL);
+  try {
+    const response = await to.fetch(`${to.baseUrl}/applications/${encodeURIComponent(app.clientId)}/grant`, {
+      method: "DELETE",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Basic ${btoa(`${app.clientId}:${app.clientSecret}`)}`,
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": API_VERSION,
+        "User-Agent": "Critiqs",
+      },
+      body: JSON.stringify({ access_token: accessToken }),
+    });
+    await response.body?.cancel().catch(() => undefined);
+    return response.status === 204;
+  } catch {
+    return false;
+  }
+}
+
 async function tokenRequest(to: TrackerEndpoint, form: Record<string, string>, now: number, refused: string, signal?: AbortSignal): Promise<SignInTokens> {
   let response: Response;
   try {
