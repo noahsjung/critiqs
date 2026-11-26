@@ -232,9 +232,11 @@ Nothing here deploys anything. These are the steps an operator follows to run th
    origin), the same `CRITIQS_PROXY_SECRET`, `CRITIQS_WEB_URL`, and
    `CRITIQS_WEB_RISK_API_KEY`. `CRITIQS_PROXY_PROBE_URL` only when the
    backend must reach the proxy's probe at another address than the domain.
-5. The website's host sends, for `/r/*`, the headers in
-   `docs/technical-direction.md` ("The review page"), with
-   `CRITIQS_REVIEW_FRAMES=https://*.<domain>`.
+5. The website's host serves `/r/*`, `/review-links/*` and `/allow-critiqs`
+   from the website app, and sends `/r/*` and `/review-links/*` the headers
+   in `docs/technical-direction.md` ("The review page"). `site/vercel.json`
+   does both, with `frame-src https://*.critiqs-review.net`; on another
+   domain, change that to `https://*.<domain>` there (`site-src/README.md`).
 6. Check: `/critiqs/config` reports `reviewLinks`, the domain serves
    `/.well-known/critiqs-review.json`, and a review link to a public page and
    a shared build both open.

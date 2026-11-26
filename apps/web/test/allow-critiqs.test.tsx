@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AddressCheck } from "@critiqs/core";
 import type { AllowCritiqsSetup, ReviewLinksCapability } from "../src/backend.ts";
+import { headerRules, readHostConfig, rewriteFor } from "../../../site-src/host-rules.ts";
 import { routeOf } from "../src/route.ts";
 import { AllowCritiqsPage } from "../src/ui/AllowCritiqs.tsx";
 import { FreeWays } from "../src/ui/Onboarding.tsx";
@@ -27,6 +28,14 @@ const setupOf = (token: string, verifiedAt: number | null = null): AllowCritiqsS
 test("/allow-critiqs names a project's origin in its query", () => {
   expect(routeOf("/allow-critiqs", `?project=p1&origin=${encodeURIComponent(ORIGIN)}`)).toEqual({ page: "allow-critiqs", projectId: "p1", origin: ORIGIN });
   expect(routeOf("/allow-critiqs/", "")).toEqual({ page: "allow-critiqs", projectId: null, origin: null });
+});
+
+test("the website's host serves /allow-critiqs from the app, with the rest of the site's headers", () => {
+  const host = readHostConfig();
+  expect(rewriteFor(host, "/allow-critiqs")).toBe("/app/index.html");
+  // The page shows an owner's token: never framed by another site.
+  expect(headerRules(host, "/allow-critiqs").get("x-frame-options")?.value).toBe("DENY");
+  expect(headerRules(host, "/allow-critiqs").get("referrer-policy")?.value).toBe("strict-origin-when-cross-origin");
 });
 
 describe("the Allow Critiqs page", () => {
