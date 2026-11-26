@@ -518,7 +518,7 @@ function ReviewCanvas({
   const widthLabel = (value: FrameWidth) => copy.review.widths[String(value)] ?? copy.review.customWidth(value as number);
 
   const source_ = (
-    <span className="review-source" title={source.kind === "share" ? sourceHost : `${source.origin}${path}`}>
+    <span className={source.kind === "share" ? "review-source shared" : "review-source"} title={source.kind === "share" ? sourceHost : `${source.origin}${path}`}>
       <strong>{source.kind === "share" ? sourceHost : breakableHost(sourceHost)}</strong>
       <span>{path}</span>
     </span>
