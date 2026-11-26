@@ -279,7 +279,7 @@ test("a reviewer pastes a token, creates an issue from the thread with the link 
   expect(issue!.labels).toEqual(["bug"]);
   // The link is in the text already: no comment.
   expect(github.comments).toEqual([]);
-  expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "github", key: "web#1", status: { label: "Open", category: "open" } }]);
+  expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "github", key: "web#1", status: { label: "Open", category: "open" }, lastKnown: false }]);
   expect((await getThread(sam, { threadId })).tickets).toEqual([expect.objectContaining({ key: "web#1", url: `${github.origin}/acme/web/issues/1` })]);
   void t;
 });
