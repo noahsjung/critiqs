@@ -197,9 +197,10 @@ async function verified(ctx: MutationCtx, attempt: Doc<"signInAttempts">, review
   // A device approval is always asked, never remembered like a site.
   const device = attempt.device !== undefined;
   const allowed = !device && (await grantFor(ctx, profile.subject, attempt.origin)) !== null;
-  const keepSignedIn = device && (await ctx.db.get(attempt.device as Id<"deviceGrants">))?.keepSignedIn === true;
+  const grant = device ? await ctx.db.get(attempt.device as Id<"deviceGrants">) : null;
+  const keepSignedIn = grant?.keepSignedIn === true;
   await ctx.db.patch(attempt._id, { profile, consentHash });
-  return { status: "verified" as const, origin: attempt.origin, allowed, device, keepSignedIn, profile };
+  return { status: "verified" as const, origin: attempt.origin, allowed, device, keepSignedIn, backend: grant?.backend ?? null, site: grant?.site ?? null, profile };
 }
 
 /**

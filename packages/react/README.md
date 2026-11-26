@@ -200,7 +200,12 @@ coding agent", to ask people to check a fix. `critiqs_mockups` and
 `critiqs_mockup` read mockups: each change Critiqs AI made to a page copy,
 with the original element's markup and `data-critiqs-id` to find it in the
 code, and the discussion behind it. The sign-in lasts until `npx critiqs-react sign-out`, 30
-days without use, or 90 days. See [AGENT_SETUP.md](../critiqs/AGENT_SETUP.md#7-reading-feedback).
+days without use, or 90 days. It is sent only to the backends it was approved
+for, and to where each serves screenshots and page copies; the approval page
+names them. For a backend other than Critiqs Cloud, sign in with
+`npx critiqs sign-in --backend '<origin>'`, which needs that backend's
+sign-in service to run the current Critiqs backend. A version of this package
+from before this change, on the same computer, asks to sign in again. See [AGENT_SETUP.md](../critiqs/AGENT_SETUP.md#7-reading-feedback).
 
 ### Keeping feedback on your own backend
 

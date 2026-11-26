@@ -19,7 +19,7 @@ It returns either an address to open on this computer, or, with signIn "remote",
 Critiqs Cloud needs no keys. For the team's own Convex deployment, CONVEX_DEPLOY_KEY must be set in this MCP server's environment; never ask for keys in the conversation.
 Call critiqs_doctor afterwards to check the setup. AI is optional; comments work without it.
 
-To read a project's feedback, call critiqs_comments with the project's ID; it returns each thread's whole discussion and the context to find it in the prototype and its code (screen, view state, the element's data-critiqs-id as target.purposeId, record, build, page). Filter by status, author, time, tag, screen, or text. critiqs_thread adds one thread's mentions, reactions, and who last resolved or moved it, and critiqs_screenshot shows what the reviewer saw. After acting on feedback, critiqs_reply posts a reply in its thread as the signed-in person, marked "via coding agent", such as asking someone to check a fix; everyone in the thread is emailed, and mentioned people get a mention email. Write the reply yourself; never claim something you didn't do. Mockups are proposed changes reviewers made with Critiqs AI on frozen copies of a page; to build one for real, call critiqs_mockups to find it, then critiqs_mockup for its changes, each with the original element's markup and data-critiqs-id to find it in the code, and the discussion behind them. The first time on a computer, these say to sign in: call critiqs_sign_in, pass its address and code to the person exactly, then call critiqs_sign_in_finish. The sign-in is kept on this computer for later sessions.`;
+To read a project's feedback, call critiqs_comments with the project's ID; it returns each thread's whole discussion and the context to find it in the prototype and its code (screen, view state, the element's data-critiqs-id as target.purposeId, record, build, page). Filter by status, author, time, tag, screen, or text. critiqs_thread adds one thread's mentions, reactions, and who last resolved or moved it, and critiqs_screenshot shows what the reviewer saw. After acting on feedback, critiqs_reply posts a reply in its thread as the signed-in person, marked "via coding agent", such as asking someone to check a fix; everyone in the thread is emailed, and mentioned people get a mention email. Write the reply yourself; never claim something you didn't do. Mockups are proposed changes reviewers made with Critiqs AI on frozen copies of a page; to build one for real, call critiqs_mockups to find it, then critiqs_mockup for its changes, each with the original element's markup and data-critiqs-id to find it in the code, and the discussion behind them. The first time on a computer, these say to sign in: call critiqs_sign_in, pass its address and code to the person exactly, then call critiqs_sign_in_finish. A sign-in is sent only to the backends it was approved for; when one says it isn't approved for a backend, ask the person whether they trust that backend before signing in for it. The sign-in is kept on this computer for later sessions.`;
 
 const backendProperty = { type: "string", description: "The Critiqs backend's URL, when the project isn't on Critiqs Cloud (the default)." };
 const threadProperty = { type: "string", description: "The thread's ID, or a Critiqs link to it or one of its messages (a URL with ?critiqs=…)." };
@@ -200,7 +200,7 @@ export const TOOLS = [
   {
     name: "critiqs_sign_in",
     description:
-      "Signs this computer in to Critiqs so agents here can read feedback, in this and later sessions. Returns an address, and for remote approval a short code, for the person; then call critiqs_sign_in_finish. Access lasts until critiqs_sign_out, 30 days without use, or 90 days.",
+      "Signs this computer in to Critiqs for one backend so agents here can read its feedback, in this and later sessions. The sign-in is sent only to backends it was approved for; the approval page names the backend. Returns an address, and for remote approval a short code, for the person; then call critiqs_sign_in_finish. Access lasts until critiqs_sign_out, 30 days without use, or 90 days.",
     inputSchema: {
       type: "object",
       properties: {
@@ -454,9 +454,9 @@ export function createTools({ cwd = process.cwd(), env = process.env, open = ope
     const turn = ++signInTurn;
     const backendUrl = string(args.backend);
     const status = await signInStatus({ backendUrl, env, fetchFn });
-    if (status.saved !== null && args.force !== true) {
+    if (status.saved !== null && status.approved && args.force !== true) {
       const who = status.saved.reviewer?.name ?? "someone";
-      return text(`This computer is already signed in to Critiqs as ${who}${status.saved.reviewer?.email ? ` (${status.saved.reviewer.email})` : ""}. Call with force: true to sign in again.`);
+      return text(`This computer is already signed in to Critiqs as ${who}${status.saved.reviewer?.email ? ` (${status.saved.reviewer.email})` : ""} for ${new URL(status.backendUrl).origin}. Call with force: true to sign in again.`);
     }
     const pendingSignIn = await beginSignIn({ backendUrl, method: ["browser", "remote"].includes(args.signIn) ? args.signIn : "auto", env, fetchFn, now, ...(sleep ? { sleep } : {}) });
     if (turn !== signInTurn) {
@@ -495,9 +495,9 @@ export function createTools({ cwd = process.cwd(), env = process.env, open = ope
     }
     if (signingIn === current) signingIn = null;
     if (outcome.error) throw outcome.error;
-    const { reviewer, endsAt } = outcome.result;
+    const { reviewer, endsAt, backendUrl } = outcome.result;
     return text(
-      `Signed this computer in to Critiqs as ${reviewer?.name ?? "the person"}${reviewer?.email ? ` (${reviewer.email})` : ""}. ` +
+      `Signed this computer in to Critiqs as ${reviewer?.name ?? "the person"}${reviewer?.email ? ` (${reviewer.email})` : ""} for ${new URL(backendUrl).origin}. ` +
         `Agents here can now use critiqs_comments, critiqs_thread, critiqs_screenshot, critiqs_mockups, and critiqs_mockup. It lasts until critiqs_sign_out, 30 days without use${endsAt ? `, or ${day(endsAt)}` : ", or 90 days"}.`,
     );
   }

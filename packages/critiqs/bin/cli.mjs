@@ -10,7 +10,7 @@ import { relative } from "node:path";
 import { beginSignIn, signInStatus, signOutComputer } from "./agent.mjs";
 import { workspaceApps } from "./app.mjs";
 import { runInit } from "./init.mjs";
-import { beginSetup, CLOUD_BACKEND_URL, DOCTOR_NOTE, doctor, doctorReport, openBrowser, readiness, SetupError } from "./setup.mjs";
+import { beginSetup, CLOUD_BACKEND_URL, DOCTOR_NOTE, doctor, doctorReport, isConvexCloudPair, openBrowser, readiness, SetupError } from "./setup.mjs";
 
 export const USAGE = `Usage:
   critiqs init                 Add Critiqs to the prototype and connect it to a new Critiqs Cloud project
@@ -254,12 +254,25 @@ async function runSetup(options, { cwd, print }) {
 }
 
 /** Signs this computer in for reading feedback; 0 when signed in. */
-async function runSignIn(options, { print, env = process.env } = {}) {
+async function runSignIn(options, { print, env = process.env, fetchFn = fetch, sleep } = {}) {
   try {
-    const status = await signInStatus({ backendUrl: options.backendUrl, env });
-    if (status.saved !== null) print(`This computer was signed in as ${status.saved.reviewer?.name ?? "someone"}; signing in again replaces it.`);
-    const pending = await beginSignIn({ backendUrl: options.backendUrl, method: options.signIn ?? "auto", env });
-    print(`\nApprove this computer from a browser on this or any device:\n  1. Open ${pending.url}\n  2. Enter the code ${pending.userCode}\n  3. Sign in with your email and choose Approve.\n`);
+    const status = await signInStatus({ backendUrl: options.backendUrl, env, fetchFn });
+    const backend = new URL(status.backendUrl).origin;
+    if (status.saved !== null) {
+      print(
+        status.approved
+          ? `This computer was signed in as ${status.saved.reviewer?.name ?? "someone"}; signing in again replaces it.`
+          : `This computer is signed in as ${status.saved.reviewer?.name ?? "someone"} for other backends; approving adds ${backend}.`,
+      );
+    }
+    const pending = await beginSignIn({ backendUrl: options.backendUrl, method: options.signIn ?? "auto", env, fetchFn, ...(sleep ? { sleep } : {}) });
+    // Where screenshots and page copies come from, unless Convex Cloud pairs it with the backend.
+    const site = isConvexCloudPair(pending.binding.backend, pending.binding.site) ? "" : ` and ${pending.binding.site} for screenshots and page copies`;
+    // An older Critiqs Cloud sign-in service doesn't name the backend; the address it is at is what can be checked.
+    const check = pending.confirmed ? `check that the page names ${backend}${site}` : `check that the page's address starts with ${new URL(pending.url).origin}/`;
+    print(
+      `\nApprove this computer for the Critiqs backend at ${backend} from a browser on this or any device:\n  1. Open ${pending.url}\n  2. Enter the code ${pending.userCode}\n  3. Sign in with your email, ${check}, and choose Approve.\n`,
+    );
     if (pending.method === "browser") openBrowser(pending.url);
     const { reviewer, endsAt } = await pending.finish();
     print(
@@ -315,8 +328,11 @@ async function runDoctor(options, { cwd, print }) {
   return report.ok ? 0 : 1;
 }
 
-/** Runs the CLI; resolves to its exit code: 0 done, 1 not done, 2 usage error. */
-export async function runCli(argv, { cwd = process.cwd(), print = console.log } = {}) {
+/**
+ * Runs the CLI; resolves to its exit code: 0 done, 1 not done, 2 usage error.
+ * `env`, `fetchFn`, and `sleep` stand in for the real ones in `sign-in`.
+ */
+export async function runCli(argv, { cwd = process.cwd(), print = console.log, env = process.env, fetchFn = fetch, sleep } = {}) {
   const options = parseCommand(argv);
   if ("error" in options) {
     print(`${options.error}\n\n${USAGE}`);
@@ -338,7 +354,7 @@ export async function runCli(argv, { cwd = process.cwd(), print = console.log } 
       return 2;
     }
     const backendUrl = options.target === null || options.target === "cloud" ? undefined : options.target;
-    return options.command === "sign-in" ? await runSignIn({ ...options, backendUrl }, { print }) : await runSignOut({ backendUrl }, { print });
+    return options.command === "sign-in" ? await runSignIn({ ...options, backendUrl }, { print, env, fetchFn, sleep }) : await runSignOut({ backendUrl }, { print });
   }
   if (options.projectId !== null) {
     if (options.target !== null || options.name !== null || options.reviewUrl !== null || options.signIn !== null || options.newProject || options.json) {

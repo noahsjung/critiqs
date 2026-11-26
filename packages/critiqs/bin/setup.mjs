@@ -35,6 +35,69 @@ export function siteUrlOf(backendUrl) {
   return url.origin;
 }
 
+/**
+ * Whether a URL's host name is this computer: exactly `localhost`, which Node
+ * resolves to a loopback address, or a literal loopback address (127.0.0.0/8,
+ * [::1]). Other names, `.localhost` ones included, depend on name resolution.
+ */
+export function isLoopbackHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "[::1]" || host === "::1" || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+/**
+ * Whether `site` is the address Convex Cloud pairs with the deployment at
+ * `backend` (both origins): `<name>.convex.cloud` with `<name>.convex.site`.
+ * Any other pair is a guess, so it is shown when signing in.
+ */
+export function isConvexCloudPair(backend, site) {
+  const deployment = /^https:\/\/([a-z0-9-]+)\.convex\.cloud$/.exec(backend);
+  return deployment !== null && site === `https://${deployment[1]}.convex.site`;
+}
+
+/** Raised when a request carrying a sign-in is answered with a redirect, which isn't followed. */
+export class RedirectRefusedError extends SetupError {}
+
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * Sends a request that carries a sign-in (a token, refresh token, or device
+ * secret) without following redirects: a 307 or 308 would send the same body
+ * and headers to another address, even over plain http. A redirect is refused
+ * with a message naming where it came from; other failures throw as `fetchFn` does.
+ */
+export async function sendCredential(fetchFn, url, init = {}) {
+  const refused = () =>
+    new RedirectRefusedError(`${new URL(url).origin} answered with a redirect, so Critiqs didn't follow it or send the sign-in anywhere else.`);
+  let response;
+  try {
+    response = await fetchFn(url, { ...init, redirect: "error" });
+  } catch (error) {
+    // Node says "unexpected redirect"; Bun says "UnexpectedRedirect".
+    if (/redirect/i.test(`${error?.message} ${error?.cause?.message} ${error?.code}`)) throw refused();
+    throw error;
+  }
+  if (response.type === "opaqueredirect" || REDIRECTS.has(response.status)) throw refused();
+  return response;
+}
+
+/**
+ * Refuses an address a sign-in token must not travel to: anything but HTTPS,
+ * except plain HTTP to this computer.
+ */
+export function requireSecureTokenTarget(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new SetupError(`${url} isn't a web address.`);
+  }
+  if (parsed.protocol === "https:" || (parsed.protocol === "http:" && isLoopbackHost(parsed.hostname))) return;
+  throw new SetupError(
+    `${parsed.origin} doesn't use HTTPS, so Critiqs won't send a sign-in to it. Only this computer (localhost, 127.0.0.1, or [::1]) may use plain http.`,
+  );
+}
+
 async function getJson(url, fetchFn, unreachable) {
   let response;
   try {
@@ -75,12 +138,28 @@ export async function resolveBackend(backendUrl, { fetchFn = fetch } = {}) {
 // ---------------------------------------------------------------------------
 // Signing in from the command line
 
-/** Tries to open a URL in the default browser; the URL is also printed, so failure is fine. */
-export function openBrowser(url) {
-  const [command, args] =
-    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+/**
+ * Tries to open a web address in the default browser; the address is also
+ * printed, so failure is fine. Only http and https addresses are opened, and
+ * never through a shell: the launcher gets the address as one argument.
+ */
+export function openBrowser(url, { platform = process.platform, env = process.env, spawnFn = spawn } = {}) {
+  let address;
   try {
-    const child = spawn(command, args, { stdio: "ignore", detached: true });
+    address = new URL(url);
+  } catch {
+    return;
+  }
+  if (address.protocol !== "https:" && address.protocol !== "http:") return;
+  const href = address.href;
+  const [command, args] =
+    platform === "darwin"
+      ? ["open", [href]]
+      : platform === "win32"
+        ? [`${env.SystemRoot || "C:\\Windows"}\\System32\\rundll32.exe`, ["url.dll,FileProtocolHandler", href]]
+        : ["xdg-open", [href]];
+  try {
+    const child = spawnFn(command, args, { stdio: "ignore", detached: true, shell: false, windowsHide: true });
     child.on("error", () => {});
     child.unref();
   } catch {}
@@ -88,7 +167,7 @@ export function openBrowser(url) {
 
 const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-function bridgePage(signInUrl, key) {
+function bridgePage(signInUrl, key, backendUrl) {
   const data = JSON.stringify({ signInUrl, key }).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in to set up Critiqs</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -98,7 +177,7 @@ button{font:inherit;font-weight:600;background:#0d63f3;color:#fff;border:0;borde
 <h1>Set up Critiqs</h1>
 <p id="status">Sign in so the command line can create your Critiqs project. Sign-in opens in a small window.</p>
 <p><button id="go" type="button">Sign in to Critiqs</button></p>
-<p class="note">Signing in from <strong>${escapeHtml(signInUrl)}</strong>. This page only works on this computer.</p>
+<p class="note">Signing in from <strong>${escapeHtml(signInUrl)}</strong>${backendUrl ? ` for the Critiqs backend at <strong>${escapeHtml(new URL(backendUrl).origin)}</strong>` : ""}. Continue only if you recognize ${backendUrl ? "both" : "it"}. This page only works on this computer.</p>
 <script>
 const { signInUrl, key } = ${data};
 const status = document.getElementById("status");
@@ -130,7 +209,7 @@ button.addEventListener("click", () => {
  * site at a loopback address, so it asks the person to allow it.
  * Returns the page's URL and a promise for the tokens; `close` stops waiting.
  */
-export async function startBrowserSignIn({ signInUrl, timeoutMs = 10 * 60_000, port = 4874 } = {}) {
+export async function startBrowserSignIn({ signInUrl, backendUrl = null, timeoutMs = 10 * 60_000, port = 4874 } = {}) {
   const key = randomBytes(24).toString("hex");
   let settle;
   const tokens = new Promise((resolveTokens, reject) => {
@@ -141,7 +220,7 @@ export async function startBrowserSignIn({ signInUrl, timeoutMs = 10 * 60_000, p
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === `/${key}`) {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
-      response.end(bridgePage(signInUrl, key));
+      response.end(bridgePage(signInUrl, key, backendUrl));
       return;
     }
     if (request.method === "POST" && url.pathname === `/done/${key}` && !done) {
@@ -211,6 +290,84 @@ export function isHeadless(env = process.env, platform = process.platform) {
 
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/** Critiqs Cloud's sign-in service: Critiqs Cloud's own site address. */
+export const CLOUD_SIGN_IN_URL = siteUrlOf(CLOUD_BACKEND_URL);
+/** Critiqs Cloud's backend, and where it serves screenshots and page copies, as origins. */
+export const CLOUD_BINDING = Object.freeze({ backend: new URL(CLOUD_BACKEND_URL).origin, site: new URL(CLOUD_SIGN_IN_URL).origin });
+
+/**
+ * Whether an approval is Critiqs Cloud's backend and site through Critiqs
+ * Cloud's own sign-in service: the one approval that may go ahead with a
+ * sign-in service too old to say what its approval page names.
+ */
+export function isLegacyCloudApproval(signInUrl, binding) {
+  return signInUrl === CLOUD_SIGN_IN_URL && binding.backend === CLOUD_BINDING.backend && binding.site === CLOUD_BINDING.site;
+}
+
+/**
+ * What a sign-in service's answer says its approval page names: `null` when
+ * it says nothing (an older service), `{ backend, site }` as origins when it
+ * names both, or `{ invalid: true }` when it names only one, or something that
+ * isn't an http or https origin.
+ */
+function reportedShown(body) {
+  const absent = (value) => value === undefined || value === null;
+  if (absent(body?.backend) && absent(body?.site)) return null;
+  const origin = (value) => {
+    if (typeof value !== "string") return null;
+    try {
+      const url = new URL(value);
+      return (url.protocol === "https:" || url.protocol === "http:") && url.origin === value ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  const backend = origin(body.backend);
+  const site = origin(body.site);
+  return backend === null || site === null ? { invalid: true } : { backend, site };
+}
+
+/** A binding as people read it: the backend, and its site unless Convex Cloud pairs the two. */
+function describeBinding(binding) {
+  return isConvexCloudPair(binding.backend, binding.site) ? binding.backend : `${binding.backend} (screenshots and page copies from ${binding.site})`;
+}
+
+/**
+ * Why an approval for `binding` can't go ahead, given what the sign-in service
+ * said its approval page names when it started (`started`) and, once
+ * approved, with the tokens (`granted`, `undefined` before then), or null when
+ * it can. A service must name exactly this backend and its site both times.
+ * Only the legacy Critiqs Cloud approval may come from a service that names
+ * nothing either time.
+ */
+export function approvalRefusal(signInUrl, binding, started, granted) {
+  const where = describeBinding(binding);
+  const compare = (shown) => {
+    if (shown.invalid) {
+      return `Critiqs's sign-in service at ${signInUrl} didn't say clearly which addresses its approval page names, so this sign-in for ${where} was stopped.`;
+    }
+    if (shown.backend === binding.backend && shown.site === binding.site) return null;
+    return `Critiqs's sign-in service at ${signInUrl} names ${describeBinding(shown)} on its approval page, not ${where}, so this sign-in was stopped.`;
+  };
+  if (started === null) {
+    if (!isLegacyCloudApproval(signInUrl, binding)) {
+      return (
+        `Critiqs's sign-in service at ${signInUrl} runs an older version that doesn't confirm its approval page names the backend, ` +
+        `so this computer won't sign in through it for ${where}: the person approving couldn't check the address. ` +
+        "Its operator needs to deploy the current Critiqs backend."
+      );
+    }
+    // An older Critiqs Cloud names nothing with the tokens either; anything it does name must match.
+    return granted === undefined || granted === null ? null : compare(granted);
+  }
+  const atStart = compare(started);
+  if (atStart !== null || granted === undefined) return atStart;
+  if (granted === null) {
+    return `Critiqs's sign-in service at ${signInUrl} named ${where} when the approval started, but didn't confirm it with the approval, so this sign-in was stopped.`;
+  }
+  return compare(granted);
+}
+
 /**
  * Asks the sign-in service to approve this setup from any browser, on any
  * device: the person opens `url`, types `userCode`, signs in, and approves.
@@ -218,10 +375,24 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
  * `tokens` with a short-lived access token (no refresh token) once approved.
  * With `keepSignedIn`, the approval also starts a session for this computer
  * (`critiqs sign-in`), and `tokens` includes its refresh token.
- * Refuses clearly when the sign-in service doesn't offer this yet.
+ *
+ * `backendUrl` is the backend the tokens are for. The approval page names it
+ * and where it serves screenshots and page copies (`binding`), and the service
+ * must say so when the approval starts and again with the tokens, as
+ * `approvalRefusal` checks; otherwise it stops before a code is shown, or
+ * ends the session the approval started and keeps nothing. `confirmed` is
+ * false only for the legacy Critiqs Cloud approval, whose page doesn't name
+ * the backend.
+ *
+ * `url` is always this sign-in service's own `/auth/device` page, whatever
+ * address its answer suggests. Refuses clearly when the service doesn't offer
+ * this yet.
  */
-export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wait, now = Date.now, keepSignedIn = false } = {}) {
+export async function startRemoteSignIn({ signInUrl, backendUrl, fetchFn = fetch, sleep = wait, now = Date.now, keepSignedIn = false } = {}) {
+  requireSecureTokenTarget(signInUrl);
+  if (typeof backendUrl !== "string" || backendUrl === "") throw new SetupError("Name the backend the approval is for.");
   const service = new URL(signInUrl).origin;
+  const binding = { backend: new URL(backendUrl).origin, site: new URL(siteUrlOf(backendUrl)).origin };
   const config = await getJson(`${service}/critiqs/config`, fetchFn, `Can't reach Critiqs's sign-in service at ${signInUrl}`);
   if (keepSignedIn && config.deviceSessions !== true) {
     throw new SetupError(
@@ -237,12 +408,14 @@ export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wa
   }
   let response;
   try {
-    response = await fetchFn(`${signInUrl}/auth/device/start`, {
+    response = await sendCredential(fetchFn, `${signInUrl}/auth/device/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: keepSignedIn ? JSON.stringify({ keepSignedIn: true }) : "{}",
+      // Older sign-in services ignore `backend` and `site`: their approval page doesn't name them, and their answer doesn't repeat them.
+      body: JSON.stringify({ ...(keepSignedIn ? { keepSignedIn: true } : {}), ...binding }),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof SetupError) throw error;
     throw new SetupError(`Can't reach Critiqs's sign-in service at ${signInUrl}.`);
   }
   // `critiqs sign-in` uses this approval too; its messages name it, not setup.
@@ -252,6 +425,14 @@ export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wa
   }
   if (!response.ok) throw new SetupError(`Critiqs's sign-in service can't start an approval (${response.status}).`);
   const started = await response.json();
+  // Checked before a code is shown, so no one approves what the page doesn't name.
+  const startedShown = reportedShown(started);
+  const refused = approvalRefusal(signInUrl, binding, startedShown, undefined);
+  if (refused !== null) throw new SetupError(refused);
+  // Shown to the person as it is, so it must look like a code.
+  if (typeof started.userCode !== "string" || !/^[A-Z0-9]{2,16}(?:-[A-Z0-9]{2,16})?$/.test(started.userCode)) {
+    throw new SetupError(`Critiqs's sign-in service at ${signInUrl} didn't send a code that can be shown. ${again}.`);
+  }
   let stopped = false;
   const expiresAt = now() + started.expiresIn * 1000;
   const tokens = (async () => {
@@ -262,24 +443,32 @@ export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wa
       if (now() > expiresAt) throw new SetupError(`The ${keepSignedIn ? "sign-in" : "setup"} code expired before it was approved. ${again}.`);
       let answer;
       try {
-        const polled = await fetchFn(`${signInUrl}/auth/device/token`, {
+        const polled = await sendCredential(fetchFn, `${signInUrl}/auth/device/token`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ deviceCode: started.deviceCode }),
         });
         answer = { status: polled.status, body: await polled.json() };
-      } catch {
+      } catch (error) {
+        if (error instanceof SetupError) throw error;
         // The network may come back before the code expires.
         continue;
       }
       if (answer.status === 200 && typeof answer.body.accessToken === "string") {
-        if (keepSignedIn && typeof answer.body.refreshToken !== "string") {
+        const refreshToken = typeof answer.body.refreshToken === "string" ? answer.body.refreshToken : null;
+        // What the approval page named must be what was confirmed at the start.
+        const mismatch = approvalRefusal(signInUrl, binding, startedShown, reportedShown(answer.body));
+        if (mismatch !== null) {
+          if (refreshToken !== null) await signOut(signInUrl, refreshToken, { origin: service, fetchFn });
+          throw new SetupError(`${mismatch} ${keepSignedIn ? "This computer didn't keep the sign-in." : "Nothing was created."}`);
+        }
+        if (keepSignedIn && refreshToken === null) {
           throw new SetupError("Critiqs's sign-in service approved this computer without keeping it signed in. Run sign-in again.");
         }
         return {
           accessToken: answer.body.accessToken,
           expiresAt: typeof answer.body.expiresAt === "number" ? answer.body.expiresAt : now() + 10 * 60_000,
-          refreshToken: keepSignedIn ? answer.body.refreshToken : null,
+          refreshToken: keepSignedIn ? refreshToken : null,
           sessionEndsAt: keepSignedIn && typeof answer.body.sessionEndsAt === "number" ? answer.body.sessionEndsAt : null,
           reviewer: answer.body.reviewer ?? null,
         };
@@ -297,9 +486,14 @@ export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wa
   })();
   tokens.catch(() => {});
   return {
-    url: started.verificationUrl,
+    // Built here, never taken from the answer: the page people are sent to is this service's own.
+    url: `${service}/auth/device`,
     userCode: started.userCode,
     expiresAt,
+    signInUrl,
+    binding,
+    // False only for the legacy Critiqs Cloud approval, whose page doesn't name the backend.
+    confirmed: startedShown !== null,
     tokens,
     close: () => {
       stopped = true;
@@ -309,14 +503,16 @@ export async function startRemoteSignIn({ signInUrl, fetchFn = fetch, sleep = wa
 
 /** Calls a Convex function over Convex's HTTP API as the signed-in person. */
 export async function callConvex(backendUrl, kind, path, args, accessToken, { fetchFn = fetch } = {}) {
+  requireSecureTokenTarget(backendUrl);
   let response;
   try {
-    response = await fetchFn(`${backendUrl}/api/${kind}`, {
+    response = await sendCredential(fetchFn, `${backendUrl}/api/${kind}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ path, args, format: "json" }),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof SetupError) throw error;
     throw new SetupError(`Can't reach the Critiqs backend at ${backendUrl}.`);
   }
   const result = await response.json().catch(() => null);
@@ -356,7 +552,8 @@ export async function listMyProjects({ backendUrl, accessToken, fetchFn = fetch 
  * project. `origin` is the sign-in page's, which the session belongs to.
  */
 export async function signOut(signInUrl, refreshToken, { origin, fetchFn = fetch } = {}) {
-  await fetchFn(`${signInUrl}/auth/sign-out`, {
+  // Best effort: a redirect is refused, so the refresh token goes nowhere else.
+  await sendCredential(fetchFn, `${signInUrl}/auth/sign-out`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
     body: JSON.stringify({ refreshToken }),
@@ -903,6 +1100,9 @@ export async function beginSetup({
     );
   }
 
+  // Checked before anyone approves: the token goes to the backend, and comes from the sign-in service.
+  requireSecureTokenTarget(backend.backendUrl);
+  requireSecureTokenTarget(backend.signInUrl);
   let remote = method === "remote";
   if (method === "auto" && isHeadless(env)) {
     try {
@@ -912,8 +1112,8 @@ export async function beginSetup({
     } catch {}
   }
   const signIn = remote
-    ? await startRemoteSignIn({ signInUrl: backend.signInUrl, fetchFn, ...(sleep ? { sleep } : {}) })
-    : await startBrowserSignIn({ signInUrl: backend.signInUrl });
+    ? await startRemoteSignIn({ signInUrl: backend.signInUrl, backendUrl: backend.backendUrl, fetchFn, ...(sleep ? { sleep } : {}) })
+    : await startBrowserSignIn({ signInUrl: backend.signInUrl, backendUrl: backend.backendUrl });
   const projectName = (name ?? defaultProjectName(root)).trim() || "Prototype";
   return {
     url: signIn.url,

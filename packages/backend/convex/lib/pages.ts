@@ -198,10 +198,16 @@ export function deviceApprovalPage(
   attemptKey: string,
   consentToken: string,
   profile: ReviewerProfile,
-  { keepSignedIn = false }: { keepSignedIn?: boolean } = {},
+  { keepSignedIn = false, backend = null, site = null }: { keepSignedIn?: boolean; backend?: string | null; site?: string | null } = {},
 ): Response {
   const field = `<input type="hidden" name="attempt" value="${escape(attemptKey)}"><input type="hidden" name="consent" value="${escape(consentToken)}">`;
   const who = `<strong>${escape(profile.name)}</strong> (${escape(profile.email)})`;
+  // Named by the command line; older ones don't say.
+  const downloads = site === null || site === backend ? "" : `, which serves screenshots and page copies from <strong>${escape(site)}</strong>`;
+  const where =
+    backend === null
+      ? ""
+      : `<p>This is for the Critiqs backend at <strong>${escape(backend)}</strong>${downloads}. Approve only if you recognize ${downloads === "" ? "this address" : "these addresses"}.</p>`;
   const title = keepSignedIn ? "Approve Critiqs access?" : "Approve Critiqs setup?";
   const explanation = keepSignedIn
     ? `<p>The command line or coding agent where you started this will stay signed in as ${who}. It can
@@ -215,6 +221,7 @@ export function deviceApprovalPage(
     title,
     `<h1>${title}</h1>
      ${explanation}
+     ${where}
      <div class="actions">
        <form method="post" action="/auth/device/decision">${field}<input type="hidden" name="decision" value="deny"><button type="submit">Deny</button></form>
        <form method="post" action="/auth/device/decision">${field}<input type="hidden" name="decision" value="approve"><button class="primary" type="submit">Approve</button></form>

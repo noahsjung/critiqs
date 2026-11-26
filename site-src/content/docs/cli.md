@@ -113,11 +113,11 @@ npx critiqs-react sign-in [--remote | --browser] [--backend <url>]
 | `--browser` | Print the URL and code and open the approval page in your local browser. |
 | `--backend <url>` | Sign in to a backend other than Critiqs Cloud. |
 
-Credentials are saved in `sign-in.json` under `$CRITIQS_CONFIG_DIR`, `$XDG_CONFIG_HOME/critiqs` (`~/.config/critiqs`), or `%APPDATA%\critiqs`. Sign-in lasts until `critiqs sign-out`, 30 days without use, or 90 days total.
+Credentials are saved in `sign-in.v2.json` under `$CRITIQS_CONFIG_DIR`, `$XDG_CONFIG_HOME/critiqs` (`~/.config/critiqs`), or `%APPDATA%\critiqs`. Sign-in lasts until `critiqs sign-out`, 30 days without use, or 90 days total.
 
 ### `critiqs sign-out`
 
-Ends this computer's saved sign-in with the sign-in service and deletes the local session entry.
+Ends this computer's saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of `critiqs-react` saved on this computer.
 
 ```sh
 npx critiqs-react sign-out [--backend <url>]

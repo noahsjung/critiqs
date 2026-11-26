@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { accessTokenFor, beginSignIn, credentialsFile, listMockups, MAX_INLINE_IMAGE_BYTES, parseTime, postReply, readFilters, readMockup, readScreenshot, signOutComputer, threadIdOf } from "../bin/agent.mjs";
+import { accessTokenFor, beginSignIn, credentialsFile, legacyCredentialsFile, listMockups, MAX_INLINE_IMAGE_BYTES, parseTime, postReply, readFilters, readMockup, readScreenshot, signOutComputer, threadIdOf } from "../bin/agent.mjs";
 import { findElements } from "../bin/markup.mjs";
 import { parseCommand } from "../bin/cli.mjs";
 import { createTools, TOOLS } from "../bin/mcp.mjs";
@@ -21,9 +21,11 @@ const folder = () => {
 };
 
 test("the sign-in is kept in the user's configuration folder, or where CRITIQS_CONFIG_DIR says", () => {
-  expect(credentialsFile({ CRITIQS_CONFIG_DIR: "/secure/critiqs" })).toBe("/secure/critiqs/sign-in.json");
-  expect(credentialsFile({ XDG_CONFIG_HOME: "/home/dana/.config-x" }, "linux")).toBe("/home/dana/.config-x/critiqs/sign-in.json");
-  expect(credentialsFile({}, "darwin")).toEndWith("/.config/critiqs/sign-in.json");
+  expect(credentialsFile({ CRITIQS_CONFIG_DIR: "/secure/critiqs" })).toBe("/secure/critiqs/sign-in.v2.json");
+  expect(credentialsFile({ XDG_CONFIG_HOME: "/home/dana/.config-x" }, "linux")).toBe("/home/dana/.config-x/critiqs/sign-in.v2.json");
+  expect(credentialsFile({}, "darwin")).toEndWith("/.config/critiqs/sign-in.v2.json");
+  // Beside the file versions before format 2 kept, which they may still write.
+  expect(legacyCredentialsFile(credentialsFile({ CRITIQS_CONFIG_DIR: "/secure/critiqs" }))).toBe("/secure/critiqs/sign-in.json");
   expect(credentialsFile({ APPDATA: "C:\\Users\\Dana\\AppData\\Roaming" }, "win32")).toContain("critiqs");
 });
 
@@ -32,17 +34,33 @@ test("a computer that never signed in is told how to sign in, without asking the
   const fetchFn = (async () => {
     throw new Error("No request expected");
   }) as unknown as typeof fetch;
-  await expect(accessTokenFor("https://auth.example", { env, fetchFn })).rejects.toThrow("critiqs_sign_in tool, or run `npx critiqs sign-in`");
+  await expect(accessTokenFor("https://auth.example", { backendUrl: "https://brazen-snail-591.convex.cloud", env, fetchFn })).rejects.toThrow(
+    "critiqs_sign_in tool, or run `npx critiqs sign-in`",
+  );
+  await expect(accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).rejects.toThrow(
+    "run `npx critiqs sign-in --backend 'https://team.example'`",
+  );
 });
 
 test("a lock left by a process that died is taken over, so renewal doesn't hang", async () => {
   const config = folder();
   const env = { CRITIQS_CONFIG_DIR: config };
   writeFileSync(
-    join(config, "sign-in.json"),
-    JSON.stringify({ version: 1, services: { "https://auth.example": { origin: "https://auth.example", refreshToken: "r1", accessToken: "old", accessExpiresAt: 0 } } }),
+    join(config, "sign-in.v2.json"),
+    JSON.stringify({
+      version: 2,
+      services: {
+        "https://auth.example": {
+          origin: "https://auth.example",
+          bindings: [{ backend: "https://team.example", site: "https://team.example" }],
+          refreshToken: "r1",
+          accessToken: "old",
+          accessExpiresAt: 0,
+        },
+      },
+    }),
   );
-  const lock = join(config, "sign-in.json.lock");
+  const lock = join(config, "sign-in.v2.json.lock");
   writeFileSync(lock, "");
   const longAgo = new Date(Date.now() - 60_000);
   utimesSync(lock, longAgo, longAgo);
@@ -51,12 +69,12 @@ test("a lock left by a process that died is taken over, so renewal doesn't hang"
     requests.push({ url, origin: new Headers(init.headers).get("Origin"), body: String(init.body) });
     return Response.json({ accessToken: "new", refreshToken: "r2", expiresAt: Date.now() + 900_000 });
   }) as unknown as typeof fetch;
-  expect(await accessTokenFor("https://auth.example", { env, fetchFn })).toBe("new");
+  expect(await accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).toBe("new");
   expect(requests).toEqual([{ url: "https://auth.example/auth/refresh", origin: "https://auth.example", body: '{"refreshToken":"r1"}' }]);
-  expect(JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services["https://auth.example"]).toMatchObject({ refreshToken: "r2", accessToken: "new" });
+  expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services["https://auth.example"]).toMatchObject({ refreshToken: "r2", accessToken: "new" });
   expect(existsSync(lock)).toBe(false);
   // Fresh tokens are reused without asking again.
-  expect(await accessTokenFor("https://auth.example", { env, fetchFn })).toBe("new");
+  expect(await accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).toBe("new");
   expect(requests).toHaveLength(1);
 });
 
@@ -67,7 +85,7 @@ test("a sign-in service that can't keep a computer signed in yet is refused clea
     started.push(url);
     return Response.json({});
   }) as unknown as typeof fetch;
-  await expect(startRemoteSignIn({ signInUrl: "https://auth.example", fetchFn, keepSignedIn: true })).rejects.toThrow(
+  await expect(startRemoteSignIn({ signInUrl: "https://auth.example", backendUrl: "https://team.example", fetchFn, keepSignedIn: true })).rejects.toThrow(
     "runs an older version that can't keep this computer signed in with a code yet. Its operator needs to deploy the current Critiqs backend",
   );
   expect(started).toEqual([]);
@@ -112,6 +130,8 @@ test("the command line signs a computer in and out, and the MCP server offers th
 // A team backend whose sign-in service is itself, as the tools see it over HTTP.
 const TEAM = "https://team.convex.cloud";
 const TEAM_SITE = "https://team.convex.site";
+/** What a current sign-in service says its approval page names for TEAM. */
+const SHOWN = { backend: TEAM, site: TEAM_SITE };
 
 function team(handle: (path: string, init: RequestInit) => Response | Promise<Response | undefined> | undefined) {
   const requests: { path: string; body: string }[] = [];
@@ -128,11 +148,11 @@ function team(handle: (path: string, init: RequestInit) => Response | Promise<Re
 
 function signedIn(config: string, entry: Record<string, unknown> = {}) {
   writeFileSync(
-    join(config, "sign-in.json"),
-    JSON.stringify({ version: 1, services: { [TEAM_SITE]: { origin: TEAM_SITE, refreshToken: "r1", accessToken: "a1", accessExpiresAt: Date.now() + 600_000, reviewer: { name: "Dana", email: "dana@example.com" }, ...entry } } }),
+    join(config, "sign-in.v2.json"),
+    JSON.stringify({ version: 2, services: { [TEAM_SITE]: { origin: TEAM_SITE, bindings: [{ backend: TEAM, site: TEAM_SITE }], refreshToken: "r1", accessToken: "a1", accessExpiresAt: Date.now() + 600_000, reviewer: { name: "Dana", email: "dana@example.com" }, ...entry } } }),
   );
 }
-const saved = (config: string) => JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services[TEAM_SITE];
+const saved = (config: string) => JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services[TEAM_SITE];
 
 test("signing out forgets the sign-in only once the service confirms it ended", async () => {
   const config = folder();
@@ -153,14 +173,15 @@ test("every sign-in, with or without a desktop, is the code approval that says t
   for (const [method, env] of [["browser", {}], ["auto", { DISPLAY: ":0" }], ["remote", {}]] as const) {
     const { fetchFn, requests } = team((path) =>
       path === "/auth/device/start"
-        ? Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 5 })
+        ? Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 5, ...SHOWN })
         : undefined,
     );
     const pending = await beginSignIn({ backendUrl: TEAM, method, env: { ...env, CRITIQS_CONFIG_DIR: folder() }, fetchFn, sleep: () => new Promise(() => {}) });
     pending.cancel();
     expect({ url: pending.url, userCode: pending.userCode }).toEqual({ url: `${TEAM_SITE}/auth/device`, userCode: "BCDF-GHJK" });
     expect(pending.method).toBe(method === "auto" ? "browser" : method);
-    expect(requests.find((request) => request.path === "/auth/device/start")?.body).toBe('{"keepSignedIn":true}');
+    // The approval page names the backend the sign-in is for.
+    expect(requests.find((request) => request.path === "/auth/device/start")?.body).toBe(`{"keepSignedIn":true,"backend":"${TEAM}","site":"${TEAM_SITE}"}`);
   }
 });
 
@@ -174,23 +195,32 @@ test("a renewal refused because another process already renewed keeps that proce
     signedIn(config, { refreshToken: "r2", accessToken: "a2" });
     return new Response("Signed out", { status: 401 });
   });
-  expect(await accessTokenFor(TEAM_SITE, { env, fetchFn })).toBe("a2");
+  expect(await accessTokenFor(TEAM_SITE, { backendUrl: TEAM, env, fetchFn })).toBe("a2");
   expect(saved(config)).toMatchObject({ refreshToken: "r2", accessToken: "a2" });
 });
 
-test("a lock is released only by its owner", async () => {
+test("a holder whose lock another process took over neither releases it nor writes until that one is done, and keeps the new refresh token", async () => {
   const config = folder();
   const env = { CRITIQS_CONFIG_DIR: config };
   signedIn(config, { accessExpiresAt: 0 });
-  const lock = join(config, "sign-in.json.lock");
+  const lock = join(config, "sign-in.v2.json.lock");
+  const seen: string[] = [];
   const { fetchFn } = team((path) => {
     if (path !== "/auth/refresh") return undefined;
     // Another process took the lock over meanwhile; it is still working.
-    writeFileSync(lock, "another-owner");
+    rmSync(lock, { recursive: true, force: true });
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), "another-owner");
+    setTimeout(() => {
+      seen.push(`other done: lock ${readFileSync(join(lock, "owner"), "utf8")}, refresh token ${saved(config).refreshToken}`);
+      rmSync(lock, { recursive: true, force: true });
+    }, 300);
     return Response.json({ accessToken: "a2", refreshToken: "r2", expiresAt: Date.now() + 900_000 });
   });
-  expect(await accessTokenFor(TEAM_SITE, { env, fetchFn })).toBe("a2");
-  expect(readFileSync(lock, "utf8")).toBe("another-owner");
+  expect(await accessTokenFor(TEAM_SITE, { backendUrl: TEAM, env, fetchFn })).toBe("a2");
+  expect(seen).toEqual(["other done: lock another-owner, refresh token r1"]);
+  expect(saved(config)).toMatchObject({ refreshToken: "r2", accessToken: "a2" });
+  expect(existsSync(lock)).toBe(false);
 });
 
 test("a screenshot too large to return is refused unless it can be saved to a file", async () => {
@@ -216,12 +246,12 @@ test("an approval that arrives after the sign-in was cancelled ends that session
   let pending: Awaited<ReturnType<typeof beginSignIn>> | null = null;
   const { fetchFn, requests } = team((path) => {
     if (path === "/auth/device/start") {
-      return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1 });
+      return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1, ...SHOWN });
     }
     if (path === "/auth/device/token") {
       // Signing out cancels while this poll is in flight; the approval still arrives.
       pending!.cancel();
-      return Response.json({ accessToken: "a1", refreshToken: "late", expiresAt: Date.now() + 900_000, sessionEndsAt: Date.now() + 90 * 86_400_000 });
+      return Response.json({ accessToken: "a1", refreshToken: "late", expiresAt: Date.now() + 900_000, sessionEndsAt: Date.now() + 90 * 86_400_000, ...SHOWN });
     }
     if (path === "/auth/sign-out") return new Response(null, { status: 204 });
     return undefined;
@@ -229,16 +259,16 @@ test("an approval that arrives after the sign-in was cancelled ends that session
   pending = await beginSignIn({ backendUrl: TEAM, method: "remote", env: { CRITIQS_CONFIG_DIR: config }, fetchFn, sleep: async () => {} });
   await expect(pending.finish()).rejects.toThrow("This sign-in was cancelled");
   expect(requests.find((request) => request.path === "/auth/sign-out")?.body).toBe('{"refreshToken":"late"}');
-  expect(existsSync(join(config, "sign-in.json"))).toBe(false);
+  expect(existsSync(join(config, "sign-in.v2.json"))).toBe(false);
 });
 
 test("a sign-in cancelled while it waits for the lock doesn't save, and ends its session", async () => {
   const config = folder();
-  const lock = join(config, "sign-in.json.lock");
+  const lock = join(config, "sign-in.v2.json.lock");
   let pending: Awaited<ReturnType<typeof beginSignIn>> | null = null;
   const { fetchFn, requests } = team((path) => {
     if (path === "/auth/device/start") {
-      return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1 });
+      return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1, ...SHOWN });
     }
     if (path === "/auth/device/token") {
       // Another process (signing out) holds the lock when the approval arrives…
@@ -248,7 +278,7 @@ test("a sign-in cancelled while it waits for the lock doesn't save, and ends its
         pending!.cancel();
         rmSync(lock);
       }, 120);
-      return Response.json({ accessToken: "a1", refreshToken: "late", expiresAt: Date.now() + 900_000 });
+      return Response.json({ accessToken: "a1", refreshToken: "late", expiresAt: Date.now() + 900_000, ...SHOWN });
     }
     if (path === "/auth/sign-out") return new Response(null, { status: 204 });
     return undefined;
@@ -256,7 +286,7 @@ test("a sign-in cancelled while it waits for the lock doesn't save, and ends its
   pending = await beginSignIn({ backendUrl: TEAM, method: "remote", env: { CRITIQS_CONFIG_DIR: config }, fetchFn, sleep: async () => {} });
   await expect(pending.finish()).rejects.toThrow("This sign-in was cancelled");
   expect(requests.find((request) => request.path === "/auth/sign-out")?.body).toBe('{"refreshToken":"late"}');
-  expect(existsSync(join(config, "sign-in.json"))).toBe(false);
+  expect(existsSync(join(config, "sign-in.v2.json"))).toBe(false);
 });
 
 test("signing out while a sign-in is still starting cancels it", async () => {
@@ -266,7 +296,7 @@ test("signing out while a sign-in is still starting cancels it", async () => {
   const { fetchFn, requests } = team(async (path) => {
     if (path !== "/auth/device/start") return undefined;
     await started;
-    return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1 });
+    return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1, ...SHOWN });
   });
   const tools = createTools({ cwd: config, env: { CRITIQS_CONFIG_DIR: config }, fetchFn, open: () => {}, sleep: async () => {} });
   const signingIn = tools.call("critiqs_sign_in", { signIn: "remote", backend: TEAM });
@@ -282,7 +312,7 @@ test("signing out while a sign-in is still starting cancels it", async () => {
   await new Promise((done) => setTimeout(done, 50));
   expect(polls()).toBe(before);
   expect((await tools.call("critiqs_sign_in_finish", {})).content[0]!.text).toContain("No sign-in is waiting");
-  expect(existsSync(join(config, "sign-in.json"))).toBe(false);
+  expect(existsSync(join(config, "sign-in.v2.json"))).toBe(false);
 });
 
 test("approval messages name sign-in for `critiqs sign-in`, and setup for setup", async () => {
@@ -296,11 +326,11 @@ test("approval messages name sign-in for `critiqs sign-in`, and setup for setup"
       const { pathname } = new URL(url);
       if (pathname === "/critiqs/config") return Response.json({ protocol: 5, signInUrl: TEAM_SITE, deviceSignIn: true, deviceSessions: true });
       if (pathname === "/auth/device/start") {
-        return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1 });
+        return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: `${TEAM_SITE}/auth/device`, expiresIn: 600, interval: 1, ...SHOWN });
       }
       return Response.json({ error }, { status: 400 });
     }) as unknown as typeof fetch;
-    const approval = await startRemoteSignIn({ signInUrl: TEAM_SITE, fetchFn, sleep: async () => {}, keepSignedIn });
+    const approval = await startRemoteSignIn({ signInUrl: TEAM_SITE, backendUrl: TEAM, fetchFn, sleep: async () => {}, keepSignedIn });
     await expect(approval.tokens).rejects.toThrow(expected);
   }
 });

@@ -101,11 +101,13 @@ Reading feedback and replying require a saved sign-in on the computer running th
 2. Open the printed approval address in a browser on this computer or any other device, enter the short setup code (such as `BCDF-GHJK`), sign in with your email, and choose **Approve**. The code expires after 10 minutes.
 3. Alternatively, skip the terminal command and ask your agent to call `critiqs_sign_in` followed by `critiqs_sign_in_finish`. Give the approval in your browser, and never paste an email sign-in code into the chat.
 
-Your session is stored in `sign-in.json`, readable only by your user account:
+Your session is stored in `sign-in.v2.json`, readable only by your user account:
 
-- macOS and Linux: `$XDG_CONFIG_HOME/critiqs/sign-in.json` (defaults to `~/.config/critiqs/sign-in.json`)
-- Windows: `%APPDATA%\critiqs\sign-in.json`
+- macOS and Linux: `$XDG_CONFIG_HOME/critiqs/sign-in.v2.json` (defaults to `~/.config/critiqs/sign-in.v2.json`)
+- Windows: `%APPDATA%\critiqs\sign-in.v2.json`
 - Custom folder: set `CRITIQS_CONFIG_DIR`
+
+Earlier versions of `critiqs-react` used `sign-in.json` in the same folder. The first time a newer version runs, it moves that file's Critiqs Cloud sign-in over and leaves `sign-in.json` signed out. Signing out of Critiqs Cloud signs out both.
 
 The sign-in lasts until you run `npx critiqs-react sign-out` (or call `critiqs_sign_out`), 30 days without use, or 90 days total.
 

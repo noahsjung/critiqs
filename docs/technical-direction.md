@@ -335,16 +335,32 @@ before.
   (32 random bytes), a setup code of eight letters from 20 consonants (such as
   `BCDF-GHJK`, about 34 bits), and the `/auth/device` address. It shows the
   code and the address; the secret never appears in any address or output.
+  The address it shows and opens is always the sign-in service's own origin
+  with the fixed path `/auth/device`, built by the command line; it ignores
+  the address in the answer, so a service can't send the person, or the
+  computer's browser launcher, anywhere else. The browser opens it with no
+  shell: `rundll32 url.dll,FileProtocolHandler` on Windows, `open` on macOS,
+  and `xdg-open` elsewhere, each given the address as one argument, and only
+  for an `http` or `https` address.
 - **Approve.** In any browser, the person opens `/auth/device`, types the
   code, signs in with an email code as usual, and approves or denies on a
-  page naming the account. A cookie binds these pages to that browser, as
+  page naming the account and, when the command line says, the backend it is
+  for and where that backend serves screenshots and page copies (`backend`
+  and `site` on `/auth/device/start`, as origins; older command lines don't
+  send them, and older services ignore them). The start answer repeats the
+  `backend` and `site` the page will name, and so does the answer that carries
+  the tokens, so the command line can tell a service that shows them from an
+  older one that doesn't. A cookie binds these pages to that browser, as
   with the sign-in window. An approval is never remembered like an allowed
   site and never starts a session for a site.
 - **Receive.** Setup polls `/auth/device/token` with its secret every five
   seconds; early polls are told to slow down. Once approved, the poll that
   receives the answer uses the grant up in the same transaction and gets a
   15-minute access token for the approver, without a refresh token. Denied,
-  expired, used, or unknown grants answer with RFC 8628's errors.
+  expired, used, or unknown grants answer with RFC 8628's errors. Requests that
+  carry the device secret, a token, or a refresh token follow no redirect: a
+  307 or 308 would repeat the body to another address, so the command line
+  refuses it and says which address answered with one.
 - **Stored safely, limited.** Only hashes of the secret and the code (keyed by
   the signing key) are stored, and grants expire after ten minutes, then are
   removed by the hourly cleanup. A minute's limits apply across the
@@ -372,18 +388,87 @@ tool, instead of approving every session.
   access lasts, and a site allowed before isn't asked again. `--browser` only
   opens the approval page on the computer.
 - **On the computer.** The refresh token and current access token are kept in
-  `sign-in.json` under the user's configuration folder (or
+  `sign-in.v2.json` under the user's configuration folder (or
   `CRITIQS_CONFIG_DIR`), readable only by the user, one entry per sign-in
   service; they never reach the agent's conversation. A lock beside the file
-  lets one process at a time renew it, since each renewal replaces the refresh
-  token; the lock is released only by its owner, and requests under it time
-  out well before another process may take it over. A session that ended is
+  lets one process at a time read and write it, since each renewal replaces
+  the refresh token. Node has no advisory file lock without a native module,
+  so the lock is a directory, `<file>.lock`, made with `mkdir`, which only one
+  process can do; its `owner` file holds a token unique to the holder, who
+  touches it every 5 seconds as a heartbeat. A lock whose heartbeat is 30
+  seconds old was left by a process that died. Waiters take one over one at a
+  time, each holding a second directory (`<file>.lock.break`) while it checks
+  the heartbeat again and renames the lock aside before removing it, so a
+  lock taken meanwhile, being fresh, is left alone. Before every write the
+  holder checks that its token is still in the lock; if another process took
+  it over, the holder writes nothing and writes again under a fresh lock. A
+  renewal's new refresh token is never dropped: it replaces the sign-in it
+  renewed, or, if that sign-in was replaced meanwhile, is kept aside
+  (`recovered`) for signing out to end. Earlier versions' locks are files at
+  the same name, waited for and taken over the same way; earlier versions
+  can't remove a directory, so they wait. A session that ended is
   removed, and the agent is told to sign in again. Signing out cancels a
   sign-in still waiting for approval, and forgets the computer's sign-in only
   once the service answers; `/auth/sign-out` adds `Critiqs-Session-Ended`, so
   a session it didn't find is reported (one replaced by a renewal whose answer
   was lost: no one holds its token, and it ends after 30 days without use). Not the operating system's keychain: Linux machines without a desktop
   have none.
+- **Bound to backends.** Each entry records the backends it was approved for,
+  each with where it serves screenshots and page copies (its Convex HTTP
+  actions, `site`), as origins: scheme, host, and port. The command line and
+  MCP server send its tokens to no other address, even a backend whose
+  `/critiqs/config` names the same sign-in service, and say how to sign in for
+  it instead: the origin on its own, and a command with the origin in single
+  quotes (`npx critiqs-react sign-in --backend '<origin>'`). A later sign-in
+  to the same service by the same person adds its backend; by someone else, it
+  starts over. A renewal another process made meanwhile is held to the same
+  check.
+  - **What the approval page names.** The `site` of a Convex Cloud deployment
+    (`<name>.convex.cloud`) is its `<name>.convex.site`. Any other backend's
+    `site` is the next port on the same host, which may not be what its
+    operator runs, so the approval page names it beside the backend. The
+    sign-in service must repeat both the backend and the `site`, as the exact
+    origins asked for, before a code is shown, and again with the tokens.
+    Otherwise nothing is kept, and a session the approval started is ended: a
+    service that names other addresses is refused, as is one that names only
+    one of the two, or something that isn't an origin, and so is a service
+    that confirmed at the start but names nothing with the tokens. An older
+    service that names nothing at the start can't show the person what they
+    approve, and is refused too, with one exception: Critiqs Cloud's backend
+    and site, through Critiqs Cloud's own sign-in service, still work with an
+    older service, as long as anything it does name with the tokens matches.
+    Setup's remote approval (`init --remote`) is held to the same checks
+    before its token is used. `critiqs sign-in` asks the person to check that
+    the page names the backend; in Critiqs Cloud's exception, whose page
+    doesn't, it asks them to check the page's address instead.
+  - **The file's format.** Entries with bindings are saved as `version: 2` in
+    `sign-in.v2.json`. Versions of the package that wrote version 1 keep
+    reading and writing `sign-in.json` beside it, so they can't write over the
+    current sign-ins. The first time a current version runs, under the lock of
+    each file, it moves every entry from `sign-in.json`: the one from Critiqs
+    Cloud's sign-in service is bound to Critiqs Cloud, and others are bound to
+    nothing, kept only so signing out can end them. It then leaves
+    `sign-in.json` signed out, empty but valid for older versions, so they ask
+    to sign in again instead of sending its tokens to a backend no one
+    approved. `sign-in.v2.json` marks the move pending until `sign-in.json` is
+    signed out, so a move cut off between the two writes, by a crash or a
+    failed write, is done again in full by the next command, which goes on
+    only once it succeeds. An older version that signs in again afterwards
+    writes a new version 1 sign-in, which the current version leaves to it,
+    except a Critiqs Cloud sign-in from Critiqs Cloud's sign-in service when
+    `sign-in.v2.json` has none and it was made after the last Critiqs Cloud
+    sign-out there (`cloudSignedOutAt`): that one moves, bound to Critiqs
+    Cloud, and one already copied by a move cut off before removing it is
+    removed. Signing out of Critiqs Cloud also ends and removes an older
+    version's Critiqs Cloud sign-in, so the next command can't switch to it. Such
+    an older version still sends its own sign-ins wherever it did before;
+    only upgrading or removing it (a pinned `npx critiqs-react@<older>`, or an
+    MCP server still running from before) closes that.
+  - **Transport.** Tokens travel only over HTTPS, or plain http to this
+    computer: exactly `localhost`, which Node resolves to a loopback address,
+    and the literal loopback addresses `127.0.0.0/8` and `[::1]`. Other names,
+    `.localhost` ones included, depend on name resolution and are refused.
+    Requests that carry a token follow no redirect.
 - **Reading.** The tools call the backend's existing queries (`threads:list`,
   `threads:exportThreads`, `threads:get`, `threads:listReactions`,
   `projects:get`) and `/capture`, a few threads at a time, and filter on the
@@ -393,6 +478,33 @@ tool, instead of approving every session.
   apart two people with the same name; a name two people share is refused with
   their IDs. Embedded SQLite isn't supported yet: its API accepts only its own
   site's requests.
+
+**Planned, not built:** deployment-specific token audiences, as defense in
+depth beside the command line's backend binding. Every Critiqs token now
+carries `aud: "critiqs"`, so any deployment trusting an issuer accepts any of
+its tokens.
+
+- **Design.** The sign-in service issues `aud: ["critiqs", "<backend origin>"]`
+  when the request names a backend: the component's sign-in window and
+  refreshes would name the backend it uses, as device approvals already do
+  (`backend` on `/auth/device/start`). Each backend also accepts tokens whose
+  audience is its own origin, as a second `customJwt` provider in
+  `auth.config.ts`.
+- **Why not yet.** Backends can't require their own audience while older
+  packages, which don't name a backend, still sign people in: their tokens
+  carry only `"critiqs"`. Team-owned Convex deployments that trust Critiqs
+  Cloud's issuer upgrade on their own schedule. The command line would also
+  need one access token per backend instead of one per sign-in service.
+- **Rollout.** (1) Check that Convex's `customJwt` accepts an audience list
+  containing `applicationID`, against a deployed backend. (2) The sign-in
+  service issues the audience list when a backend is named; older backends
+  still match `"critiqs"`. (3) Packages name their backend on every token
+  request, and the command line keeps tokens per backend. (4) Backends add the
+  provider for their own origin and report how many tokens arrive without it.
+  (5) After the support window for packages that don't name a backend (see
+  [Versioning and compatibility](#versioning-and-compatibility)), backends
+  drop the `"critiqs"` provider; team-owned deployments do so when they next
+  deploy.
 
 **Built:** embedded SQLite runs on the prototype's own site
 (`createCritiqsHandler` from `critiqs-react/server`, mounted at a path such as

@@ -185,6 +185,18 @@ test("the sign-in page hands tokens only to its own secret address", async () =>
   expect(await signIn.tokens).toEqual({ accessToken: "a", refreshToken: "r" });
 });
 
+test("the sign-in page names the backend the sign-in is for", async () => {
+  const signIn = await startBrowserSignIn({ signInUrl: "https://brazen-snail-591.convex.site", backendUrl: "https://own.convex.cloud/", port: 0 });
+  signIn.tokens.catch(() => {});
+  try {
+    expect((await http(signIn.url)).text).toContain(
+      "Signing in from <strong>https://brazen-snail-591.convex.site</strong> for the Critiqs backend at <strong>https://own.convex.cloud</strong>",
+    );
+  } finally {
+    signIn.close();
+  }
+});
+
 test("the MCP server lists its tools and answers protocol messages", async () => {
   const tools = createTools({ cwd: app(), env: {}, open: () => {} });
   const init = await handleMessage({ id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } }, tools, "0.1.0");
@@ -425,15 +437,22 @@ test.each(["fresh", "mounted", "different backend"])("following HTTP recovery ke
  * A fake Critiqs Cloud whose sign-in service approves setup from another
  * device: polls answer pending, then slow down, then `outcome`.
  */
-function remoteCloud(outcome: "approve" | "deny" | "expire" = "approve", { device = true, mine = [] as { _id: string; name: string; reviewUrl: string | null }[] } = {}) {
+function remoteCloud(
+  outcome: "approve" | "deny" | "expire" = "approve",
+  { device = true, mine = [] as { _id: string; name: string; reviewUrl: string | null }[], echo = true as boolean | { start: object; granted: object } } = {},
+) {
   const calls: { url: string; body: any }[] = [];
   let polls = 0;
+  // A current sign-in service repeats the backend and site its approval page names, at the start and with the tokens.
+  let shown: { start: object; granted: object } = { start: {}, granted: {} };
   const fetchFn = (async (url: string, init?: RequestInit) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
     calls.push({ url, body });
     if (url.endsWith("/critiqs/config")) return Response.json({ signInUrl: "https://brazen-snail-591.convex.site", protocol: 5, ...(device ? { deviceSignIn: true } : {}) });
     if (url.endsWith("/auth/device/start")) {
-      return Response.json({ deviceCode: "device-secret-never-shown", userCode: "BCDF-GHJK", verificationUrl: "https://brazen-snail-591.convex.site/auth/device", expiresIn: 600, interval: 5 });
+      const named = { backend: body.backend, site: body.site };
+      shown = echo === true ? { start: named, granted: named } : echo === false ? shown : echo;
+      return Response.json({ deviceCode: "device-secret-never-shown", userCode: "BCDF-GHJK", verificationUrl: "https://brazen-snail-591.convex.site/auth/device", expiresIn: 600, interval: 5, ...shown.start });
     }
     if (url.endsWith("/auth/device/token")) {
       polls++;
@@ -441,7 +460,7 @@ function remoteCloud(outcome: "approve" | "deny" | "expire" = "approve", { devic
       if (polls === 2) return Response.json({ error: "slow_down", interval: 10 }, { status: 400 });
       if (outcome === "deny") return Response.json({ error: "access_denied" }, { status: 400 });
       if (outcome === "expire") return Response.json({ error: "expired_token" }, { status: 400 });
-      return Response.json({ accessToken: "access", expiresAt: 1, reviewer: { name: "Dana", email: "dana@example.com" } });
+      return Response.json({ accessToken: "access", expiresAt: 1, reviewer: { name: "Dana", email: "dana@example.com" }, ...shown.granted });
     }
     if (url.endsWith("/api/query")) return Response.json({ status: "success", value: { page: mine, isDone: true, continueCursor: "" } });
     if (url.endsWith("/api/mutation")) return Response.json({ status: "success", value: body.path === "projects:create" ? PROJECT : null });
@@ -488,15 +507,47 @@ test("remote setup reports denial, expiry, and a sign-in service that can't appr
   );
 });
 
+test("remote setup for another backend needs its approval page to name it, at the start and with the approval", async () => {
+  const team = "https://team.convex.cloud";
+  const site = "https://team.convex.site";
+  const evil = { backend: "https://evil.convex.cloud", site: "https://evil.convex.site" };
+  // An older sign-in service: stopped before a code is shown.
+  const older = remoteCloud("approve", { echo: false });
+  await expect(beginSetup({ root: viteApp(), target: team, signIn: "remote", fetchFn: older.fetchFn, sleep: noWait })).rejects.toThrow(
+    `runs an older version that doesn't confirm its approval page names the backend, so this computer won't sign in through it for ${team}`,
+  );
+  expect(older.polls()).toBe(0);
+  // One that names another backend at the start: also stopped.
+  const other = remoteCloud("approve", { echo: { start: evil, granted: evil } });
+  await expect(beginSetup({ root: viteApp(), target: team, signIn: "remote", fetchFn: other.fetchFn, sleep: noWait })).rejects.toThrow(
+    `names ${evil.backend} on its approval page, not ${team}`,
+  );
+  expect(other.polls()).toBe(0);
+  // Named at the start, then another, only one, or nothing with the approval: its token is used for nothing.
+  for (const granted of [evil, { backend: team }, {}]) {
+    const switched = remoteCloud("approve", { echo: { start: { backend: team, site }, granted } });
+    const setup = await begin({ root: viteApp(), target: team, signIn: "remote", fetchFn: switched.fetchFn, sleep: noWait });
+    await expect(setup.finish()).rejects.toThrow("Nothing was created.");
+    expect(switched.calls.some((call) => call.url.includes("/api/"))).toBe(false);
+  }
+  // Named both times: the project is created on that backend.
+  const named = remoteCloud();
+  expect((await (await begin({ root: viteApp(), target: team, signIn: "remote", fetchFn: named.fetchFn, sleep: noWait })).finish()).projectId).toBe(PROJECT);
+  // Critiqs Cloud through its own older sign-in service still works.
+  const cloud = remoteCloud("approve", { echo: false });
+  expect((await (await begin({ root: viteApp(), target: "cloud", signIn: "remote", fetchFn: cloud.fetchFn, sleep: noWait })).finish()).projectId).toBe(PROJECT);
+});
+
 test("remote approval slows down when asked, and gives up when its code expires", async () => {
   const { fetchFn } = remoteCloud();
   const slept: number[] = [];
-  const signIn = await startRemoteSignIn({ signInUrl: "https://brazen-snail-591.convex.site", fetchFn, sleep: async (ms: number) => void slept.push(ms) });
+  const signIn = await startRemoteSignIn({ signInUrl: "https://brazen-snail-591.convex.site", backendUrl: "https://brazen-snail-591.convex.cloud", fetchFn, sleep: async (ms: number) => void slept.push(ms) });
   await signIn.tokens;
   expect(slept).toEqual([5000, 5000, 10000]);
   let clock = 0;
   const late = await startRemoteSignIn({
     signInUrl: "https://brazen-snail-591.convex.site",
+    backendUrl: "https://brazen-snail-591.convex.cloud",
     fetchFn: remoteCloud().fetchFn,
     now: () => clock,
     sleep: async () => void (clock += 11 * 60_000),
