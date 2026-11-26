@@ -21,8 +21,9 @@ import {
 //   prototype's address (`mapUrl`). Anything else fails the request, or the
 //   state is ignored, so a forged address never reaches a comment's evidence.
 // - Threads go to the frame only as aliases (`p1`, `p2`, …) for this panel,
-//   with one generic name in place of the author's; the frame's answers
-//   are mapped back, and an alias the panel never sent is ignored.
+//   with one generic name in place of the author's and none of their
+//   tickets; the frame's answers are mapped back, and an alias the panel
+//   never sent is ignored.
 
 export interface ReviewFrame {
   /** The frame's lease origin, `https://v-<label>.<proxy domain>`. */
@@ -81,7 +82,8 @@ export function reviewEndpoint(inner: PagePanelEndpoint, frame: ReviewFrame): Pa
   const mapDisplay = (display: PageDisplay): PageDisplay => ({
     ...display,
     watch: display.watch.map((watched) => ({ ...watched, threadId: alias(watched.threadId) })),
-    pins: display.pins.map((pin) => ({ ...pin, threadId: alias(pin.threadId), authorName: PIN_NAME })),
+    // A pin's tickets name the team's tracker issues and their status, which the prototype's scripts have no need of.
+    pins: display.pins.map((pin) => ({ ...pin, threadId: alias(pin.threadId), authorName: PIN_NAME, tickets: [] })),
     selected: display.selected === null ? null : { ...display.selected, threadId: alias(display.selected.threadId) },
   });
 
