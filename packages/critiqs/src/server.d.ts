@@ -45,6 +45,12 @@ export interface CritiqsHandlerOptions {
    * put keys in browser code. Search and grouping still work without AI.
    */
   ai?: CritiqsAiOptions;
+  /**
+   * `false` turns off onboarding's check of a prototype's address, which
+   * fetches pages from this server. Turn it off unless the server's outbound
+   * traffic is kept off private networks. On by default.
+   */
+  addressCheck?: false;
 }
 
 export interface CritiqsAiOptions {

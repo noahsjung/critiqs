@@ -542,6 +542,14 @@ the server runs with SQLite's online backup, such as
 `sqlite3 critiqs.sqlite ".backup critiqs-backup.sqlite"`, rather than copying the
 file. Restore by stopping the server and replacing the file.
 
+**Address check on a self-hosted server:** onboarding's check of a
+prototype's address fetches whatever address a signed-in person types. It
+refuses private and local addresses and ports other than 80 and 443, but it
+can't see where the host's own network routes a public address. Run the
+server with outbound traffic limited to the public internet, or turn the check
+off with `createCritiqsHandler({ addressCheck: false })`, which `/critiqs/config`
+reports as `addressCheck: false`. Critiqs Cloud keeps the check on.
+
 **Proposed, built in the pilot:** Critiqs renders in its own React root inside a
 shadow root, so its events, contexts, and styles stay separate from the host
 app's. In Comment mode pointer and keyboard events are stopped before the

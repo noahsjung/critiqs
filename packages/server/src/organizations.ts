@@ -3,6 +3,7 @@ import { fail } from "./errors.ts";
 import {
   ALSO_PER_PROJECT,
   addUsage,
+  countWithinAll,
   DEFAULT_PLAN,
   ORGANIZATION_METRICS,
   type OrganizationPlan,
@@ -397,20 +398,6 @@ export async function inviteMember(
   if (!(await countWithinAll(store, [[key, MAX_INVITES_PER_DAY]]))) fail("limit", `This organization has sent ${MAX_INVITES_PER_DAY} invites today. Try again tomorrow.`);
   const inviteId = await store.invites.insert({ organizationId: organization._id, email, role: args.role, invitedBy: user._id, createdAt: now });
   return { status: "invited", inviteId };
-}
-
-async function countWithinAll(store: Store, limits: [key: string, max: number][]): Promise<boolean> {
-  const counters = [];
-  for (const [key, max] of limits) {
-    const counter = await store.usage.find(key);
-    if ((counter?.count ?? 0) >= max) return false;
-    counters.push({ key, counter });
-  }
-  for (const { key, counter } of counters) {
-    if (counter === null) await store.usage.insert({ key, count: 1 });
-    else await store.usage.patch(counter._id, { count: counter.count + 1 });
-  }
-  return true;
 }
 
 /**

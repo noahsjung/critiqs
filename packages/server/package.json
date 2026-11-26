@@ -14,7 +14,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test"
+    "test": "bun test && node --experimental-transform-types --no-warnings --test test/address-pinning.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.88",

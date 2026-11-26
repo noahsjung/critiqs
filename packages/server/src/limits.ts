@@ -259,6 +259,25 @@ export async function addUsage(store: Store, key: string, amount: number): Promi
 }
 
 /**
+ * Counts one use under every key, in the current transaction, when each is
+ * below its maximum; otherwise counts nothing and returns false. For limits
+ * every deployment has, plans or not, such as emails per hour.
+ */
+export async function countWithinAll(store: Store, limits: [key: string, max: number][]): Promise<boolean> {
+  const counters = [];
+  for (const [key, max] of limits) {
+    const counter = await store.usage.find(key);
+    if ((counter?.count ?? 0) >= max) return false;
+    counters.push({ key, counter });
+  }
+  for (const { key, counter } of counters) {
+    if (counter === null) await store.usage.insert({ key, count: 1 });
+    else await store.usage.patch(counter._id, { count: counter.count + 1 });
+  }
+  return true;
+}
+
+/**
  * Refuses when a limit is already reached past its overage, or `amount` more
  * would pass it, without counting anything.
  */

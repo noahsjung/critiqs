@@ -1,3 +1,6 @@
+import { Resolver } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 import type { AiModelListDraft, AiSettingsInput, PageRequest, PersonalAiSettingsInput, ReactionRow, SearchScope, ThreadDetail, ThreadDetailPage } from "@critiqs/core";
 import {
   applyAiSettings,
@@ -18,6 +21,7 @@ import {
 } from "../ai/connection.ts";
 import { type CreditSteps, reserveCredits, settleCredits } from "../ai/credits.ts";
 import { listModels } from "../ai/model-lists.ts";
+import { type AddressCheckDeps, checkPrototypeAddress, nodeNetwork } from "../address-check.ts";
 import { applyGrouping, claimGrouping, failGrouping, groupDueTags } from "../ai/grouping.ts";
 import type { StructuredModel } from "../ai/model.ts";
 import { finalizeSearch, prepareSearch, retrieveSearch, runSearch } from "../ai/search.ts";
@@ -51,6 +55,7 @@ import {
   readPreferenceToken,
   stillMentions,
 } from "../notify.ts";
+import { claimAddressCheck } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
   CODE_MINUTES,
@@ -142,6 +147,14 @@ export interface CritiqsHandlerOptions {
   aiModel?: (connection: Extract<ResolvedConnection, { ready: true }>) => StructuredModel;
   /** For tests: what model lists are fetched with, in place of the network. */
   aiFetch?: typeof fetch;
+  /**
+   * Onboarding's address check fetches addresses people type, refusing
+   * private and local addresses. It can't see where the host's network routes
+   * a public address: run this server with outbound traffic restricted to the
+   * internet, or pass `false` to turn the check off. For tests, a resolver and
+   * connections in place of the network.
+   */
+  addressCheck?: AddressCheckDeps | false;
 }
 
 export interface CritiqsAiOptions {
@@ -315,6 +328,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     ...(aiOptions.timeoutMs === undefined ? {} : { timeoutMs: aiOptions.timeoutMs }),
     ...(options.aiFetch === undefined ? {} : { fetch: options.aiFetch }),
   };
+  const addressCheckDeps = options.addressCheck ?? nodeNetwork({ http, https, Resolver });
+  const addressCheckOn = addressCheckDeps !== false;
   /** The address people reach this server at, learned from requests, for links in emails. */
   let publicOrigin: string | null = null;
 
@@ -505,6 +520,11 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       listModels({ prepare: () => store.transaction((s) => prepareModelList(s, identity, args, Date.now())), deployment, ...modelListOptions }, args.draft),
     listPersonalAiModels: (args: { draft?: AiModelListDraft }, identity) =>
       listModels({ prepare: () => store.transaction((s) => preparePersonalModelList(s, identity, Date.now())), deployment, ...modelListOptions }, args.draft),
+    // Counted in one transaction, then fetched outside it, so a slow address doesn't hold the database.
+    checkPrototypeAddress: (args: { address: string }, identity) =>
+      addressCheckDeps === false
+        ? fail("unavailable", "This Critiqs server doesn't check prototype addresses.")
+        : checkPrototypeAddress({ claim: () => store.transaction((s) => claimAddressCheck(s, identity, Date.now())), deps: addressCheckDeps }, args),
   };
 
   async function loadThread(s: Store, identity: Identity | null, args: { threadId: string }): Promise<ThreadDetail> {
@@ -1002,6 +1022,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // `organizationMembers`: an organization's members and invites (`organization`, `renameOrganization`, `inviteMember`,
       // `revokeInvite`, `setMemberRole`, `removeMember`), `home` on organizations, and `organizationId` on `createProject`.
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`setOverageCap`).
+      // `addressCheck`: onboarding's check of a prototype's address (`checkPrototypeAddress`); false when the host turned it off.
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1013,6 +1034,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         organizations: true,
         organizationMembers: true,
         overageCap: true,
+        addressCheck: addressCheckOn,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);
