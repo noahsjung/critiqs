@@ -1,13 +1,15 @@
 /**
- * The `critiqs` command: `init` sets up Critiqs for a prototype, `doctor` checks
- * the setup works, `sign-in` lets coding agents on this computer read
- * feedback, and `mcp` offers these steps to coding agents.
+ * The `critiqs` command: `init` sets up Critiqs for a prototype in any
+ * framework setup knows, `doctor` checks the setup works, `sign-in` lets
+ * coding agents on this computer read feedback, and `mcp` offers these steps
+ * to coding agents. `npx critiqs-react <command>` runs this too.
  */
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { relative } from "node:path";
 import { beginSignIn, signInStatus, signOutComputer } from "./agent.mjs";
-import { runInit, workspaceApps } from "./init.mjs";
+import { workspaceApps } from "./app.mjs";
+import { runInit } from "./init.mjs";
 import { beginSetup, CLOUD_BACKEND_URL, DOCTOR_NOTE, doctor, doctorReport, openBrowser, readiness, SetupError } from "./setup.mjs";
 
 export const USAGE = `Usage:
@@ -18,25 +20,29 @@ export const USAGE = `Usage:
   critiqs sign-out             End this computer's sign-in
   critiqs mcp                  Run the MCP server that lets coding agents do the same
 
-Init adds <Critiqs /> where the app renders (a React root, a Next.js root layout,
-or a Next.js custom App) when the code has none, and keeps a project the code
-already names. Critiqs Cloud is the default: there are no keys to enter.
-In Vite and Next.js apps the component reads its project ID from the app's
-public environment variable (such as VITE_CRITIQS_PROJECT_ID), which init sets
-in .env.local; each deployment sets its own, and copies without one show
-nothing. In a workspace, run init once per app with --dir.
+Init finds the app's framework (React, Next.js, Vue, Nuxt, Svelte, SvelteKit,
+Angular, Astro, Solid, Ruby on Rails, Django, or Flask), adds the Critiqs
+component or tag where the app renders when the code has none, and keeps a
+project the code already names. Critiqs Cloud is the default: there are no
+keys to enter. Where the framework has a public environment variable (such as
+VITE_CRITIQS_PROJECT_ID), Critiqs reads its project ID from it and init sets
+it in the app's .env file; each deployment sets its own, and copies without
+one show nothing. Init names the framework's Critiqs package to install
+(critiqs-react, critiqs-vue, the critiqs-rails gem, …). In a workspace, run
+init once per app with --dir.
 
 Options for init:
   --name <name>               Project name (default: the app's package name)
   --review-url <url>          The prototype's deployed address, where mention emails link
   --entry <file>              The file where the app renders, relative to --dir
-  --mount <Element>           The element in that file to add <Critiqs /> beside, such as App
+  --mount <Element>           The element in that file to add Critiqs beside, such as App
   --remote                    Approve sign-in from a browser on any device, with a short code
   --browser                   Sign in through a browser on this computer
                               (default: --browser, or --remote over SSH or without a desktop)
   --new-project               Create a new project even if the code or your account has one
   --dir <path>                The app's folder (default: current folder)
-  --project-env-file <file>           The .env file init writes or doctor checks, relative to --dir (default: .env.local)
+  --project-env-file <file>   The .env file init writes or doctor checks, relative to --dir
+                              (default: the framework's, such as .env.local)
   --dry-run                   With a project ID, show the change without writing it
   --json                      Print the result as JSON, for scripts and coding agents
 
@@ -52,7 +58,7 @@ Keys, read from the environment or asked for (own Convex only):
 
 Options for doctor:
   --backend <url>             Check this backend instead of the one the code names
-  --dir <path>                The prototype's folder (default: current folder)
+  --dir <path>                The app's folder (default: current folder)
   --json                      Print the checks as JSON
 
 Options for sign-in and sign-out:
@@ -206,7 +212,8 @@ async function runSetup(options, { cwd, print }) {
     });
     if (setup.connected) {
       const where = setup.backendUrl === CLOUD_BACKEND_URL ? "Critiqs Cloud" : setup.backendUrl;
-      const from = setup.connected.env ? ` (${setup.connected.env.name} in ${relative(cwd, setup.connected.env.file) || setup.connected.env.file})` : "";
+      const { env } = setup.connected;
+      const from = env ? ` (${env.name} in ${env.file === null ? "this shell's environment" : relative(cwd, env.file) || env.file})` : "";
       say(`The code already uses project ${setup.connected.projectId}${from} on ${where}, so nothing was created. Checking it…`);
       const report = doctorReport(await doctor({ root, cwd, envFile: options.envFile }));
       if (options.json) print(JSON.stringify({ ok: report.ok, connected: setup.connected, ...report }, null, 2));
@@ -232,8 +239,8 @@ async function runSetup(options, { cwd, print }) {
     } else {
       print("");
       printChecks(stages, print);
-      if (result.written.preview) print(result.written.preview.map((line) => `    ${line}`).join("\n"));
-      if (result.written.ok) print("\nRun critiqs doctor any time to check the setup.");
+      if (result.written.preview) print(result.written.preview.split("\n").map((line) => `    ${line}`).join("\n"));
+      if (result.written.ok) print("\nRun npx critiqs doctor any time to check the setup.");
     }
     return result.written.ok ? 0 : 1;
   } catch (error) {

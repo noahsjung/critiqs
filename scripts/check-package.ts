@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const packageDir = join(root, "packages/react");
+const sharedDir = join(root, "packages/critiqs");
+const reactDir = join(root, "packages/react");
 const scratch = await mkdtemp(join(tmpdir(), "critiqs-package-"));
 
 async function run(command: string[], cwd = scratch, env = process.env): Promise<string> {
@@ -95,31 +96,78 @@ try {
   `], dir, { ...process.env, NODE_ENV: "production" });
 }
 
-try {
-  const [dryRun] = JSON.parse(await run(["npm", "pack", "--dry-run", "--json"], packageDir));
+/** The files `npm pack` would publish, after checking each expected file is there and nothing else is. */
+async function packedFiles(dir: string, expected: string[], allowed: RegExp): Promise<string[]> {
+  const [dryRun] = JSON.parse(await run(["npm", "pack", "--dry-run", "--json"], dir));
   const files: string[] = dryRun.files.map((file: { path: string }) => file.path);
-  for (const name of ["LICENSE", "dist/index.js", "dist/index.d.ts", "dist/host.d.ts", "dist/core/types.d.ts", "bin/critiqs.mjs", "bin/init.mjs", "bin/env.mjs", "bin/setup.mjs", "bin/mcp.mjs", "bin/agent.mjs", "README.md", "AGENT_SETUP.md", "dist/backend/convex/http.ts", "dist/backend/convex/lib/vendor/critiqs_server.js", "dist/backend/convex/lib/vendor/aws4fetch.js", "dist/backend/convex/lib/vendor/critiqs_ai.js", "dist/backend/convex/ai.ts", "dist/server/index.js"]) {
-    assert(files.includes(name), `Missing ${name}`);
-  }
-  assert(files.every((path) => /^(dist\/|bin\/|README\.md$|AGENT_SETUP\.md$|LICENSE$|package\.json$)/.test(path)), "Unexpected tarball contents");
-  const [packed] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], packageDir));
-  // React 18 too: an isolated consumer that mounts it and renders it on the server.
-  const react18 = join(scratch, "react18");
-  await mkdir(react18);
-  await Bun.write(join(react18, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", join(scratch, packed.filename), "react@18", "react-dom@18", "@happy-dom/global-registrator@20"], react18);
-  await reactConsumerChecks(react18, "18.");
-  await Bun.write(join(scratch, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", join(scratch, packed.filename), "react@19", "react-dom@19", "@types/react@19", "@types/node@22", "@happy-dom/global-registrator@20"]);
-  const installed = await Bun.file(join(scratch, "node_modules/critiqs-react/package.json")).json();
-  // Ready for the public registry: no private flag, a license, public access, and the runtime it needs.
+  for (const name of expected) assert(files.includes(name), `${dryRun.name}: missing ${name}`);
+  const unexpected = files.filter((path) => !allowed.test(path));
+  assert.deepEqual(unexpected, [], `${dryRun.name}: unexpected tarball contents`);
+  return files;
+}
+
+/** Ready for the public registry: no private flag, a license, public access, and the runtime it needs. */
+async function checkManifest(dir: string, name: string) {
+  const installed = await Bun.file(join(dir, `node_modules/${name}/package.json`)).json();
   assert.equal(installed.private, undefined);
   assert.equal(installed.license, "MIT");
   assert.deepEqual(installed.publishConfig, { access: "public" });
   assert.equal(installed.engines.node, ">=20");
+  assert(!Object.keys(installed.dependencies ?? {}).some((dependency) => dependency.startsWith("@critiqs/")), `${name} depends on a private workspace package`);
+  assert.equal(await Bun.file(join(dir, `node_modules/${name}/LICENSE`)).text(), await Bun.file(join(root, "LICENSE")).text());
+  await scanForSecrets(join(dir, `node_modules/${name}`));
+  return installed;
+}
+
+try {
+  // The shared package carries the CLI, the backend it deploys, and the self-hosting server.
+  const sharedFiles = await packedFiles(sharedDir, [
+    "LICENSE", "README.md", "AGENT_SETUP.md", "dist/index.js", "dist/index.d.ts", "dist/element.js", "dist/element.d.ts",
+    "bin/critiqs.mjs", "bin/cli.mjs", "bin/cli.d.mts", "bin/init.mjs", "bin/env.mjs", "bin/setup.mjs", "bin/mcp.mjs", "bin/agent.mjs", "bin/markup.mjs",
+    "bin/frameworks/index.mjs", "bin/frameworks/react.mjs", "bin/frameworks/next.mjs",
+    "dist/backend/convex/http.ts", "dist/backend/convex/lib/vendor/critiqs_server.js", "dist/backend/convex/lib/vendor/aws4fetch.js", "dist/backend/convex/lib/vendor/critiqs_ai.js", "dist/backend/convex/ai.ts",
+    "dist/server/index.js", "dist/server/index.d.ts",
+  ], /^(dist\/|bin\/|README\.md$|AGENT_SETUP\.md$|LICENSE$|package\.json$)/);
+  // critiqs-react is the component, with the command and server from critiqs under its own name.
+  const reactFiles = await packedFiles(reactDir, [
+    "LICENSE", "README.md", "AGENT_SETUP.md", "dist/index.js", "dist/index.d.ts", "dist/host.d.ts", "dist/core/types.d.ts", "dist/server/index.js", "dist/server/index.d.ts", "bin/critiqs.mjs",
+  ], /^(dist\/(index\.js|[\w-]+\.d\.ts|core\/types\.d\.ts|server\/index\.(js|d\.ts))$|bin\/critiqs\.mjs$|README\.md$|AGENT_SETUP\.md$|LICENSE$|package\.json$)/);
+  const files = [...sharedFiles, ...reactFiles];
+  const [sharedPacked] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], sharedDir));
+  const [reactPacked] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], reactDir));
+  // critiqs isn't on the registry yet, so each consumer installs the packed one beside critiqs-react,
+  // which satisfies critiqs-react's exact dependency on it.
+  const tarballs = [join(scratch, sharedPacked.filename), join(scratch, reactPacked.filename)];
+  // React 18 too: an isolated consumer that mounts it and renders it on the server.
+  const react18 = join(scratch, "react18");
+  await mkdir(react18);
+  await Bun.write(join(react18, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, "react@18", "react-dom@18", "@happy-dom/global-registrator@20"], react18);
+  await reactConsumerChecks(react18, "18.");
+  await Bun.write(join(scratch, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, "react@19", "react-dom@19", "@types/react@19", "@types/node@22", "@happy-dom/global-registrator@20"]);
+  const installed = await checkManifest(scratch, "critiqs-react");
+  const shared = await checkManifest(scratch, "critiqs");
+  // One version of the shared package, the exact one critiqs-react was released with.
+  assert.equal(installed.dependencies.critiqs, shared.version);
+  assert(!(await Bun.file(join(scratch, "node_modules/critiqs-react/node_modules/critiqs/package.json")).exists()), "critiqs-react installed a second copy of critiqs");
+  // Agents read the guide in the package they installed, including where critiqs isn't placed beside it (pnpm).
+  const guide = await Bun.file(join(scratch, "node_modules/critiqs/AGENT_SETUP.md")).text();
+  assert(guide.includes("## 1. Run setup"), "critiqs's AGENT_SETUP.md is the setup guide");
+  assert((await Bun.file(join(scratch, "node_modules/critiqs-react/AGENT_SETUP.md")).text()).endsWith(guide), "critiqs-react's AGENT_SETUP.md must carry critiqs's guide, not point to it");
+  assert.deepEqual(shared.bin, { critiqs: "./bin/critiqs.mjs" });
+  assert.deepEqual(installed.bin, { critiqs: "./bin/critiqs.mjs" });
   // Node 20 supports setup. The optional built-in SQLite server has its own
   // documented minimum and must explain that boundary on Node 20.
-  await run(["npm", "exec", "--yes", "--package=node@20.0.0", "--", "node", "node_modules/critiqs-react/bin/critiqs.mjs", "--help"]);
+  // Both packages' commands run the shared CLI: critiqs-react's delegates to critiqs's.
+  for (const cli of ["node_modules/critiqs/bin/critiqs.mjs", "node_modules/critiqs-react/bin/critiqs.mjs"]) {
+    const help = await run(["npm", "exec", "--yes", "--package=node@20.0.0", "--", "node", cli, "--help"]);
+    assert(help.includes("critiqs init <projectId>"), `${cli} --help: ${help}`);
+  }
+  // As people and agents type them: npx critiqs, npx critiqs-react, and the linked critiqs command.
+  for (const command of [["npx", "--no-install", "critiqs", "--help"], ["npx", "--no-install", "critiqs-react", "--help"], ["node_modules/.bin/critiqs", "--help"]]) {
+    assert((await run(command)).includes("critiqs init <projectId>"), `${command.join(" ")} doesn't run the CLI`);
+  }
   await run(["npm", "exec", "--yes", "--package=node@20.0.0", "--", "node", "--input-type=module", "-e", `
     const { createCritiqsHandler } = await import("critiqs-react/server");
     try {
@@ -135,13 +183,10 @@ try {
     const handler = await createCritiqsHandler({ database: ":memory:", identify: () => null });
     handler.close();
   `]);
-  assert.equal(await Bun.file(join(scratch, "node_modules/critiqs-react/LICENSE")).text(), await Bun.file(join(root, "LICENSE")).text());
-  await scanForSecrets(join(scratch, "node_modules/critiqs-react"));
   // Server-component frameworks render <Critiqs /> as a client component.
   assert((await Bun.file(join(scratch, "node_modules/critiqs-react/dist/index.js")).text()).startsWith('"use client";\n'), "The browser entry must start with \"use client\"");
   assert.equal(installed.peerDependencies.react, ">=18");
   assert.equal(installed.peerDependencies["react-dom"], ">=18");
-  assert(!Object.keys(installed.dependencies).some((name) => name.startsWith("@critiqs/")));
   await run(["node", "--input-type=module", "-e", 'const m = await import("critiqs-react"); if (typeof m.Critiqs !== "function" || m.MASK_ATTRIBUTE !== "data-critiqs-mask") process.exit(1)']);
   await reactConsumerChecks(scratch);
 
@@ -163,7 +208,7 @@ export const mask: "data-critiqs-mask" = MASK_ATTRIBUTE;
   const output = await run(["node", "node_modules/critiqs-react/bin/critiqs.mjs", "init", "j12345678901234567890123456789012", "--dir", "src", "--dry-run"]);
   assert(output.includes("Would set the project ID"));
   assert.equal(await Bun.file(join(scratch, "src/App.tsx")).text(), source);
-  await run(["node", "node_modules/critiqs-react/bin/critiqs.mjs", "init", "j12345678901234567890123456789012", "--dir", "src"]);
+  await run(["npx", "--no-install", "critiqs", "init", "j12345678901234567890123456789012", "--dir", "src"]);
   assert((await Bun.file(join(scratch, "src/App.tsx")).text()).includes('projectId="j12345678901234567890123456789012"'));
   // With no component yet, init adds it to the app's React root, once.
   await mkdir(join(scratch, "spa/src"), { recursive: true });
@@ -186,6 +231,8 @@ export const mask: "data-critiqs-mask" = MASK_ATTRIBUTE;
   }
   assert((await Bun.file(join(scratch, "custom-env/config/.env.local")).text()).includes("VITE_CRITIQS_PROJECT_ID=j12345678901234567890123456789012"));
   assert((await Bun.file(join(scratch, "custom-env/main.jsx")).text()).includes("projectId={import.meta.env.VITE_CRITIQS_PROJECT_ID} requireProjectId"));
+  // critiqs-react/server is critiqs/server under the name host apps already import.
+  await run(["node", "--input-type=module", "-e", 'const a = await import("critiqs/server"); const b = await import("critiqs-react/server"); if (a.createCritiqsHandler !== b.createCritiqsHandler || a.toNodeListener !== b.toNodeListener) process.exit(1)']);
   // Self-hosting: the server runs under Node with node:sqlite, and its types check.
   await run(["node", "--no-warnings", "--input-type=module", "-e", `
     const { createCritiqsHandler } = await import("critiqs-react/server");
@@ -234,22 +281,25 @@ export const mask: "data-critiqs-mask" = MASK_ATTRIBUTE;
     if (found.mode !== "ai" || found.results[0]?.threadId !== threadId || found.insights[0]?.threadIds[0] !== threadId) process.exit(2);
     if (asked.length !== 2 || asked.some((request) => request.path !== "/v1/chat/completions" || request.authorization !== "Bearer local-key")) process.exit(3);
   `]);
-  await Bun.write(join(scratch, "server.ts"), `import { createCritiqsHandler, toNodeListener, type HostUser } from "critiqs-react/server";
+  for (const from of ["critiqs/server", "critiqs-react/server"]) {
+    await Bun.write(join(scratch, "server.ts"), `import { createCritiqsHandler, toNodeListener, type HostUser } from "${from}";
 const user: HostUser = { id: "1", name: "Pat", email: "pat@example.com" };
 const handler = await createCritiqsHandler({ database: "critiqs.sqlite", identify: () => user });
 export const listener = toNodeListener(handler);
 `);
-  for (const resolution of ["Bundler", "NodeNext"] as const) {
-    await run([join(root, "node_modules/.bin/tsc"), "--noEmit", "--strict", "--skipLibCheck", "false", "--types", "node", "--target", "ES2022", "--module", resolution === "Bundler" ? "ESNext" : "NodeNext", "--moduleResolution", resolution, "server.ts"]);
+    for (const resolution of ["Bundler", "NodeNext"] as const) {
+      await run([join(root, "node_modules/.bin/tsc"), "--noEmit", "--strict", "--skipLibCheck", "false", "--types", "node", "--target", "ES2022", "--module", resolution === "Bundler" ? "ESNext" : "NodeNext", "--moduleResolution", resolution, "server.ts"]);
+    }
   }
   // The bundled backend functions load without the private workspace packages.
-  await run(["node", "--input-type=module", "-e", 'const m = await import(process.cwd() + "/node_modules/critiqs-react/dist/backend/convex/lib/vendor/critiqs_server.js"); if (typeof m.operations?.createProject !== "function") process.exit(1)']);
+  await run(["node", "--input-type=module", "-e", 'const m = await import(process.cwd() + "/node_modules/critiqs/dist/backend/convex/lib/vendor/critiqs_server.js"); if (typeof m.operations?.createProject !== "function") process.exit(1)']);
   // The deployed backend's Node actions load the AI SDK bundled beside them.
-  await run(["node", "--input-type=module", "-e", 'const m = await import(process.cwd() + "/node_modules/critiqs-react/dist/backend/convex/lib/vendor/critiqs_ai.js"); if (typeof m.createStructuredModel !== "function") process.exit(1)']);
+  await run(["node", "--input-type=module", "-e", 'const m = await import(process.cwd() + "/node_modules/critiqs/dist/backend/convex/lib/vendor/critiqs_ai.js"); if (typeof m.createStructuredModel !== "function") process.exit(1)']);
   // The deployed backend includes its signer without a private workspace install.
-  await run(["node", "--input-type=module", "-e", 'const m = await import(process.cwd() + "/node_modules/critiqs-react/dist/backend/convex/lib/vendor/aws4fetch.js"); if (typeof m.AwsClient !== "function") process.exit(1)']);
+  await run(["node", "--input-type=module", "-e", 'const m = await import(process.cwd() + "/node_modules/critiqs/dist/backend/convex/lib/vendor/aws4fetch.js"); if (typeof m.AwsClient !== "function") process.exit(1)']);
   // The MCP server answers an agent's first messages.
-  const mcp = Bun.spawn(["node", "node_modules/critiqs-react/bin/critiqs.mjs", "mcp"], {
+  // The MCP server answers through the command AGENT_SETUP.md configures for agents.
+  const mcp = Bun.spawn(["npx", "--no-install", "critiqs-react", "mcp"], {
     cwd: scratch,
     stdin: new Blob([
       `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } })}\n` +
@@ -275,7 +325,7 @@ export const listener = toNodeListener(handler);
     "critiqs_sign_in_finish",
     "critiqs_sign_out",
   ]);
-  console.log(`Package smoke passed: ${files.length} files; MIT license and public publishing settings, no secrets; isolated npm install, ESM import, production React 18 and 19 mounts and server rendering, "use client" boundary, Bundler/NodeNext declarations, Node CLI, MCP server, bundled backend with AI actions, self-hosted server with AI search under Node, no provider code in the browser bundle.`);
+  console.log(`Package smoke passed: critiqs and critiqs-react, ${files.length} files; MIT license and public publishing settings, no secrets; isolated npm install, ESM import, production React 18 and 19 mounts and server rendering, "use client" boundary, Bundler/NodeNext declarations, Node CLI through npx critiqs and npx critiqs-react, MCP server, bundled backend with AI actions, self-hosted server with AI search under Node, no provider code in the browser bundle.`);
 } finally {
   await rm(scratch, { recursive: true, force: true });
 }

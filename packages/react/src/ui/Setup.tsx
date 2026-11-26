@@ -9,7 +9,7 @@ import { amount, ceilingOf, type UsageRow, usageName, usageText } from "./usage.
 
 /**
  * Project setup in the sidebar (F1). A developer signs in, names the project,
- * and copies a one-line snippet with its ID. The browser remembers the new
+ * and copies the command that writes its ID into the code. The browser remembers the new
  * project so they can comment before changing any code.
  */
 export function Setup({
@@ -194,8 +194,7 @@ function ProjectReady({
   notify: (message: string) => void;
 }) {
   const project = useTransport().useProject(projectId);
-  const snippet = `projectId="${projectId}"`;
-  const command = `npx critiqs-react init ${projectId}`;
+  const command = `npx critiqs init ${projectId}`;
   const copy = async (text: string, what: string) => {
     await copyText(text);
     notify(`${what} copied`);
@@ -239,17 +238,17 @@ function ProjectReady({
             </div>
           </div>
           <Step number={2} title="Add the project ID to the prototype">
-            <span className="note">Add this to the Critiqs component:</span>
-            <div className="code">
-              <code>{snippet}</code>
-              <button type="button" className="btn small" onClick={() => copy(snippet, "Snippet")}>
-                Copy
-              </button>
-            </div>
-            <span className="note">Or run this in the prototype's folder:</span>
+            <span className="note">Run this in the prototype's folder:</span>
             <div className="code">
               <code>{command}</code>
               <button type="button" className="btn small" onClick={() => copy(command, "Command")}>
+                Copy
+              </button>
+            </div>
+            <span className="note">Or give the prototype's Critiqs component or tag this project ID, keeping its other settings:</span>
+            <div className="code">
+              <code>{projectId}</code>
+              <button type="button" className="btn small" onClick={() => copy(projectId, "Project ID")}>
                 Copy
               </button>
             </div>

@@ -231,9 +231,9 @@ test("a finished setup is one line; Details shows the project ID to copy", async
   await setup.done();
 });
 
-test("a project used only in this browser leads with adding its ID, by snippet or command", async () => {
+test("a project used only in this browser leads with adding its ID, by command or by the ID itself", async () => {
   const setup = await renderSetup({ usage: null }, { configured: false });
-  expect([...setup.host.querySelectorAll("code")].map((code) => code.textContent)).toEqual(['projectId="project"', "npx critiqs-react init project"]);
+  expect([...setup.host.querySelectorAll("code")].map((code) => code.textContent)).toEqual(["npx critiqs init project", "project"]);
   expect(setup.button("Use a different project")).toBeDefined();
   expect([...setup.host.querySelectorAll(".step .num")].map((step) => step.textContent)).toEqual(["✓", "2"]);
   expect(setup.host.textContent).toContain("Until then, only this browser uses the project.");

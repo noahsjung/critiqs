@@ -22,6 +22,22 @@ framework, which builds on this one:
 
 Use `critiqs` directly in any other app, or in a page with no build at all.
 
+## Set up with the CLI
+
+```sh
+npx critiqs init
+```
+
+Run it in the app's folder. It finds the app's framework, adds Critiqs where
+the app renders, signs you in, creates a project on Critiqs Cloud, and
+connects the app to it. When the app doesn't list its framework's Critiqs
+package yet, it says which one to install. `npx critiqs init <projectId>`
+connects a project you already have, and `npx critiqs doctor` checks the
+setup; `npx critiqs --help` lists every option. Coding agents can follow
+[AGENT_SETUP.md](AGENT_SETUP.md), and `npx critiqs mcp` offers the same steps
+to them as MCP tools. `critiqs/server` runs Critiqs inside your app's own Node
+or Bun server instead of Critiqs Cloud; see the `critiqs-react` README.
+
 ## With a script tag
 
 The quickest way in, for any site. Add one tag, replacing `X.Y.Z` with the

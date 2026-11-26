@@ -9,6 +9,6 @@ const user: Same<Published.HostUser, Real.HostUser> = true;
 const ai: Same<Published.CritiqsAiOptions, Real.CritiqsAiOptions> = true;
 const handler: Same<Omit<Published.CritiqsHandler, never>, Omit<Real.CritiqsHandler, "store">> = true;
 
-test("critiqs-react/server's published types match the server", () => {
+test("critiqs/server's published types match the server", () => {
   expect([options, user, ai, handler]).toEqual([true, true, true, true]);
 });

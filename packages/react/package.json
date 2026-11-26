@@ -37,6 +37,7 @@
     "prepack": "bun run build"
   },
   "dependencies": {
+    "critiqs": "0.3.0",
     "convex": "^1.46.0",
     "modern-screenshot": "^4.6.0"
   },

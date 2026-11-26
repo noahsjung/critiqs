@@ -28,17 +28,31 @@
     "./router": {
       "types": "./dist/router.d.ts",
       "import": "./dist/router.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    },
+    "./cli": {
+      "types": "./bin/cli.d.mts",
+      "import": "./bin/cli.mjs"
     }
   },
   "sideEffects": [
     "./dist/element.js"
   ],
+  "bin": {
+    "critiqs": "./bin/critiqs.mjs"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test --isolate",
     "build": "bun scripts/build.ts",
     "prepack": "bun run build",
     "check:consumer": "bun scripts/check-consumer.ts"
+  },
+  "dependencies": {
+    "convex": "^1.46.0"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.14.6",
@@ -47,13 +61,16 @@
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "convex": "^1.46.0",
     "modern-screenshot": "^4.6.0",
-    "@critiqs/core": "workspace:*"
+    "@critiqs/core": "workspace:*",
+    "@critiqs/backend": "workspace:*",
+    "@critiqs/server": "workspace:*"
   },
   "files": [
     "dist",
+    "bin",
     "README.md",
+    "AGENT_SETUP.md",
     "LICENSE"
   ],
   "repository": {

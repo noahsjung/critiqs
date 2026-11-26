@@ -1,16 +1,13 @@
-// React setup. Stub: detection only, until this framework's setup is automated.
-import { dependsOn, describeProjectId, manualPlan, readText } from "./shared.mjs";
+// React setup: adds <Critiqs /> from critiqs-react where the app renders,
+// such as beside <App /> in createRoot(…).render(…). A Vite app reads its
+// project ID from VITE_CRITIQS_PROJECT_ID; other builds get it written in.
+import { jsxAdapter, usesVite } from "./jsx.mjs";
+import { dependsOn } from "./shared.mjs";
 
 /** @type {import("./types.d.mts").FrameworkAdapter} */
-export const react = {
+export const react = jsxAdapter({
   id: "react",
   name: "React",
-  install: { ecosystem: "npm", packages: ["critiqs-react"] },
   detect: (root) => dependsOn(root, "react") && dependsOn(root, "react-dom"),
-  env: () => null,
-  find: () => [],
-  plan(root, settings) {
-    return manualPlan(react, settings);
-  },
-  manual: (settings) => `Add Critiqs to this React app with project ID ${describeProjectId(settings)}; see the critiqs-react README.`,
-};
+  build: (root) => (usesVite(root) ? "vite" : null),
+});

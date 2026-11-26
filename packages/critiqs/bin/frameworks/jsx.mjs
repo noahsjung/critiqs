@@ -1,40 +1,19 @@
 /**
- * `critiqs init`: writes a project ID into the prototype's single `<Critiqs />`
- * component. Dependency-free so it runs under Node and Bun without a build.
+ * Setup for apps that render with JSX: React and Next.js, which add
+ * `<Critiqs />` from critiqs-react where the app renders. A small lexer finds
+ * the component and the app's render root; Vite and Next.js apps read the
+ * project ID from their public environment variable. `react.mjs` and
+ * `next.mjs` are adapters made with `jsxAdapter`. Everything here only reads;
+ * the CLI writes the plans.
  */
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { extname, relative, resolve, sep } from "node:path";
-import { applyEnv, describeApp, envVariableOf, planEnv, workspaceMembers, workspacePatterns } from "./env.mjs";
-
-/** Convex document IDs (lowercase letters and digits, about 32 characters), or a self-hosted server's (`p_` and 32 hex digits). */
-export const PROJECT_ID_PATTERN = /^([a-z0-9]{16,64}|p_[0-9a-f]{32})$/;
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 
 export const SOURCE_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js", ".mts", ".mjs"]);
 export const IGNORED_DIRECTORIES = new Set(["node_modules", "dist", "build", "coverage"]);
 
 /** Extensions where `<` can start JSX; in .ts and .mts it is a type assertion or generic. */
 const JSX_EXTENSIONS = new Set([".tsx", ".jsx", ".js"]);
-
-export const HELP = `Usage: critiqs init <projectId> [--dir <path>] [--entry <file>] [--mount <Element>] [--project-env-file <file>] [--dry-run]
-
-Connects the prototype's <Critiqs /> component to a project. Without one, adds
-it where the app renders: a React root (createRoot(…).render), a Next.js root
-layout, or a Next.js custom App. In Vite and Next.js apps the component reads
-the project ID from the app's environment variable, and init sets it in
-.env.local; otherwise init writes the ID into the component. Copy the project
-ID from project setup in the Critiqs sidebar.
-
-Options:
-  --dir <path>        The app's folder (default: current folder)
-  --entry <file>      The file where the app renders, relative to --dir
-  --mount <Element>   The element to add <Critiqs /> beside, such as App
-  --project-env-file <file>   The .env file to set the project ID in, relative to --dir (default: .env.local)
-  --dry-run           Show the change without writing it
-  -h, --help          Show this help`;
-
-export function isValidProjectId(id) {
-  return PROJECT_ID_PATTERN.test(id);
-}
 
 /** Source files under `root`, skipping dependencies, build output, dot-directories, and symlinks. */
 export function findSourceFiles(root) {
@@ -69,10 +48,12 @@ const EXPRESSION_KEYWORDS = new Set([
  * templates, regexes, and comments; JSX is parsed recursively and abandoned when it
  * does not close, so a `<` that was a comparison or TypeScript generic is re-read as code.
  *
- * Returns `elements` named `tagName` (in source order) with their attributes, and
- * `comments` and string/template `literals` as [start, end) ranges.
+ * Returns `elements` named `tagName`, or any of several names, (in source order)
+ * with their attributes, and `comments` and string/template `literals` as
+ * [start, end) ranges.
  */
 export function scanSource(source, { jsx = true, tagName = "Critiqs" } = {}) {
+  const tagNames = new Set([tagName].flat());
   const s = source;
   const n = s.length;
   const elements = [];
@@ -288,7 +269,7 @@ export function scanSource(source, { jsx = true, tagName = "Critiqs" } = {}) {
       attributes.push(attribute);
     }
 
-    if (name === tagName && nameStart === start + 1) {
+    if (tagNames.has(name) && nameStart === start + 1) {
       elements.push({ start, nameEnd, end: i, line: lineAt(s, start), attributes, spreadEnd });
     }
     // Filled in once the closing tag is found; `close` stays null for `<X />`.
@@ -341,28 +322,39 @@ const IMPORT_PATTERN =
   /\bimport\s+(?:[\p{ID_Start}$_][\p{ID_Continue}$]*\s*,\s*)?\{([^}]*)\}\s*from\s*(["'])critiqs-react\2/gu;
 
 /**
- * Whether the source imports `Critiqs` by name from "critiqs-react": an import
- * declaration starting its own line, outside comments and strings.
+ * The names the source gives `Critiqs` imported from "critiqs-react": `Critiqs`,
+ * or another such as `Review` for `import { Critiqs as Review }`. Only import
+ * declarations starting their own line, outside comments and strings, count.
  */
-export function importsCritiqs(source, excluded) {
+export function critiqsNames(source, excluded) {
   if (excluded === undefined) {
     const { comments, literals } = scanSource(source, { jsx: false });
     excluded = [...comments, ...literals];
   }
+  const names = new Set();
   for (const match of source.matchAll(IMPORT_PATTERN)) {
     const index = match.index ?? 0;
     if (excluded.some(([start, end]) => index >= start && index < end)) continue;
     if (!/(^|\n)[ \t\uFEFF]*$/.test(source.slice(Math.max(0, source.lastIndexOf("\n", index - 1)), index))) continue;
-    const names = (match[1] ?? "").split(",").map((specifier) => specifier.trim());
-    if (names.some((name) => name === "Critiqs" || /^Critiqs\s+as\s+Critiqs$/.test(name))) return true;
+    for (const specifier of (match[1] ?? "").split(",")) {
+      const local = /^\s*Critiqs(?:\s+as\s+([\p{ID_Start}$_][\p{ID_Continue}$]*))?\s*$/u.exec(specifier);
+      if (local !== null) names.add(local[1] ?? "Critiqs");
+    }
   }
-  return false;
+  return [...names];
 }
 
-/** `<Critiqs>` elements in a file that imports Critiqs; empty otherwise. */
+/** Whether the source imports `Critiqs` from "critiqs-react" under that name; see `critiqsNames`. */
+export function importsCritiqs(source, excluded) {
+  return critiqsNames(source, excluded).includes("Critiqs");
+}
+
+/** The Critiqs elements (`<Critiqs>`, or the name the import gives it) in a file that imports Critiqs; empty otherwise. */
 export function findCritiqsElements(source, { jsx = true } = {}) {
   const { elements, comments, literals } = scanSource(source, { jsx });
-  return importsCritiqs(source, [...comments, ...literals]) ? elements : [];
+  const names = critiqsNames(source, [...comments, ...literals]);
+  if (names.length === 0) return [];
+  return names.length === 1 && names[0] === "Critiqs" ? elements : scanSource(source, { jsx, tagName: names }).elements;
 }
 
 const LITERAL_EXPRESSION = /^(\s*)(["'`])([^"'`\\\r\n]*)\2\s*$/;
@@ -486,7 +478,7 @@ const REACT_DOM_IMPORT = /(?:\bfrom\s*|\brequire\s*\(\s*)(["'])react-dom(?:\/cli
 const RENDER_CALL = /(?:^|[^\w$])(?:render|hydrate)\s*\(\s*$/;
 /** `hydrateRoot(container, ` right before the element. */
 const HYDRATE_ROOT_CALL = /\bhydrateRoot\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*,\s*$/;
-/** Ways of using Critiqs that init can't follow: under another name, as a namespace, re-exported, or loaded at run time. */
+/** Ways of using Critiqs that init can't follow, where it found no element to update: another name it never renders, a namespace, a re-export, or loading at run time. */
 const OTHER_CRITIQS_USE = [
   /\bCritiqs\s+as\s+(?!Critiqs\b)[\p{ID_Start}$_]/gu,
   /\*\s*as\s+[\p{ID_Start}$_][\p{ID_Continue}$]*\s+from\s*(["'])critiqs-react\1/gu,
@@ -694,11 +686,6 @@ export function planComponent(root, props, { entry = null, mount = null } = {}) 
   };
 }
 
-/** Writes a plan's file, if it changes anything. */
-export function applyPlan(plan) {
-  if (plan.ok && plan.source !== plan.original) writeFileSync(plan.file, plan.source);
-}
-
 /** How to add Critiqs by hand, for when init can't. */
 export function manualInstructions(props) {
   return [
@@ -760,206 +747,207 @@ export function refusal(plan, props, where, folder) {
   }
 }
 
+
 // ---------------------------------------------------------------------------
-// Connecting through the app's environment
+// The app's public environment variable
+
+/** Builds whose public environment variables reach the browser, and how code reads them. */
+const BUILDS = {
+  next: { name: "Next.js", access: "process.env", prefix: "NEXT_PUBLIC_" },
+  vite: { name: "Vite", access: "import.meta.env", prefix: "VITE_" },
+};
+
+/** The `.env` files Vite loads during development, highest precedence first: Vite reads `.env.development` before `.env.local`. */
+export const ENV_FILES = [".env.development.local", ".env.development", ".env.local", ".env"];
+/** The `.env` files Next.js loads during development, highest precedence first: Next.js reads `.env.local` before `.env.development`. */
+export const NEXT_ENV_FILES = [".env.development.local", ".env.local", ".env.development", ".env"];
+
+const CONFIG_EXTENSIONS = ["ts", "mts", "js", "mjs", "cts", "cjs"];
+export const configFile = (root, name) => CONFIG_EXTENSIONS.map((extension) => join(root, `${name}.config.${extension}`)).find((path) => existsSync(path)) ?? null;
 
 /**
- * How the code names the project:
- * - "env": the component reads one public environment variable of the app's
- *   framework (Vite or Next.js), and init sets it in a `.env` file on this
- *   computer. Each deployment sets its own, so each can use its own project,
- *   and a copy without one shows nothing. `addFlag` adds `requireProjectId`
- *   when init writes the expression; existing wiring is kept as written.
- * - "literal": init writes the ID into the component, as for components that
- *   already name one and builds whose public settings init doesn't know.
- * `problem` says why init can't wire this app safely, and what to do.
+ * Where a Vite app loads `.env` files: its own folder, or the `envDir` its
+ * config names as a literal path or `resolve(__dirname, "…")`. `known` is false
+ * when `envDir` is computed some other way, which init can't follow.
  */
-export function chooseWiring(root, { envFile = null } = {}) {
-  const app = describeApp(root, { envFile });
-  const literal = { mode: "literal", app };
-  let usages = [];
+function viteSettings(root) {
+  const file = configFile(root, "vite");
+  if (file === null) return { envDir: root, known: true, customPrefix: false };
+  let text = "";
   try {
-    usages = findCritiqsUsages(root);
+    text = readFileSync(file, "utf8");
+  } catch {
+    return { envDir: root, known: false, customPrefix: false, config: file };
+  }
+  const customPrefix = /\benvPrefix\b/.test(text);
+  const mentions = text.match(/\benvDir\b/g) ?? [];
+  if (mentions.length === 0) return { envDir: root, known: true, customPrefix, config: file };
+  const base = dirname(file);
+  const literal = /\benvDir\s*:\s*(["'`])([^"'`$\n]*)\1/.exec(text);
+  const resolved = /\benvDir\s*:\s*(?:path\.)?(?:resolve|join)\(\s*(?:__dirname|import\.meta\.dirname)\s*((?:,\s*(["'])[^"'\n]*\2\s*)*),?\s*\)/.exec(text);
+  const fromUrl = /\benvDir\s*:\s*fileURLToPath\(\s*new\s+URL\(\s*(["'])([^"'\n]*)\1\s*,\s*import\.meta\.url\s*\)\s*\)/.exec(text);
+  if (mentions.length === 1 && literal !== null) return { envDir: resolve(base, literal[2]), known: true, customPrefix, config: file };
+  if (mentions.length === 1 && resolved !== null) {
+    const parts = [...resolved[1].matchAll(/(["'])([^"'\n]*)\1/g)].map((match) => match[2]);
+    return { envDir: resolve(base, ...parts), known: true, customPrefix, config: file };
+  }
+  if (mentions.length === 1 && fromUrl !== null) return { envDir: resolve(base, fromUrl[2]), known: true, customPrefix, config: file };
+  return { envDir: root, known: false, customPrefix, config: file };
+}
+
+/** Whether Vite builds the app: it depends on Vite or has a Vite config. */
+export function usesVite(root) {
+  let manifest = {};
+  try {
+    manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) ?? {};
   } catch {}
-  if (usages.length > 1) return literal;
-  const current = usages.length === 1 ? readProp(usages[0].source, usages[0].element, "projectId") : null;
-  if (current?.kind === "literal") return literal;
-  if (current?.kind === "expression") {
-    const variable = envVariableOf(current.text, app);
-    return variable === null ? literal : { mode: "env", app, variable, addFlag: false, problem: app.problem };
-  }
-  if (app.framework === null) return literal;
-  if (app.customPrefix) {
-    return {
-      mode: "env",
-      app,
-      problem:
-        "This app's Vite config sets envPrefix, so init can't tell which variable names reach the browser, and nothing was changed. " +
-        "Give <Critiqs /> projectId={import.meta.env.<a name with your prefix>} requireProjectId, then run init again to set it.",
-    };
-  }
-  return { mode: "env", app, variable: app.variable, addFlag: true, problem: app.problem };
-}
-
-/** The component's properties for a connection: the ID, or the expression that reads it, then `backend` when given. */
-export function connectionProps(wiring, projectId, backend) {
-  const withBackend = backend === undefined || backend === null ? {} : { backend };
-  if (wiring.mode !== "env") return { projectId, ...withBackend };
-  return { projectId: { expression: `${wiring.app.access}.${wiring.variable}` }, ...(wiring.addFlag ? { requireProjectId: true } : {}), ...withBackend };
-}
-
-/** What each deployment does with an environment-backed project ID. */
-export function deploymentAdvice(wiring) {
-  const reads = wiring.app.framework === "next" ? "Next.js" : "Vite";
-  return (
-    `Set ${wiring.variable} in each deployment's build settings to that deployment's project ID (${reads} reads it when the app is built, so rebuild after changing it), ` +
-    "and leave it unset where Critiqs shouldn't appear."
-  );
+  return "vite" in { ...manifest.devDependencies, ...manifest.dependencies } || configFile(root, "vite") !== null;
 }
 
 /**
- * When `root` declares a workspace: its packages where an app renders or
- * already uses Critiqs, which each get their own project. null for a folder
- * that declares no workspace.
+ * The variable an expression reads, when it is exactly one public setting of
+ * the app's build: `import.meta.env.VITE_…` in Vite, or
+ * `process.env.NEXT_PUBLIC_…` in Next.js. Anything else is code setup doesn't
+ * evaluate. With Vite's `envPrefix` changed, any name the author chose counts.
  */
-export function workspaceApps(root) {
-  const patterns = workspacePatterns(root);
-  if (patterns === null) return null;
-  return workspaceMembers(root, patterns).filter((dir) => {
-    try {
-      return findCritiqsUsages(dir).length > 0 || findMountPoints(dir).length > 0;
-    } catch {
-      return false;
-    }
-  });
+export function envVariableOf(text, build, customPrefix = false) {
+  if (typeof text !== "string" || build === null) return null;
+  const match = /^\s*(import\.meta\.env|process\.env)\.([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(text);
+  if (match === null || match[1] !== BUILDS[build].access) return null;
+  if (!match[2].startsWith(BUILDS[build].prefix) && !(build === "vite" && customPrefix)) return null;
+  return match[2];
 }
 
-/** Why init doesn't choose an app in a workspace, with the exact commands for each. */
-export function workspaceRefusal(apps, folder, show, command) {
-  return (
-    `${folder.charAt(0).toUpperCase()}${folder.slice(1)} is a workspace with ${apps.length === 1 ? "an app" : `${apps.length} apps`}, so nothing was changed: each app gets its own Critiqs project and settings. ` +
-    `Run init for one app:\n${apps.map((dir) => `  ${command} --dir ${show(dir)}`).join("\n")}`
-  );
+// ---------------------------------------------------------------------------
+// The adapter
+
+/** Settings as `<Critiqs />` properties, in the order setup writes them. */
+function propsFor(root, settings) {
+  const props = {};
+  if ("literal" in settings.projectId) props.projectId = settings.projectId.literal;
+  else {
+    props.projectId = { expression: settings.projectId.env.expression };
+    // requireProjectId comes with a new environment-backed ID; a component that already reads the variable is kept as written.
+    const usages = findCritiqsUsages(root);
+    const current = usages.length === 1 ? readProp(usages[0].source, usages[0].element, "projectId") : null;
+    if (settings.requireProjectId && !(current?.kind === "expression" && current.text === props.projectId.expression)) props.requireProjectId = true;
+  }
+  if (settings.backend !== undefined) props.backend = settings.backend;
+  return props;
 }
 
-/** Parses `init <projectId> [--dir <path>] [--entry <file>] [--mount <Element>] [--project-env-file <file>] [--dry-run]`; returns options or an error message. */
-export function parseArguments(argv) {
-  const options = { help: false, command: null, projectId: null, dir: ".", entry: null, mount: null, envFile: null, dryRun: false };
-  const positional = [];
-  const keys = { "--dir": "dir", "--entry": "entry", "--mount": "mount", "--project-env-file": "envFile", "--env-file": "envFile" };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i] ?? "";
-    const flag = Object.keys(keys).find((name) => arg === name || arg.startsWith(`${name}=`));
-    if (arg === "-h" || arg === "--help") options.help = true;
-    else if (arg === "--dry-run") options.dryRun = true;
-    else if (flag !== undefined) {
-      const value = arg === flag ? argv[++i] : arg.slice(flag.length + 1);
-      if (value === undefined || value === "") return { error: flag === "--dir" ? "--dir needs a folder path." : `${flag} needs a value.` };
-      options[keys[flag]] = value;
-    } else if (arg.startsWith("-")) return { error: `Unknown option ${arg}.` };
-    else positional.push(arg);
-  }
-  options.command = positional[0] ?? null;
-  options.projectId = positional[1] ?? null;
-  if (options.help) return options;
-  if (options.command !== "init") {
-    return { error: options.command === null ? "Missing command." : `Unknown command ${options.command}.` };
-  }
-  if (options.projectId === null) return { error: "Missing project ID." };
-  if (positional.length > 2) return { error: `Unexpected argument ${positional[2]}.` };
-  if (options.mount !== null && !/^[\p{ID_Start}$_][\p{ID_Continue}$.\-:]*$/u.test(options.mount)) return { error: "--mount needs an element name, such as App." };
-  return options;
+/** The adapter's reason for each of `planComponent`'s refusals. */
+const REASONS = {
+  several: "ambiguous",
+  "several-roots": "ambiguous",
+  expression: "expression",
+  spread: "expression",
+  unreadable: "unreadable",
+};
+
+/** A path as people read it: relative inside the current folder, absolute outside it. */
+function shown(cwd, path) {
+  const near = relative(cwd, path);
+  return near === "" ? "this folder" : near.startsWith("..") ? path : near;
 }
 
 /**
- * Runs the CLI and returns its exit code: 0 when the project ID is set, 1 when it
- * could not be set automatically, 2 for usage errors. `print` receives each message.
- * With no `<Critiqs />` yet, it adds one where the app renders.
+ * A setup adapter for a JSX framework. `build(root)` names the build whose
+ * public variables the app can read its project ID from ("vite" or "next"),
+ * or null for builds setup doesn't know how to give public settings to (the
+ * ID is then written into the component).
+ *
+ * @param {{ id: "react" | "next"; name: string; detect: (root: string) => boolean; build: (root: string) => "vite" | "next" | null }} options
+ * @returns {import("./types.d.mts").FrameworkAdapter}
  */
-export function runInit(argv, { cwd = process.cwd(), print = console.log } = {}) {
-  const options = parseArguments(argv);
-  if ("error" in options) {
-    print(`${options.error}\n\n${HELP}`);
-    return 2;
-  }
-  if (options.help) {
-    print(HELP);
-    return 0;
-  }
-
-  const projectId = options.projectId;
-  if (!isValidProjectId(projectId)) {
-    print(
-      `"${projectId}" is not a Critiqs project ID. Copy it from project setup in the Critiqs sidebar: ` +
-        "16 to 64 lowercase letters and digits, or p_ and 32 for a self-hosted server.",
-    );
-    return 2;
-  }
-
-  const root = resolve(cwd, options.dir);
-  const where = (file, line) => `${relative(cwd, file) || file}:${line}`;
-  const show = (path) => relative(cwd, path) || ".";
-  const folder = relative(cwd, root) || "this folder";
-  const apps = workspaceApps(root);
-  if (apps !== null && apps.length > 0) {
-    print(workspaceRefusal(apps, folder, show, `npx critiqs-react init ${projectId}`));
-    return 1;
-  }
-  const wiring = chooseWiring(root, { envFile: options.envFile });
-  if (wiring.problem) {
-    print(wiring.problem);
-    return 1;
-  }
-  const props = connectionProps(wiring, projectId);
-  const plan = planComponent(root, props, { entry: options.entry, mount: options.mount });
-  if (!plan.ok) {
-    print(
-      plan.reason === "expression" && wiring.mode === "literal"
-        ? `${where(plan.file, plan.line)} sets projectId from code, so it was not changed.\nSet it to the project ID: ${projectId}`
-        : plan.reason === "spread" && wiring.mode === "literal"
-          ? `${where(plan.file, plan.line)} sets projectId before spread props that could override it, so it was not changed.\nMove projectId="${projectId}" after the spread.`
-          : refusal(plan, props, where, folder),
-    );
-    return plan.reason === "not-folder" || plan.reason === "no-entry" ? 2 : 1;
-  }
-  let env = null;
-  if (wiring.mode === "env") {
-    try {
-      env = planEnv(wiring.app, wiring.variable, projectId);
-    } catch {
-      print(`Couldn't read this app's .env files, so nothing was changed. Restore access, or set ${wiring.variable}=${projectId} in the .env.local file the app loads.`);
-      return 1;
-    }
-  }
-  const dry = options.dryRun ? " (dry run, nothing written)" : "";
-  if (plan.action === "unchanged" && (env === null || !env.changed)) {
-    print(`${where(plan.file, plan.line)} already uses this project ID${env === null ? "" : ` (${env.name} in ${show(env.file)})`}.`);
-    return 0;
-  }
-  if (plan.action === "install") {
-    const preview = plan.preview.map((line) => `  ${line}`).join("\n");
-    print(
-      `${options.dryRun ? "Would add" : "Added"} <Critiqs /> to ${where(plan.file, plan.line)} (${MOUNT_KINDS[plan.kind]})` +
-        `${plan.imported ? ", importing it from critiqs-react" : ""}${dry}:\n${preview}`,
-    );
-  } else if (plan.action === "update" && wiring.mode === "env") {
-    print(`${options.dryRun ? "Would connect" : "Connected"} <Critiqs /> in ${where(plan.file, plan.line)} to ${wiring.variable}${wiring.addFlag ? "; it stays hidden wherever that isn't set" : ""}${dry}.`);
-  } else if (plan.action === "update") {
-    print(`${options.dryRun ? "Would set" : "Set"} the project ID in ${where(plan.file, plan.line)}${dry}.`);
-  }
-  if (!options.dryRun) applyPlan(plan);
-  if (env === null) return 0;
-  if (env.changed) {
-    if (!options.dryRun) {
-      try {
-        applyEnv(env);
-      } catch {
-        print(`Couldn't write ${show(env.file)}. Add this line to it yourself:\n  ${env.name}=${projectId}`);
-        return 1;
+export function jsxAdapter({ id, name, detect, build }) {
+  const adapter = {
+    id,
+    name,
+    install: { ecosystem: "npm", packages: ["critiqs-react"] },
+    detect,
+    env(root, suffix, { envFile = null } = {}) {
+      const kind = build(root);
+      if (kind === null) return null;
+      const { access, prefix, name: reads } = BUILDS[kind];
+      const variable = `${prefix}CRITIQS_PROJECT_ID${suffix}`;
+      let envDir = resolve(root);
+      let problem = null;
+      if (kind === "vite") {
+        const vite = viteSettings(root);
+        envDir = vite.envDir;
+        // A component that already reads a variable is kept; a new one needs a name with the app's own prefix.
+        let readsVariable = false;
+        try {
+          readsVariable = adapter.find(root).some((usage) => usage.projectId?.kind === "env");
+        } catch {}
+        if (vite.customPrefix && !readsVariable) {
+          problem =
+            "This app's Vite config sets envPrefix, so setup can't tell which variable names reach the browser, and nothing was changed. " +
+            "Give <Critiqs /> projectId={import.meta.env.<a name with your prefix>} requireProjectId, then run init again to set it.";
+        } else if (!vite.known && envFile === null) {
+          problem =
+            `${posix(relative(root, vite.config ?? root)) || "vite.config"} sets envDir in a way setup can't follow, so it doesn't know which .env file this app loads. ` +
+            "Run init again with --project-env-file <the .env.local file Vite loads, relative to the app>, and nothing else changes.";
+        }
       }
-    }
-    print(`${options.dryRun ? "Would set" : "Set"} ${env.name}=${projectId} in ${show(env.file)} for this computer${dry}.`);
-  }
-  print(deploymentAdvice(wiring));
-  return 0;
+      const inApp = (file) => posix(relative(root, join(envDir, file)));
+      return {
+        variable,
+        expression: `${access}.${variable}`,
+        readsAt: "build",
+        localFile: inApp(".env.local"),
+        loads: (kind === "vite" ? ENV_FILES : NEXT_ENV_FILES).map(inApp),
+        deploymentAdvice:
+          `Set ${variable} in each deployment's build settings to that deployment's project ID (${reads} reads it when the app is built, so rebuild after changing it), ` +
+          "and leave it unset where Critiqs shouldn't appear.",
+        problem,
+      };
+    },
+    find(root) {
+      const kind = build(root);
+      const customPrefix = kind === "vite" && viteSettings(root).customPrefix;
+      return findCritiqsUsages(root).map(({ file, source, element }) => {
+        // Spread props may set or override a property unless it comes after them, so its value is then unknown.
+        const settled = (property) => {
+          const attribute = element.attributes.find((candidate) => candidate.name === property);
+          if (element.spreadEnd !== null && (attribute === undefined || attribute.start < element.spreadEnd)) return { kind: "expression", text: "" };
+          const read = readProp(source, element, property);
+          if (read === null || read.kind === "literal") return read;
+          const variable = property === "projectId" ? envVariableOf(read.text, kind, customPrefix) : null;
+          return variable === null ? { kind: "expression", text: read.text ?? "" } : { kind: "env", variable };
+        };
+        return {
+          file,
+          line: element.line,
+          projectId: settled("projectId"),
+          backend: settled("backend"),
+          requireProjectId: element.attributes.some((attribute) => attribute.name === "requireProjectId"),
+        };
+      });
+    },
+    plan(root, settings, { entry = null, mount = null, cwd = root } = {}) {
+      const props = propsFor(root, settings);
+      const plan = planComponent(root, props, { entry, mount });
+      const where = (file, line) => `${shown(cwd, file)}:${line}`;
+      if (!plan.ok) return { ok: false, reason: REASONS[plan.reason] ?? "manual", message: refusal(plan, props, where, shown(cwd, root)) };
+      return {
+        ok: true,
+        action: plan.action,
+        writes: plan.action === "unchanged" ? [] : [{ file: plan.file, original: plan.original, source: plan.source }],
+        file: plan.file,
+        line: plan.line,
+        changed: plan.changed,
+        preview: (plan.preview ?? changedLines(plan.original, plan.source)).join("\n"),
+        next: [],
+      };
+    },
+    manual: (settings) =>
+      manualInstructions({
+        projectId: "literal" in settings.projectId ? settings.projectId.literal : { expression: settings.projectId.env.expression },
+        ...(settings.requireProjectId ? { requireProjectId: true } : {}),
+        ...(settings.backend === undefined ? {} : { backend: settings.backend }),
+      }),
+  };
+  return adapter;
 }

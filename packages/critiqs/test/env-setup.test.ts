@@ -5,10 +5,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseCommand, runCli } from "../bin/cli.mjs";
-import { describeApp, planEnv, readEnvValue, workspaceMembers } from "../bin/env.mjs";
+import { chooseWiring, envTargetOf, readUsage } from "../bin/app.mjs";
+import { planEnv, readEnvValue, workspaceMembers } from "../bin/env.mjs";
 import { runInit } from "../bin/init.mjs";
 import { createTools } from "../bin/mcp.mjs";
-import { beginSetup, CLOUD_BACKEND_URL, defaultProjectName, doctor, readComponentProps, readiness } from "../bin/setup.mjs";
+import { beginSetup, CLOUD_BACKEND_URL, defaultProjectName, doctor, doctorReport, readiness, SetupError } from "../bin/setup.mjs";
 
 const PROJECT = "js71q5kzssedhq0rp6myv7zdf58gbb1t";
 const OTHER = "p_0123456789abcdef0123456789abcdef";
@@ -73,6 +74,11 @@ function cloud({ mine = [] as { _id: string; name: string; reviewUrl: string | n
   return { calls, fetchFn };
 }
 const noWait = async () => {};
+/** How setup wires an app, with its variable and this computer's .env files. */
+const wiringOf = (root: string, envFile: string | null = null) => {
+  const wiring = chooseWiring(root, { envFile });
+  return { ...wiring, variable: wiring.mode === "env" ? wiring.env.variable : null, target: envTargetOf(wiring) };
+};
 const signIn = { signIn: "remote" as const, sleep: noWait };
 
 async function begin(args: Parameters<typeof beginSetup>[0]) {
@@ -85,34 +91,35 @@ async function begin(args: Parameters<typeof beginSetup>[0]) {
 // Which variable, and where
 
 test("each framework gets its public variable; workspace apps get their own names and project names", () => {
-  expect(describeApp(vite())).toMatchObject({ framework: "vite", variable: "VITE_CRITIQS_PROJECT_ID", access: "import.meta.env", workspace: null, projectName: "billing" });
+  expect(wiringOf(vite())).toMatchObject({ mode: "env", variable: "VITE_CRITIQS_PROJECT_ID", env: { expression: "import.meta.env.VITE_CRITIQS_PROJECT_ID" }, app: { workspace: null, projectName: "billing" } });
   const next = tree({ "package.json": JSON.stringify({ name: "@acme/site", dependencies: { next: "16" } }), "app/layout.jsx": NEXT_LAYOUT });
-  expect(describeApp(next)).toMatchObject({ framework: "next", variable: "NEXT_PUBLIC_CRITIQS_PROJECT_ID", access: "process.env", projectName: "site" });
+  expect(wiringOf(next)).toMatchObject({ mode: "env", variable: "NEXT_PUBLIC_CRITIQS_PROJECT_ID", env: { expression: "process.env.NEXT_PUBLIC_CRITIQS_PROJECT_ID" }, app: { projectName: "site" } });
+  expect(wiringOf(next).adapter.id).toBe("next");
   const plain = tree({ "package.json": "{}", "src/main.tsx": VITE_MAIN });
-  expect(describeApp(plain)).toMatchObject({ framework: null, variable: null });
+  expect(wiringOf(plain)).toMatchObject({ mode: "literal", variable: null });
 
   const root = workspace();
   expect(workspaceMembers(root)).toEqual(["apps/admin", "apps/shop", "packages/ui"].map((path) => join(root, path)));
-  const admin = describeApp(join(root, "apps/admin"));
-  const shop = describeApp(join(root, "apps/shop"));
-  expect(admin).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_ADMIN", envDir: root, sharedEnv: true, projectName: "acme-platform/admin" });
-  expect(shop).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_SHOP", envDir: join(root, "apps/shop"), sharedEnv: false, projectName: "acme-platform/shop" });
+  const admin = wiringOf(join(root, "apps/admin"));
+  const shop = wiringOf(join(root, "apps/shop"));
+  expect(admin).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_ADMIN", target: { local: join(root, ".env.local") }, app: { projectName: "acme-platform/admin" } });
+  expect(shop).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_SHOP", target: { local: join(root, "apps/shop/.env.local") }, app: { projectName: "acme-platform/shop" } });
   expect(defaultProjectName(join(root, "apps/admin"))).toBe("acme-platform/admin");
 
   // Package names that only differ by scope stay apart by their paths.
   const same = workspace(["@admin/web", "@shop/web"]);
-  expect(describeApp(join(same, "apps/admin"))).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_APPS_ADMIN", projectName: "acme-platform/apps/admin" });
-  expect(describeApp(join(same, "apps/shop"))).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_APPS_SHOP", projectName: "acme-platform/apps/shop" });
+  expect(wiringOf(join(same, "apps/admin"))).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_APPS_ADMIN", app: { projectName: "acme-platform/apps/admin" } });
+  expect(wiringOf(join(same, "apps/shop"))).toMatchObject({ variable: "VITE_CRITIQS_PROJECT_ID_APPS_SHOP", app: { projectName: "acme-platform/apps/shop" } });
 });
 
 test("Vite's envDir is followed when it is a literal path, and refused with a way forward otherwise", () => {
   for (const config of ['export default { envDir: "../shared" };', "export default { envDir: fileURLToPath(new URL('../shared', import.meta.url)) };", 'export default { envDir: path.join(__dirname, "..", "shared") };']) {
     const root = vite("billing", { "vite.config.ts": config });
-    expect(describeApp(root)).toMatchObject({ envDir: join(dirname(root), "shared"), problem: null });
+    expect(wiringOf(root)).toMatchObject({ target: { local: join(dirname(root), "shared/.env.local") }, problem: null });
   }
   const computed = vite("billing", { "vite.config.ts": "export default { envDir: process.env.ENV_DIR };" });
-  expect(describeApp(computed).problem).toContain("--project-env-file");
-  expect(describeApp(computed, { envFile: "config/.env.local" })).toMatchObject({ problem: null, envFile: join(computed, "config/.env.local") });
+  expect(wiringOf(computed).problem).toContain("--project-env-file");
+  expect(wiringOf(computed, "config/.env.local")).toMatchObject({ problem: null, target: { local: join(computed, "config/.env.local") } });
   const prefixed = vite("billing", { "vite.config.ts": 'export default { envPrefix: "APP_" };', "src/main.tsx": VITE_MAIN });
   const out = output();
   expect(runInit(["init", PROJECT, "--dir", prefixed], out)).toBe(1);
@@ -129,24 +136,24 @@ test("workspace names and paths that normalize alike keep separate settings in a
       [`apps/${name}/src/main.tsx`, VITE_MAIN],
     ])),
   });
-  const first = describeApp(join(root, "apps/a-b"));
-  const second = describeApp(join(root, "apps/a_b"));
+  const first = wiringOf(join(root, "apps/a-b"));
+  const second = wiringOf(join(root, "apps/a_b"));
   expect(first.variable).not.toBe(second.variable);
-  expect(runInit(["init", PROJECT, "--dir", first.root], quiet)).toBe(0);
-  expect(runInit(["init", OTHER, "--dir", second.root], quiet)).toBe(0);
-  expect(readEnvValue(first, first.variable!)).toMatchObject({ value: PROJECT });
-  expect(readEnvValue(second, second.variable!)).toMatchObject({ value: OTHER });
-  const before: [string, string, string] = [read(root, ".env.local"), read(first.root, "src/main.tsx"), read(second.root, "src/main.tsx")];
-  expect(runInit(["init", PROJECT, "--dir", first.root], quiet)).toBe(0);
-  expect(runInit(["init", OTHER, "--dir", second.root], quiet)).toBe(0);
-  expect([read(root, ".env.local"), read(first.root, "src/main.tsx"), read(second.root, "src/main.tsx")]).toEqual(before);
+  expect(runInit(["init", PROJECT, "--dir", first.app.root], quiet)).toBe(0);
+  expect(runInit(["init", OTHER, "--dir", second.app.root], quiet)).toBe(0);
+  expect(readEnvValue(first.target!, first.variable!)).toMatchObject({ value: PROJECT });
+  expect(readEnvValue(second.target!, second.variable!)).toMatchObject({ value: OTHER });
+  const before: [string, string, string] = [read(root, ".env.local"), read(first.app.root, "src/main.tsx"), read(second.app.root, "src/main.tsx")];
+  expect(runInit(["init", PROJECT, "--dir", first.app.root], quiet)).toBe(0);
+  expect(runInit(["init", OTHER, "--dir", second.app.root], quiet)).toBe(0);
+  expect([read(root, ".env.local"), read(first.app.root, "src/main.tsx"), read(second.app.root, "src/main.tsx")]).toEqual(before);
 
   // A package could literally name itself after a generated suffix. Refuse that final collision.
   const third = join(root, "apps/third");
   mkdirSync(join(third, "src"), { recursive: true });
   writeFileSync(join(third, "package.json"), JSON.stringify({ name: first.variable!.replace("VITE_CRITIQS_PROJECT_ID_", "").toLowerCase(), devDependencies: { vite: "8" } }));
   writeFileSync(join(third, "src/main.tsx"), VITE_MAIN);
-  expect(describeApp(third).problem).toContain("same Critiqs environment variable");
+  expect(wiringOf(third).problem).toContain("same Critiqs environment variable");
   expect(runInit(["init", PROJECT, "--dir", third], quiet)).toBe(1);
   expect(read(root, ".env.local")).toBe(before[0]);
   expect(read(third, "src/main.tsx")).toBe(VITE_MAIN);
@@ -157,16 +164,16 @@ test("the .env writer keeps every other line and value, and reads what framework
     ".env": "VITE_CRITIQS_PROJECT_ID=from-committed-file\n",
     ".env.local": 'API_URL="https://api.example" # the API\r\nexport VITE_CRITIQS_PROJECT_ID = old\r\nSECRET=keep-me\r\n',
   });
-  const app = describeApp(root);
-  expect(readEnvValue(app, "API_URL")).toEqual({ value: "https://api.example", file: join(root, ".env.local") });
-  expect(readEnvValue(app, "VITE_CRITIQS_PROJECT_ID")).toEqual({ value: "old", file: join(root, ".env.local") });
-  const plan = planEnv(app, "VITE_CRITIQS_PROJECT_ID", PROJECT);
+  const target = wiringOf(root).target!;
+  expect(readEnvValue(target, "API_URL")).toEqual({ value: "https://api.example", file: join(root, ".env.local") });
+  expect(readEnvValue(target, "VITE_CRITIQS_PROJECT_ID")).toEqual({ value: "old", file: join(root, ".env.local") });
+  const plan = planEnv(target, "VITE_CRITIQS_PROJECT_ID", PROJECT);
   expect(plan.source).toBe(`API_URL="https://api.example" # the API\r\nexport VITE_CRITIQS_PROJECT_ID=${PROJECT}\r\nSECRET=keep-me\r\n`);
   expect(plan.example?.source).toContain("VITE_CRITIQS_PROJECT_ID=\n");
 
   // A higher-precedence local file that already sets it is the one changed.
   const dev = vite("billing", { ".env.development.local": "VITE_CRITIQS_PROJECT_ID=x\n", ".env.example": "OTHER=\nVITE_CRITIQS_PROJECT_ID=\n" });
-  const devPlan = planEnv(describeApp(dev), "VITE_CRITIQS_PROJECT_ID", PROJECT);
+  const devPlan = planEnv(wiringOf(dev).target!, "VITE_CRITIQS_PROJECT_ID", PROJECT);
   expect(devPlan.file).toBe(join(dev, ".env.development.local"));
   expect(devPlan.example).toBeNull();
 });
@@ -242,16 +249,16 @@ test("at a workspace root, init and doctor name each app instead of choosing one
   const out = output();
   expect(runInit(["init", PROJECT], { cwd: root, print: out.print })).toBe(1);
   expect(out.lines.join("\n")).toContain(`This folder is a workspace with 2 apps, so nothing was changed`);
-  expect(out.lines.join("\n")).toContain(`npx critiqs-react init ${PROJECT} --dir apps/admin\n  npx critiqs-react init ${PROJECT} --dir apps/shop`);
+  expect(out.lines.join("\n")).toContain(`npx critiqs init ${PROJECT} --dir apps/admin\n  npx critiqs init ${PROJECT} --dir apps/shop`);
   expect(out.lines.join("\n")).not.toContain("packages/ui");
   for (const path of ["apps/admin/src/main.tsx", "apps/shop/src/main.tsx"]) expect(read(root, path)).toBe(VITE_MAIN);
   expect(existsSync(join(root, ".env.local"))).toBe(false);
 
   const backend = cloud();
-  await expect(beginSetup({ root, cwd: root, fetchFn: backend.fetchFn, ...signIn })).rejects.toThrow("npx critiqs-react init --dir apps/shop");
+  await expect(beginSetup({ root, cwd: root, fetchFn: backend.fetchFn, ...signIn })).rejects.toThrow("npx critiqs init --dir apps/shop");
   expect(backend.calls).toEqual([]);
   const checks = await doctor({ root, cwd: root, fetchFn: backend.fetchFn });
-  expect(checks).toEqual([expect.objectContaining({ status: "fail", name: "Component", detail: expect.stringContaining("npx critiqs-react doctor --dir apps/admin") })]);
+  expect(checks).toEqual([expect.objectContaining({ status: "fail", name: "Component", detail: expect.stringContaining("npx critiqs doctor --dir apps/admin") })]);
   expect(backend.calls).toEqual([]);
 });
 
@@ -267,7 +274,7 @@ test("two apps in one workspace get separate projects, variables, and files, and
   expect(read(root, "apps/shop/src/main.tsx")).toContain("import.meta.env.VITE_CRITIQS_PROJECT_ID_SHOP");
   // A generic variable shared by the whole workspace doesn't configure either app.
   writeFileSync(join(root, ".env"), `VITE_CRITIQS_PROJECT_ID=${PROJECT}\n`);
-  expect(readEnvValue(describeApp(join(root, "apps/shop")), "VITE_CRITIQS_PROJECT_ID_SHOP")?.value).toBe(OTHER);
+  expect(readEnvValue(wiringOf(join(root, "apps/shop")).target!, "VITE_CRITIQS_PROJECT_ID_SHOP")?.value).toBe(OTHER);
 });
 
 // ---------------------------------------------------------------------------
@@ -284,10 +291,13 @@ test("setup checks the component and .env file before signing in, then writes bo
   expect(readiness(result).map((stage) => [stage.name, stage.status])).toEqual([
     ["Code", "pass"],
     ["Project", "pass"],
+    ["Finish setup", "next"],
     ["Try it locally", "next"],
     ["Deployments", "next"],
     ["Reviewers elsewhere", "warn"],
   ]);
+  // The app doesn't list the framework's package yet, so setup names it.
+  expect(readiness(result).find((stage) => stage.name === "Finish setup")?.detail).toBe("Install critiqs-react with the app's package manager: npm install critiqs-react.");
 
   // Running again finds the project through the variable, without the network.
   const noFetch = (async () => {
@@ -408,8 +418,8 @@ test("doctor reads the local setting, checks it with the backend, and says what 
   expect(committed.deployments?.status).toBe("warn");
   expect(advice).toContain("which is usually committed");
   expect(advice).toContain("This shell also sets VITE_CRITIQS_PROJECT_ID");
-  expect(advice).toContain("Add requireProjectId");
-  expect(readComponentProps(vite("billing", { "src/main.tsx": component(true) }))).toMatchObject({ requireProjectId: true, projectId: { kind: "expression", text: "import.meta.env.VITE_CRITIQS_PROJECT_ID" } });
+  expect(advice).toContain("Turn on requireProjectId");
+  expect(readUsage(vite("billing", { "src/main.tsx": component(true) }))).toMatchObject({ usage: { requireProjectId: true, projectId: { kind: "env", variable: "VITE_CRITIQS_PROJECT_ID" } } });
 });
 
 test("MCP tools and the command line take the .env file and report the variable", async () => {
@@ -459,4 +469,187 @@ test("doctor and connected init keep a custom env file, and unresolved envDir is
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Recovering from what setup can't read, and saying where to run what's left
+
+test("an unreadable .env file is a structured refusal or warning, never a crash", async () => {
+  const app = vite();
+  mkdirSync(join(app, ".env.local"));
+  // ID-only init refuses with what to do, and writes nothing.
+  const out = output();
+  expect(runInit(["init", PROJECT, "--dir", app], { cwd: app, print: out.print })).toBe(1);
+  expect(out.lines.join("\n")).toContain(`Couldn't read .env.local, a .env file this app loads, so nothing was changed: it could set VITE_CRITIQS_PROJECT_ID to another project. Make it readable, then run setup again. Or add Critiqs where the app renders, and set VITE_CRITIQS_PROJECT_ID=${PROJECT} in .env.local.`);
+  expect(read(app, "src/main.tsx")).toBe(VITE_MAIN);
+  // The setup flow stops before anyone signs in.
+  const noFetch = (async () => {
+    throw new Error("Setup must stop before using the network");
+  }) as unknown as typeof fetch;
+  const refused = beginSetup({ root: app, fetchFn: noFetch, ...signIn });
+  await expect(refused).rejects.toBeInstanceOf(SetupError);
+  await expect(refused).rejects.toThrow("Couldn't read .env.local, a .env file this app loads");
+  // Doctor warns that it can't read the local value, and its report is still JSON.
+  writeFileSync(join(app, "src/main.tsx"), `import { Critiqs } from "critiqs-react";\nexport const A = () => <Critiqs projectId={import.meta.env.VITE_CRITIQS_PROJECT_ID} requireProjectId />;\n`);
+  const report = doctorReport(await doctor({ root: app, fetchFn: cloud().fetchFn, env: {} }));
+  expect(report.checks.find((check) => check.name === "Project")).toMatchObject({ status: "warn", detail: expect.stringContaining("reads VITE_CRITIQS_PROJECT_ID, but doctor can't determine its local value: Couldn't read .env.local.") });
+  expect(JSON.parse(JSON.stringify(report))).toMatchObject({ ok: true });
+});
+
+test("a stale --entry doesn't stop init from updating the one Critiqs the code has", async () => {
+  const app = vite("billing", { "src/main.tsx": `import { Critiqs } from "critiqs-react";\n${VITE_MAIN.replace("<App />", `<><App /><Critiqs projectId="${OTHER}" /></>`)}` });
+  const out = output();
+  expect(runInit(["init", PROJECT, "--dir", app, "--entry", "src/old-main.tsx"], out)).toBe(0);
+  expect(read(app, "src/main.tsx")).toContain(`<Critiqs projectId="${PROJECT}" />`);
+  // The setup flow doesn't need it either, when the code reads a variable this computer doesn't set yet.
+  const reading = vite("billing", { "src/main.tsx": `import { Critiqs } from "critiqs-react";\n${VITE_MAIN.replace("<App />", "<><App /><Critiqs projectId={import.meta.env.VITE_CRITIQS_PROJECT_ID} requireProjectId /></>")}` });
+  const setup = await begin({ root: reading, entry: "src/old-main.tsx", fetchFn: cloud().fetchFn, ...signIn });
+  setup.cancel();
+  // Where Critiqs has to be added, a missing entry is still a usage error.
+  const fresh = output();
+  expect(runInit(["init", PROJECT, "--dir", vite(), "--entry", "src/old-main.tsx"], fresh)).toBe(2);
+  expect(fresh.lines.join("\n")).toContain("src/old-main.tsx is not a file");
+});
+
+test("from a workspace root, the install step names the app for the workspace's package manager", () => {
+  const managers: [Record<string, string>, string][] = [
+    [{ "package-lock.json": "{}" }, "npm install critiqs-react --workspace @acme/shop"],
+    [{ "pnpm-lock.yaml": "", "pnpm-workspace.yaml": "packages:\n  - apps/*\n" }, "pnpm --filter ./apps/shop add critiqs-react"],
+    [{ "yarn.lock": "" }, "yarn workspace @acme/shop add critiqs-react"],
+    [{ "bun.lock": "" }, "bun add critiqs-react --cwd apps/shop"],
+  ];
+  for (const [lockfile, command] of managers) {
+    const root = workspace();
+    for (const [path, text] of Object.entries(lockfile)) writeFileSync(join(root, path), text);
+    const out = output();
+    expect(runInit(["init", PROJECT, "--dir", "apps/shop"], { cwd: root, print: out.print })).toBe(0);
+    expect(out.lines).toContain(`Next: Install critiqs-react with the app's package manager: ${command}.`);
+  }
+  // Run in the app's own folder, the plain command installs there.
+  const root = workspace();
+  writeFileSync(join(root, "package-lock.json"), "{}");
+  const out = output();
+  expect(runInit(["init", PROJECT], { cwd: join(root, "apps/shop"), print: out.print })).toBe(0);
+  expect(out.lines).toContain("Next: Install critiqs-react with the app's package manager: npm install critiqs-react.");
+});
+
+test("an unreadable .env file that loads before the one init writes is refused by name; nothing is written", async () => {
+  // Vite loads .env.development.local before .env.local. If init can't read it, it can't tell which project Vite will use.
+  const app = vite("billing", { ".env.development.local": `VITE_CRITIQS_PROJECT_ID=${OTHER}\n` });
+  chmodSync(join(app, ".env.development.local"), 0o000);
+  try {
+    const out = output();
+    expect(runInit(["init", PROJECT, "--dir", app], { cwd: app, print: out.print })).toBe(1);
+    const message = out.lines.join("\n");
+    expect(message).toStartWith("Couldn't read .env.development.local, a .env file this app loads, so nothing was changed");
+    expect(message).toContain(`set VITE_CRITIQS_PROJECT_ID=${PROJECT} in .env.development.local if it sets VITE_CRITIQS_PROJECT_ID, otherwise in .env.local`);
+    expect(existsSync(join(app, ".env.local"))).toBe(false);
+    expect(existsSync(join(app, ".env.example"))).toBe(false);
+    expect(read(app, "src/main.tsx")).toBe(VITE_MAIN);
+    // The setup flow stops at the same file before anyone signs in.
+    const noFetch = (async () => {
+      throw new Error("Setup must stop before using the network");
+    }) as unknown as typeof fetch;
+    await expect(beginSetup({ root: app, fetchFn: noFetch, ...signIn })).rejects.toThrow("Couldn't read .env.development.local");
+  } finally {
+    chmodSync(join(app, ".env.development.local"), 0o644);
+  }
+  // .env.example isn't loaded, and only lists the variable for the next developer, so one setup can't read is left alone.
+  const listed = vite("billing", { ".env.example": "KEEP=\n" });
+  chmodSync(join(listed, ".env.example"), 0o000);
+  try {
+    expect(runInit(["init", PROJECT, "--dir", listed], quiet)).toBe(0);
+  } finally {
+    chmodSync(join(listed, ".env.example"), 0o644);
+  }
+  expect(read(listed, ".env.local")).toContain(`VITE_CRITIQS_PROJECT_ID=${PROJECT}\n`);
+  expect(read(listed, ".env.example")).toBe("KEEP=\n");
+  // Readable again, the file that loads first keeps the setting, so the app uses the new project.
+  expect(runInit(["init", PROJECT, "--dir", app], quiet)).toBe(0);
+  expect(read(app, ".env.development.local")).toBe(`VITE_CRITIQS_PROJECT_ID=${PROJECT}\n`);
+});
+
+test("without a lockfile, the install step follows packageManager, then the workspace file, then npm", () => {
+  const pnpmWorkspace = (manifest: Record<string, unknown>) =>
+    tree({
+      "package.json": JSON.stringify(manifest),
+      "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+      "apps/shop/package.json": JSON.stringify({ name: "@acme/shop", devDependencies: { vite: "^8.0.0" } }),
+      "apps/shop/src/main.tsx": VITE_MAIN,
+    });
+  const step = (root: string) => {
+    const out = output();
+    expect(runInit(["init", PROJECT, "--dir", "apps/shop"], { cwd: root, print: out.print })).toBe(0);
+    return out.lines.find((line) => line.startsWith("Next: Install"));
+  };
+  expect(step(pnpmWorkspace({ name: "acme", private: true, packageManager: "pnpm@12.8.1" }))).toBe("Next: Install critiqs-react with the app's package manager: pnpm --filter ./apps/shop add critiqs-react.");
+  expect(step(pnpmWorkspace({ name: "acme", private: true }))).toBe("Next: Install critiqs-react with the app's package manager: pnpm --filter ./apps/shop add critiqs-react.");
+  const yarn = workspace();
+  writeFileSync(join(yarn, "package.json"), JSON.stringify({ name: "acme-platform", private: true, workspaces: ["apps/*", "packages/*"], packageManager: "yarn@4.12.0" }));
+  expect(step(yarn)).toBe("Next: Install critiqs-react with the app's package manager: yarn workspace @acme/shop add critiqs-react.");
+  // A lockfile shows what the workspace really uses.
+  writeFileSync(join(yarn, "package-lock.json"), "{}");
+  expect(step(yarn)).toBe("Next: Install critiqs-react with the app's package manager: npm install critiqs-react --workspace @acme/shop.");
+  expect(step(workspace())).toBe("Next: Install critiqs-react with the app's package manager: npm install critiqs-react --workspace @acme/shop.");
+});
+
+test("paths in printed commands are quoted when they have spaces", () => {
+  const root = tree({
+    "package.json": JSON.stringify({ name: "acme", private: true, workspaces: ["apps/*"] }),
+    "bun.lock": "",
+    "apps/client app/package.json": JSON.stringify({ name: "@acme/client", devDependencies: { vite: "^8.0.0" } }),
+    "apps/client app/src/main.tsx": VITE_MAIN,
+  });
+  const refused = output();
+  expect(runInit(["init", PROJECT], { cwd: root, print: refused.print })).toBe(1);
+  expect(refused.lines.join("\n")).toContain(`  npx critiqs init ${PROJECT} --dir "apps/client app"`);
+  const out = output();
+  expect(runInit(["init", PROJECT, "--dir", "apps/client app"], { cwd: root, print: out.print })).toBe(0);
+  expect(out.lines).toContain('Next: Install critiqs-react with the app\'s package manager: bun add critiqs-react --cwd "apps/client app".');
+});
+
+test("a React Vite app's ID in .env.development, which Vite reads before .env.local, is overridden from .env.development.local", () => {
+  const app = vite("billing", { ".env.development": `VITE_CRITIQS_PROJECT_ID=${OTHER}\n`, ".env.local": "KEEP=1\n" });
+  expect(wiringOf(app).target).toMatchObject({ files: [".env.development.local", ".env.development", ".env.local", ".env"].map((file) => join(app, file)), local: join(app, ".env.development.local") });
+  expect(runInit(["init", PROJECT, "--dir", app], quiet)).toBe(0);
+  expect(read(app, ".env.development.local")).toContain(`VITE_CRITIQS_PROJECT_ID=${PROJECT}\n`);
+  expect(read(app, ".env.local")).toBe("KEEP=1\n");
+  expect(readEnvValue(wiringOf(app).target!, "VITE_CRITIQS_PROJECT_ID")).toEqual({ value: PROJECT, file: join(app, ".env.development.local") });
+  // Next.js reads .env.local before .env.development, so .env.local is still the file there.
+  const next = tree({ "package.json": JSON.stringify({ name: "web", dependencies: { next: "^16.0.0", react: "^19.3.0", "react-dom": "^19.3.0" } }), "app/layout.tsx": NEXT_LAYOUT, ".env.development": `NEXT_PUBLIC_CRITIQS_PROJECT_ID=${OTHER}\n` });
+  expect(wiringOf(next).target?.local).toBe(join(next, ".env.local"));
+});
+
+test("workspace apps that share a package name each get a command that installs into that app alone", () => {
+  const shared = (lockfile: Record<string, string>) => {
+    const root = workspace(["@acme/client", "@acme/client"]);
+    for (const [path, text] of Object.entries(lockfile)) writeFileSync(join(root, path), text);
+    return root;
+  };
+  const step = (cwd: string, dir: string) => {
+    const out = output();
+    expect(runInit(["init", PROJECT, "--dir", dir], { cwd, print: out.print })).toBe(0);
+    return out.lines.find((line) => line.startsWith("Next: Install"));
+  };
+  const pnpm = { "pnpm-lock.yaml": "", "pnpm-workspace.yaml": "packages:\n  - apps/*\n  - packages/*\n" };
+  // pnpm's directory selector names one folder, relative to where it runs.
+  const fromRoot = shared(pnpm);
+  expect(step(fromRoot, "apps/shop")).toBe("Next: Install critiqs-react with the app's package manager: pnpm --filter ./apps/shop add critiqs-react.");
+  const fromOther = shared(pnpm);
+  expect(step(join(fromOther, "apps/admin"), "../shop")).toBe("Next: Install critiqs-react with the app's package manager: pnpm --filter ../shop add critiqs-react.");
+  // npm refuses duplicate workspace names, so the command names the folder and says what npm needs first.
+  expect(step(shared({ "package-lock.json": "{}" }), "apps/shop")).toBe(
+    "Next: Install critiqs-react with the app's package manager: npm install critiqs-react --workspace ./apps/shop (npm needs each workspace package to have its own name first: apps/admin is also @acme/client).",
+  );
+  // Yarn names workspaces only by package name, so the command runs in the app's folder instead.
+  expect(step(shared({ "yarn.lock": "" }), "apps/shop")).toBe("Next: Install critiqs-react with the app's package manager, in apps/shop: yarn add critiqs-react.");
+});
+
+test("from inside the app's own folders, pnpm's selector climbs to the app", () => {
+  const root = workspace();
+  writeFileSync(join(root, "pnpm-lock.yaml"), "");
+  writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n");
+  const out = output();
+  expect(runInit(["init", PROJECT, "--dir", ".."], { cwd: join(root, "apps/shop/src"), print: out.print })).toBe(0);
+  expect(out.lines).toContain("Next: Install critiqs-react with the app's package manager: pnpm --filter .. add critiqs-react.");
 });

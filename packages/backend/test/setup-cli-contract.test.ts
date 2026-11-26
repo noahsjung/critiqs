@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beginSetup, listMyProjects, readComponentProps } from "../../react/bin/setup.mjs";
+import { readUsage } from "../../critiqs/bin/app.mjs";
+import { beginSetup, listMyProjects } from "../../critiqs/bin/setup.mjs";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { reviewer, setup } from "./harness";
@@ -101,5 +102,5 @@ test("ambiguous-name recovery instructions preserve the chosen backend when foll
   expect(calls.map((call) => call.path)).toEqual(["projects:listMine"]);
   // Follow one actual returned snippet, including the advised import and placement.
   writeFileSync(join(root, "main.jsx"), 'import { Critiqs } from "critiqs-react";\n' + source.replace("<App />", `<><App />${snippets[0]}</>`));
-  expect(readComponentProps(root)).toMatchObject({ backend: { kind: "literal", value: TEAM }, projectId: { kind: "literal", value: expect.stringMatching(new RegExp(`^(${first}|${second})$`)) } });
+  expect(readUsage(root)).toMatchObject({ usage: { backend: { kind: "literal", value: TEAM }, projectId: { kind: "literal", value: expect.stringMatching(new RegExp(`^(${first}|${second})$`)) } } });
 });

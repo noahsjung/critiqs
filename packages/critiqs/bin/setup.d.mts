@@ -1,4 +1,4 @@
-import type { JsxElement, Props, Wiring } from "./init.mjs";
+import type { Written } from "./app.mjs";
 
 export declare const CLOUD_BACKEND_URL: string;
 export declare const BACKEND_PROTOCOL: number;
@@ -6,7 +6,6 @@ export declare const SIGN_IN_PROTOCOL: number;
 export declare class SetupError extends Error {}
 
 export type Fetch = typeof fetch;
-export type PropValue = { kind: "literal"; value: string } | { kind: "expression"; text?: string } | null;
 
 export declare function siteUrlOf(backendUrl: string): string;
 export declare function resolveBackend(
@@ -35,10 +34,6 @@ export declare function createProject(args: {
   fetchFn?: Fetch;
 }): Promise<string>;
 export declare function signOut(signInUrl: string, refreshToken: string, options?: { origin?: string; fetchFn?: Fetch }): Promise<void>;
-export declare function locateComponent(
-  root: string,
-  cwd?: string,
-): { error: string } | { usage: { file: string; source: string; element: JsxElement } };
 export declare function isHeadless(env?: Record<string, string | undefined>, platform?: string): boolean;
 export declare function startRemoteSignIn(options: {
   signInUrl: string;
@@ -65,40 +60,6 @@ export declare function listMyProjects(args: {
   accessToken: string;
   fetchFn?: Fetch;
 }): Promise<{ _id: string; name: string; reviewUrl: string | null }[]>;
-export interface Written {
-  ok: boolean;
-  message: string;
-  file?: string;
-  line?: number;
-  changed?: string[];
-  installed?: boolean;
-  preview?: string[];
-  /** For an environment-backed project ID: the variable, the file set on this computer, and what each deployment does. */
-  env?: { name: string; file: string; advice: string; ignored?: boolean | null };
-}
-export declare function writeComponentProps(args: {
-  root: string;
-  cwd?: string;
-  props: Props;
-  dryRun?: boolean;
-  entry?: string | null;
-  mount?: string | null;
-  also?: string;
-}): Written;
-export declare function writeConnection(args: {
-  root: string;
-  cwd?: string;
-  wiring: Wiring;
-  projectId: string;
-  backend?: string;
-  dryRun?: boolean;
-  entry?: string | null;
-  mount?: string | null;
-}): Written;
-export declare function readComponentProps(
-  root: string,
-  cwd?: string,
-): { error: string } | { file: string; line: number; projectId: PropValue; backend: PropValue; requireProjectId: boolean };
 export declare function targetDeployment(env: Record<string, string | undefined>): { backendUrl: string; env: Record<string, string> };
 export declare function convexEnv(
   target: { env: Record<string, string> },
@@ -178,7 +139,8 @@ export declare function beginSetup(args: {
   envFile?: string | null;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<
-  | { connected: { projectId: string; backendUrl: string; env?: { name: string; file: string } }; backendUrl: string }
+  /** `env.file` is null where the framework loads no `.env` file and the shell's environment gave the ID. */
+  | { connected: { projectId: string; backendUrl: string; env?: { name: string; file: string | null } }; backendUrl: string }
   | {
       connected?: undefined;
       url: string;

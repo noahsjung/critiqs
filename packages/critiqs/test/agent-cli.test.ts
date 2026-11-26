@@ -32,7 +32,7 @@ test("a computer that never signed in is told how to sign in, without asking the
   const fetchFn = (async () => {
     throw new Error("No request expected");
   }) as unknown as typeof fetch;
-  await expect(accessTokenFor("https://auth.example", { env, fetchFn })).rejects.toThrow("critiqs_sign_in tool, or run `npx critiqs-react sign-in`");
+  await expect(accessTokenFor("https://auth.example", { env, fetchFn })).rejects.toThrow("critiqs_sign_in tool, or run `npx critiqs sign-in`");
 });
 
 test("a lock left by a process that died is taken over, so renewal doesn't hang", async () => {

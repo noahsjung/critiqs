@@ -1,25 +1,16 @@
 /**
- * How a React app reads its Critiqs project ID from its environment: the
- * framework that builds it, the variable's name, the `.env` files it loads,
- * and the workspace it belongs to. Init writes the variable; each deployment
- * sets its own, so only correctly configured copies of the app show Critiqs.
+ * What setup needs to know about an app, whatever its framework, to give it a
+ * Critiqs project through its environment: the workspace it belongs to, a
+ * name for its project and its variable, and this computer's `.env` files.
+ * The framework's adapter names the variable and the files it loads
+ * (`EnvConvention`); setup writes the value, and each deployment sets its
+ * own, so only correctly configured copies of the app show Critiqs.
  * Dependency-free so it runs under Node and Bun without a build.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-
-/** Frameworks whose public environment variables reach the browser build, and how code reads them. */
-export const FRAMEWORKS = {
-  next: { name: "Next.js", access: "process.env", prefix: "NEXT_PUBLIC_" },
-  vite: { name: "Vite", access: "import.meta.env", prefix: "VITE_" },
-};
-
-/** The `.env` files frameworks load during development, highest precedence first. */
-export const ENV_FILES = [".env.development.local", ".env.local", ".env.development", ".env"];
-/** Of those, the ones that stay on one computer. */
-const LOCAL_FILES = new Set([".env.development.local", ".env.local"]);
 
 const posix = (path) => path.split(sep).join("/");
 
@@ -37,48 +28,6 @@ function isDirectory(path) {
   } catch {
     return false;
   }
-}
-
-const CONFIG_EXTENSIONS = ["ts", "mts", "js", "mjs", "cts", "cjs"];
-const configFile = (root, name) => CONFIG_EXTENSIONS.map((extension) => join(root, `${name}.config.${extension}`)).find((path) => existsSync(path)) ?? null;
-
-/** "next", "vite", or null for a build init doesn't know how to give public settings to. */
-export function detectFramework(root) {
-  const manifest = readJson(join(root, "package.json")) ?? {};
-  const dependencies = { ...manifest.devDependencies, ...manifest.dependencies };
-  if ("next" in dependencies || configFile(root, "next") !== null) return "next";
-  if ("vite" in dependencies || configFile(root, "vite") !== null) return "vite";
-  return null;
-}
-
-/**
- * Where a Vite app loads `.env` files: its own folder, or the `envDir` its
- * config names as a literal path or `resolve(__dirname, "…")`. `known` is false
- * when `envDir` is computed some other way, which init can't follow.
- */
-function viteSettings(root) {
-  const file = configFile(root, "vite");
-  if (file === null) return { envDir: root, known: true, customPrefix: false };
-  let text = "";
-  try {
-    text = readFileSync(file, "utf8");
-  } catch {
-    return { envDir: root, known: false, customPrefix: false, config: file };
-  }
-  const customPrefix = /\benvPrefix\b/.test(text);
-  const mentions = text.match(/\benvDir\b/g) ?? [];
-  if (mentions.length === 0) return { envDir: root, known: true, customPrefix, config: file };
-  const base = dirname(file);
-  const literal = /\benvDir\s*:\s*(["'`])([^"'`$\n]*)\1/.exec(text);
-  const resolved = /\benvDir\s*:\s*(?:path\.)?(?:resolve|join)\(\s*(?:__dirname|import\.meta\.dirname)\s*((?:,\s*(["'])[^"'\n]*\2\s*)*),?\s*\)/.exec(text);
-  const fromUrl = /\benvDir\s*:\s*fileURLToPath\(\s*new\s+URL\(\s*(["'])([^"'\n]*)\1\s*,\s*import\.meta\.url\s*\)\s*\)/.exec(text);
-  if (mentions.length === 1 && literal !== null) return { envDir: resolve(base, literal[2]), known: true, customPrefix, config: file };
-  if (mentions.length === 1 && resolved !== null) {
-    const parts = [...resolved[1].matchAll(/(["'])([^"'\n]*)\1/g)].map((match) => match[2]);
-    return { envDir: resolve(base, ...parts), known: true, customPrefix, config: file };
-  }
-  if (mentions.length === 1 && fromUrl !== null) return { envDir: resolve(base, fromUrl[2]), known: true, customPrefix, config: file };
-  return { envDir: root, known: false, customPrefix, config: file };
 }
 
 // ---------------------------------------------------------------------------
@@ -197,69 +146,28 @@ function workspaceSuffix(root, workspace, members) {
 }
 
 /**
- * Everything init needs to give one app its project ID through the
- * environment, without reading anything the app computes at run time:
- * - `framework`: "next", "vite", or null (init then writes the ID into the code);
- * - `variable`: the name init gives the setting. In a workspace it names the
- *   app, so a value shared across the workspace (a root `.env`, or a build
- *   job's settings) can't configure every app with one project;
- * - `envDir` and `envFile`: where the setting is written for this computer;
- * - `problem`: why init can't choose these safely, with what to do instead.
+ * The app as setup names it:
+ * - `projectName`: its package name, or its folder's; in a workspace also
+ *   the workspace's, and the app's path when another package shares its name;
+ * - `suffix`: added to its framework's variable name, such as `_ADMIN`, so in
+ *   a workspace a value shared across it (a root `.env`, or a build job's
+ *   settings) can't configure every app with one project. "" outside a
+ *   workspace; null when two apps' names would give the same one;
+ * - `envFile`: the `.env` file the person chose for it, if any.
  */
 export function describeApp(root, { envFile = null } = {}) {
-  const framework = detectFramework(root);
   const workspace = findWorkspace(root);
   const members = workspace === null ? [] : workspaceMembers(workspace.root, workspace.patterns);
   const label = workspace === null ? null : workspaceLabel(root, workspace, members);
   const workspaceName = workspace === null ? null : shortName(workspace.root);
-  const app = {
+  const suffix = workspace === null ? "" : workspaceSuffix(root, workspace, members);
+  return {
     root: resolve(root),
-    framework,
     workspace: workspace === null ? null : { root: workspace.root, name: workspaceName, label },
     projectName: workspace === null ? shortName(root) : `${workspaceName}/${label}`,
-    envDir: resolve(root),
+    suffix: suffix === null || suffix === "" ? suffix : `_${suffix}`,
     envFile: envFile === null ? null : resolve(root, envFile),
-    sharedEnv: false,
-    variable: null,
-    access: null,
-    problem: null,
   };
-  if (framework === null) return app;
-  const { access, prefix } = FRAMEWORKS[framework];
-  app.access = access;
-  const suffix = workspace === null ? "" : workspaceSuffix(root, workspace, members);
-  if (suffix === null) {
-    app.problem = "Workspace apps would use the same Critiqs environment variable. Choose distinct package names or wire distinct public project-ID variables before running init.";
-    return app;
-  }
-  app.variable = `${prefix}CRITIQS_PROJECT_ID${label === null ? "" : `_${suffix}`}`;
-  if (framework === "vite") {
-    const vite = viteSettings(root);
-    app.envDir = vite.envDir;
-    app.customPrefix = vite.customPrefix;
-    if (!vite.known && app.envFile === null) {
-      app.problem =
-        `${posix(relative(root, vite.config ?? root)) || "vite.config"} sets envDir in a way init can't follow, so it doesn't know which .env file this app loads. ` +
-        "Run init again with --project-env-file <the .env.local file Vite loads, relative to the app>, and nothing else changes.";
-    }
-  }
-  app.sharedEnv = app.envDir !== app.root;
-  return app;
-}
-
-/**
- * The variable an expression reads, when it is exactly one public setting of
- * the app's framework: `import.meta.env.VITE_…` in Vite, or
- * `process.env.NEXT_PUBLIC_…` in Next.js. Anything else is code init doesn't
- * evaluate.
- */
-export function envVariableOf(text, app) {
-  if (typeof text !== "string" || app.framework === null) return null;
-  const match = /^\s*(import\.meta\.env|process\.env)\.([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(text);
-  if (match === null || match[1] !== FRAMEWORKS[app.framework].access) return null;
-  // Vite exposes only its prefix, unless the app changed it (then the author chose the name).
-  if (!match[2].startsWith(FRAMEWORKS[app.framework].prefix) && !(app.framework === "vite" && app.customPrefix)) return null;
-  return match[2];
 }
 
 // ---------------------------------------------------------------------------
@@ -275,24 +183,63 @@ function envValue(raw) {
   return text.replace(/\s+#.*$/, "").trim();
 }
 
+/** A `.env` file that exists but can't be read: what it sets is unknown, not empty. `file` is its absolute path. */
+export class UnreadableEnvFile extends Error {
+  constructor(file, cause) {
+    super(`Couldn't read ${file}.`, { cause });
+    this.file = file;
+  }
+}
+
 function readText(path) {
   try {
     return readFileSync(path, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") return null;
-    throw error;
+    throw new UnreadableEnvFile(path, error);
   }
 }
 
-/** The `.env` files to read for this app on this computer, highest precedence first. */
-export function envFiles(app) {
-  const files = ENV_FILES.map((name) => join(app.envDir, name));
-  return app.envFile === null ? files : [app.envFile, ...files.filter((file) => file !== app.envFile)];
+/**
+ * This computer's `.env` files for an app whose framework reads its project
+ * ID from `convention.variable`: `files`, those it loads, highest precedence
+ * first (with the person's chosen file before all of them), and `local`, the
+ * file setup writes, chosen so its value is the one the framework uses: the
+ * chosen one; or else the file that sets the variable first, when it is a
+ * `.local` file; or else the framework's `localFile`, unless a file read
+ * before it sets the variable; then the `.local` file read before that one
+ * (Vite reads `.env.development` before `.env.local`, so that is
+ * `.env.development.local`). `local` is null for frameworks that load no
+ * `.env` file. `label` names the app in comments. Reads only to choose
+ * `local`, and never throws: a file it can't read isn't chosen, and `planEnv`
+ * and `readEnvValue` refuse it.
+ */
+export function envTarget(root, convention, { envFile = null, label = null } = {}) {
+  const loads = (convention.loads ?? (convention.localFile === null ? [] : [convention.localFile])).map((file) => resolve(root, file));
+  const chosen = envFile === null ? null : resolve(root, envFile);
+  const files = chosen === null ? loads : [chosen, ...loads.filter((file) => file !== chosen)];
+  const sets = (file) => {
+    try {
+      return definitions(readText(file), convention.variable) > 0;
+    } catch {
+      return false;
+    }
+  };
+  const own = convention.localFile === null ? null : resolve(root, convention.localFile);
+  const isLocal = (file) => file.endsWith(".local");
+  const winner = loads.findIndex(sets);
+  let local = chosen ?? own;
+  if (chosen === null && own !== null && winner !== -1) {
+    const ownAt = loads.indexOf(own);
+    if (isLocal(loads[winner])) local = loads[winner];
+    else if (ownAt > winner) local = loads.slice(0, winner).find(isLocal) ?? loads[winner];
+  }
+  return { files, local, label };
 }
 
-/** Where this computer's `.env` files set a variable: the value and file that win, or null. */
-export function readEnvValue(app, name) {
-  for (const file of envFiles(app)) {
+/** Where this computer's `.env` files set a variable: the value and file that win, or null. Throws `UnreadableEnvFile` for a file it reads and can't. */
+export function readEnvValue(target, name) {
+  for (const file of target.files) {
     const text = readText(file);
     if (text === null) continue;
     let value = null;
@@ -327,29 +274,32 @@ function setInText(text, name, value, comment) {
 }
 
 /**
- * Plans this computer's setting: `name=value` in the local `.env` file that
- * already sets it with the highest precedence, or else the app's `.env.local`
- * (or `--project-env-file`), plus an empty entry in the `.env.example` beside it for
- * the next developer and each deployment. Writes nothing.
+ * Plans this computer's setting: `name=value` in the target's local file,
+ * plus an empty entry in the `.env.example` beside it for the next developer
+ * and each deployment. Writes nothing. Throws `UnreadableEnvFile` when a
+ * file the framework loads can't be read, since it could set the variable
+ * and win over the value setup writes.
  */
-export function planEnv(app, name, value) {
-  const local =
-    app.envFile ??
-    ENV_FILES.filter((file) => LOCAL_FILES.has(file))
-      .map((file) => join(app.envDir, file))
-      .find((file) => definitions(readText(file), name) > 0) ??
-    join(app.envDir, ".env.local");
+export function planEnv(target, name, value) {
+  for (const file of target.files) readText(file);
+  const local = target.local;
   const original = readText(local);
-  const source = setInText(original, name, value, `Critiqs project for ${app.workspace?.label ?? "this app"} on this computer. Each deployment sets its own.`);
+  const source = setInText(original, name, value, `Critiqs project for ${target.label ?? "this app"} on this computer. Each deployment sets its own.`);
   const exampleFile = join(dirname(local), ".env.example");
-  const exampleOriginal = readText(exampleFile);
-  const listed = definitions(exampleOriginal, name) > 0;
+  let exampleOriginal;
+  try {
+    exampleOriginal = readText(exampleFile);
+  } catch {
+    // No framework loads the example, which is only a convenience: one setup can't read stays as it is.
+    exampleOriginal = undefined;
+  }
+  const listed = exampleOriginal === undefined || definitions(exampleOriginal, name) > 0;
   const example = listed
     ? null
     : {
         file: exampleFile,
         original: exampleOriginal,
-        source: setInText(exampleOriginal, name, "", `Critiqs project ID for ${app.workspace?.label ?? "this app"}. Set it in each deployment that should show Critiqs; leave it unset to keep Critiqs off.`),
+        source: setInText(exampleOriginal, name, "", `Critiqs project ID for ${target.label ?? "this app"}. Set it in each deployment that should show Critiqs; leave it unset to keep Critiqs off.`),
       };
   return { name, value, file: local, original, source, changed: source !== original, example };
 }

@@ -1,6 +1,6 @@
 export declare const USAGE: string;
 export interface CommandOptions {
-  command: "init" | "doctor" | "mcp" | null;
+  command: "init" | "doctor" | "mcp" | "sign-in" | "sign-out" | null;
   projectId: string | null;
   dir: string;
   dryRun: boolean;
