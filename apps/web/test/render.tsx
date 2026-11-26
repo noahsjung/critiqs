@@ -77,6 +77,7 @@ export function fakeBackend(
     organizations?: OrganizationSummary[];
     organizationsState?: QueryState<OrganizationSummary[]>;
     sends?: DeveloperSendSummary[];
+    sendsState?: QueryState<DeveloperSendSummary[]>;
     project?: ProjectInfo;
     mine?: ProjectInfo[];
     upgradeUrl?: string | null;
@@ -108,7 +109,7 @@ export function fakeBackend(
     useProject: (projectId) => (projectId === null ? loading : (overrides.projectState ?? (overrides.project === undefined ? loading : { status: "ready", data: overrides.project }))),
     useMyProjects: (enabled) => (enabled ? { status: "ready", data: overrides.mine ?? [] } : loading),
     useUpgradeUrl: (enabled) => (enabled ? { status: "ready", data: overrides.upgradeUrl ?? null } : loading),
-    useDeveloperSends: () => ({ status: "ready", data: overrides.sends ?? [] }),
+    useDeveloperSends: () => overrides.sendsState ?? { status: "ready", data: overrides.sends ?? [] },
     useDeveloperSetup: (sendId) => (sendId === null ? loading : (overrides.sendSetup ?? loading)),
     useProjectSetup: (projectId) => (projectId === null ? loading : (overrides.projectSetupState ?? loading)),
     clearConnected: record("clearConnected", overrides.clearConnected ?? (async () => {})),

@@ -16,7 +16,7 @@ import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
 import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand, ScriptTagStep } from "./parts.tsx";
+import { BackendStep, CheckIcon, Command, ConnectionStatus, CopyButton, Heading, oneCommand, ScriptTagStep, waitingForInstall } from "./parts.tsx";
 
 // The ways in: run one command, send the steps to a developer, or review
 // with the browser extension, with nothing added to the prototype.
@@ -174,8 +174,11 @@ export function SendPanel({
   const backend = useBackend();
   const sends = backend.useDeveloperSends(project.id);
   const info = backend.useProject(project.id);
+  const setup = backend.useProjectSetup(project.id);
+  const waiting = sends.status === "ready" ? waitingForInstall(sends.data) : null;
   return (
-    <SendPanelView
+    <>
+      <SendPanelView
       project={project}
       organization={info.status === "ready" ? { status: "ready", data: info.data.organization ?? null } : info}
       developers={developers}
@@ -184,7 +187,10 @@ export function SendPanel({
       sends={sends}
       send={(emails) => backend.sendDeveloperSetup(project.id, emails)}
       onDone={onDone}
-    />
+      />
+      {/* Once an email went out: waiting for the developer to install, then Connected. */}
+      {waiting !== null && <ConnectionStatus setup={setup} host={project.reviewUrl === null ? null : shownHost(project.reviewUrl)} waiting={waiting} />}
+    </>
   );
 }
 

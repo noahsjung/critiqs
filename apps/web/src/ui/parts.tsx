@@ -1,4 +1,4 @@
-import { backendSetting, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
+import { backendSetting, type DeveloperSendSummary, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
@@ -237,7 +237,18 @@ export function Account() {
  * again. Nothing on a backend that doesn't record it (no `connected` in its
  * setup), so it never waits forever.
  */
-export function ConnectionStatus({ setup, host, waitingNote }: { setup: QueryState<ProjectSetup>; host: string | null; waitingNote?: string }) {
+export function ConnectionStatus({
+  setup,
+  host,
+  waiting,
+  waitingNote,
+}: {
+  setup: QueryState<ProjectSetup>;
+  host: string | null;
+  /** What to say while waiting, in place of waiting for Critiqs to load on `host`. */
+  waiting?: string;
+  waitingNote?: string;
+}) {
   const { clearConnected } = useBackend();
   const [clearing, setClearing] = useState<"idle" | "clearing" | "failed">("idle");
   if (setup.status !== "ready" || setup.data.connected === undefined) return null;
@@ -247,7 +258,7 @@ export function ConnectionStatus({ setup, host, waitingNote }: { setup: QuerySta
       <div className="connection waiting" role="status">
         <span className="pulse" aria-hidden="true" />
         <span className="stacked tight">
-          <span>{copy.connection.waiting(host)}</span>
+          <span>{waiting ?? copy.connection.waiting(host)}</span>
           {waitingNote !== undefined && <span className="note">{waitingNote}</span>}
         </span>
       </div>
@@ -274,5 +285,41 @@ export function ConnectionStatus({ setup, host, waitingNote }: { setup: QuerySta
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * What the project's owners see about its setup emails while it waits:
+ * "Waiting for install", who the steps went to, and when the last went out.
+ * Null with no email that went out, or may have; a failed one isn't waiting.
+ */
+export function waitingForInstall(sends: readonly DeveloperSendSummary[]): string | null {
+  const out = sends.filter((send) => send.status !== "failed");
+  if (out.length === 0) return null;
+  return copy.connection.waitingForInstall(
+    out.map((send) => send.email),
+    Math.max(...out.map((send) => send.lastSentAt)),
+  );
+}
+
+/**
+ * The project's setup emails, for its owners: each address, and when its
+ * email went out, or Not sent after a confirmed failure. Nothing for anyone
+ * else, who can't read them.
+ */
+export function SendList({ sends }: { sends: QueryState<DeveloperSendSummary[]> }) {
+  if (sends.status !== "ready" || sends.data.length === 0) return null;
+  return (
+    <section className="stacked" aria-label={copy.sends.title}>
+      <h2 className="section-title">{copy.sends.title}</h2>
+      <ul className="send-list">
+        {sends.data.map((send) => (
+          <li key={send.sendId} className={send.status === "failed" ? "error" : undefined}>
+            <span className="send-email">{send.email}</span>
+            <span className="note">{send.status === "failed" ? copy.sends.notSent : copy.sends.sentAt(send.lastSentAt)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

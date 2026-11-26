@@ -66,6 +66,32 @@ describe("the setup page", () => {
     expect(older.querySelector(".connection")).toBeNull();
   });
 
+  test("the project's owners: Waiting for install, who the steps went to and when, and Not sent after a failure", async () => {
+    const at = Date.UTC(2026, 10, 25, 15, 4);
+    const sends = [
+      { sendId: "s1", email: "dev@acme.com", status: "sent" as const, lastSentAt: at },
+      { sendId: "s2", email: "ops@acme.com", status: "failed" as const, lastSentAt: at - 1000 },
+    ];
+    const page = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend: fakeBackend({ sends }) });
+    expect(page.querySelector(".connection")?.textContent).toStartWith("Waiting for install. Sent to dev@acme.com, Nov 25, 2026");
+    expect([...page.querySelectorAll(".send-list li")].map((row) => [row.querySelector(".send-email")?.textContent, row.querySelector(".note")?.textContent?.slice(0, 17)])).toEqual([
+      ["dev@acme.com", "Sent Nov 25, 2026"],
+      ["ops@acme.com", "Not sent"],
+    ]);
+    // Connected replaces the waiting; the list stays.
+    const connected = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: { at, origin: "https://acme-proto.vercel.app" } } }} email="alex@acme.com" onSignOut={noop} />, {
+      backend: fakeBackend({ sends }),
+    });
+    expect(connected.querySelector(".connection.connected")).not.toBeNull();
+    expect(connected.querySelectorAll(".send-list li").length).toBe(2);
+    // Anyone else can't read the sends: no list, and the plain waiting line.
+    const developer = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="dev@acme.com" onSignOut={noop} />, {
+      backend: fakeBackend({ sendsState: { status: "error", code: "forbidden", message: "Only the people who manage this project can see who it sent setup steps to." } }),
+    });
+    expect(developer.querySelector(".send-list")).toBeNull();
+    expect(developer.querySelector(".connection")?.textContent).toStartWith("Waiting for Critiqs to load on acme-proto.vercel.app…");
+  });
+
   test("a project on a backend other than Critiqs Cloud: a step that gives Critiqs its backend", async () => {
     const backend = fakeBackend({ componentBackend: "https://team-backend.convex.cloud" });
     const page = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />, { backend });

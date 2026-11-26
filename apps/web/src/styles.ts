@@ -133,6 +133,12 @@ export const APP_STYLES = `
 .pulse { flex: none; width: 8px; height: 8px; margin: 7px 4px 0; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+/* A project's setup emails, for its owners. */
+.section-title { margin: 8px 0 0; font-size: 15px; line-height: 22px; font-weight: 600; }
+.send-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.send-list li { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; overflow-wrap: anywhere; }
+.send-list li.error .note { color: var(--danger); }
+.send-email { font-weight: 500; min-width: 0; }
 /* The extension's steps, numbered. */
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
 .steps li { padding-left: 4px; }

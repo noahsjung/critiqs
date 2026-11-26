@@ -1,5 +1,10 @@
 import { listOr, PACKAGE_STACK_NAMES, type RecommendationReason, type Role, type TeamSize } from "@critiqs/core";
 
+/** "A", "A and B", or "A, B, and C". */
+function listAnd(items: readonly string[]): string {
+  return items.length < 3 ? items.join(" and ") : `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
 // Every string the website's app shows. Short, plain, and in the order people
 // read it: one heading, at most one line under it, and buttons that say what
 // they do. Nothing calls a question optional.
@@ -148,6 +153,16 @@ export const copy = {
     clearHint: "Not right? Clear it. Critiqs records it again the next time it loads at the project's address.",
     clearFailed: "Couldn't clear it. Try again.",
     setupWaiting: "Once it's added, this page says Connected when Critiqs loads at the prototype's address.",
+    /** For the project's owners, once setup steps went to developers. */
+    waitingForInstall: (emails: readonly string[], at: number) =>
+      `Waiting for install. Sent to ${listAnd(emails)}, ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}.`,
+  },
+
+  sends: {
+    title: "Setup emails",
+    sentAt: (at: number) => `Sent ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}`,
+    sending: "Sending…",
+    notSent: "Not sent",
   },
 
   ways: {

@@ -140,6 +140,19 @@ describe("the second screen: who adds Critiqs", () => {
     expect(page.querySelector(".connection.connected")?.textContent).toStartWith("Connected. Critiqs loaded on acme-proto.vercel.app.");
   });
 
+  test("My developer will: once an email went out, the owner sees Waiting for install, then Connected", async () => {
+    const setup = { projectId: PROJECT_ID, projectName: "acme-proto", address: "https://acme-proto.vercel.app/", stack: null, installCommands: null, connected: null };
+    const at = Date.UTC(2026, 10, 25, 15, 4);
+    const backend = fakeBackend({ projectSetupState: { status: "ready", data: setup }, sends: [{ sendId: "s1", email: "dev@acme.com", status: "uncertain", lastSentAt: at }] });
+    const page = await render(<Flow from={atWho()} />, { backend });
+    await click(button(page, MY_DEVELOPER));
+    await settle();
+    expect(page.querySelector(".connection")?.textContent).toStartWith("Waiting for install. Sent to dev@acme.com, Nov 25, 2026");
+    // Only a failed email: nothing is waiting.
+    await rerender(<Flow from={atWho()} />, { backend: fakeBackend({ projectSetupState: { status: "ready", data: setup }, sends: [{ sendId: "s1", email: "dev@acme.com", status: "failed", lastSentAt: at }] }) });
+    expect(page.querySelector(".connection")).toBeNull();
+  });
+
   test("the extension's way without address edits, or when adding fails, says to add the site to the project in the extension", async () => {
     for (const backend of [fakeBackend(), fakeBackend({ addressEdits: true, addProjectAddress: async () => Promise.reject(new Error("forbidden")) })]) {
       const page = await render(<Flow from={atWho()} />, { backend });
