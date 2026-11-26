@@ -68,19 +68,27 @@ const DOWNLOAD_HEADERS = {
 };
 
 /**
- * Access is checked before a file is fetched and again once it has been,
- * right before any of it is returned: access, or the file itself, can change
- * while storage answers. A thread's image is returned only if the thread
- * still uses that same file.
+ * A thread's image, by its thread's ID (`threadId`) or by its thread page's
+ * key (`threadPage`), each after the same checks as reading the thread or
+ * opening the page. Access is checked before a file is fetched and again once
+ * it has been, right before any of it is returned: access, or the file
+ * itself, can change while storage answers. A thread's image is returned only
+ * if the thread still uses that same file.
  */
 export const downloadCapture = httpAction(async (ctx, request): Promise<Response> => {
   try {
-    const threadId = new URL(request.url).searchParams.get("threadId");
-    if (threadId === null) return new Response("Missing threadId", { status: 400, headers: CAPTURE_CORS });
-    const fileId = await ctx.runQuery(internal.captures.authorizedCapture, { threadId });
+    const params = new URL(request.url).searchParams;
+    const threadId = params.get("threadId");
+    const key = params.get("threadPage");
+    if (threadId === null && key === null) return new Response("Missing threadId", { status: 400, headers: CAPTURE_CORS });
+    const authorized = async () =>
+      key !== null
+        ? await ctx.runQuery(internal.captures.authorizedPageCapture, { key })
+        : await ctx.runQuery(internal.captures.authorizedCapture, { threadId: threadId! });
+    const fileId = await authorized();
     const missing = () => new Response("No capture", { status: 404, headers: DOWNLOAD_HEADERS });
     if (fileId === null) return missing();
-    const stillUsed = async () => (await ctx.runQuery(internal.captures.authorizedCapture, { threadId })) === fileId;
+    const stillUsed = async () => (await authorized()) === fileId;
     const location = await ctx.runQuery(internal.captures.fileLocation, { fileId: fileId as Id<"_storage"> | Id<"captureFiles"> });
     if (location !== null) {
       if (location.status !== "attached") return missing();

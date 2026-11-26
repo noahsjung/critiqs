@@ -43,7 +43,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -505,6 +505,11 @@ export const MIGRATIONS: Migration[] = [
   `
   ALTER TABLE projects ADD COLUMN review_access TEXT NOT NULL DEFAULT 'anyone';
   `,
+  // Thread pages: the key in a thread page's link. Older threads get one when first shared.
+  `
+  ALTER TABLE threads ADD COLUMN page_key TEXT;
+  CREATE UNIQUE INDEX threads_by_page_key ON threads (page_key) WHERE page_key IS NOT NULL;
+  `,
 ];
 
 /**
@@ -892,6 +897,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     ...(row.reattachment === null ? {} : { reattachment: JSON.parse(row.reattachment) }),
     ...(row.text_tags === null ? {} : { textTags: JSON.parse(row.text_tags) as TextTag[] }),
     ...(row.followers_ready === null ? {} : { followersReady: row.followers_ready === 1 }),
+    ...(row.page_key === null ? {} : { pageKey: row.page_key }),
   });
   const message = (row: MessageRow): MessageRecord => ({
     _id: row.id,
@@ -1280,8 +1286,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
         const id = newId("threads");
         sql.run(
           `INSERT INTO threads (id, project_id, status, anchor, tags, capture, capture_file, created_by, created_at,
-             last_message_at, message_count, status_changed_by, status_changed_at, reattachment, text_tags, followers_ready)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             last_message_at, message_count, status_changed_by, status_changed_at, reattachment, text_tags, followers_ready, page_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             record.projectId,
@@ -1299,6 +1305,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
             record.reattachment === undefined ? null : json(record.reattachment),
             record.textTags === undefined ? null : json(record.textTags),
             record.followersReady === undefined ? null : record.followersReady ? 1 : 0,
+            record.pageKey ?? null,
           ],
         );
         return id;
@@ -1318,6 +1325,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           reattachment: changes.reattachment === undefined ? undefined : json(changes.reattachment),
           text_tags: changes.textTags === undefined ? undefined : json(changes.textTags),
           followers_ready: changes.followersReady === undefined ? undefined : changes.followersReady ? 1 : 0,
+          page_key: changes.pageKey,
         }),
       listVisible: async (projectId, request) =>
         page<ThreadRow, ThreadRecord>(
@@ -1328,6 +1336,10 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
         ),
       byCaptureFile: async (fileId) => {
         const row = sql.get<ThreadRow>("SELECT * FROM threads WHERE capture_file = ? LIMIT 1", [fileId]);
+        return row === undefined ? null : thread(row);
+      },
+      byPageKey: async (key) => {
+        const row = sql.get<ThreadRow>("SELECT * FROM threads WHERE page_key = ?", [key]);
         return row === undefined ? null : thread(row);
       },
       recent: async (projectId, limit) =>
@@ -2057,6 +2069,7 @@ interface ThreadRow {
   reattachment: string | null;
   text_tags: string | null;
   followers_ready: number | null;
+  page_key: string | null;
 }
 interface TagRow {
   seq: number;

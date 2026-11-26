@@ -1,0 +1,5 @@
+---
+"critiqs-react": minor
+---
+
+Backends serve thread pages, ahead of the website page that shows them: each thread's capture, discussion, and reply box, for people in the project's organization or already in the thread (who started it, replied, or were mentioned), after the project's **Who can review** setting. Anyone else, signed in or not, gets the same answer as for a page that doesn't exist. A thread page's link carries a page key, never the thread's ID (`threadPageLink` builds `<website>/t/<key>`); new threads get a key, and older ones get one the first time they're shared. New on Convex: `threads:page`, `threads:pageKey`, `threadPage` on `threads:reply`, and `/capture?threadPage=<key>`; on the self-hosted server, the `threadPage` and `threadPageKey` calls, the same reply flag, and the same capture parameter. Backends report `threadPages` in their configuration. Nothing older components call has changed. Deploy the matching backend; the self-hosted SQLite store adds the column on start.

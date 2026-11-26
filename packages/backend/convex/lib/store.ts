@@ -211,6 +211,13 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
           .first();
         return thread === null ? null : threadRecord(thread);
       },
+      byPageKey: async (key) => {
+        const thread = await db
+          .query("threads")
+          .withIndex("by_page_key", (q) => q.eq("pageKey", key))
+          .unique();
+        return thread === null ? null : threadRecord(thread);
+      },
       recent: async (projectId, limit) =>
         (
           await db

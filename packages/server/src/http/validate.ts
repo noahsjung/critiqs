@@ -132,6 +132,8 @@ export const ARGUMENTS: Record<string, Check> = {
   removeMember: object({ organizationId: string, userId: string }),
   threads: object({ projectId: string }),
   thread: object({ threadId: string }),
+  threadPage: object({ key: string }),
+  threadPageKey: object({ threadId: string }),
   participants: object({ projectId: string, query: string }),
   participantsNamed: object({ projectId: string, name: string }),
   notificationSettings: object({ projectId: string }),
@@ -163,7 +165,7 @@ export const ARGUMENTS: Record<string, Check> = {
     // Accepted so the handler can say mockups aren't available here, rather than that the field is unexpected.
     "mockup?": object({ mockupId: string, snapshotId: nullable(string), node: nullable(number) }),
   }),
-  reply: object({ threadId: string, body: string, revision: nullable(string), "mentions?": mentions, "via?": literal("agent") }),
+  reply: object({ threadId: string, body: string, revision: nullable(string), "mentions?": mentions, "via?": literal("agent"), "threadPage?": boolean }),
   editMessage: object({ messageId: string, body: string, "mentions?": mentions }),
   toggleReaction: object({ messageId: string, emoji: string }),
   setStatus: object({ threadId: string, status: literal("open", "resolved") }),

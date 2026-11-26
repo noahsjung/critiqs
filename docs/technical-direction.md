@@ -321,6 +321,71 @@ state, and notification choices are each person's own.
   report it, and the window offers it as before. The window closes only once
   the deletion succeeds, so a refusal shows beside the thread.
 
+**Built (2026-11-25), backend only:** thread pages. Each thread can have a
+page on Critiqs's website with its capture, discussion, reply box, and **Open
+in prototype**, so a shared link works on phones and for people without the
+extension. The website's page comes later; the backend serves it now, on
+Convex and the self-hosted server.
+
+- **Who may open one.** Someone signed in, with a verified address, who may
+  review the project (`canReview`, so **Who can review** applies first) and
+  who either belongs to the project's organization or is already in the
+  thread: started it, replied in it, or was mentioned in it
+  (`canOpenThreadPage`). Who is in a thread comes from its followers, the
+  record reply emails keep, in one indexed read: the check never reads the
+  discussion, which can be more than one Convex transaction may read. For a
+  thread from before that record, sharing it queues the email worker's scan
+  of its discussion, a page per step, emailing no one; until it finishes
+  (within a minute or so), only whoever started it, and the organization's
+  members, get in. In a project limited to its organization, someone in the
+  thread who leaves the organization is refused.
+- **One answer.** Anyone else, signed in or not, gets `not-found`: "This
+  thread doesn't exist, or you can't open it.", the same as for a key that
+  opens nothing. A deleted thread is reported deleted only to those who could
+  open its page.
+- **Its link carries a page key, never the thread ID.** `threadPageLink` in
+  `@critiqs/core` builds `<website>/t/<key>` from the website's configured
+  address. A key is 128 random bits (22 base64url characters), stored on the
+  thread (`pageKey`, unique). A thread ID can't go in a link that may be
+  forwarded: in a project anyone may review, an ID alone lets components from
+  0.3.x and earlier read the thread and its project ID (`threads:get`), its
+  capture, and reply. New threads get a key; an older thread gets one the
+  first time someone shares it (`threads:pageKey`, `threadPageKey`), which
+  anyone who may review the thread may do. The key opens only the page, so
+  it grants nothing the rule above doesn't.
+- **Reading.** `threads:page` (Convex, paginated like `threads:get`) and the
+  self-hosted `threadPage` call return the thread as `threads:get` does, plus
+  the project's name, its review address, and the anchor's page and screen
+  for **Open in prototype** (`ThreadPageDetail`). The image downloads from
+  `/capture?threadPage=<key>`, checked like the page before storage is read
+  and again once it has answered, as `/capture?threadId=` is.
+- **Replying.** From the page, replies go through `threads:reply` (`reply`)
+  with `threadPage: true`, which applies the page's rule instead of the
+  project's, and gives someone signed out the page's one answer; without it,
+  the installed component's replies keep the project's rule.
+- **Records nothing.** Opening a thread page writes no read state and adds no
+  one to the thread or project. It never counts as opening the project for
+  the extension's address lookup: no thread page operation may record an
+  opened project.
+- **Reported.** `/critiqs/config` reports `threadPages: true`. Convex: an
+  optional `pageKey` with the `by_page_key` index. SQLite: `page_key`, added
+  by migration 13 with a unique index.
+- **Where pages are served.** A page link names no deployment, so the website
+  at the configured address must reach the backend that holds the thread.
+  Critiqs Cloud's website serves Critiqs Cloud's threads. Not decided yet:
+  team-owned Convex deployments (their own page host, or a deployment named
+  in the link), and the self-hosted server, whose API accepts only its own
+  site's requests, so its pages must come from that server itself, with
+  `threadPageLink` given that server's address.
+- **Still open: thread IDs elsewhere.** In a project anyone may review,
+  `threads:get` and the other thread operations still accept a thread ID
+  alone, because released components (0.3.x) send nothing else. A thread ID
+  in a copied prototype link (`?critiqs=`) or today's email links still
+  reaches the thread and its project ID that way. Closing it means those
+  operations also require the project ID, which breaks released components
+  for reviewers who are neither members nor in the thread; that needs the
+  owner's decision and a deprecation policy.
+
 **Agreed:** reviewers sign in with their email address and a one-time code
 Critiqs sends them; there is no password. Registration happens on first sign-in.
 A verified email proves control of that address, not a person's name or role.

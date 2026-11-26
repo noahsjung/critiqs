@@ -53,6 +53,7 @@ These definitions describe the intended product, not completed features.
 | Pin | A visible marker beside a target that can currently be located. |
 | Thread window | The small window beside a pin showing a thread's discussion and reply box. Opens beside the sidebar when the target is unavailable. |
 | Thread list | The sidebar's list of threads, its panel in Comment mode. |
+| Thread page | One thread's page on Critiqs's website, with its capture, discussion, reply box, and **Open in prototype**, so a link works on phones and without the extension. Its link (`/t/<page key>`) carries a page key, never the thread's ID. It opens only for people in the project's organization or already in the thread. |
 | Project panel | The sidebar in Browse mode: the project's name, open and unread threads, who has access, the reviewer's email notifications, plan usage for the owner, and the project ID. |
 | Documentation panel | Opened from the Project panel: what each part of Critiqs does and how to use it, searchable. Its text lives in `packages/react/src/ui/docs.ts`. |
 | Capture | The saved image and marked location from when feedback was left. It is evidence, not a working copy of the app. |

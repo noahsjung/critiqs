@@ -108,7 +108,11 @@ export const ORGANIZATION_ONLY = "This project is limited to members of its orga
  */
 export async function canReview(store: Store, project: ProjectRecord, userId: string | null): Promise<boolean> {
   if ((project.reviewAccess ?? "anyone") === "anyone") return true;
-  if (userId === null) return false;
+  return userId !== null && (await inProjectOrganization(store, project, userId));
+}
+
+/** Whether a person belongs to the project's organization; for a project from before organizations, whether they created it. */
+export async function inProjectOrganization(store: Store, project: ProjectRecord, userId: string): Promise<boolean> {
   const { organization } = await projectOrganization(store, project);
   return (await roleIn(store, project, organization, userId)) !== null;
 }

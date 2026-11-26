@@ -119,6 +119,13 @@ export const authorizedCapture = internalQuery({
     await operations.authorizedCapture(convexStore(ctx), await identityOf(ctx), args)),
 });
 
+/** File ID of a thread page's image, after the same checks as opening the page. */
+export const authorizedPageCapture = internalQuery({
+  args: { key: v.string() },
+  handler: async (ctx, args) => run(async () =>
+    await operations.authorizedPageCapture(convexStore(ctx), await identityOf(ctx), args)),
+});
+
 export const fileLocation = internalQuery({
   args: { fileId: captureFileValidator },
   handler: async (ctx, { fileId }) => {

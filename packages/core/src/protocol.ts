@@ -382,3 +382,18 @@ export interface ReactionRow {
 
 /** One page of one selected thread's export. A deleted or inaccessible thread has no `thread`. */
 export type ExportPage = { projectName: string; thread: Omit<ExportedThread, "messages"> | null } & Page<ExportedMessage>;
+
+/**
+ * One page of a thread page's discussion: the thread as `ThreadDetailPage`
+ * has it, with what the page shows around it. Returned only to those who may
+ * open the thread page.
+ */
+export type ThreadPageDetail = ThreadDetailPage & {
+  /** The thread's project: its name, and its review address, where **Open in prototype** goes when it is installed there. */
+  project: { name: string; reviewUrl: string | null };
+  /** Where the thread was left: the saved page and its logical screen, for **Open in prototype**. */
+  prototype: { pageUrl: string; screen: string };
+};
+
+/** A whole thread page, as the self-hosted server returns it: every page of its discussion, with reactions. */
+export type ThreadPageView = ThreadDetail & Pick<ThreadPageDetail, "project" | "prototype">;

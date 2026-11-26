@@ -450,3 +450,37 @@ test("SQLite: message search finds word beginnings and accents, and treats searc
   expect(await search(['"quote"', "NEAR(x)"])).toEqual(['Weird "quote" OR NEAR(x)']);
   expect(await search(["absent"])).toEqual([]);
 });
+
+test("SQLite: upgrading a version 12 database gives older threads a page key only when first shared, and new threads one each", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 12)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 12");
+  const ids = { dana: `u_${"1".repeat(32)}`, organization: `o_${"2".repeat(32)}`, project: `p_${"3".repeat(32)}`, thread: `t_${"5".repeat(32)}` };
+  driver.run("INSERT INTO users (id, token, name, email, home_organization_id) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com', ?)", [ids.dana, ids.organization]);
+  driver.run("INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Dana''s organization', ?, 1)", [ids.organization, ids.dana]);
+  driver.run("INSERT INTO memberships (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'admin', 1)", [`b_${"4".repeat(32)}`, ids.organization, ids.dana]);
+  driver.run("INSERT INTO projects (id, name, tags, created_by, created_at, organization_id) VALUES (?, 'One', '[]', ?, 1, ?)", [ids.project, ids.dana, ids.organization]);
+  driver.run(
+    `INSERT INTO threads (id, project_id, status, anchor, tags, capture, created_by, created_at, last_message_at, message_count, followers_ready)
+     VALUES (?, ?, 'open', ?, '[]', '{"status":"failed","failureReason":"Blocked"}', ?, 1, 1, 0, 1)`,
+    [ids.thread, ids.project, JSON.stringify(anchor), ids.dana],
+  );
+  const store = new SqliteStore(driver);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  const keyOf = (id: string) => driver.get<{ page_key: string | null }>("SELECT page_key FROM threads WHERE id = ?", [id])?.page_key;
+  expect(keyOf(ids.thread)).toBeNull();
+  const dana = reviewer("Dana");
+  const shared = await store.transaction((s) => operations.threadPageKey(s, dana, { threadId: ids.thread }));
+  expect(keyOf(ids.thread)).toBe(shared);
+  const page = await store.transaction((s) => operations.getThreadPage(s, dana, { key: shared }, { numItems: 40, cursor: null }));
+  expect(page._id).toBe(ids.thread);
+  const newer = await store.transaction((s) =>
+    operations.createThread(s, dana, { projectId: ids.project, anchor, body: "New", tags: [], capture: { status: "failed", failureReason: "Blocked" } }),
+  );
+  expect(keyOf(newer)).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  // Keys are unique.
+  expect(() => driver.run("UPDATE threads SET page_key = ? WHERE id = ?", [shared, newer])).toThrow();
+});
