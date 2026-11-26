@@ -48,6 +48,8 @@ describe("the Allow Critiqs page", () => {
     expect(text(page)).toContain(`(http.request.headers["critiqs-allow"][0] eq "${"t".repeat(43)}")`);
     expect(page.querySelector(".allow-proof")?.textContent).toBe(`critiqs-allow-proof=${"p".repeat(32)}`);
     expect(text(page)).toContain(`${ORIGIN}/.well-known/critiqs-allow.txt`);
+    // What a site's owner needs beyond the rule: what to skip, what reads nginx's variable, one proof line per project, the hourly re-check.
+    for (const line of ["Super Bot Fight Mode", "if ($critiqs_allowed = 0)", "one line per project", "again on its own every hour"]) expect([line, text(page).includes(line)]).toEqual([line, true]);
     await click(button(page, "Check again"));
     await settle();
     expect(page.querySelector(".allow-result")?.textContent).toContain("Still blocked");

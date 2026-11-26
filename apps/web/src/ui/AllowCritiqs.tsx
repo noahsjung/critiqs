@@ -148,6 +148,11 @@ function OwnerTools({ projectId, initial }: { projectId: string; initial: AllowC
           </div>
         ))}
       </dl>
+      <ul className="note allow-rule-notes">
+        {copy.allowCritiqs.ruleNotes.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
       <p className="note">
         <a href={data.wellKnownUrl} target="_blank" rel="noreferrer noopener">
           {copy.allowCritiqs.egress}
