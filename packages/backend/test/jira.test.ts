@@ -170,7 +170,7 @@ test("a reviewer creates a Jira issue: project and issue type, ADF text, labels 
   // The retry is the same ticket.
   expect((await lee.action(api.tickets.create, create))._id).toBe(view._id);
   expect(jira.issues).toHaveLength(1);
-  expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "jira", key: "WEB-1", status: { label: "To Do", category: "open" } }]);
+  expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "jira", key: "WEB-1", status: { label: "To Do", category: "open" }, lastKnown: false }]);
   // A pasted token registers no webhook.
   await t.finishAllScheduledFunctions(() => undefined);
   expect(jira.webhooks).toEqual([]);
