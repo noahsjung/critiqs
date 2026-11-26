@@ -160,6 +160,7 @@ test("without AI, a template's first section starts with the thread's summary an
   const template = { name: "Bug", body: "Intro for the team\n\n## Summary\n\nWhat went wrong?\n\n## Steps to reproduce\n\n1.\n\n## Expected\n" };
   const { title, body } = templateTicketText(thread, template, { link: review, captureNote: "uploaded" });
   expect(title).toBe("Department is wrong");
+  expect(templateTicketText({ ...thread, messages: [{ ...thread.messages[0]!, body: "@octocat #12 is back" }] }, template, { link: review, captureNote: "uploaded" }).title).toBe("@\u2060octocat #\u206012 is back");
   expect(body).toBe(
     [
       "Intro for the team",
@@ -172,7 +173,7 @@ test("without AI, a template's first section starts with the thread's summary an
       "- Link: [open the thread](<https://review.example/?critiqs=t1>)",
       "- Tags: Bug, Wording",
       "- Screen: user-details",
-      '- Target: `user.department`, "Sales", record user\\:alex',
+      '- Target: `user.department`, "Sales", record user\\:\u2060alex',
       "- Scope: this record only",
       "- Revision: abc123",
       "- Page: `https://proto.example/users/alex` at 1440×900",
@@ -316,7 +317,8 @@ test("Critiqs AI's text renders exactly as written, whatever characters it has",
     const [section] = draftedSections(ticketOutline("## A\n"), [answer("A", text, [text])]);
     const paragraphs = section!.paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>\n`).join("");
     const list = section!.items.length === 0 ? "" : `<ul>\n${section!.items.map((item) => `<li>${escapeHtml(item)}</li>\n`).join("")}</ul>\n`;
-    expect(html(aiTicketText([section!], { keepEmpty: true }, review))).toBe(`<h2>A</h2>\n${paragraphs}${list}<p>Thread: <a href="${review}">open the thread</a></p>\n`);
+    // Word joiners after the signs GitHub resolves show nothing, so they don't count.
+    expect(html(aiTicketText([section!], { keepEmpty: true }, review)).replace(/\u2060/g, "")).toBe(`<h2>A</h2>\n${paragraphs}${list}<p>Thread: <a href="${review}">open the thread</a></p>\n`);
   }
 });
 

@@ -357,7 +357,7 @@ export function templateTicketText(thread: ExportThread, template: TicketTemplat
     const start = rest.findIndex((line) => line.trim() !== "");
     body = [...lines.slice(0, heading + 1), "", ...filled, ...(start === -1 ? [] : ["", ...rest.slice(start)])];
   }
-  return { title: first === undefined ? "(no messages)" : summarize(first.body), body: `${body.join("\n")}\n` };
+  return { title: first === undefined ? "(no messages)" : unresolvedText(summarize(first.body)), body: `${body.join("\n")}\n` };
 }
 
 // ---------------------------------------------------------------------------

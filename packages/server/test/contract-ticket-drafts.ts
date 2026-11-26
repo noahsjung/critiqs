@@ -358,6 +358,17 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
   };
   const summary = "Reviewers report the department reads Sales; it should be Support.";
 
+  test(`${name}: a title Critiqs AI writes from reviewers' text reads as written and mentions no one or references no issue on GitHub`, async () => {
+    const backend = fresh().withPlans({ free: { name: "free", label: "Free", limits: [{ metric: "aiCredits", period: "month", max: 40 }] } });
+    const { projectId, threadId } = await setup(backend);
+    const linear = linearStandIn();
+    await connect(backend, lee);
+    await saveAi(backend, projectId, {});
+    const ai = fakeModel(() => ({ ...answer, title: "@octocat says #12 is back" }), { inputTokens: 1_000, outputTokens: 200 });
+    // A word joiner, which shows nothing, follows each sign GitHub resolves.
+    expect((await aiDraft(backend, lee, linear, ai.model, { threadId })).title).toBe("@\u2060octocat says #\u206012 is back");
+  });
+
   test(`${name}: Critiqs AI drafts into the chosen template from the thread, keeping its link, charging the project's credits; the person's own key costs nothing`, async () => {
     const backend = fresh().withPlans({ free: { name: "free", label: "Free", limits: [{ metric: "aiCredits", period: "month", max: 40 }] } });
     const { projectId, threadId, link } = await setup(backend);

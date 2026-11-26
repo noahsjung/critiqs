@@ -24,6 +24,7 @@ import {
   templateTicketText,
   ticketOutline,
   ticketText,
+  unresolvedText,
 } from "@critiqs/core";
 import { askPaid, type CreditSteps } from "../ai/credits.ts";
 import { type JsonSchema, type StructuredModel, type StructuredRequest, toAiError } from "../ai/model.ts";
@@ -335,7 +336,8 @@ export async function draftTicketWithAi(
   try {
     const { output } = await askPaid(steps, plan.ai.connection, steps.model(connection), ticketDraftRequest({ thread: draftSource(thread), template, outline }));
     // The model writes plain text; the headings, its Markdown, and the thread's link are Critiqs's.
-    return { title: output.title, body: aiTicketText(output.sections, outline, plan.link), drafted: "ai", notice: null };
+    // The title is plain text from reviewers' words: it mentions no one and references no issue (`unresolvedText`).
+    return { title: unresolvedText(output.title), body: aiTicketText(output.sections, outline, plan.link), drafted: "ai", notice: null };
   } catch (error) {
     if (error instanceof CritiqsError) return fallback(error.message);
     return fallback(`Critiqs AI couldn't draft this ticket. ${toAiError(error).message}`);
