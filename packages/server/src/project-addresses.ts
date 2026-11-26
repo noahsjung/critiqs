@@ -290,9 +290,18 @@ export async function isProjectAddress(store: Store, project: ProjectRecord, ori
   if (project.reviewUrl !== undefined && reviewOrigin(project.reviewUrl) === keys.origin) return true;
   for (const key of [keys.origin, keys.patternKey]) {
     if (key === null) continue;
-    for (const row of await store.projectAddresses.inProject(project._id, key)) if (listedMatch(row, keys) !== null) return true;
+    for (const row of await store.projectAddresses.inProject(project._id, key)) if (isCurrent(project, row) && listedMatch(row, keys) !== null) return true;
   }
   return false;
+}
+
+/**
+ * Whether a listed address still speaks for its project: a row from before
+ * the project's organization changed is stale, and counts for neither the
+ * lookup nor Connected until the list is saved again.
+ */
+function isCurrent(project: ProjectRecord, row: Pick<ProjectAddressRecord, "organizationId">): boolean {
+  return project.organizationId === row.organizationId;
 }
 
 function reviewOrigin(reviewUrl: string): string | null {
@@ -310,8 +319,7 @@ function reviewOrigin(reviewUrl: string): string | null {
  * still review it, so one the person may no longer review isn't found.
  */
 async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<boolean> {
-  // A row from before its project's organization changed is stale; the list is saved again before it counts.
-  if (project.organizationId !== row.organizationId) return false;
+  if (!isCurrent(project, row)) return false;
   // A project limited to its organization isn't found by someone who opened it before the limit.
   if (!(await canReview(store, project, userId))) return false;
   if ((await store.memberships.find(row.organizationId, userId)) !== null) return true;

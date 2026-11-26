@@ -583,6 +583,18 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3 + 100, origin: "https://acme-proto.vercel.app", clearable: true });
   });
 
+  test(`${name}: an address row from before the project moved to another organization counts for Connected no more than for the lookup`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    await backend.run((store) => addProjectAddress(store, dana, { projectId, address: "https://*-acme.vercel.app" }));
+    const elsewhere = await backend.run((store) => ops.createProject(store, lee, { name: "Lee's" }));
+    const leesOrganization = (await backend.run((store) => store.projects.get(elsewhere)))!.organizationId!;
+    // The project moves; its saved list still names the organization it was in.
+    await backend.run((store) => store.projects.patch(projectId, { organizationId: leesOrganization }));
+    await backend.run((store) => reportConnected(store, { projectId, origin: "https://pr-9-acme.vercel.app" }, day));
+    expect((await backend.run((store) => store.projects.get(projectId)))?.connectedAt).toBeUndefined();
+  });
+
   test(`${name}: a load from the project's address written with its final dot is kept as the address itself`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
