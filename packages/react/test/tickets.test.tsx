@@ -1238,7 +1238,7 @@ test("Create tickets makes one ticket per selected thread, skipping ones with a 
   expect(shadow.textContent).toContain("Created 2 tickets");
 });
 
-test("a partial failure names the threads with no ticket; a limit stops the rest; Try again retries only those, under the same submissions", async () => {
+test("a partial failure names the threads with no ticket; a limit pauses the rest and continues them on its own a minute later; Try again retries the others, under the same submissions", async () => {
   let refuse = new Set(["t2"]);
   let limited = false;
   const data = backend({
@@ -1253,30 +1253,77 @@ test("a partial failure names the threads with no ticket; a limit stops the rest
     },
   });
   limited = true;
-  const shadow = await mount(data, OFFERED, { sidebarOpen: true });
-  const bulk = await openBulk(shadow, ["First", "Second", "Third", "Fourth"]);
-  await click(button(bulk, "Create tickets"));
-  await settle(4);
-  const state = () => Object.fromEntries([...bulk.querySelectorAll(".bulk-ticket")].map((row) => [row.querySelector(".grow")!.textContent, row.querySelector(".bulk-state")!.textContent]));
-  expect(state()).toEqual({
-    "First issue": "Created ENG-1 · Triage",
-    "Second issue": "Not created: Linear refused this ticket.",
-    "Third issue": "Not created: Too many tickets created or linked. Wait a minute, then try again.",
-    "Fourth issue": "Not created: Not started: the limit of tickets a minute was reached. Try again in a minute.",
+  // The dialog's wait for the limit is taken here and run by hand, so the test never waits a minute.
+  const waits: { run: () => void; ms: number }[] = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((run: () => void, ms?: number, ...rest: unknown[]) => {
+    if ((ms ?? 0) >= 60_000) {
+      waits.push({ run, ms: ms! });
+      return 0 as never;
+    }
+    return realSetTimeout(run, ms, ...rest);
+  }) as typeof setTimeout;
+  try {
+    const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+    const bulk = await openBulk(shadow, ["First", "Second", "Third", "Fourth"]);
+    await click(button(bulk, "Create tickets"));
+    await settle(4);
+    const state = () => Object.fromEntries([...bulk.querySelectorAll(".bulk-ticket")].map((row) => [row.querySelector(".grow")!.textContent, row.querySelector(".bulk-state")!.textContent]));
+    expect(state()).toEqual({
+      "First issue": "Created ENG-1 · Triage",
+      "Second issue": "Not created: Linear refused this ticket.",
+      "Third issue": "Waiting for the limit of tickets a minute",
+      "Fourth issue": "Waiting for the limit of tickets a minute",
+    });
+    // The fourth was never sent; the rest wait a minute, said with the time they continue.
+    expect((calls(data, "createTicket") as { threadId: string }[]).map((input) => input.threadId)).toEqual(["t1", "t2", "t3"]);
+    expect(waits.map((wait) => wait.ms)).toEqual([61_000]);
+    expect(bulk.querySelector('[role="status"]')!.textContent).toMatch(/^Created 1 of 4\. Paused at the limit of tickets a minute: 2 more continue on their own at .+ while this stays open\. 1 thread has no ticket: “Second issue”\.$/);
+    const firstTries = Object.fromEntries((calls(data, "createTicket") as { threadId: string; submissionId: string }[]).map((input) => [input.threadId, input.submissionId]));
+    limited = false;
+    await act(async () => waits.shift()!.run());
+    await settle(4);
+    expect((calls(data, "createTicket") as { threadId: string }[]).slice(3).map((input) => input.threadId)).toEqual(["t3", "t4"]);
+    expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 3 of 4. 1 thread has no ticket: “Second issue”.");
+    refuse = new Set();
+    await click(button(bulk, "Try again"));
+    await settle(4);
+    const retries = (calls(data, "createTicket") as { threadId: string; submissionId: string }[]).slice(5);
+    expect(retries.map((input) => input.threadId)).toEqual(["t2"]);
+    expect(retries[0]!.submissionId).toBe(firstTries.t2!);
+    expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 4 tickets.");
+    expect(waits).toEqual([]);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
+test("a bulk run that keeps meeting the limit stops continuing on its own and says to press Try again", async () => {
+  const data = backend({
+    threads: [thread("t1", "First issue")],
+    trackers: { accounts: [LINEAR], create: async () => { throw new ConvexError({ code: "limit", message: "Too many tickets created or linked. Wait a minute, then try again." }); } },
   });
-  // The fourth was never sent.
-  expect((calls(data, "createTicket") as { threadId: string }[]).map((input) => input.threadId)).toEqual(["t1", "t2", "t3"]);
-  expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 1 of 4. 3 threads have no ticket: “Second issue”, “Third issue”, “Fourth issue”.");
-  const firstTries = Object.fromEntries((calls(data, "createTicket") as { threadId: string; submissionId: string }[]).map((input) => [input.threadId, input.submissionId]));
-  refuse = new Set();
-  limited = false;
-  await click(button(bulk, "Try again"));
-  await settle(4);
-  const retries = (calls(data, "createTicket") as { threadId: string; submissionId: string }[]).slice(3);
-  expect(retries.map((input) => input.threadId)).toEqual(["t2", "t3", "t4"]);
-  expect(retries[0]!.submissionId).toBe(firstTries.t2!);
-  expect(retries[1]!.submissionId).toBe(firstTries.t3!);
-  expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 4 tickets.");
+  const waits: (() => void)[] = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((run: () => void, ms?: number, ...rest: unknown[]) => ((ms ?? 0) >= 60_000 ? (waits.push(run), 0 as never) : realSetTimeout(run, ms, ...rest))) as typeof setTimeout;
+  try {
+    const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+    const bulk = await openBulk(shadow, ["First"]);
+    await click(button(bulk, "Create ticket"));
+    await settle(4);
+    // Three times on its own, at most.
+    for (let round = 0; round < 3; round++) {
+      expect(waits).toHaveLength(1);
+      await act(async () => waits.shift()!());
+      await settle(4);
+    }
+    expect(waits).toHaveLength(0);
+    expect(calls(data, "createTicket")).toHaveLength(4);
+    expect(bulk.querySelector(".bulk-state")!.textContent).toBe("Not created: Too many tickets created or linked. Wait a minute, then try again.");
+    expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 0 of 1. The limit of tickets a minute was reached again: press Try again in a minute. 1 thread has no ticket: “First issue”.");
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
 });
 
 test("Create tickets holds at most 20 threads, and refuses an issue type whose required fields it can't fill", async () => {

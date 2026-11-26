@@ -284,9 +284,12 @@ with the person's own account. Threads that already have a ticket are
 skipped; a run holds at most 20 threads, the person's creates a minute; a
 destination whose tickets need fields beyond the title and text (a Jira
 issue type's required fields) is refused. The dialog shows each thread's
-progress, then which threads have no ticket and why; a limit refusal stops the
-run, and **Try again** retries only those, each under the submission it
-started with, so no retry makes a second ticket. Each creation is an ordinary
+progress, then which threads have no ticket and why. A refusal at the
+person's limit of tickets a minute pauses the run: the rest wait, and the
+dialog says at what time they continue on their own, a minute later, while it
+stays open (up to three times; after that it says to press **Try again**).
+**Try again** retries only the threads with no ticket, each under the
+submission it started with, so no retry makes a second ticket. Each creation is an ordinary
 Create ticket on the backend, with its checks and limits.
 
 ## Templates
