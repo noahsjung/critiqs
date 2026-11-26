@@ -312,7 +312,7 @@ bunx critiqs init</code></pre></div>
 <tr>
 <td>Ruby on Rails</td>
 <td><code>&lt;%= critiqs_tag %&gt;</code> before <code>&lt;/body&gt;</code> in the application layout</td>
-<td><code>CRITIQS_PROJECT_ID</code> in <code>.env</code> with dotenv, otherwise <code>ENV[&quot;CRITIQS_PROJECT_ID&quot;] ||= …</code> in <code>config/environments/development.rb</code></td>
+<td><code>CRITIQS_PROJECT_ID</code> in <code>.env</code> with dotenv (unless a hand-written plain <code>ENV[&quot;CRITIQS_PROJECT_ID&quot;] = …</code> line in <code>config/environments/development.rb</code> overrides it; then that line), otherwise <code>ENV[&quot;CRITIQS_PROJECT_ID&quot;] ||= …</code> there</td>
 </tr>
 <tr>
 <td>Django</td>

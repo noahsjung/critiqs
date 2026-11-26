@@ -942,6 +942,7 @@ export function readiness({ written, projectId, projectName, backendUrl, reviewA
   add("pass", "Project", `${connected ? "Already connected to" : reused ? "Reusing your project" : "Created"} "${projectName}" (${projectId}) on ${where}.`);
   if (written.ok && written.next?.length > 0) add("next", "Finish setup", written.next.map((step) => `${step.replace(/\.$/, "")}.`).join(" "));
   add("next", "Try it locally", `Start the app's dev server${written.env ? " (restart it if it's running, so it reads the new setting)" : ""}, open it in a browser, and sign in from the Critiqs toolbar to leave a comment.`);
+  if (written.env?.unloaded) add("warn", "This computer", written.env.unloaded);
   if (written.env) add("next", "Deployments", written.env.advice);
   if (reviewAddress === null || reviewAddress === undefined) {
     add("warn", "Reviewers elsewhere", "Commit and deploy this change. The project has no review address, so mention emails can't link to comments: once deployed, run npx critiqs init --review-url https://<deployed address>.");

@@ -482,3 +482,34 @@ test("the preview of a new CRITIQS dict shows it whole, after the settings befor
   expect(settingsPreview).toEndWith(`+ CRITIQS = {\n+     'PROJECT_ID': '${PROJECT}',\n+ }\n`);
   expect(settingsPreview).toContain("+     'django_critiqs',\n+ \n+ \n+ # Critiqs\n");
 });
+
+test("init with --project-env-file .env warns that Django doesn't load it, also on a second run, and says what does", () => {
+  const root = starter();
+  const run = (args: string[]) => {
+    const messages: string[] = [];
+    const code = runInit(["init", PROJECT, ...args], { cwd: root, print: (message) => messages.push(message), env: {} });
+    return { code, output: messages.join("\n") };
+  };
+  const warning =
+    "Warning: Django doesn't load .env by itself, so the app reads CRITIQS_PROJECT_ID from it only if its own code loads that file (with a dotenv library, for example). " +
+    "Otherwise run init again without --project-env-file: it sets a development default in manage.py.";
+  const first = run(["--project-env-file", ".env"]);
+  expect(first.code).toBe(0);
+  expect(read(root, ".env")).toContain(`CRITIQS_PROJECT_ID=${PROJECT}`);
+  expect(first.output).toContain(warning);
+  expect(run(["--project-env-file", ".env"]).output).toContain(warning);
+  // Choosing a Python file the app runs, or the default, gets no warning.
+  expect(run(["--project-env-file", "mysite/dev_defaults.py"]).output).not.toContain("Warning:");
+  expect(run([]).output).not.toContain("Warning:");
+});
+
+test("init keeps the rest of a hand-written default's line, such as its comment, when it replaces the ID", () => {
+  const OLD = "k98765432109876543210987654321098";
+  const manage = MANAGE.replace(
+    "    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n",
+    `    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")  # staging project\n`,
+  );
+  const root = starter({ "manage.py": manage });
+  expect(init(root, PROJECT).code).toBe(0);
+  expect(read(root, "manage.py")).toBe(manage.replace(OLD, PROJECT));
+});

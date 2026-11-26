@@ -245,7 +245,7 @@
 </tr>
 <tr>
 <td><code>--project-env-file &lt;file&gt;</code></td>
-<td>File where <code>init</code> sets the project ID, relative to <code>--dir</code>, instead of the framework&#39;s own (see <a href="/docs/install#what-init-changes-by-framework">what init changes</a>): <code>.env.local</code> for Vite and Next.js apps, <code>.env</code> for Nuxt, Astro and Flask, <code>manage.py</code> for Django, <code>config/environments/development.rb</code> for Rails (<code>.env</code> with dotenv). A <code>.py</code> or <code>.rb</code> file gets a development default in code; any other file gets a <code>NAME=value</code> line. Pick a file your framework loads: Django, and Rails without dotenv, load no <code>.env</code> file. Also accepted as <code>--env-file</code>.</td>
+<td>File where <code>init</code> sets the project ID, relative to <code>--dir</code>, instead of the framework&#39;s own (see <a href="/docs/install#what-init-changes-by-framework">what init changes</a>): <code>.env.local</code> for Vite and Next.js apps, <code>.env</code> for Nuxt, Astro and Flask, <code>manage.py</code> for Django, <code>config/environments/development.rb</code> for Rails (<code>.env</code> with dotenv). A <code>.py</code> or <code>.rb</code> file gets a development default in code; any other file gets a <code>NAME=value</code> line. Pick a file your framework loads: Django, and Rails without dotenv, load no <code>.env</code> file, and <code>init</code> warns when you choose one for them. Also accepted as <code>--env-file</code>.</td>
 </tr>
 <tr>
 <td><code>--json</code></td>

@@ -473,7 +473,15 @@ export function writeConnection({ root, cwd = root, wiring, projectId, backend, 
       };
     }
   }
-  const setting = wiring.mode === "env" ? { env: { name: wiring.env.variable, file: env?.file ?? null, advice: wiring.env.deploymentAdvice } } : {};
+  // A framework that loads no .env file (its own file is code its server runs) ignores a chosen .env file unless the app loads it.
+  const ownFile = wiring.env?.localFile ?? null;
+  const unloaded =
+    env !== null && wiring.envFile !== null && ownFile !== null && isCodeFile(ownFile) && !isCodeFile(env.file)
+      ? `${adapter.name} doesn't load ${shown(cwd, env.file)} by itself, so the app reads ${wiring.env.variable} from it only if its own code loads that file (with a dotenv library, for example). ` +
+        `Otherwise run init again without --project-env-file: it sets a development default in ${ownFile}.`
+      : null;
+  const setting =
+    wiring.mode === "env" ? { env: { name: wiring.env.variable, file: env?.file ?? null, advice: wiring.env.deploymentAdvice, ...(unloaded === null ? {} : { unloaded }) } } : {};
   const remaining = line === null ? "" : env === null ? `, and set ${line} in the environment the app runs with` : `, and add ${line} to ${shown(cwd, env.file)}`;
   let plan;
   try {
@@ -558,7 +566,7 @@ export function writeConnection({ root, cwd = root, wiring, projectId, backend, 
   return {
     ...code,
     env: { ...setting.env, changed: env.changed, ignored },
-    message: `${code.message} ${env.changed ? "Set" : "Kept"} ${line} in ${file} for this computer.${keepOut}`,
+    message: `${code.message} ${env.changed ? "Set" : "Kept"} ${line} in ${file} for this computer.${keepOut}${unloaded === null ? "" : ` ${unloaded}`}`,
   };
 }
 

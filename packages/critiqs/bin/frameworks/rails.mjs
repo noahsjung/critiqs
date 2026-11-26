@@ -498,6 +498,12 @@ function manualSteps(settings) {
   return { tag, steps };
 }
 
+/** Whether Ruby `source` sets `variable` with a plain `ENV["…"] = "…"` line (not `||=`), outside a comment. */
+function plainRubyAssignment(source, variable) {
+  const name = variable.replace(/[^A-Za-z0-9_]/g, "");
+  return new RegExp(`^[ \\t]*ENV\\[[ \\t]*(["'])${name}\\1[ \\t]*\\][ \\t]*=[ \\t]*["']`, "m").test(source);
+}
+
 function railsEnv(variable, localFile) {
   return {
     variable,
@@ -540,8 +546,14 @@ export const rails = {
     // which only `rails server` in development runs.
     const gemfile = readText(join(root, "Gemfile")) ?? "";
     const dotenv = gemDeclared(gemfile, "dotenv-rails") || gemDeclared(gemfile, "dotenv");
-    const development = readText(join(root, DEVELOPMENT)) === null ? null : DEVELOPMENT;
-    return railsEnv(`${DEFAULT_VARIABLE}${suffix}`, dotenv ? ".env" : development);
+    const variable = `${DEFAULT_VARIABLE}${suffix}`;
+    const developmentSource = readText(join(root, DEVELOPMENT));
+    const development = developmentSource === null ? null : DEVELOPMENT;
+    if (!dotenv) return railsEnv(variable, development);
+    // dotenv sets the environment from .env before Rails runs development.rb, where an `ENV[...] ||=` default
+    // then gives way and a plain `ENV[...] =` someone wrote wins. Setup writes the one that wins.
+    const plain = development !== null && plainRubyAssignment(developmentSource, variable);
+    return { ...railsEnv(variable, plain ? DEVELOPMENT : ".env"), loads: development === null ? [".env"] : plain ? [DEVELOPMENT, ".env"] : [".env", DEVELOPMENT] };
   },
 
   find: (root) => viewFiles(root).flatMap(usagesIn),

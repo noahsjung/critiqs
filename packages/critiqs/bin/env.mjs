@@ -287,7 +287,11 @@ const codeSyntax = (pattern, statement, place) => ({
     const match = pattern.exec(line);
     return match === null ? null : { name: match[3], value: match[5] };
   },
-  replace: (line, name, value) => `${pattern.exec(line)[1]}${statement(name, value)}`,
+  // The rest of the line stays: a hand-written condition (`if ...`) or comment after the value.
+  replace: (line, name, value) => {
+    const match = pattern.exec(line);
+    return `${match[1]}${statement(name, value)}${line.slice(match[0].length)}`;
+  },
   insert: (lines, name, value, comment) => {
     const { at, indent, extra } = place(lines);
     return [...lines.slice(0, at), ...extra, ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}`, ...lines.slice(at)];
@@ -307,10 +311,10 @@ const RUBY = {
     const end = lines.at(-1) === "" ? lines.length - 1 : lines.length;
     return { at: end, indent: "", extra: lines[end - 1] === undefined || lines[end - 1].trim() === "" ? [] : [""] };
   }),
-  // A definition gets the new value and keeps its own operator: a plain `=` stays plain.
+  // A definition gets the new value and keeps its own operator (a plain `=` stays plain) and the rest of its line.
   replace: (line, name, value) => {
     const match = RUBY_DEFINITION.exec(line);
-    return `${match[1]}ENV[${JSON.stringify(name)}] ${/\|\|=/.test(match[0]) ? "||=" : "="} ${JSON.stringify(value)}`;
+    return `${match[1]}ENV[${JSON.stringify(name)}] ${/\|\|=/.test(match[0]) ? "||=" : "="} ${JSON.stringify(value)}${line.slice(match[0].length)}`;
   },
 };
 

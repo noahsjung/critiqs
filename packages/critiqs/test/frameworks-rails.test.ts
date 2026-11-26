@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FRAMEWORKS } from "../bin/frameworks/index.mjs";
@@ -165,6 +165,49 @@ describe("env", () => {
     expect(runInit(["init", PROJECT], { cwd: root, print: (message) => messages.push(message), env: {} })).toBe(0);
     expect(read(root, DEVELOPMENT_PATH)).toBe(older.replace("k98765432109876543210987654321098", PROJECT));
     expect(messages.join("\n")).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in ${DEVELOPMENT_PATH} for development.`);
+  });
+
+  test("init keeps a hand-written line's condition and comment when it replaces the ID", () => {
+    const OLD = "k98765432109876543210987654321098";
+    const cases: [string, string][] = [
+      [`ENV["CRITIQS_PROJECT_ID"] = "${OLD}" if ENV["CI"].nil? # hand-written`, `ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}" if ENV["CI"].nil? # hand-written`],
+      [`  ENV['CRITIQS_PROJECT_ID'] ||= '${OLD}' unless Rails.env.test?`, `  ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}" unless Rails.env.test?`],
+    ];
+    for (const [written, updated] of cases) {
+      const older = DEVELOPMENT.replace("end\n", `${written}\nend\n`);
+      const root = app({ Gemfile: `${GEMFILE}gem "critiqs-rails"\n`, [DEVELOPMENT_PATH]: older });
+      expect(runInit(["init", PROJECT], { cwd: root, print: () => {}, env: {} })).toBe(0);
+      expect(read(root, DEVELOPMENT_PATH)).toBe(older.replace(written, updated));
+    }
+  });
+
+  test("with dotenv, init updates a plain ENV[…] = line in development.rb, which wins over .env, and otherwise writes .env", () => {
+    const OLD = "k98765432109876543210987654321098";
+    const Gemfile = `${GEMFILE}gem "critiqs-rails"\ngem "dotenv-rails", groups: [:development, :test]\n`;
+    const plain = DEVELOPMENT.replace("Rails.application.configure do\n", `ENV["CRITIQS_PROJECT_ID"] = "${OLD}"\nRails.application.configure do\n`);
+    const root = app({ Gemfile, [DEVELOPMENT_PATH]: plain });
+    const messages: string[] = [];
+    expect(runInit(["init", PROJECT], { cwd: root, print: (message) => messages.push(message), env: {} })).toBe(0);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(plain.replace(OLD, PROJECT));
+    expect(existsSync(join(root, ".env"))).toBe(false);
+    expect(messages.join("\n")).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in ${DEVELOPMENT_PATH} for development.`);
+
+    // A default (||=) gives way to .env, so .env is the file to write, and the default stays as it was.
+    const defaulted = DEVELOPMENT.replace("end\n", `  ENV["CRITIQS_PROJECT_ID"] ||= "${OLD}"\nend\n`);
+    const other = app({ Gemfile, [DEVELOPMENT_PATH]: defaulted });
+    expect(runInit(["init", PROJECT], { cwd: other, print: () => {}, env: {} })).toBe(0);
+    expect(read(other, ".env")).toContain(`CRITIQS_PROJECT_ID=${PROJECT}`);
+    expect(read(other, DEVELOPMENT_PATH)).toBe(defaulted);
+  });
+
+  test("init warns that Rails without dotenv doesn't load a chosen .env file", () => {
+    const root = app({ Gemfile: `${GEMFILE}gem "critiqs-rails"\n`, [DEVELOPMENT_PATH]: DEVELOPMENT });
+    const messages: string[] = [];
+    expect(runInit(["init", PROJECT, "--project-env-file", ".env"], { cwd: root, print: (message) => messages.push(message), env: {} })).toBe(0);
+    expect(read(root, ".env")).toContain(`CRITIQS_PROJECT_ID=${PROJECT}`);
+    expect(messages.join("\n")).toContain(
+      `Warning: Ruby on Rails doesn't load .env by itself, so the app reads CRITIQS_PROJECT_ID from it only if its own code loads that file (with a dotenv library, for example). Otherwise run init again without --project-env-file: it sets a development default in ${DEVELOPMENT_PATH}.`,
+    );
   });
 });
 
