@@ -164,7 +164,7 @@ jobs:
           echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
           sha256sum --check --strict --quiet SHA256SUMS
           listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
-          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          present=$(find . ! -type d ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
           if [ "$listed" != "$present" ]; then
             echo "::error::The release folder holds files SHA256SUMS doesn't list."
             exit 1
@@ -213,7 +213,7 @@ jobs:
           fi
           echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
           listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
-          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          present=$(find . ! -type d ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
           if [ "$listed" != "$present" ]; then
             echo "::error::The artifact doesn't hold exactly the files SHA256SUMS lists."
             exit 1
@@ -232,7 +232,7 @@ jobs:
           set -euo pipefail
           cd release/npm
           ordered=$(LC_ALL=C sort order)
-          packed=$(find . -type f -name '*.tgz' | sed 's|^\./||' | LC_ALL=C sort)
+          packed=$(find . ! -type d -name '*.tgz' | sed 's|^\./||' | LC_ALL=C sort)
           if [ -z "$packed" ] || [ "$ordered" != "$packed" ]; then
             echo "::error::npm/order doesn't list exactly the packed tarballs."
             exit 1
@@ -241,6 +241,11 @@ jobs:
             manifest=$(tar -xzOf "$tarball" package/package.json)
             name=$(jq -r .name <<< "$manifest")
             version=$(jq -r .version <<< "$manifest")
+            # Only the release group's names (critiqs, critiqs-*), whatever the build packed.
+            if ! [[ "$name" =~ ^critiqs(-[a-z0-9]+)*$ ]]; then
+              echo "::error::$tarball holds $name, which isn't a Critiqs package."
+              exit 1
+            fi
             if [ "$version" != "$VERSION" ] || [ "$tarball" != "$name-$VERSION.tgz" ]; then
               echo "::error::$tarball is $name@$version, not a package at $VERSION."
               exit 1
@@ -297,7 +302,7 @@ jobs:
           fi
           echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
           listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
-          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          present=$(find . ! -type d ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
           if [ "$listed" != "$present" ]; then
             echo "::error::The artifact doesn't hold exactly the files SHA256SUMS lists."
             exit 1
@@ -389,12 +394,37 @@ jobs:
           fi
           echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
           listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
-          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          present=$(find . ! -type d ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
           if [ "$listed" != "$present" ]; then
             echo "::error::The artifact doesn't hold exactly the files SHA256SUMS lists."
             exit 1
           fi
           sha256sum --check --strict SHA256SUMS
+      - name: Check the Python packages
+        # Only a wheel and a source archive of each <framework>_critiqs project
+        # at this version, both present: nothing else reaches the upload.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd release/pypi
+          version=${VERSION//./\\.}
+          wheels=()
+          archives=()
+          for file in *; do
+            if ! [ -f "$file" ] || [ -L "$file" ] || ! [ -s "$file" ] || ! [[ "$file" =~ ^([a-z]+_critiqs)-$version(-py3-none-any\.whl|\.tar\.gz)$ ]]; then
+              echo "::error::$file is not a Critiqs Python package at $VERSION."
+              exit 1
+            fi
+            if [ "${BASH_REMATCH[2]}" = .tar.gz ]; then archives+=("${BASH_REMATCH[1]}"); else wheels+=("${BASH_REMATCH[1]}"); fi
+          done
+          if [ "${#wheels[@]}" = 0 ]; then
+            echo "::error::The artifact holds no Python package."
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "${wheels[@]}" | LC_ALL=C sort)" != "$(printf '%s\n' "${archives[@]}" | LC_ALL=C sort)" ]; then
+            echo "::error::Each Python package needs both its wheel and its source archive."
+            exit 1
+          fi
       - name: Upload to PyPI
         # skip-existing: a file PyPI already has is skipped, so a rerun uploads only what is missing.
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

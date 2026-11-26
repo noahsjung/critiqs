@@ -281,16 +281,20 @@ Release workflow never do.
      registry's. None checks out or installs project code. Each confirms the
      commit is still on `main`, downloads the artifact, and checks that
      `SHA256SUMS` has the sha256 `build` recorded, that the artifact holds
-     exactly the files it lists, and that each file matches its sha256.
+     exactly the files it lists (a link counts as a file), and that each file
+     matches its sha256.
      - **npm** checks that `npm/order` lists exactly the tarballs and that
        each tarball's `package.json` names the package and version its file
-       name gives, skips a version npm already has, and runs
+       name gives, and a name in the release group (`critiqs` or
+       `critiqs-*`), skips a version npm already has, and runs
        `npm publish ./<file>.tgz --access public --ignore-scripts` for the
        rest, in that order.
      - **rubygems** asks RubyGems which gems it doesn't have yet, gets a
        short-lived key from `rubygems/configure-rubygems-credentials`, and
        runs `gem push` on those with the runner's Ruby.
-     - **pypi** uploads `pypi/` with `pypa/gh-action-pypi-publish`, skipping
+     - **pypi** checks that `pypi/` holds only a non-empty wheel and source
+       archive of each `<framework>_critiqs` project at the version, both
+       present, then uploads it with `pypa/gh-action-pypi-publish`, skipping
        files PyPI already has.
 3. Check each package page, and install the packages in a new app.
 

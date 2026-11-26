@@ -5,12 +5,12 @@
 // packed files, and stand-ins for gh, npm, curl, and gem.
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageTarball, packedFile } from "./package-tarball.ts";
 import { artifactProblems, checksums, main, packageProblems, parseArtifact, type Effects } from "./publish.ts";
-import type { Registry, ReleasePackage } from "./release.ts";
+import { releasePackages, workingTree, type Registry, type ReleasePackage } from "./release.ts";
 
 setDefaultTimeout(60_000);
 const root = new URL("../", import.meta.url).pathname;
@@ -616,6 +616,10 @@ describe("Publish workflow", () => {
     await Bun.write(join(good.out, "pypi/extra-0.4.0.tar.gz"), "extra");
     expect((await runStep(job, name, good.work, { SHA256: good.sha })).output).toContain("doesn't hold exactly the files SHA256SUMS lists");
     await rm(join(good.out, "pypi/extra-0.4.0.tar.gz"));
+    // A link is a file to the upload too, so one SHA256SUMS doesn't list is refused.
+    await symlink("django_critiqs-0.4.0.tar.gz", join(good.out, "pypi/linked-0.4.0.tar.gz"));
+    expect((await runStep(job, name, good.work, { SHA256: good.sha })).output).toContain("doesn't hold exactly the files SHA256SUMS lists");
+    await rm(join(good.out, "pypi/linked-0.4.0.tar.gz"));
     await rm(join(good.out, "rubygems/critiqs-rails-0.4.0.gem"));
     expect((await runStep(job, name, good.work, { SHA256: good.sha })).output).toContain("doesn't hold exactly the files SHA256SUMS lists");
   });
@@ -680,6 +684,54 @@ echo "$PWD $*" >> "${calls}"
       expect(result.output).toContain("npm/order doesn't list exactly the packed tarballs");
       expect(await Bun.file(fresh.calls).exists()).toBe(false);
     });
+
+    test("refuses a tarball of a package outside the release group, before publishing anything", async () => {
+      const { work, out } = await downloaded();
+      await tarball(join(out, "npm/left-pad-0.4.0.tgz"), { name: "left-pad", version: "0.4.0" });
+      await Bun.write(join(out, "npm/order"), "left-pad-0.4.0.tgz\ncritiqs-0.4.0.tgz\ncritiqs-react-0.4.0.tgz\n");
+      const fresh = await npm([]);
+      const result = await runStep(workflow.jobs.npm, name, work, { VERSION: "0.4.0" }, { bin: fresh.bin });
+      expect(result.status).toBe(1);
+      expect(result.output).toContain("left-pad-0.4.0.tgz holds left-pad, which isn't a Critiqs package.");
+      expect(await Bun.file(fresh.calls).exists()).toBe(false);
+    });
+  });
+
+  describe("PyPI", () => {
+    const name = "Check the Python packages";
+
+    test("uploads only a wheel and a source archive of each Critiqs project at the version", async () => {
+      const { work, out } = await downloaded();
+      await Bun.write(join(out, "pypi/flask_critiqs-0.4.0-py3-none-any.whl"), "wheel");
+      await Bun.write(join(out, "pypi/flask_critiqs-0.4.0.tar.gz"), "sdist");
+      expect((await runStep(workflow.jobs.pypi, name, work, { VERSION: "0.4.0" })).status).toBe(0);
+      expect((await runStep(workflow.jobs.pypi, name, work, { VERSION: "0.5.0" })).output).toContain("django_critiqs-0.4.0-py3-none-any.whl is not a Critiqs Python package at 0.5.0.");
+      // The version's dots are literal.
+      await Bun.write(join(out, "pypi/flask_critiqs-0x4x0.tar.gz"), "sdist");
+      expect((await runStep(workflow.jobs.pypi, name, work, { VERSION: "0.4.0" })).output).toContain("flask_critiqs-0x4x0.tar.gz is not a Critiqs Python package at 0.4.0.");
+      await rm(join(out, "pypi/flask_critiqs-0x4x0.tar.gz"));
+    });
+
+    test("refuses anything else, a missing half, an empty file, a link, or no package at all", async () => {
+      const refuses = async (change: (pypi: string) => Promise<unknown>, message: string) => {
+        const { work, out } = await downloaded();
+        await change(join(out, "pypi"));
+        const result = await runStep(workflow.jobs.pypi, name, work, { VERSION: "0.4.0" });
+        expect([result.status, result.output]).toEqual([1, expect.stringContaining(message)]);
+      };
+      await refuses((pypi) => Bun.write(join(pypi, "requests-0.4.0-py3-none-any.whl"), "x"), "requests-0.4.0-py3-none-any.whl is not a Critiqs Python package");
+      await refuses((pypi) => Bun.write(join(pypi, "django_critiqs-0.4.0-cp312-abi3-linux_x86_64.whl"), "x"), "is not a Critiqs Python package");
+      await refuses((pypi) => rm(join(pypi, "django_critiqs-0.4.0.tar.gz")), "needs both its wheel and its source archive");
+      await refuses((pypi) => Bun.write(join(pypi, "django_critiqs-0.4.0.tar.gz"), ""), "django_critiqs-0.4.0.tar.gz is not a Critiqs Python package");
+      await refuses(async (pypi) => {
+        await rm(join(pypi, "django_critiqs-0.4.0.tar.gz"));
+        await symlink("django_critiqs-0.4.0-py3-none-any.whl", join(pypi, "django_critiqs-0.4.0.tar.gz"));
+      }, "django_critiqs-0.4.0.tar.gz is not a Critiqs Python package");
+      await refuses((pypi) => mkdir(join(pypi, "flask_critiqs-0.4.0.tar.gz")), "flask_critiqs-0.4.0.tar.gz is not a Critiqs Python package");
+      await refuses(async (pypi) => {
+        for (const file of await readdir(pypi)) await rm(join(pypi, file));
+      }, "The artifact holds no Python package.");
+    });
   });
 
   describe("RubyGems", () => {
@@ -731,4 +783,16 @@ test("every workflow pins third-party actions to a full commit SHA with its vers
         .toEqual({ file, line: line.trim(), pinned: true });
     }
   }
+});
+
+test("Dependabot watches every released package's own dependencies: npm through bun, the gem through bundler, Python through pip", async () => {
+  const config = Bun.YAML.parse(await Bun.file(join(root, ".github/dependabot.yml")).text()) as { updates: { "package-ecosystem": string; directory?: string; directories?: string[] }[] };
+  const watched = new Set(config.updates.flatMap((update) => (update.directories ?? [update.directory!]).map((dir) => `${update["package-ecosystem"]} ${dir}`)));
+  const ecosystem: Record<Registry, string> = { npm: "bun", rubygems: "bundler", pypi: "pip" };
+  const missing = (await releasePackages(workingTree(root)))
+    .filter((pkg) => pkg.registry !== null)
+    // bun's entry at / covers every workspace's package.json.
+    .map((pkg) => (pkg.registry === "npm" ? "bun /" : `${ecosystem[pkg.registry!]} /${pkg.dir}`))
+    .filter((entry) => !watched.has(entry));
+  expect(missing).toEqual([]);
 });
