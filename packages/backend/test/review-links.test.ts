@@ -549,8 +549,8 @@ test("cleanup removes ended leases with their frame hosts", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Attacks from the security reviews (Gemini F-H3-1, F-H3-2, notes 3, 4, 6;
-// Opus N5, N7, N9), each reproduced against the real functions.
+// Attacks from the security reviews (F-H3-1, F-H3-2, notes 3, 4, 6;
+// N5, N7, N9), each reproduced against the real functions.
 
 test("F-H3-1: a proxy on a sibling of the website's own site turns review links off", async () => {
   const f = await fixture();
@@ -579,7 +579,7 @@ test("F-H3-2: an address written with extra dots is refused, and a trailing dot 
   expect(await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: "https://critiqs.example./" }))).toBe("Critiqs's own addresses can't be reviewed through a review link.");
 });
 
-test("Gemini note 3: someone signed out learns nothing about whether a link ID exists", async () => {
+test("note 3: someone signed out learns nothing about whether a link ID exists", async () => {
   const f = await fixture();
   const { linkId } = await f.link();
   const bogus = await f.t.run(async (ctx) => {
@@ -593,7 +593,7 @@ test("Gemini note 3: someone signed out learns nothing about whether a link ID e
   }
 });
 
-test("Gemini note 4: opening a link with a stale verdict asks the provider again at most once a minute", async () => {
+test("note 4: opening a link with a stale verdict asks the provider again at most once a minute", async () => {
   const f = await fixture();
   const { key } = await f.link();
   const checks = async () => (await f.t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect())).filter((job) => job.name.includes("checkReputation")).length;
@@ -609,7 +609,7 @@ test("Gemini note 4: opening a link with a stale verdict asks the provider again
   expect((await checks()) - before).toBe(2);
 });
 
-test("Gemini note 6: links stuck waiting for a verdict don't starve newer ones", async () => {
+test("note 6: links stuck waiting for a verdict don't starve newer ones", async () => {
   const f = await fixture();
   const projectId = f.projectId as Id<"projects">;
   const userId = (await f.t.run((ctx) => ctx.db.query("users").collect())).find((user) => user.name === "Dana")!._id;
@@ -635,7 +635,7 @@ test("Gemini note 6: links stuck waiting for a verdict don't starve newer ones",
   expect(stuck.every((id) => picked.has(id))).toBe(true);
 });
 
-test("Opus N9: an owner-approved origin stops serving once it leaves the address list", async () => {
+test("N9: an owner-approved origin stops serving once it leaves the address list", async () => {
   const f = await fixture();
   const created = await f.link("https://app.acme.com/", { assetOrigins: ["https://api.acme.com"] });
   const opened = await lease(f.anonymous, created.key);
@@ -646,7 +646,7 @@ test("Opus N9: an owner-approved origin stops serving once it leaves the address
   expect(JSON.parse(after.body).assetOrigins).toEqual([]);
 });
 
-test("Opus N5: during a rotation the proxy's previous secret still works, and only until it is removed", async () => {
+test("N5: during a rotation the proxy's previous secret still works, and only until it is removed", async () => {
   const f = await fixture();
   const opened = await lease(f.anonymous, (await f.link()).key);
   const next = "next-proxy-secret-for-tests-0123456789abcdef";
@@ -662,7 +662,7 @@ test("Opus N5: during a rotation the proxy's previous secret still works, and on
   }
 });
 
-test("Opus N7: an owner replaces a link's key by removing the link and creating it again; the old key opens nothing", async () => {
+test("N7: an owner replaces a link's key by removing the link and creating it again; the old key opens nothing", async () => {
   const f = await fixture();
   const first = await f.link();
   const opened = await lease(f.anonymous, first.key);

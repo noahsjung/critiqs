@@ -34,7 +34,7 @@ describe("F-H3-1: the proxy domain is its own site", () => {
   });
 });
 
-describe("F-H3-2 and Gemini note 5: a live address is one canonical public host", () => {
+describe("F-H3-2 and note 5: a live address is one canonical public host", () => {
   for (const input of ["https://critiqs-review.net../", "https://unsafe.example../", "https://critiqs.app../x", "https://a..b.example/"]) {
     test(`${input} is refused`, () => expect(refusedMessage(input)).not.toBeNull());
   }
@@ -52,7 +52,7 @@ describe("F-H3-2 and Gemini note 5: a live address is one canonical public host"
   });
 });
 
-describe("Opus N6 and Gemini note 1: the Web Risk key never goes in a URL", () => {
+describe("N6 and note 1: the Web Risk key never goes in a URL", () => {
   test("it is sent as a header", async () => {
     const seen: { url: string; key: string | null }[] = [];
     await webRiskVerdict("https://proto.example/", {
@@ -70,7 +70,7 @@ describe("Opus N6 and Gemini note 1: the Web Risk key never goes in a URL", () =
 const LABEL = `v-${"d".repeat(26)}`;
 const resolution = () => ({ v: 1, kind: "site", linkId: "l1", leaseId: "s1", origin: "https://shop.example.com", assetOrigins: [], expiresAt: Date.now() + 60_000, cacheUntil: Date.now() + 5_000 });
 
-describe("Opus N10 and Gemini note 2: one caller going away doesn't fail the others", () => {
+describe("N10 and note 2: one caller going away doesn't fail the others", () => {
   test("a lookup shared by two requests survives the first one's abort", async () => {
     let release: () => void = () => undefined;
     const directory = convexDirectory({
@@ -94,7 +94,7 @@ describe("Opus N10 and Gemini note 2: one caller going away doesn't fail the oth
   });
 });
 
-describe("Gemini note 8: unknown hosts can't push known ones out of the cache", () => {
+describe("note 8: unknown hosts can't push known ones out of the cache", () => {
   test("after 20,000 misses, a live host is still answered from the cache", async () => {
     let asked = 0;
     const known = await frameHostHash(LABEL);
@@ -117,7 +117,7 @@ describe("Gemini note 8: unknown hosts can't push known ones out of the cache", 
   });
 });
 
-describe("Opus N8: a lease's privileged identity is per origin", () => {
+describe("N8: a lease's privileged identity is per origin", () => {
   test("a resolution carries allow tokens only for its own origins, each of a fixed shape", () => {
     const base = { ...resolution(), assetOrigins: [{ slot: 1, origin: "https://api.example.com" }] };
     const token = "t".repeat(43);

@@ -45,6 +45,8 @@ describe("the serve entry's directory", () => {
       CRITIQS_PROXY_BACKEND: "https://brazen.convex.site",
       CRITIQS_WEB_RISK_API_KEY: "k",
       CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+      CRITIQS_PROXY_SIGNING_KEY: "a-signing-key-that-is-long-enough-to-pass",
+      CRITIQS_PROXY_CLIENT_IP_HEADER: "cf-connecting-ip",
     });
     expect(() => directoryFor(deployed, { CRITIQS_PROXY_DEV_LEASES: JSON.stringify([lease]) })).toThrow(ConfigError);
   });
@@ -58,6 +60,8 @@ describe("the serve entry's directory", () => {
         CRITIQS_PROXY_BACKEND: "http://brazen.convex.site",
         CRITIQS_WEB_RISK_API_KEY: "k",
         CRITIQS_PROXY_COOKIE_ISOLATION: "public-suffix-list",
+        CRITIQS_PROXY_SIGNING_KEY: "a-signing-key-that-is-long-enough-to-pass",
+        CRITIQS_PROXY_CLIENT_IP_HEADER: "cf-connecting-ip",
       }),
     ).toThrow(ConfigError);
   });

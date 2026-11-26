@@ -214,10 +214,12 @@ On any domain that isn't `.localhost`, the proxy refuses to start until
 Also before a public domain:
 
 - Set `CRITIQS_PROXY_CLIENT_IP_HEADER` to the header the server in front
-  overwrites with the viewer's address, so the per-client lookup limit sees
-  viewers and not the ingress.
+  overwrites with the viewer's address (or `connection` when viewers connect
+  directly), so the per-client lookup limit sees viewers and not the
+  ingress. The proxy refuses to start without it.
 - Set `CRITIQS_PROXY_SIGNING_KEY` on the proxy only, so the backend's copy
-  of `CRITIQS_PROXY_SECRET` can't sign asset addresses.
+  of `CRITIQS_PROXY_SECRET` can't sign asset addresses. The proxy refuses to
+  start without it.
 - A per-client limit on opening links (each open mints a lease, at most 60
   an hour per link) belongs at the website's edge: the backend can't see a
   viewer's address.

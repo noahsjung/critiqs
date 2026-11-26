@@ -7,7 +7,7 @@ import { createReviewProxy } from "../src/server.ts";
 import { assetPath } from "../src/urls.ts";
 import { close, listen, PUBLIC_A, PUBLIC_B, PUBLIC_C, recordingServer, testWeb, v4 } from "./fixtures.ts";
 
-// Opus N8: the user agent and egress address are the same for every Critiqs
+// N8: the user agent and egress address are the same for every Critiqs
 // customer, so a firewall rule on them would let any owner's link read any
 // allowlisted site. A lease carries one Allow Critiqs token per origin it was
 // issued for; the proxy sends an origin's token only on requests to that
