@@ -70,7 +70,7 @@ const FRAMEWORK_HEADERS: Readonly<Record<string, (value: string) => boolean>> = 
   /** One segment of a prefetch: `/`-separated keys of letters, digits, `-_@`, with `$` for parameters and `!` before base64url. Empty for the root. */
   "next-router-segment-prefetch": (value) => value.length <= 1024 && /^(?:\/[A-Za-z0-9\-_@$!]+)*$/.test(value),
   /** The path the router is on, for intercepted routes. */
-  "next-url": (value) => value.length <= 2048 && /^\/[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$/.test(value),
+  "next-url": (value) => value.length <= 2048 && /^\/(?!\/)[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$/.test(value),
   /** The build the page came from (skew protection). */
   "x-deployment-id": (value) => /^[A-Za-z0-9_-]{1,128}$/.test(value),
 };

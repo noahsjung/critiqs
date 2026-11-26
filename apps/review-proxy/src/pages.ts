@@ -70,5 +70,11 @@ export function frameCsp(webOrigins: readonly string[]): string {
   ].join("; ");
 }
 
-/** For anything else a frame host serves: inert if a browser ever opens it as a page. */
-export const ASSET_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; sandbox";
+/**
+ * For anything else a frame host serves (files, data, the proxy's plain
+ * answers): inert if a browser ever opens it as a page, and like every
+ * response on a frame host, framed only by the website.
+ */
+export function inertCsp(webOrigins: readonly string[]): string {
+  return `frame-ancestors ${webOrigins.join(" ")}; default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; sandbox`;
+}

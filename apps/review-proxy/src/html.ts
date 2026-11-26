@@ -197,8 +197,9 @@ export function rewriteHtml(ctx: UrlContext, source: string, documentUrl: URL, i
     removeAttributes(element, ["ping", "download"]);
 
     if (element.namespaceURI === SVG) {
-      const href = element.attrs.find((attr) => attr.name === "href");
-      if (href !== undefined && !href.value.trim().startsWith("#")) {
+      // `href` and `xlink:href` (parse5 names both `href`) can both be on one element: each is mapped.
+      for (const href of element.attrs) {
+        if (href.name !== "href" || href.value.trim().startsWith("#")) continue;
         href.value = mapUrl(ctx, href.value, base, name === "a" ? "page" : name === "script" ? "script" : "image");
       }
       if (name === "style") setText(element, rewriteCss(ctx, textOf(element), base));

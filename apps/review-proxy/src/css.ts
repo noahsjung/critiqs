@@ -10,14 +10,21 @@ import { type AssetClass, mapUrl, type UrlContext } from "./urls.ts";
 
 const FONT_FILE = /\.(?:woff2?|ttf|otf|eot)(?:$|[?#])/i;
 
-function classFor(url: string, inImport: boolean, inFontFace: boolean): AssetClass {
-  if (inImport) return "style";
+function classFor(url: string, inImport: boolean, inFontFace: boolean, imports: "style" | "import"): AssetClass {
+  if (inImport) return imports;
   if (inFontFace || FONT_FILE.test(url)) return "font";
   return "image";
 }
 
-/** `source` with every URL it loads mapped, read against `base` (the stylesheet's address, or the page's for inline CSS). */
-export function rewriteCss(ctx: UrlContext, source: string, base: URL): string {
+/**
+ * `source` with every URL it loads mapped, read against `base` (the
+ * stylesheet's address, or the page's for inline CSS). `imports` is how the
+ * stylesheets it `@import`s are signed: `style` from the prototype's own CSS
+ * or a page's link, `import` from another site's stylesheet, and null from an
+ * imported one, whose imports are left unmapped for the frame's policy to
+ * refuse.
+ */
+export function rewriteCss(ctx: UrlContext, source: string, base: URL, imports: "style" | "import" | null = "style"): string {
   const tokens: { type: number; start: number; end: number }[] = [];
   tokenize(source, (type, start, end) => tokens.push({ type, start, end }));
   const replacements: { start: number; end: number; text: string }[] = [];
@@ -28,7 +35,8 @@ export function rewriteCss(ctx: UrlContext, source: string, base: URL): string {
   let fontFaceDepth: number | null = null;
 
   const replace = (start: number, end: number, raw: string, wrap: (mapped: string) => string) => {
-    const mapped = mapUrl(ctx, raw, base, classFor(raw, inImport, fontFaceDepth !== null));
+    if (inImport && imports === null) return;
+    const mapped = mapUrl(ctx, raw, base, classFor(raw, inImport, fontFaceDepth !== null, imports ?? "import"));
     if (mapped !== raw) replacements.push({ start, end, text: wrap(mapped) });
   };
   const nextSignificant = (from: number) => {

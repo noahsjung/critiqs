@@ -38,6 +38,15 @@ describe("AT-16: untrusted page limits", () => {
     ["a 5,000-character address", { ...STATE, url: `https://prototype.example/${"a".repeat(5_000)}` }],
     ["3,000 located targets", { ...STATE, located: Object.fromEntries(Array.from({ length: 3_000 }, (_, index) => [`t${index}`, null])) }],
     ["3,000 occurrences", { ...STATE, located: { t1: { status: "found", occurrences: Array.from({ length: 3_000 }, (_, index) => ({ ref: `e${index}`, recordKey: null })) } } }],
+    // Gemini F-H2-5: keys were unbounded, occurrences were bounded per target only, and file: or about: addresses passed.
+    ["a 20 MB view-state key", { ...STATE, context: { ...STATE.context, viewState: { ["k".repeat(20_000_000)]: 1 } } }],
+    ["a 20 MB located key", { ...STATE, located: { ["t".repeat(20_000_000)]: null } }],
+    [
+      "2,000 occurrences in each of 50 targets",
+      { ...STATE, located: Object.fromEntries(Array.from({ length: 50 }, (_, target) => [`t${target}`, { status: "found", occurrences: Array.from({ length: 2_000 }, () => ({ ref: "e1", recordKey: null })) }])) },
+    ],
+    ["a file: address", { ...STATE, url: "file:///etc/passwd" }],
+    ["an about: address", { ...STATE, url: "about:blank" }],
   ];
   for (const [name, data] of forged) {
     test(`refuses ${name}`, () => {

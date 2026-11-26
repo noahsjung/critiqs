@@ -13,10 +13,26 @@ how long. The prototype's origin is served at the host's root; review links
 are read-only and credential-free (GET and HEAD only, no cookies or
 `Authorization` either way, no WebSockets or service workers).
 
-- `src/server.ts` checks, before fetching anything: the Host is the domain or
-  one label under it (421 otherwise), header and URL sizes (Cookie aside),
-  the method, no upgrade, a top-level open (a notice, never the prototype),
-  the lease, and the lease's request window and read slots.
+- `src/server.ts` checks, before fetching anything: the method (before the
+  request's target is even parsed), the Host is the domain or one label under
+  it (421 otherwise), header and URL sizes (Cookie aside), no upgrade, a
+  top-level open (a notice, never the prototype), the lease (a client whose
+  lookups keep finding nothing stops reaching the backend for a minute), the
+  lease's request window, and read slots for the lease, its link and the
+  upstream host, each a share of the process so one slow site can't hold
+  every read. How a response is served is decided in one place,
+  `handlingOf`, from the route and the response's own type and status, never
+  from what the browser says a request is for: any HTML on the prototype's
+  origin is a page (capped, checked, rewritten), and another site's file must
+  have its class's type at any status.
+- Every response carries `frame-ancestors` with the website's origins: pages
+  get the frame policy, everything else an inert one.
+- Signed addresses use `CRITIQS_PROXY_SIGNING_KEY`, which only the proxy
+  holds (derived from the shared secret when unset), and still accept
+  `CRITIQS_PROXY_SIGNING_KEY_PREVIOUS` during a rotation.
+- Behind a server that terminates TLS, set `CRITIQS_PROXY_CLIENT_IP_HEADER`
+  to the header it overwrites with the viewer's address, or every viewer is
+  one client to the lookup limit.
 - `src/html.ts` parses pages with parse5, maps every address, removes
   `<base>`, CSP and refresh `<meta>` tags, nested frames, `srcdoc`, `ping` and
   `download`, and puts the runtime shim and the page layer first in `<head>`.
@@ -24,7 +40,12 @@ are read-only and credential-free (GET and HEAD only, no cookies or
 - `src/urls.ts` maps addresses: other sites' files only through
   `/__critiqs/a/<signature>/…` paths the proxy itself wrote (an HMAC over the
   lease, class and URL), owner-approved origins through `/__critiqs/o/<slot>/`,
-  and links to other sites to a signed notice.
+  and links to other sites to a signed notice. Another site's stylesheet's
+  `@import`s are signed as `import`, whose own imports are never signed, so a
+  chain of other sites' stylesheets stops two deep.
+- `src/paths.ts` turns an address on the prototype's origin into a frame
+  path, for the rewriter and the runtime shim alike: a path starting with
+  `//` gets `/.` in front, so it can never read as another host.
 - `src/pages.ts` holds the proxy's own notices and the frame's
   Content-Security-Policy.
 - `runtime/shim.ts` maps addresses scripts build at run time, keeps cookies

@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { canonicalHost, siteOf } from "@critiqs/core";
 import { parseCidr, type PublicWebPolicy } from "@critiqs/server/public-web";
 
@@ -18,6 +19,20 @@ export interface ProxyLimits {
   /** Of a lease's reads at once, how many may be prefetches, so what the reviewer opens always has room. */
   concurrentPrefetchPerLease: number;
   concurrentPerProcess: number;
+  /**
+   * Reads at once for all of one link's leases, and for one upstream host
+   * across every link: a share of the process, so one link whose site answers
+   * slowly, opened in many tabs or by many links, can't hold every read.
+   */
+  concurrentPerLink: number;
+  concurrentPerUpstreamHost: number;
+  /**
+   * Frame hosts one client may ask about that turn out to serve nothing, per
+   * `lookupWindowMs`. Past it, that client's uncached hosts get the same 404
+   * without asking the backend, so random hosts can't make the proxy call it.
+   */
+  lookupMissesPerClient: number;
+  lookupWindowMs: number;
   /** Requests and bytes one lease may use per window. */
   windowMs: number;
   requestsPerWindow: number;
@@ -54,6 +69,10 @@ export const DEFAULT_LIMITS: ProxyLimits = {
   concurrentPerLease: 8,
   concurrentPrefetchPerLease: 4,
   concurrentPerProcess: 64,
+  concurrentPerLink: 24,
+  concurrentPerUpstreamHost: 24,
+  lookupMissesPerClient: 30,
+  lookupWindowMs: 60_000,
   windowMs: 10 * 60_000,
   requestsPerWindow: 300,
   prefetchRequestsPerWindow: 600,
@@ -85,8 +104,24 @@ export interface ProxyConfig {
   webOrigins: readonly string[];
   /** The Convex deployment's HTTP address the proxy asks about leases (CRITIQS_PROXY_BACKEND). */
   backend: URL;
-  /** Shared with the backend for its internal routes, and the key for signed asset and leave URLs (CRITIQS_PROXY_SECRET, 32 bytes or more). */
+  /** Shared with the backend for its internal routes (CRITIQS_PROXY_SECRET, 32 bytes or more). */
   secret: string;
+  /**
+   * The key for signed asset and leave addresses (CRITIQS_PROXY_SIGNING_KEY,
+   * 32 bytes or more), which only the proxy holds, so the backend's copy of
+   * the shared secret can't sign them. Without the setting it is derived from
+   * the shared secret under its own label.
+   */
+  signingKey: string;
+  /** The previous signing key during a rotation (CRITIQS_PROXY_SIGNING_KEY_PREVIOUS): addresses it signed are still accepted, never written. */
+  previousSigningKey: string | null;
+  /**
+   * The request header the server in front of the proxy sets to the viewer's
+   * address (CRITIQS_PROXY_CLIENT_IP_HEADER, such as `cf-connecting-ip`), or
+   * null to use the connection's own address. Behind an ingress without it,
+   * every viewer looks like one client.
+   */
+  clientIpHeader: string | null;
   /** The proxy's own outbound address blocks (CRITIQS_PROXY_EGRESS): published for Allow Critiqs, and refused as destinations. */
   egress: readonly string[];
   /** `Critiqs-Review/1 (+<website>/allow-critiqs)`. */
@@ -192,6 +227,15 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
     .filter((text) => text !== "");
   for (const block of egress) if (parseCidr(block) === null) throw new ConfigError(`CRITIQS_PROXY_EGRESS has ${JSON.stringify(block)}, which isn't an address block such as 203.0.113.10/32.`);
 
+  const signingKey = env.CRITIQS_PROXY_SIGNING_KEY ?? "";
+  if (signingKey !== "" && new TextEncoder().encode(signingKey).byteLength < MIN_SECRET_BYTES) throw new ConfigError(`CRITIQS_PROXY_SIGNING_KEY must be at least ${MIN_SECRET_BYTES} bytes.`);
+  const previousSigningKey = env.CRITIQS_PROXY_SIGNING_KEY_PREVIOUS ?? "";
+  if (previousSigningKey !== "" && new TextEncoder().encode(previousSigningKey).byteLength < MIN_SECRET_BYTES) {
+    throw new ConfigError(`CRITIQS_PROXY_SIGNING_KEY_PREVIOUS must be at least ${MIN_SECRET_BYTES} bytes.`);
+  }
+  const clientIpHeader = env.CRITIQS_PROXY_CLIENT_IP_HEADER?.trim().toLowerCase() || null;
+  if (clientIpHeader !== null && !/^[a-z0-9-]{1,64}$/.test(clientIpHeader)) throw new ConfigError("CRITIQS_PROXY_CLIENT_IP_HEADER must be a header name, such as cf-connecting-ip.");
+
   const isolationText = env.CRITIQS_PROXY_COOKIE_ISOLATION?.trim() ?? "";
   let cookieIsolation: CookieIsolation;
   if (local) cookieIsolation = "local";
@@ -215,6 +259,9 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
     webOrigins,
     backend,
     secret,
+    signingKey: signingKey !== "" ? signingKey : createHmac("sha256", secret).update("critiqs-review-proxy signing key").digest("base64url"),
+    previousSigningKey: previousSigningKey !== "" ? previousSigningKey : null,
+    clientIpHeader,
     egress,
     userAgent: `${REVIEW_USER_AGENT_TOKEN} (+${website}/allow-critiqs)`,
     assetUserAgent: ASSET_USER_AGENT,

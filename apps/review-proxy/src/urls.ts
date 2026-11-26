@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { framePath } from "./paths.ts";
 
 // How addresses map between a prototype and its frame host. The prototype's
 // own origin is served at the frame host's root, so paths stay the same and
@@ -11,8 +12,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 // prototype's scripts can make the proxy fetch an address of their choosing.
 // Links to other sites become a signed leave notice, never the site.
 
-export type AssetClass = "image" | "font" | "style" | "script" | "media";
-export const ASSET_CLASSES: readonly AssetClass[] = ["image", "font", "style", "script", "media"];
+/**
+ * What a signed third-party file is for. `import` is a stylesheet another
+ * site's stylesheet imports: its own `@import`s are never signed, so a chain
+ * of other sites' stylesheets stops two deep.
+ */
+export type AssetClass = "image" | "font" | "style" | "import" | "script" | "media";
+export const ASSET_CLASSES: readonly AssetClass[] = ["image", "font", "style", "import", "script", "media"];
 
 export interface UrlContext {
   /** The prototype's origin. */
@@ -21,7 +27,10 @@ export interface UrlContext {
   slots: readonly { slot: number; origin: string }[];
   /** Signatures are bound to the lease, so an address from one lease is refused on another. */
   leaseId: string;
+  /** The proxy's signing key (`ProxyConfig.signingKey`). */
   secret: string;
+  /** The previous signing key during a rotation: what it signed is still accepted. */
+  previousSecret?: string | null;
 }
 
 export const RESERVED = "/__critiqs/";
@@ -33,6 +42,11 @@ function mac(secret: string, text: string): Buffer {
 function matches(given: string, expected: Buffer): boolean {
   const bytes = Buffer.from(given, "base64url");
   return given.length === 22 && bytes.length === expected.length && timingSafeEqual(bytes, expected);
+}
+
+/** Whether `signature` is this lease's signature of `text`, by the signing key or the previous one. */
+function signed(ctx: UrlContext, text: string, signature: string): boolean {
+  return [ctx.secret, ctx.previousSecret].some((key) => typeof key === "string" && key !== "" && matches(signature, mac(key, text)));
 }
 
 /** The URL as a signed path carries it: origin, path and query, without a fragment or an empty `?`. */
@@ -61,11 +75,6 @@ export function leavePath(ctx: UrlContext, url: URL): string {
   return `${RESERVED}leave?to=${encodeURIComponent(url.origin)}&s=${signature}`;
 }
 
-/** A URL on the prototype's own origin as a frame path: its path, query and fragment. */
-function primaryPath(url: URL): string {
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
 /**
  * Where the browser should ask for `raw`, read against the upstream `base`.
  * `as` says whether it is a page (a link or form) or a static file of a class.
@@ -83,7 +92,7 @@ export function mapUrl(ctx: UrlContext, raw: string, base: URL, as: "page" | Ass
     return raw;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return raw;
-  if (url.origin === ctx.primary) return primaryPath(url);
+  if (url.origin === ctx.primary) return framePath(url);
   const slot = ctx.slots.find((entry) => entry.origin === url.origin);
   if (slot !== undefined) return `${RESERVED}o/${slot.slot}${url.pathname}${url.search}${url.hash}`;
   if (as === "page") return leavePath(ctx, url);
@@ -131,7 +140,7 @@ export function routeRequest(ctx: UrlContext, request: URL): ProxyRoute {
     } catch {
       return { kind: "none" };
     }
-    return matches(signature, mac(ctx.secret, `leave\n${ctx.leaseId}\n${origin}`)) ? { kind: "leave", to: origin } : { kind: "none" };
+    return signed(ctx, `leave\n${ctx.leaseId}\n${origin}`, signature) ? { kind: "leave", to: origin } : { kind: "none" };
   }
   if (head === "o" && tail.length >= 1) {
     const [slotText, ...pathSegments] = tail;
@@ -158,7 +167,7 @@ export function routeRequest(ctx: UrlContext, request: URL): ProxyRoute {
     upstream.search = request.search;
     if (upstream.origin !== origin) return { kind: "none" };
     // Checked before anything about the address is looked up.
-    if (!matches(signature, mac(ctx.secret, `asset\n${ctx.leaseId}\n${assetClass}\n${upstream.href}`))) return { kind: "none" };
+    if (!signed(ctx, `asset\n${ctx.leaseId}\n${assetClass}\n${upstream.href}`, signature)) return { kind: "none" };
     return { kind: "asset", assetClass: assetClass as AssetClass, upstream };
   }
   if (tail.length === 0 && /^(?:runtime|layer)\.[a-z0-9]{8,}\.js$/.test(head ?? "")) return { kind: "static", file: head! };

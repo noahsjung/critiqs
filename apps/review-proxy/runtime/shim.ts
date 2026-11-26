@@ -9,6 +9,7 @@
 // they are and the frame's Content-Security-Policy refuses them.
 
 import { REVIEW_FRAME_TAG, type ReviewFrameMessage, type ReviewUnsupported } from "@critiqs/core";
+import { framePath } from "../src/paths.ts";
 
 export interface RuntimeMap {
   /** The prototype's origin, served at this frame host's root. */
@@ -27,7 +28,7 @@ export function runtimeUrl(map: RuntimeMap, raw: string, base: string, here: str
     return raw;
   }
   if (url.origin === here || (url.protocol !== "http:" && url.protocol !== "https:")) return raw;
-  if (url.origin === map.primary) return `${url.pathname}${url.search}${url.hash}`;
+  if (url.origin === map.primary) return framePath(url);
   const slot = map.slots.find((entry) => entry.origin === url.origin);
   if (slot !== undefined) return `/__critiqs/o/${slot.slot}${url.pathname}${url.search}${url.hash}`;
   return raw;

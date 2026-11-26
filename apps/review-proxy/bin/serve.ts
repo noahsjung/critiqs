@@ -46,13 +46,25 @@ try {
   const reputation = cachedReputation(config.webRiskKey !== null ? webRiskProvider(config.webRiskKey) : fixtureReputation());
   const policy = proxyPolicy(config);
   const egress = {
-    primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits }),
-    asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits }),
+    // A link's own and owner-approved origins are checked by path; third-party static files by host.
+    primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits, reputationScope: "path" }),
+    asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits, reputationScope: "origin" }),
   };
   const proxy = createReviewProxy(config, { directory: directoryFrom(config, env), egress, assets: await buildAssets() });
   const hostname = env.CRITIQS_PROXY_LISTEN ?? "127.0.0.1";
   const port = Number(env.PORT ?? (config.domain.port || 5120));
-  const server = Bun.serve({ hostname, port, fetch: (request) => proxy.fetch(request) });
+  const server = Bun.serve({
+    hostname,
+    port,
+    // Never Bun's developer error page (it shows the working directory and a stack): an error is a bare 500.
+    development: false,
+    error: () => new Response("", { status: 500, headers: { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" } }),
+    fetch: (request, bunServer) => {
+      // The header the server in front sets; in a list, the last entry is the one it added.
+      const forwarded = config.clientIpHeader === null ? null : request.headers.get(config.clientIpHeader);
+      return proxy.fetch(request, { client: forwarded?.split(",").at(-1)?.trim() || bunServer.requestIP(request)?.address || "" });
+    },
+  });
   if (!(await headersAccepted(port, hostname))) {
     server.stop(true);
     throw new ConfigError(`Start the proxy with bun --max-http-header-size=${HEADER_BYTES} (bun run serve), so a frame host's planted cookies can't make it refuse other frames.`);

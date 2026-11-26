@@ -19,11 +19,12 @@ export const text =
     typeof value === "string" && value.length <= max ? value : fail(path, Number.isFinite(max) ? `text of at most ${max} characters` : "text");
 
 /** The schemes a page Critiqs runs on can have: web pages, local files, and frames' `about:` documents. */
-const PAGE_SCHEMES = new Set(["http:", "https:", "file:", "about:"]);
+/** Schemes a page's address may have: the web's, and a local file's or a blank page's for installed Critiqs. */
+export const PAGE_SCHEMES: readonly string[] = ["http:", "https:", "file:", "about:"];
 
-/** A page's absolute address, never one that runs code (`javascript:`) or carries content (`data:`). */
+/** A page's absolute address with one of `schemes`, never one that runs code (`javascript:`) or carries content (`data:`). */
 export const webAddress =
-  (max: number): Check<string> =>
+  (max: number, schemes: readonly string[] = PAGE_SCHEMES): Check<string> =>
   (value, path) => {
     const address = text(max)(value, path);
     let parsed: URL | null = null;
@@ -32,7 +33,7 @@ export const webAddress =
     } catch {
       // Reported below.
     }
-    return parsed !== null && PAGE_SCHEMES.has(parsed.protocol) ? address : fail(path, "a page's http, https, or file address");
+    return parsed !== null && schemes.includes(parsed.protocol) ? address : fail(path, `a page's ${schemes.map((scheme) => scheme.slice(0, -1)).join(", ")} address`);
   };
 
 export const finite: Check<number> = (value, path) =>
@@ -76,14 +77,18 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+/** An object of at most `max` entries, each key at most `maxKey` characters, each value checked. */
 export const record =
-  <T>(check: Check<T>, max = 1_000_000): Check<Record<string, T>> =>
+  <T>(check: Check<T>, max = 1_000_000, maxKey = Number.POSITIVE_INFINITY): Check<Record<string, T>> =>
   (value, path) => {
     if (!isRecord(value)) return fail(path, "an object");
     const entries = Object.entries(value);
     if (entries.length > max) return fail(path, `an object of at most ${max} entries`);
     const result: Record<string, T> = Object.create(null);
-    for (const [key, entry] of entries) result[key] = check(entry, `${path}.${key}`);
+    for (const [key, entry] of entries) {
+      if (key.length > maxKey) return fail(path, `an object whose keys have at most ${maxKey} characters`);
+      result[key] = check(entry, `${path}.${key.slice(0, 64)}`);
+    }
     return result;
   };
 

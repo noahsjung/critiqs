@@ -16,6 +16,7 @@ import {
   record,
   text,
   variants,
+  PAGE_SCHEMES,
   webAddress,
 } from "./check.ts";
 
@@ -247,6 +248,12 @@ export interface PageLimits {
   /** Occurrences in one located target, and located targets in one state. */
   occurrences: number;
   located: number;
+  /** Occurrences across every located target in one state. */
+  totalOccurrences: number;
+  /** Characters in one object key (view state, located targets). */
+  keyLength: number;
+  /** The schemes a page's address may have. */
+  schemes: readonly string[];
   /** A capture's bytes. */
   image: number;
 }
@@ -258,6 +265,9 @@ export const INSTALLED_PAGE_LIMITS: PageLimits = {
   viewStateKeys: Number.POSITIVE_INFINITY,
   occurrences: 100_000,
   located: 1_000_000,
+  totalOccurrences: Number.POSITIVE_INFINITY,
+  keyLength: Number.POSITIVE_INFINITY,
+  schemes: PAGE_SCHEMES,
   image: Number.POSITIVE_INFINITY,
 };
 
@@ -268,6 +278,10 @@ export const UNTRUSTED_PAGE_LIMITS: PageLimits = {
   viewStateKeys: 100,
   occurrences: 2_000,
   located: 2_000,
+  totalOccurrences: 2_000,
+  keyLength: 256,
+  // A review frame's pages are always on the web.
+  schemes: ["http:", "https:"],
   image: 10 * 1024 * 1024,
 };
 
@@ -297,10 +311,10 @@ interface PageChecks {
 function pageChecks(limits: PageLimits): PageChecks {
   const MAX_TEXT = limits.text;
   /** A page's address: the panel builds share links from it, so never one that runs code. */
-  const url = webAddress(limits.url);
+  const url = webAddress(limits.url, limits.schemes);
   const viewValue = (value: unknown, path: string): string | number | boolean | null =>
     value === null || typeof value === "boolean" ? value : typeof value === "number" ? finite(value, path) : text(MAX_TEXT)(value, path);
-  const viewState: Check<ViewState> = record(viewValue, limits.viewStateKeys);
+  const viewState: Check<ViewState> = record(viewValue, limits.viewStateKeys, limits.keyLength);
   const target: Check<Target> = object({
     purposeId: nullable(text(MAX_TEXT)),
     recordKey: nullable(text(MAX_TEXT)),
@@ -322,7 +336,13 @@ function pageChecks(limits: PageLimits): PageChecks {
     context,
     viewport: size,
     restores: boolean,
-    located: record(nullable(located), limits.located),
+    located: (value, path) => {
+      const checked = record(nullable(located), limits.located, limits.keyLength)(value, path);
+      let total = 0;
+      for (const entry of Object.values(checked)) if (entry?.status === "found") total += entry.occurrences.length;
+      if (total > limits.totalOccurrences) throw new ProtocolError(`${path} must have at most ${limits.totalOccurrences} occurrences in all.`);
+      return checked;
+    },
   });
   const display: Check<PageDisplay> = object({
     hidden: boolean,

@@ -346,7 +346,7 @@ describe("AT-10: third-party assets", () => {
     const { proxy } = setup();
     // Signed as images, as a page could make the proxy sign any address it links as an image.
     const { assetPath } = await import("../src/urls.ts");
-    const ctx = { primary: "http://proto.example.com", slots: [], leaseId: "lease-1", secret: baseConfig.secret };
+    const ctx = { primary: "http://proto.example.com", slots: [], leaseId: "lease-1", secret: baseConfig.signingKey };
     for (const [file, assetClass] of [
       ["/page.html", "image"],
       ["/data.json", "image"],
