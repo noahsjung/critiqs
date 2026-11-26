@@ -505,11 +505,16 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
   started, and Done → done; Jira has no canceled category, and a deleted issue
   shows **Deleted**. When someone signed in to Jira links or creates a ticket,
   their sign-in registers one webhook per site following the projects of the
-  tickets they linked there in projects they may still review. Each
-  registration and the daily renewal (a week before the webhook's 30 days
-  end) work that out again first, so after a person is removed from a
-  project, or unlinks their last ticket in it, their webhook stops following
-  it, and one that follows nothing is removed at Jira rather than renewed.
+  tickets they linked there, with the Jira account it is registered as, in
+  projects they may still review. Each registration and the daily renewal (a
+  week before the webhook's 30 days end) work that out again first, before
+  their token is read at all (not even refreshed), and then read it only for
+  those projects, or only to remove the webhook; so after a person is removed
+  from a project, or unlinks their last ticket in it, their webhook stops
+  following it, and one that follows nothing is removed at Jira rather than
+  renewed. If Jira won't remove it, the record stays and a later run tries
+  again; a webhook registered after another run took the record is removed
+  at Jira at once, so it doesn't hold one of the person's five slots there.
   Jira's answers are read as its documentation gives them: the webhook's ID
   from the registration, and the new expiry from a renewal as a number or as
   a date like `2019-06-01T12:42:30.000+0000`; a registered webhook is kept

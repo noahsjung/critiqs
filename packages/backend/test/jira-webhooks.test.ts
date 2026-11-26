@@ -196,6 +196,32 @@ test("a person's webhook follows only projects where they still have a linked ti
   expect(await t.run((ctx) => ctx.db.query("trackerWebhooks").collect())).toEqual([]);
 });
 
+test("a person's webhook follows only tickets linked with the Jira account it is registered as, and a follow with nothing new to register never reads their token", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const lee = t.withIdentity(reviewer("Lee"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
+  const threadId = await lee.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
+  await signIn(t, lee);
+  const issue = addJiraIssue(jira, { summary: "Existing" });
+  await lee.action(api.tickets.link, { threadId, tracker: "jira", externalId: `${jira.site.cloudId}/${issue.id}`, comment: false });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(jira.webhooks).toHaveLength(1);
+  const [account] = await t.run((ctx) => ctx.db.query("trackerAccounts").collect());
+  // The ticket was linked with another Jira account Lee had on the site before.
+  await t.run(async (ctx) => {
+    for (const link of await ctx.db.query("ticketLinks").collect()) await ctx.db.patch(link._id, { accountId: `${jira.site.cloudId}/557058:earlier` });
+    for (const hook of await ctx.db.query("trackerWebhooks").collect()) await ctx.db.delete(hook._id);
+  });
+  jira.webhooks.length = 0;
+  jira.requests.length = 0;
+  // Nothing linked with this account: nothing to register, and Jira isn't asked, not even to refresh the sign-in.
+  await t.run((ctx) => ctx.db.patch(account!._id, { expiresAt: Date.now() - 1 }));
+  expect(await t.action(internal.trackerWebhooks.follow, { userId: account!.userId, accountId: account!.accountId, tracker: "jira" })).toBe("covered");
+  expect(jira.requests).toEqual([]);
+  expect(jira.webhooks).toEqual([]);
+});
+
 test("unlinking the last ticket in a project stops the person's webhook following it", async () => {
   const t = setup();
   const dana = t.withIdentity(reviewer("Dana"));

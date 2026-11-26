@@ -7,7 +7,6 @@ import {
   renewTicketWebhook,
   saveWebhookUpdate,
   type JiraNoticeResult,
-  type TrackerSite,
   type WebhookClaim,
   type WebhookRenewal,
   webhooksToRenew,
@@ -27,7 +26,6 @@ import { ticketStatusValidator, trackerValidator } from "./lib/validators";
 // renews each a week before it expires; deliveries arrive at
 // /trackers/jira/webhook (trackerHttp.ts).
 
-const site = v.object({ id: v.string(), name: v.string() });
 const person = { userId: v.string(), accountId: v.string(), tracker: trackerValidator };
 
 /** Where Jira sends a tracker's webhooks on this deployment. */
@@ -41,8 +39,9 @@ export const follow = internalAction({
     const { userId, accountId, tracker } = args;
     return await followTicketScope(
       {
-        token: () => trackerToken(ctx, { userId, accountId }, tracker),
-        claim: (on: TrackerSite, leaseId: string): Promise<WebhookClaim> => ctx.runMutation(internal.trackerWebhooks.claim, { userId, accountId, tracker, site: on, leaseId }),
+        // Read only after `claim` worked out what the webhook follows, and only as `use` allows.
+        token: (use) => trackerToken(ctx, { userId, accountId }, tracker, use),
+        claim: (leaseId: string): Promise<WebhookClaim> => ctx.runMutation(internal.trackerWebhooks.claim, { userId, accountId, tracker, leaseId }),
         save: (siteId, leaseId, hook): Promise<boolean> => ctx.runMutation(internal.trackerWebhooks.save, { userId, accountId, tracker, siteId, leaseId, hook }),
         sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
         leaseId: () => randomSecret(16),
@@ -56,7 +55,7 @@ export const follow = internalAction({
 });
 
 export const claim = internalMutation({
-  args: { ...person, site, leaseId: v.string() },
+  args: { ...person, leaseId: v.string() },
   handler: async (ctx, args): Promise<WebhookClaim> => await claimWebhookUpdate(convexStore(ctx), args, Date.now()),
 });
 
@@ -87,8 +86,8 @@ export const renew = internalAction({
     await renewTicketWebhook(
       {
         claim: (leaseId): Promise<WebhookRenewal> => ctx.runMutation(internal.trackerWebhooks.claimRenewal, { ...args, leaseId }),
-        token: (who, tracker) => trackerToken(ctx, who, tracker),
-        finish: async (leaseId, result) => void (await ctx.runMutation(internal.trackerWebhooks.finishRenewal, { ...args, leaseId, result })),
+        token: (who, tracker, use) => trackerToken(ctx, who, tracker, use),
+        finish: (leaseId, result): Promise<boolean> => ctx.runMutation(internal.trackerWebhooks.finishRenewal, { ...args, leaseId, result }),
         leaseId: () => randomSecret(16),
         now: () => Date.now(),
         url: webhookUrl("jira"),
@@ -108,7 +107,7 @@ export const finishRenewal = internalMutation({
     leaseId: v.string(),
     result: v.union(v.object({ hookId: v.string(), expiresAt: v.number(), scopes: v.array(v.string()) }), v.literal("gone"), v.literal("failed")),
   },
-  handler: async (ctx, args): Promise<void> => await finishWebhookRenewal(convexStore(ctx), args, Date.now()),
+  handler: async (ctx, args): Promise<boolean> => await finishWebhookRenewal(convexStore(ctx), args, Date.now()),
 });
 
 /**
