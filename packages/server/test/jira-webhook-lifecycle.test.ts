@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { trackerAdapter, ticketsDeploymentFromEnv } from "../src/tickets/accounts.ts";
+import { encryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
+import { type AccessSteps, type TokenUse, trackerAccessToken, trackerAdapter, trackerRemovalAccess, ticketsDeploymentFromEnv } from "../src/tickets/accounts.ts";
 import { exchangeJiraCode } from "../src/tickets/trackers/jira.ts";
 import type { TrackerToken } from "../src/tickets/trackers/index.ts";
 import { followTicketScope, renewTicketWebhook, webhookRemoval } from "../src/tickets/webhooks.ts";
@@ -136,6 +137,39 @@ test("a token read only to remove what Critiqs registered can do nothing else: i
   expect(removal).toMatchObject({ method: "oauth", site });
   expect(JSON.stringify(removal)).not.toContain(token.value);
   expect(Object.values(removal).some((value) => value === token || value === token.value)).toBe(false);
+  await removal.remove([registered.id]);
+  expect(standIn.webhooks).toEqual([]);
+});
+
+test("reading a token asks the store step for exactly its own use, and a read for removal comes back only as a removal", async () => {
+  const { standIn, site, token } = await signedIn();
+  const webhooks = trackerAdapter("jira", deployment, standIn.fetchFn).webhooks!;
+  const registered = await webhooks.register(token, { url: "https://critiq.test/trackers/jira/webhook", scopes: ["10001"], now: 1_000 });
+  const access = await encryptToken("operator-encryption-key-".padEnd(48, "x"), trackerTokenBinding("jira", "u1"), token.value);
+  const asked: TokenUse[] = [];
+  const steps: AccessSteps = {
+    claim: async (_leaseId, use) => {
+      asked.push(use);
+      return { status: "ready", method: "oauth", access, site };
+    },
+    finish: async () => ({ status: "saved" }),
+    sleep: async () => undefined,
+    now: () => 1_000,
+    leaseId: () => "lease",
+  };
+  const person = { userId: "u1", tracker: "jira" as const, accountId: "557058:dana" };
+  // A person's own request, and a job: the store step checks the use it is given, and the token comes back.
+  expect(await trackerAccessToken(steps, deployment, { ...person, use: { by: "person" } })).toEqual(token);
+  expect(await trackerAccessToken(steps, deployment, { ...person, use: { by: "job", projects: ["p1"] } })).toEqual(token);
+  // Removal: refused by type and when called, before the store is asked.
+  // @ts-expect-error A token read only to remove what Critiqs registered is never returned.
+  await expect(trackerAccessToken(steps, deployment, { ...person, use: { by: "cleanup" } })).rejects.toThrow("never returned");
+  expect(asked).toEqual([{ by: "person" }, { by: "job", projects: ["p1"] }]);
+  // The one read for removal: a removal, which never shows the token.
+  const removal = await trackerRemovalAccess(steps, deployment, person, webhooks);
+  expect(asked.at(-1)).toEqual({ by: "cleanup" });
+  expect(Object.keys(removal).sort()).toEqual(["method", "remove", "site"]);
+  expect(JSON.stringify(removal)).not.toContain(token.value);
   await removal.remove([registered.id]);
   expect(standIn.webhooks).toEqual([]);
 });

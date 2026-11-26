@@ -3,7 +3,7 @@ import type { TicketStatus } from "@critiqs/core";
 import { encryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
 import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
-import { claimTokenRefresh, disconnectTracker, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, type TokenUse, trackerAccessToken } from "../src/tickets/accounts.ts";
+import { claimTokenRefresh, disconnectTracker, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, type TokenRead, trackerAccessToken } from "../src/tickets/accounts.ts";
 import { getTicketTemplateSettings, saveTicketTemplateSettings } from "../src/tickets/drafts.ts";
 import { claimTicketLink, finishTicketLink, linkTicket, releaseTicketHold } from "../src/tickets/links.ts";
 import {
@@ -95,17 +95,17 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
   /** A person's Linear token, read as Convex reads it: as `who` in their own request, or for a job acting in `use`'s projects. */
   const tokens =
     (backend: ContractBackend, who: Identity | null = null) =>
-    ({ userId: id, accountId }: { userId: string; accountId: string }, use: TokenUse = { by: "person" }) =>
+    ({ userId: id, accountId }: { userId: string; accountId: string }, use: TokenRead = { by: "person" }) =>
       trackerAccessToken(
         {
-          claim: (leaseId) => backend.run((store) => claimTokenRefresh(store, { userId: id, tracker: "linear", accountId, leaseId, use }, 1_000, who)),
+          claim: (leaseId, asked) => backend.run((store) => claimTokenRefresh(store, { userId: id, tracker: "linear", accountId, leaseId, use: asked }, 1_000, who)),
           finish: (leaseId, refreshed) => backend.run((store) => finishTokenRefresh(store, { userId: id, tracker: "linear", leaseId, tokens: refreshed }, 1_000)),
           sleep: async () => undefined,
           now: () => 1_000,
           leaseId: () => "lease",
         },
         deployment,
-        { userId: id, tracker: "linear", accountId },
+        { userId: id, tracker: "linear", accountId, use },
       );
 
   let ids = 0;
@@ -353,8 +353,8 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     expect((await tokens(backend, lee)(person)).value).toBe("lin_api_lee");
     expect((await refusal(tokens(backend, sam)(person))).code).toBe("forbidden");
     expect((await refusal(tokens(backend, null)(person))).code).toBe("forbidden");
-    // Removing what Critiqs registered at the tracker reads nothing there, so it needs no project.
-    expect((await tokens(backend)(person, { by: "cleanup" })).value).toBe("lin_api_lee");
+    // Removing what Critiqs registered at the tracker reads nothing there, so it needs no project; the token is held only as a removal (trackerRemovalAccess).
+    expect(await backend.run((store) => claimTokenRefresh(store, { userId: leeId, tracker: "linear", accountId: person.accountId, leaseId: "lease", use: { by: "cleanup" } }, 1_000))).toMatchObject({ status: "ready" });
   });
 
   test(`${name}: a check of an issue moved to another team keeps it linked under its new key and address, and keeps the old ones out`, async () => {

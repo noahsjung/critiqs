@@ -5,7 +5,8 @@ import { normalizeEmail } from "../signin.ts";
 import { currentReviewer, requireUser } from "../operations.ts";
 import { canReview } from "../organizations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
-import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerSite, type TrackerToken } from "./trackers/index.ts";
+import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerSite, type TrackerToken, type TrackerWebhooks } from "./trackers/index.ts";
+import { type WebhookRemoval, webhookRemoval } from "./webhooks.ts";
 import { deleteGithubGrant, exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
 import { exchangeJiraCode, JIRA_API_URL, JIRA_AUTH_URL, type JiraApp, jiraAuthorizeUrl, jiraSignInSite, parseJiraSite, refreshJiraToken } from "./trackers/jira.ts";
 import { exchangeLinearCode, LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, linearAuthorizeUrl, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
@@ -718,7 +719,7 @@ export type RefreshClaim =
  *   with the token, such as a webhook, which reads nothing of any project.
  */
 export type TokenUse = { by: "person" } | { by: "job"; projects: string[] } | { by: "cleanup" };
-/** A use a token may be returned for: a token read for `cleanup` is only ever held as a `WebhookRemoval` (webhooks.ts). */
+/** A use a token may be returned for (`trackerAccessToken`): a token read for `cleanup` is only ever held as a `WebhookRemoval` (`trackerRemovalAccess`). */
 export type TokenRead = Exclude<TokenUse, { by: "cleanup" }>;
 
 /** Whether a token may be used as `use` says, for the person `userId`. */
@@ -809,7 +810,8 @@ export async function finishTokenRefresh(
 
 /** The steps of reading an access token; each store step is its own transaction. */
 export interface AccessSteps {
-  claim(leaseId: string): Promise<RefreshClaim>;
+  /** Reads the account, checking `use` in the same step (`claimTokenRefresh`): the reader passes its own use. */
+  claim(leaseId: string, use: TokenUse): Promise<RefreshClaim>;
   finish(leaseId: string, tokens: { access: StoredToken; refresh: StoredToken | null; expiresAt: number | null } | null): Promise<RefreshFinish>;
   sleep(ms: number): Promise<void>;
   now(): number;
@@ -820,13 +822,31 @@ export interface AccessSteps {
 const BUSY_WAIT_MS = 500;
 
 /**
- * A person's working token for a tracker, refreshed first when it has expired;
+ * A person's working token for a tracker, read for `use`, which the store
+ * step checks (`AccessSteps.claim`); refreshed first when it has expired;
  * while another refresh runs, waits for it. Only the token of the tracker
  * account `accountId` that the caller checked: when the person has since
  * connected another account, it is refused, so nothing is asked of the
- * tracker as an account the caller didn't check.
+ * tracker as an account the caller didn't check. A token read only to
+ * remove what Critiqs registered is never returned: `trackerRemovalAccess`
+ * holds it.
  */
-export async function trackerAccessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string }): Promise<TrackerToken> {
+export async function trackerAccessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string; use: TokenRead }): Promise<TrackerToken> {
+  // Checked here too, for callers the types don't reach.
+  if ((args.use as TokenUse).by === "cleanup") throw new Error("A token read only to remove what Critiqs registered is never returned: trackerRemovalAccess holds it.");
+  return await accessToken(steps, deployment, args, args.use);
+}
+
+/**
+ * A person's token for a tracker, read only to remove webhooks Critiqs
+ * registered there (`cleanup`), as a `WebhookRemoval`, which can do that and
+ * nothing else: the token never leaves it.
+ */
+export async function trackerRemovalAccess(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string }, webhooks: TrackerWebhooks): Promise<WebhookRemoval> {
+  return webhookRemoval(webhooks, await accessToken(steps, deployment, args, { by: "cleanup" }));
+}
+
+async function accessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string }, use: TokenUse): Promise<TrackerToken> {
   const key = requireKey(deployment);
   const binding = trackerTokenBinding(args.tracker, args.userId);
   const label = trackerLabel(args.tracker);
@@ -836,7 +856,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
   const siteFor = (site: TrackerSite | null) => (trackerHasSites(args.tracker) ? { site } : {});
   // Waits at most a lease's length for another refresh, then takes over.
   for (let waited = 0; ; waited += BUSY_WAIT_MS) {
-    const claim = await steps.claim(leaseId);
+    const claim = await steps.claim(leaseId, use);
     switch (claim.status) {
       case "forbidden":
         fail("forbidden", `Critiqs doesn't use your ${label} connection for this: you may no longer review its project.`);

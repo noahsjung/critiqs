@@ -3,7 +3,7 @@ import type { NewTicket, TicketLinkInput, TrackerId } from "@critiqs/core";
 import { encryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
 import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
-import { claimTokenRefresh, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, type TokenUse, trackerAccessToken } from "../src/tickets/accounts.ts";
+import { claimTokenRefresh, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, type TokenRead, type TokenUse, trackerAccessToken } from "../src/tickets/accounts.ts";
 import {
   addTicketLinkBack,
   claimTicketCreation,
@@ -60,6 +60,8 @@ async function refusal(promise: Promise<unknown>): Promise<CritiqsError> {
  */
 /** For tests that read tokens around other steps: what a token may be read for (`TokenUse`) has its own test. */
 const LEASE_ONLY: TokenUse = { by: "cleanup" };
+/** What these tests read a token for; their store steps claim it as `LEASE_ONLY`, which needs no request or project. */
+const LEASE_READ: TokenRead = { by: "person" };
 
 export function defineTicketLinkContract(name: string, fresh: () => ContractBackend) {
   const dana = reviewer("Dana");
@@ -121,7 +123,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
           leaseId: () => "lease",
         },
         deployment,
-        { userId: id, tracker: "linear", accountId },
+        { userId: id, tracker: "linear", accountId, use: LEASE_READ },
       );
   const token = (who: Identity) => async () => ({ method: "token" as const, value: `lin_api_${who.name!.toLowerCase()}` });
 
