@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { bunDriver, migrate, SCHEMA_VERSION, SqliteStore } from "../src/sqlite/index.ts";
 import { MIGRATIONS } from "../src/sqlite/store.ts";
+import { shortenProjectName } from "@critiqs/core";
 import { reserveCredits, settleCredits } from "../src/ai/credits.ts";
 import * as operations from "../src/operations.ts";
 import { saveAboutYou } from "../src/onboarding.ts";
@@ -438,6 +439,83 @@ test("SQLite: upgrading a version 9 database counts each organization's images f
   expect(await store.transaction((s) => operations.getUsage(s, reviewer("Dana"), { projectId: ids.one }))).toMatchObject({
     rows: [{ metric: "captureBytes", period: "total", used: 1500, max: 10_000 }],
   });
+});
+
+test("SQLite: upgrading a version 11 database shortens project names longer than 200 characters and keeps the rest", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 11)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 11");
+  const dana = `u_${"1".repeat(32)}`;
+  driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
+  const names: Record<string, string> = {
+    [`p_${"2".repeat(32)}`]: "x".repeat(900_000),
+    [`p_${"3".repeat(32)}`]: "x".repeat(200),
+    [`p_${"4".repeat(32)}`]: `${"x".repeat(199)}😀 and more`,
+    // 150 characters, but 300 code units, as JavaScript and a browser count them.
+    [`p_${"5".repeat(32)}`]: "😀".repeat(150),
+    // SQLite's length() stops at a NUL character, so it can't find this one by length alone.
+    [`p_${"6".repeat(32)}`]: `before\u0000${"x".repeat(1_000)}`,
+    [`p_${"7".repeat(32)}`]: "Admin prototype",
+  };
+  for (const [id, name] of Object.entries(names)) {
+    driver.run("INSERT INTO projects (id, name, tags, created_by, created_at) VALUES (?, ?, '[]', ?, 1)", [id, name, dana]);
+  }
+  new SqliteStore(driver);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  const rows = driver.all<{ id: string; name: Uint8Array }>("SELECT id, CAST(name AS BLOB) AS name FROM projects");
+  const stored = Object.fromEntries(rows.map((row) => [row.id, new TextDecoder().decode(row.name)]));
+  expect(stored).toEqual(Object.fromEntries(Object.entries(names).map(([id, name]) => [id, shortenProjectName(name)])));
+  expect(stored[`p_${"3".repeat(32)}`]).toBe("x".repeat(200));
+  expect(stored[`p_${"2".repeat(32)}`]).not.toBe(names[`p_${"2".repeat(32)}`]);
+  expect(stored[`p_${"6".repeat(32)}`]).toMatch(/^before\u0000x+… [0-9a-z]{11}$/);
+});
+
+test("SQLite: upgrading a version 11 database stored as UTF-16 shortens names without garbling them", async () => {
+  for (const encoding of ["UTF-16le", "UTF-16be"]) {
+    const driver = bunDriver(new Database(":memory:"));
+    driver.exec(`PRAGMA encoding = '${encoding}'`);
+    for (const migration of MIGRATIONS.slice(0, 11)) {
+      if (typeof migration === "string") driver.exec(migration);
+      else migration(driver);
+    }
+    driver.exec("PRAGMA user_version = 11");
+    const dana = `u_${"1".repeat(32)}`;
+    driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
+    const long = `prototype-${"é".repeat(300)}`;
+    driver.run("INSERT INTO projects (id, name, tags, created_by, created_at) VALUES (?, ?, '[]', ?, 1)", [`p_${"2".repeat(32)}`, long, dana]);
+    driver.run("INSERT INTO projects (id, name, tags, created_by, created_at) VALUES (?, ?, '[]', ?, 1)", [`p_${"3".repeat(32)}`, "Admin prototype", dana]);
+    new SqliteStore(driver);
+    const names = driver.all<{ name: string }>("SELECT name FROM projects ORDER BY id").map((row) => row.name);
+    expect([encoding, names]).toEqual([encoding, [shortenProjectName(long), "Admin prototype"]]);
+  }
+});
+
+test("SQLite: the name upgrade reads long names a few at a time", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 11)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 11");
+  const dana = `u_${"1".repeat(32)}`;
+  driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
+  for (let i = 0; i < 40; i++) {
+    driver.run("INSERT INTO projects (id, name, tags, created_by, created_at) VALUES (?, ?, '[]', ?, 1)", [`p_${String(i).padStart(32, "0")}`, `${i}`.padEnd(300, "x"), dana]);
+  }
+  let largest = 0;
+  const counting = { ...driver, all: <T,>(query: string, params?: unknown[]) => {
+    const rows = driver.all<T>(query, params as never);
+    if (query.includes("FROM projects")) largest = Math.max(largest, rows.length);
+    return rows;
+  } } as typeof driver;
+  migrate(counting);
+  expect(largest).toBeGreaterThan(0);
+  expect(largest).toBeLessThanOrEqual(16);
+  const names = driver.all<{ name: string }>("SELECT name FROM projects").map((row) => row.name);
+  expect(names.every((name) => name.length <= 200)).toBe(true);
 });
 
 test("SQLite: message search finds word beginnings and accents, and treats search syntax as text", async () => {

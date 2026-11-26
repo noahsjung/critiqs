@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseCommand } from "../bin/cli.mjs";
+import { parseCommand, runCli } from "../bin/cli.mjs";
 import { chooseWiring, readUsage, writeConnection } from "../bin/app.mjs";
 import { findCritiqsUsages } from "../bin/frameworks/jsx.mjs";
 import { runInit } from "../bin/init.mjs";
@@ -27,7 +27,7 @@ import {
   targetDeployment,
 } from "../bin/setup.mjs";
 import { HOSTED_BACKEND_URL, BACKEND_PROTOCOL as COMPONENT_PROTOCOL, SIGN_IN_PROTOCOL as COMPONENT_SIGN_IN_PROTOCOL } from "../../react/src/deployment.ts";
-import { isPrivateReviewAddress } from "@critiqs/core";
+import { isPrivateReviewAddress, shortenProjectName } from "@critiqs/core";
 import { OTHER_ADDRESSES, PRIVATE_ADDRESSES } from "../../core/test/review-addresses.ts";
 
 const folders: string[] = [];
@@ -269,6 +269,12 @@ test("setup refuses before anyone signs in when it couldn't write the result", a
     "sets backend from code",
   );
   await expect(beginSetup({ root: app(), target: "cloud", reviewUrl: "ftp://proto", fetchFn })).rejects.toThrow("review address");
+  expect(calls).toEqual([]);
+});
+
+test("setup refuses a project name longer than 200 characters before anyone signs in", async () => {
+  const { calls, fetchFn } = cloud();
+  await expect(beginSetup({ root: app(), target: "cloud", name: `  ${"x".repeat(201)}  `, fetchFn })).rejects.toThrow("at most 200 characters");
   expect(calls).toEqual([]);
 });
 
@@ -580,6 +586,57 @@ test("a retry reuses the person's project with that name instead of creating ano
   // --new-project always creates.
   const fresh = remoteCloud("approve", { mine: [{ _id: "b".repeat(32), name: "billing", reviewUrl: null }] });
   expect((await (await begin({ root: viteApp(), target: "cloud", signIn: "remote", newProject: true, fetchFn: fresh.fetchFn, sleep: noWait })).finish()).reused).toBe(false);
+});
+
+test("setup finds a project with a long suggested name both before and after the backend shortens it", async () => {
+  const longName = `billing-${"x".repeat(210)}`;
+  const longApp = () => {
+    const root = viteApp();
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: longName }));
+    return root;
+  };
+  for (const stored of [longName, shortenProjectName(longName)]) {
+    const root = longApp();
+    const { calls, fetchFn } = remoteCloud("approve", { mine: [{ _id: PROJECT, name: stored, reviewUrl: null }] });
+    const result = await (await begin({ root, target: "cloud", signIn: "remote", fetchFn, sleep: noWait })).finish();
+    // The result names the project as it is stored.
+    expect(result).toMatchObject({ projectId: PROJECT, reused: true, projectName: stored });
+    expect(calls.some((call) => call.body?.path === "projects:create")).toBe(false);
+  }
+  // With neither, the new project gets the shortened name.
+  const { calls, fetchFn } = remoteCloud("approve", { mine: [] });
+  await (await begin({ root: longApp(), target: "cloud", signIn: "remote", fetchFn, sleep: noWait })).finish();
+  expect(calls.find((call) => call.body?.path === "projects:create")?.body.args.name).toBe(shortenProjectName(longName));
+});
+
+test("init refuses a long --name before asking for any Convex credentials", async () => {
+  const out: string[] = [];
+  const saved = { deploy: process.env.CONVEX_DEPLOY_KEY, admin: process.env.CONVEX_SELF_HOSTED_ADMIN_KEY };
+  delete process.env.CONVEX_DEPLOY_KEY;
+  delete process.env.CONVEX_SELF_HOSTED_ADMIN_KEY;
+  try {
+    const code = await runCli(["init", "--own-convex", "--name", "x".repeat(201)], { cwd: viteApp(), print: (line: string) => out.push(line) });
+    expect(code).not.toBe(0);
+    expect(out.join("\n")).toContain("at most 200 characters");
+    expect(out.join("\n")).not.toContain("CONVEX_DEPLOY_KEY");
+  } finally {
+    if (saved.deploy !== undefined) process.env.CONVEX_DEPLOY_KEY = saved.deploy;
+    if (saved.admin !== undefined) process.env.CONVEX_SELF_HOSTED_ADMIN_KEY = saved.admin;
+  }
+});
+
+test("an unused long --name doesn't stop init from checking a project the code already names", async () => {
+  const root = app(`<Critiqs projectId="${PROJECT}" />`);
+  const out: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(null, { status: 503 })) as unknown as typeof fetch;
+  try {
+    await runCli(["init", "--name", "x".repeat(201)], { cwd: root, print: (line: string) => out.push(line) });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  expect(out.join("\n")).not.toContain("at most 200 characters");
+  expect(out.join("\n")).toContain(`The code already uses project ${PROJECT}`);
 });
 
 test("setup keeps a project the code already names, without signing in", async () => {

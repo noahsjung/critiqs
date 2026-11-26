@@ -9,7 +9,8 @@ import { chooseWiring, envTargetOf, readUsage } from "../bin/app.mjs";
 import { planEnv, readEnvValue, workspaceMembers } from "../bin/env.mjs";
 import { runInit } from "../bin/init.mjs";
 import { createTools } from "../bin/mcp.mjs";
-import { beginSetup, CLOUD_BACKEND_URL, defaultProjectName, doctor, doctorReport, readiness, SetupError } from "../bin/setup.mjs";
+import { shortenProjectName as coreShorten } from "@critiqs/core";
+import { beginSetup, CLOUD_BACKEND_URL, defaultProjectName, doctor, doctorReport, readiness, SetupError, shortenProjectName } from "../bin/setup.mjs";
 
 const PROJECT = "js71q5kzssedhq0rp6myv7zdf58gbb1t";
 const OTHER = "p_0123456789abcdef0123456789abcdef";
@@ -94,6 +95,28 @@ async function begin(args: Parameters<typeof beginSetup>[0]) {
 }
 
 // ---------------------------------------------------------------------------
+// Long names
+
+test("a suggested name longer than a project's name can be is shortened as the backend shortens older names", () => {
+  const long = (suffix: string) => `${"a".repeat(200)}-${suffix}`;
+  const root = workspace([long("web"), long("admin")]);
+  const first = defaultProjectName(join(root, "apps/admin"));
+  const second = defaultProjectName(join(root, "apps/shop"));
+  expect(first).toBe(coreShorten(`acme-platform/${long("web")}`));
+  expect(second).toBe(coreShorten(`acme-platform/${long("admin")}`));
+  expect(first.length).toBeLessThanOrEqual(200);
+  // Two apps whose names share their start still get their own projects.
+  expect(first).not.toBe(second);
+  // Names that fit are unchanged.
+  expect(defaultProjectName(vite())).toBe("billing");
+});
+
+test("init's copy of the name shortening matches the backend's", () => {
+  for (const name of ["Admin", "x".repeat(200), "x".repeat(201), "x".repeat(5_000), `${"x".repeat(186)}😀tail${"y".repeat(20)}`, "😀".repeat(150), `${"x".repeat(180)}      ${"y".repeat(30)}`]) {
+    expect(shortenProjectName(name)).toBe(coreShorten(name));
+  }
+});
+
 // Which variable, and where
 
 test("each framework gets its public variable; workspace apps get their own names and project names", () => {

@@ -337,7 +337,10 @@ async function longMention(options: { projectName: string; count: number; captur
   const t = setup({ limits: true });
   const dana = t.withIdentity(reviewer("Dana"));
   const lee = t.withIdentity(reviewer("Lee"));
-  const projectId = await dana.mutation(api.projects.create, { name: options.projectName, reviewUrl: "https://proto.example/" });
+  const created = await dana.mutation(api.projects.create, { name: "Named later", reviewUrl: "https://proto.example/" });
+  // Names longer than today's limit can remain from before it, until the backfill shortens them.
+  const { _id, _creationTime, ...fields } = (await t.run((ctx) => ctx.db.get(created)))!;
+  const projectId = await t.run((ctx) => ctx.db.insert("projects", { ...fields, name: options.projectName }));
   await lee.mutation(api.threads.create, { projectId, anchor, body: "Hi", tags: [], capture: failed });
   const [leeId] = (await dana.query(api.projects.participants, { projectId, query: "lee" })).map((person) => person._id);
   const storageId =

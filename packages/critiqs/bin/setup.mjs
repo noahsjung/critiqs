@@ -962,7 +962,43 @@ export function readiness({ written, projectId, projectName, backendUrl, reviewA
  * package shares its name, so each app finds and reuses only its own project.
  */
 export function defaultProjectName(root) {
-  return describeApp(root).projectName;
+  return shortenProjectName(describeApp(root).projectName);
+}
+
+/** Refuses a project name given with --name that the backend wouldn't accept, before anything starts. */
+export function checkProjectName(name) {
+  if (name != null && name.trim().length > MAX_PROJECT_NAME_LENGTH) {
+    throw new SetupError(`A project's name can have at most ${MAX_PROJECT_NAME_LENGTH} characters. Pass a shorter --name; no project was created.`);
+  }
+}
+
+/** Longest project name the backend accepts, in UTF-16 code units. */
+export const MAX_PROJECT_NAME_LENGTH = 200;
+
+/**
+ * A copy of `shortenProjectName` in `@critiqs/core`, which this command can't
+ * import: a name longer than the limit keeps its start and gains "… " and 11
+ * letters and digits computed from the whole name. The backend shortens
+ * names from before the limit the same way, so setup finds such a project
+ * again, and two long names sharing their start stay different. A test
+ * checks that the two copies agree.
+ */
+export function shortenProjectName(name) {
+  if (name.length <= MAX_PROJECT_NAME_LENGTH) return name;
+  let end = MAX_PROJECT_NAME_LENGTH - 13;
+  const last = name.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end--;
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < name.length; i++) {
+    const unit = name.charCodeAt(i);
+    h1 = Math.imul(h1 ^ unit, 2654435761);
+    h2 = Math.imul(h2 ^ unit, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hash = (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36).padStart(11, "0");
+  return `${name.slice(0, end).trimEnd()}… ${hash}`;
 }
 
 /**
@@ -1054,6 +1090,8 @@ export async function beginSetup({
     if (reviewUrl === undefined || reviewUrl === null) return { connected: existing, backendUrl: existing.backendUrl };
   }
 
+  if (existing === null) checkProjectName(name);
+
   // Check the code can take the settings before anyone signs in or anything is created.
   // Capture this before sign-in; source permissions may change while approval
   // is pending, and a later read failure must not discard a created project.
@@ -1122,7 +1160,10 @@ export async function beginSetup({
   const signIn = remote
     ? await startRemoteSignIn({ signInUrl: backend.signInUrl, backendUrl: backend.backendUrl, fetchFn, ...(sleep ? { sleep } : {}) })
     : await startBrowserSignIn({ signInUrl: backend.signInUrl, backendUrl: backend.backendUrl });
-  const projectName = (name ?? defaultProjectName(root)).trim() || "Prototype";
+  // A suggested name over the limit is shortened as the backend shortens older
+  // names; a project is found by either form, before or after that backfill.
+  const fullName = (name ?? describeApp(root).projectName).trim() || "Prototype";
+  const projectName = shortenProjectName(fullName);
   return {
     url: signIn.url,
     method: remote ? "remote" : "browser",
@@ -1140,13 +1181,14 @@ export async function beginSetup({
           return { projectId: existing.projectId, projectName: project.name, backendUrl: backend.backendUrl, written, reviewAddress: reviewUrl, reused: true, connected: true, approvedBy: reviewer };
         }
         let projectId = null;
+        let reusedName = null;
         let reused = false;
         let reviewAddress = reviewUrl ?? null;
         if (!newProject) {
           // A retry after a failed write finds the project the first try created.
           let mine = [];
           try {
-            mine = (await listMyProjects({ backendUrl: backend.backendUrl, accessToken, fetchFn })).filter((project) => project.name === projectName);
+            mine = (await listMyProjects({ backendUrl: backend.backendUrl, accessToken, fetchFn })).filter((project) => project.name === projectName || project.name === fullName);
           } catch {
             throw new SetupError("Couldn't check your existing projects. Run setup again when the backend is reachable; no new project was created.");
           }
@@ -1164,13 +1206,14 @@ export async function beginSetup({
           }
           if (mine.length === 1) {
             projectId = mine[0]._id;
+            reusedName = mine[0].name;
             reused = true;
             reviewAddress = mine[0].reviewUrl ?? null;
             if (reviewUrl !== undefined && reviewUrl !== null && reviewUrl !== reviewAddress) {
               await callConvex(backend.backendUrl, "mutation", "projects:setReviewUrl", { projectId, reviewUrl }, accessToken, { fetchFn });
               reviewAddress = reviewUrl;
             }
-            log(`Reusing your project "${projectName}" (${projectId}). Pass --new-project to create another.`);
+            log(`Reusing your project "${reusedName}" (${projectId}). Pass --new-project to create another.`);
           }
         }
         if (projectId === null) {
@@ -1178,7 +1221,7 @@ export async function beginSetup({
           projectId = await createProject({ backendUrl: backend.backendUrl, accessToken, name: projectName, reviewUrl: reviewUrl ?? null, fetchFn });
         }
         const written = connect(projectId, backend.backendUrl, { entry, mount });
-        return { projectId, projectName, backendUrl: backend.backendUrl, written, reviewAddress, reused, connected: false, approvedBy: reviewer };
+        return { projectId, projectName: reusedName ?? projectName, backendUrl: backend.backendUrl, written, reviewAddress, reused, connected: false, approvedBy: reviewer };
       } finally {
         if (refreshToken) await signOut(backend.signInUrl, refreshToken, { origin: new URL(signIn.url).origin, fetchFn });
       }

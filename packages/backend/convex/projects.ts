@@ -1,3 +1,4 @@
+import { shortenProjectName } from "@critiqs/core";
 import {
   addProjectAddress,
   findProjectsForOrigin,
@@ -11,7 +12,8 @@ import {
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { convexStore, identityOf, run } from "./lib/store";
 import { projectAnswersArgs } from "./lib/validators";
 
@@ -36,6 +38,29 @@ export const create = mutation({
   },
   handler: async (ctx, args) =>
     run(async () => (await operations.createProject(convexStore(ctx), await identityOf(ctx), args)) as Id<"projects">),
+});
+
+/**
+ * Cuts project names from before the length limit to fit it, so reads of
+ * many projects stay within Convex's read limit. A page per run; it schedules
+ * the next. Safe to run
+ * again. Run once after deploying with `npx convex run projects:shortenLongNames`.
+ */
+export const shortenLongNames = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor = null }) => {
+    // Patching reads a project again, so a page reads at most a quarter of the limit, plus one project.
+    const result = await ctx.db.query("projects").paginate({ numItems: 100, cursor, maximumBytesRead: 4 * 1024 * 1024 });
+    let changed = 0;
+    for (const project of result.page) {
+      const name = shortenProjectName(project.name);
+      if (name === project.name) continue;
+      await ctx.db.patch(project._id, { name });
+      changed++;
+    }
+    if (!result.isDone) await ctx.scheduler.runAfter(0, internal.projects.shortenLongNames, { cursor: result.continueCursor });
+    return { changed };
+  },
 });
 
 /** Projects the reviewer created, so setup can reconnect an existing project. */

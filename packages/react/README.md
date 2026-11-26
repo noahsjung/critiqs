@@ -281,7 +281,9 @@ keys, and optionally `CRITIQS_AI_PROVIDER`, `CRITIQS_AI_MODEL`, and
 `CRITIQS_AI_API_KEY` for a provider every project uses by default.
 `CRITIQS_AI_ALLOWED_ENDPOINTS` lists custom endpoint addresses owners may
 enter. After upgrading an existing deployment, run
-`npx convex run tags:backfill` once so earlier comments gain their hashtags.
+`npx convex run tags:backfill` once so earlier comments gain their hashtags,
+and `npx convex run projects:shortenLongNames` once so project names from
+before the 200-character limit are shortened to fit it.
 
 The sidebar follows the mode. In Browse mode it shows the project: its open
 and unread threads, who has access, your email notifications, and the project

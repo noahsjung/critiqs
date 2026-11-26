@@ -1,4 +1,4 @@
-import { isPrivateReviewAddress, type OrganizationSummary, type ProjectInfo, type ReviewAccess, validReviewUrl } from "@critiqs/core";
+import { isPrivateReviewAddress, MAX_PROJECT_NAME_LENGTH, type OrganizationSummary, type ProjectInfo, type ReviewAccess, validReviewUrl } from "@critiqs/core";
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import type { Reviewer } from "../session.ts";
 import { errorMessage, useTransport } from "../transport.ts";
@@ -134,6 +134,7 @@ function CreateProject({ organizations, onCreated }: { organizations: boolean; o
               className="field"
               placeholder="For example, Admin console prototype"
               value={name}
+              maxLength={MAX_PROJECT_NAME_LENGTH}
               autoFocus
               onChange={(event) => setName(event.target.value)}
             />
