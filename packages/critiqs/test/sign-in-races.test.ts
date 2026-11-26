@@ -349,3 +349,45 @@ test("a sign-out the service had no session for, with a session kept aside it di
     `Forgot this computer's sign-in Dana, but Critiqs's sign-in service at ${SITE} didn't confirm ending an earlier session from this computer, so it stays saved here. Sign out again when it's reachable.`,
   ]);
 });
+
+test("a renewal the service refuses because another process signed out meanwhile says this computer isn't signed in", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  const session = service.open("r1");
+  save(config, { refreshToken: "r1" });
+  const crossing = (async (url: string, init?: RequestInit) => {
+    if (new URL(url).pathname === "/auth/refresh") {
+      // This renewal is suspended long enough to lose the lock; another process signs out, ending the session.
+      suspend(config);
+      expect(await runCli(["sign-out", "--backend", TEAM], { print: () => {}, env, fetchFn: service.fetchFn })).toBe(0);
+    }
+    return service.fetchFn(url, init);
+  }) as unknown as typeof fetch;
+  await expect(accessTokenFor(SITE, { backendUrl: TEAM, env, fetchFn: crossing, now: service.now })).rejects.toThrow("This computer isn't signed in to Critiqs.");
+  expect(service.live(session)).toBe(false);
+  expect(read(config).services[SITE]).toBeUndefined();
+}, 30_000);
+
+test("a sign-in another process finishes while sign-out ends the sessions kept aside is left alone", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  const session = service.open("r1");
+  const spare = service.open("spare");
+  save(config, { refreshToken: "r1" }, { recovered: [{ signInUrl: SITE, origin: SITE, refreshToken: "spare" }] });
+  const fresh = service.open("r2");
+  const crossing = service.fetchWith((path, body) => {
+    // Sign-out has let go of the lock before ending the session kept aside; another process signs in meanwhile.
+    if (path === "/auth/sign-out" && body.refreshToken === "spare") {
+      save(config, { refreshToken: "r2", accessToken: "a2", accessExpiresAt: service.now() + 15 * MINUTE, reviewer: { name: "Sam", email: null }, signedInAt: 2 });
+    }
+  });
+  const printed: string[] = [];
+  expect(await runCli(["sign-out", "--backend", TEAM], { print: (line) => void printed.push(line), env, fetchFn: crossing })).toBe(0);
+  expect(printed).toEqual(["Signed out Dana."]);
+  expect([service.live(session), service.live(spare), service.live(fresh)]).toEqual([false, false, true]);
+  expect(read(config).services[SITE]).toMatchObject({ refreshToken: "r2", reviewer: { name: "Sam" } });
+  expect(read(config).recovered).toBeUndefined();
+  expect(await usableToken(env, service)).toBe("a2");
+}, 30_000);

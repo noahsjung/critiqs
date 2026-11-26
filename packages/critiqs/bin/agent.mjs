@@ -570,7 +570,9 @@ export async function accessTokenFor(signInUrl, { backendUrl, siteUrl, env = pro
       // Forget the sign-in only if no one replaced it meanwhile.
       return await persist(file, held, (heldNow) => {
         const latest = readSignIns(file);
-        if (latest.services[signInUrl]?.refreshToken !== entry.refreshToken) return { accessToken: replaced(latest.services[signInUrl]) };
+        // Another process signed out meanwhile.
+        if (latest.services[signInUrl] === undefined) throw notSignedIn();
+        if (latest.services[signInUrl].refreshToken !== entry.refreshToken) return { accessToken: replaced(latest.services[signInUrl]) };
         delete latest.services[signInUrl];
         heldNow();
         writeSignIns(file, latest);
