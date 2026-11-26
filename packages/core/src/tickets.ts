@@ -14,6 +14,29 @@ export const TRACKERS: readonly { id: TrackerId; label: string }[] = [
   { id: "jira", label: "Jira" },
 ];
 
+/**
+ * The longest text Critiqs keeps from a tracker, checked where its answers
+ * arrive (the server's tracker adapters): IDs and keys longer than these are
+ * refused, names, titles, and status labels cut. The page layer shows a
+ * ticket's key only up to `key` characters.
+ */
+export const TRACKER_LIMITS = {
+  /** A tracker's ID for anything: an account, a site, a destination, a ticket, a label. */
+  id: 256,
+  /** A ticket's key, such as `ENG-123`, or a destination's. */
+  key: 256,
+  /** A person's, site's, destination's, template's, or label's name. */
+  name: 200,
+  /** A ticket's title. */
+  title: 255,
+  /** A ticket's status, such as "In Progress". */
+  status: 100,
+  /** An address, such as a ticket's. */
+  address: 2048,
+  /** Items in one list, such as destinations or labels. */
+  list: 500,
+} as const;
+
 /** A tracker's state for a ticket, normalized so Critiqs can tell "done" across trackers. */
 export type TicketStatusCategory = "open" | "started" | "done" | "canceled" | "unknown";
 

@@ -91,7 +91,7 @@ export const startSignIn = action({
 /** The signed-in person who is connecting a tracker, before their token is verified. */
 export const requirePerson = internalMutation({
   args: { tracker: trackerValidator },
-  handler: async (ctx, args) => run(async () => requireTrackerPerson(convexStore(ctx), await identityOf(ctx), ticketsDeployment(), args)),
+  handler: async (ctx, args) => run(async () => requireTrackerPerson(convexStore(ctx), await identityOf(ctx), ticketsDeployment(), args, Date.now())),
 });
 
 /** Stores the signed-in person's account, sealed for them in the action. */

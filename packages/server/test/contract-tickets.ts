@@ -363,7 +363,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   function connect(backend: ContractBackend, who: Identity, token: string, deployment = withKey, fetchFn = linearStub().fetchFn) {
     return connectTrackerWithToken(
       {
-        requirePerson: () => backend.run((store) => requireTrackerPerson(store, who, deployment, { tracker: "linear" })),
+        requirePerson: () => backend.run((store) => requireTrackerPerson(store, who, deployment, { tracker: "linear" }, Date.now())),
         save: (userId, sealed) => backend.run((store) => saveOwnTrackerAccount(store, who, { userId, account: sealed }, 5_000)),
       },
       deployment,
@@ -424,8 +424,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     // Refused before the token is sent anywhere.
     expect(linear.sent).toEqual([]);
     expect(await backend.run((store) => tickets(store).accounts.list(danaId))).toEqual([]);
-    expect((await refusal(backend.run((store) => requireTrackerPerson(store, dana, withKey, { tracker: "jira" })))).message).toBe("Critiqs can't connect Jira yet.");
-    expect((await refusal(backend.run((store) => requireTrackerPerson(store, null, withKey, { tracker: "linear" })))).code).toBe("unauthenticated");
+    expect((await refusal(backend.run((store) => requireTrackerPerson(store, dana, withKey, { tracker: "jira" }, Date.now())))).message).toBe("Critiqs can't connect Jira yet.");
+    expect((await refusal(backend.run((store) => requireTrackerPerson(store, null, withKey, { tracker: "linear" }, Date.now())))).code).toBe("unauthenticated");
   });
 
   test(`${name}: a sign-in's account is saved only when its email is the Critiqs account's, in any letter case`, async () => {

@@ -97,11 +97,22 @@ export async function listTrackerAccounts(store: Store, identity: Identity | nul
 }
 
 /** The signed-in person who is connecting a tracker, before their token is verified or encrypted; refused when tokens can't be stored. */
-export async function requireTrackerPerson(store: Store, identity: Identity | null, deployment: TicketsDeployment, args: { tracker: TrackerId }): Promise<{ userId: string }> {
+export async function requireTrackerPerson(store: Store, identity: Identity | null, deployment: TicketsDeployment, args: { tracker: TrackerId }, now: number): Promise<{ userId: string }> {
   ticketStore(store);
   requireKey(deployment);
   requireOffered(args.tracker);
-  return { userId: (await requireUser(store, identity))._id };
+  const user = await requireUser(store, identity);
+  await requireConnectRoom(store, "token", user._id, now);
+  return { userId: user._id };
+}
+
+/** How many times a minute one person may start a tracker sign-in, and, separately, connect a pasted token: each stores a row or calls the tracker. */
+export const TRACKER_CONNECTS_PER_MINUTE = 10;
+
+async function requireConnectRoom(store: Store, kind: "sign-in" | "token", userId: string, now: number): Promise<void> {
+  if (!(await store.rateLimits.hit(`tracker-${kind}:${userId}`, TRACKER_CONNECTS_PER_MINUTE, 60_000, now))) {
+    fail("limit", "Too many tries to connect a tracker. Wait a minute, then try again.");
+  }
 }
 
 /** A verified account with its tokens already encrypted for its person (`trackerTokenBinding`). */
@@ -261,6 +272,7 @@ export async function startTrackerSignIn(
   requireOffered(args.tracker);
   if (args.tracker !== "linear" || deployment.linear === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
   const user = await requireUser(store, identity);
+  await requireConnectRoom(store, "sign-in", user._id, now);
   await tickets.signIns.insert({
     state: args.state,
     userId: user._id,

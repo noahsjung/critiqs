@@ -361,3 +361,33 @@ test("an expired sign-in token is refreshed with Linear before use, and the rota
   expect(await decryptToken(KEY, trackerTokenBinding("linear", danaId), row!.refresh!)).toBe("refresh-2");
   expect(row!.refreshLease).toBeUndefined();
 });
+
+test("the sign-in start reads at most a few kilobytes of what is posted to it", async () => {
+  withSignIn();
+  const { t } = people();
+  const response = await t.fetch("/trackers/linear/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `state=s&binding=b&padding=${"x".repeat(1024 * 1024)}`,
+  });
+  expect(response.status).toBe(413);
+});
+
+test("each person may start ten sign-ins and connect ten API keys a minute", async () => {
+  withSignIn();
+  const { dana, lee } = people();
+  for (let index = 0; index < 10; index++) await dana.action(api.trackers.startSignIn, { tracker: "linear" });
+  await expect(dana.action(api.trackers.startSignIn, { tracker: "linear" })).rejects.toThrow("Too many");
+  // Another person isn't held back.
+  await lee.action(api.trackers.startSignIn, { tracker: "linear" });
+  for (let index = 0; index < 10; index++) await dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_good" });
+  await expect(dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_good" })).rejects.toThrow("Too many");
+});
+
+test("a failed sign-in says only Critiqs's own message, whatever else went wrong", async () => {
+  const { failureMessage } = await import("../convex/trackerHttp");
+  const { ConvexError } = await import("convex/values");
+  expect(failureMessage(new ConvexError({ code: "invalid", message: "Linear said no." }))).toBe("Linear said no.");
+  expect(failureMessage(new ConvexError("a bare string"))).toContain("Something went wrong");
+  expect(failureMessage(new Error("token lin_oauth_secret leaked"))).toContain("Something went wrong");
+});

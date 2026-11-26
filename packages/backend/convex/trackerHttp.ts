@@ -2,6 +2,7 @@ import { CritiqsError, exchangeLinearCode, linearAdapter, linearAuthorizeUrl, SI
 import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { readBoundedBody } from "./lib/body";
 import { messagePage } from "./lib/pages";
 import { siteUrl, ticketsDeployment } from "./lib/tickets";
 import { hashSecret } from "./lib/tokens";
@@ -23,6 +24,8 @@ import { hashSecret } from "./lib/tokens";
 //    that the person finishing is the one who started.
 
 const MAX_STATE = 200;
+/** The most of a sign-in start's form Critiqs reads: its state and binding secret fit many times over. */
+const MAX_START_BYTES = 4 * 1024;
 
 /**
  * The cookie that holds one sign-in's binding secret, named after its state's
@@ -76,7 +79,10 @@ export const linearStartLink = httpAction(async () => {
 export const linearStart = httpAction(async (ctx, request) => {
   const deployment = ticketsDeployment();
   if (deployment.linear === null || deployment.encryptionKey === null) return notSetUp();
-  const form = new URLSearchParams(await request.text());
+  const body = await readBoundedBody(request, MAX_START_BYTES);
+  if (body === "too-large") return notConnected(fromYourTrackers, 413);
+  if (body === "invalid") return notConnected(fromYourTrackers);
+  const form = new URLSearchParams(new TextDecoder().decode(body));
   const state = form.get("state") ?? "";
   const binding = form.get("binding") ?? "";
   if (state === "" || state.length > MAX_STATE || binding === "" || binding.length > MAX_STATE) return notConnected(fromYourTrackers);
@@ -135,12 +141,18 @@ export const linearCallback = httpAction(async (ctx, request) => {
     if (saved.status === "other-email") return withHeaders(otherEmail(identity), clear);
   } catch (failure) {
     // Linear's refusals and Critiqs's own say what to do; anything else stays vague, never echoing tokens.
-    const message =
-      failure instanceof CritiqsError ? failure.message : failure instanceof ConvexError ? (failure.data as { message: string }).message : "Something went wrong while connecting Linear. Close this window and try again.";
-    return withHeaders(notConnected(message, 502), clear);
+    return withHeaders(notConnected(failureMessage(failure), 502), clear);
   }
   return withHeaders(messagePage("Linear is connected", "You can close this window.", 200), clear);
 });
+
+/** What a failed sign-in says: Critiqs's own refusals as written, anything else vaguely, never echoing tokens. */
+export function failureMessage(failure: unknown): string {
+  if (failure instanceof CritiqsError) return failure.message;
+  const data: unknown = failure instanceof ConvexError ? failure.data : null;
+  if (typeof data === "object" && data !== null && typeof (data as { message?: unknown }).message === "string") return (data as { message: string }).message;
+  return "Something went wrong while connecting Linear. Close this window and try again.";
+}
 
 function withHeaders(response: Response, headers: Record<string, string>): Response {
   const merged = new Headers(response.headers);

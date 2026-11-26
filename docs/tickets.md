@@ -82,7 +82,19 @@ Where sign-in is set up, Your trackers also offers **Use an API key instead**,
 and offers it again when the prototype's page doesn't allow the sign-in
 window (its content security policy blocks the form that opens it).
 A pasted API key needs no such check: the person pastes it into Critiqs while
-signed in to their own account.
+signed in to their own account. Each person may start 10 sign-ins and paste
+10 keys a minute.
+
+Disconnecting doesn't revoke the sign-in at the tracker: the tracker's
+tokens stay valid there until they expire, or until the person removes
+Critiqs from their tracker account's authorized apps.
+
+Critiqs calls a tracker only at the tracker's own address or at a public
+HTTPS address the tracker names, such as where it takes an upload: never at
+this computer or a private network. It doesn't follow redirects, waits at
+most 15 seconds for an answer, and reads at most 2 MB of one. It keeps no ID,
+key, or address longer than it can show, and cuts long names, titles, and
+status labels.
 
 What this settles:
 

@@ -1,5 +1,5 @@
 import { CritiqsError, fail } from "../../errors.ts";
-import type { SignInTokens, TrackerAdapter, TrackerEndpoint, TrackerIdentity, TrackerToken } from "./index.ts";
+import { checkedAdapter, type SignInTokens, type TrackerAdapter, type TrackerEndpoint, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken, trackerEndpoint } from "./index.ts";
 
 // Linear, through its GraphQL API (https://linear.app/developers). A pasted
 // personal API key is sent as it is; a sign-in's access token as a bearer
@@ -21,16 +21,16 @@ export interface LinearApp {
 
 const VERIFY = "query CritiqsVerify { viewer { id name email } organization { id name } }";
 
-function endpointOf(endpoint: Partial<TrackerEndpoint>): TrackerEndpoint {
-  return { fetch: endpoint.fetch ?? fetch, baseUrl: (endpoint.baseUrl ?? LINEAR_API_URL).replace(/\/$/, "") };
+function endpointOf(endpoint: TrackerEndpointOptions): TrackerEndpoint {
+  return trackerEndpoint(endpoint, LINEAR_API_URL);
 }
 
 /** Linear's adapter. Only `verify` is built so far; creating and linking tickets come next. */
-export function linearAdapter(endpoint: Partial<TrackerEndpoint> = {}): Pick<TrackerAdapter, "verify"> {
+export function linearAdapter(endpoint: TrackerEndpointOptions = {}): Pick<TrackerAdapter, "verify"> {
   const to = endpointOf(endpoint);
-  return {
+  return checkedAdapter({
     verify: async (token) => parseIdentity(await graphql(to, token, VERIFY)),
-  };
+  });
 }
 
 const unreachable = () => new CritiqsError("unavailable", "Critiqs couldn't reach Linear. Try again in a moment.");
@@ -111,7 +111,7 @@ export function linearAuthorizeUrl(appUrl: string, input: { clientId: string; re
 
 /** Exchanges a sign-in's code for tokens. */
 export async function exchangeLinearCode(
-  endpoint: Partial<TrackerEndpoint>,
+  endpoint: TrackerEndpointOptions,
   app: LinearApp,
   input: { code: string; redirectUri: string; verifier: string },
   now: number,
@@ -128,7 +128,7 @@ export async function exchangeLinearCode(
  * Trades a refresh token for new tokens. Linear rotates refresh tokens: the
  * one used here stops working. `signal` calls the request off, answer included.
  */
-export async function refreshLinearToken(endpoint: Partial<TrackerEndpoint>, app: LinearApp, refreshToken: string, now: number, signal?: AbortSignal): Promise<SignInTokens> {
+export async function refreshLinearToken(endpoint: TrackerEndpointOptions, app: LinearApp, refreshToken: string, now: number, signal?: AbortSignal): Promise<SignInTokens> {
   return await tokenRequest(
     endpointOf(endpoint),
     { grant_type: "refresh_token", refresh_token: refreshToken, client_id: app.clientId, client_secret: app.clientSecret },
