@@ -10,9 +10,11 @@ import {
   flowReducer,
   type FlowState,
   initialFlow,
+  pendingCreate,
   restoreFlow,
   reviewUrlOf,
   saveFlow,
+  savePendingCreate,
 } from "../src/flow.ts";
 import { Session } from "../src/shared.ts";
 
@@ -27,8 +29,8 @@ const run = (actions: FlowAction[], from: FlowState = initialFlow(null)) => acti
 const PROJECT = { id: "k57abcdefghijklmnop", name: "acme-proto", reviewUrl: "https://acme-proto.vercel.app/", stack: null };
 const atWho = (text = "acme-proto.vercel.app") => run([{ type: "address-text", text }, { type: "address-continue" }], initialFlow(SAM));
 const atSetup = (who: "me" | "developer" = "me") => {
-  const state = flowReducer(atWho(), { type: "choose", who });
-  return flowReducer(state, { type: "created", flow: state.flow, project: PROJECT });
+  const state = flowReducer(atWho(), { type: "choose", who, key: "k1" });
+  return flowReducer(state, { type: "created", key: "k1", project: PROJECT });
 };
 
 describe("the three screens", () => {
@@ -80,18 +82,32 @@ describe("the three screens", () => {
 
 describe("choosing creates the project", () => {
   test("choosing waits for the project: a second choice and Back wait for its answer", () => {
-    const creating = flowReducer(atWho(), { type: "choose", who: "developer" });
-    expect(creating).toMatchObject({ who: "developer", create: { status: "creating" }, step: "who" });
-    expect(flowReducer(creating, { type: "choose", who: "me" }).who).toBe("developer");
+    const creating = flowReducer(atWho(), { type: "choose", who: "developer", key: "k1" });
+    expect(creating).toMatchObject({ who: "developer", create: { status: "creating", key: "k1", sent: false }, step: "who" });
+    expect(flowReducer(creating, { type: "choose", who: "me", key: "k2" }).who).toBe("developer");
     expect(canGoBack(creating)).toBe(false);
     expect(flowReducer(creating, { type: "back" }).step).toBe("who");
   });
 
   test("a failed create stays with the server's message, and can be tried again", () => {
-    const creating = flowReducer(atWho(), { type: "choose", who: "me" });
-    const failed = flowReducer(creating, { type: "create-failed", flow: creating.flow, message: "Your plan allows 3 projects.", limit: true });
+    const creating = flowReducer(atWho(), { type: "choose", who: "me", key: "k1" });
+    const failed = flowReducer(creating, { type: "create-failed", key: "k1", message: "Your plan allows 3 projects.", limit: true });
     expect(failed).toMatchObject({ step: "who", create: { status: "failed", message: "Your plan allows 3 projects.", limit: true } });
-    expect(flowReducer(failed, { type: "choose", who: "developer" }).create.status).toBe("creating");
+    expect(flowReducer(failed, { type: "choose", who: "developer", key: "k2" }).create.status).toBe("creating");
+  });
+
+  test("each result names its attempt: one for an attempt that isn't pending changes nothing", () => {
+    const first = flowReducer(atWho(), { type: "choose", who: "me", key: "k1" });
+    const second = run([{ type: "create-cancelled", key: "k1" }, { type: "choose", who: "developer", key: "k2" }], first);
+    for (const late of [
+      { type: "create-sent", key: "k1" },
+      { type: "created", key: "k1", project: PROJECT },
+      { type: "create-failed", key: "k1", message: "x", limit: false },
+      { type: "create-cancelled", key: "k1" },
+    ] satisfies FlowAction[]) {
+      expect(flowReducer(second, late)).toEqual(second);
+    }
+    expect(flowReducer(second, { type: "create-sent", key: "k2" }).create).toEqual({ status: "creating", key: "k2", sent: true });
   });
 
   test("the setup screen can switch between the command and the email", () => {
@@ -118,10 +134,10 @@ describe("one reviewer's flow", () => {
   });
 
   test("a create that finishes after the reviewer changed is dropped", () => {
-    const creating = flowReducer(atWho(), { type: "choose", who: "me" });
+    const creating = flowReducer(atWho(), { type: "choose", who: "me", key: "k1" });
     const lee = flowReducer(creating, { type: "signed-in", reviewer: LEE });
-    expect(flowReducer(lee, { type: "created", flow: creating.flow, project: PROJECT })).toEqual(lee);
-    expect(flowReducer(lee, { type: "create-failed", flow: creating.flow, message: "x", limit: false })).toEqual(lee);
+    expect(flowReducer(lee, { type: "created", key: "k1", project: PROJECT })).toEqual(lee);
+    expect(flowReducer(lee, { type: "create-failed", key: "k1", message: "x", limit: false })).toEqual(lee);
   });
 });
 
@@ -250,9 +266,27 @@ describe("keeping the flow across a reload", () => {
     stop();
   });
 
-  test("a create pending at a reload restores as not started, back at the choice; it isn't deduplicated", () => {
+  test("a create pending at a reload stays pending only when its request went out under a key kept for this reviewer", () => {
     const storage = memory();
-    saveFlow(storage, flowReducer(atWho(), { type: "choose", who: "me" }));
+    const sent = run([{ type: "choose", who: "me", key: "k1" }, { type: "create-sent", key: "k1" }], atWho());
+    const request = { name: "acme-proto", reviewUrl: PROJECT.reviewUrl, organizationId: null, answers: { codeAccess: "self" as const }, stack: null };
+    // Not sent yet, or sent without a key (a backend without create keys): back at the choice.
+    saveFlow(storage, flowReducer(atWho(), { type: "choose", who: "me", key: "k1" }));
     expect(restoreFlow(storage, SAM)).toMatchObject({ step: "who", create: { status: "idle" } });
+    saveFlow(storage, sent);
+    expect(restoreFlow(storage, SAM)).toMatchObject({ step: "who", create: { status: "idle" } });
+    // Sent under its key: still pending, to send again.
+    savePendingCreate(storage, { reviewerId: SAM.id, key: "k1", project: request });
+    expect(restoreFlow(storage, SAM)).toMatchObject({ step: "who", create: { status: "creating", key: "k1", sent: true } });
+    expect(pendingCreate(storage, SAM.id, "k1")?.project).toEqual(request);
+    // Another attempt's key, or another reviewer's, doesn't count.
+    expect(pendingCreate(storage, SAM.id, "k2")).toBeNull();
+    expect(pendingCreate(storage, LEE.id, "k1")).toBeNull();
+    // Saving the flow with nothing pending drops the key; so does clearing the draft.
+    saveFlow(storage, flowReducer(sent, { type: "created", key: "k1", project: PROJECT }));
+    expect(pendingCreate(storage, SAM.id, "k1")).toBeNull();
+    savePendingCreate(storage, { reviewerId: SAM.id, key: "k1", project: request });
+    clearFlow(storage);
+    expect(storage.length).toBe(0);
   });
 });

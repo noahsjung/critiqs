@@ -1,6 +1,6 @@
 import { isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
 import { type Dispatch, useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
-import { type Backend, failureCode, failureMessage, useAuth, useBackend } from "../backend.ts";
+import { type Backend, failureCode, failureMessage, type NewProject, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import {
   CODE_ACCESS_OF,
@@ -9,9 +9,12 @@ import {
   flowReducer,
   type FlowReviewer,
   type FlowState,
+  newCreateKey,
+  pendingCreate,
   restoreFlow,
   reviewUrlOf,
   saveFlow,
+  savePendingCreate,
   sessionStore,
   shownHost,
   STEPS,
@@ -77,6 +80,14 @@ export function useStackCheck(backend: Backend): (reviewerId: string, url: strin
     [backend],
   );
 }
+
+/**
+ * The keys of creates each flow sent that haven't answered yet, by the flow's
+ * `dispatch`, which lasts as long as the page. A screen shown again while one
+ * is out leaves it to its own answer, which still reaches the flow, rather
+ * than sending it again.
+ */
+const sendingFor = new WeakMap<Dispatch<FlowAction>, Set<string>>();
 
 /** The current screen beside the preview. Exported for tests, which drive it with a fake backend. */
 export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
@@ -203,6 +214,15 @@ export function defaultOrganization(choices: readonly OrganizationSummary[]): Or
  * if the chosen one leaves the list, nothing is chosen until the person
  * picks again. A plan's project limit offers the projects the person created
  * and, for an admin, the deployment's upgrade page.
+ *
+ * On a backend with create keys, the request goes out with the attempt's
+ * key, kept in this tab first, so a reload sends the same request again and
+ * gets the same project. A screen shown again (after a reload, or sign-in
+ * being accepted again) with a create pending picks it up. One this page
+ * still has out waits for its answer. One sent before a reload goes again
+ * under its key when the backend takes keys and the key is under 23 hours
+ * old. Any other, including one still waiting on the address check, is
+ * called off, so the choices open at once and the old attempt never sends.
  */
 function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: Dispatch<FlowAction>; stackOf: (reviewerId: string, url: string) => Promise<StackId | null> }) {
   const backend = useBackend();
@@ -224,9 +244,8 @@ function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: D
   const mine = backend.useMyProjects(limited);
   const upgradeUrl = backend.useUpgradeUrl(limited && chosen?.role === "admin");
   const ready = organizations.status === "ready" && !lost;
-  // The flow on screen now, for a create that waited on the address check.
-  const now = useRef(state.flow);
-  now.current = state.flow;
+  const sending = sendingFor.get(dispatch) ?? new Set<string>();
+  sendingFor.set(dispatch, sending);
   // A reviewer change, sign-out, or sign-in still being accepted replaces this screen.
   const shown = useRef(true);
   useEffect(() => {
@@ -234,35 +253,63 @@ function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: D
     return () => void (shown.current = false);
   }, []);
 
+  /** Sends the attempt's create; on a backend with create keys, under its key, which the caller kept first. */
+  const send = async (key: string, project: NewProject) => {
+    dispatch({ type: "create-sent", key });
+    sending.add(key);
+    try {
+      const id = await backend.createProject(backend.createKeys ? { ...project, idempotencyKey: key } : project);
+      dispatch({ type: "created", key, project: { id, name: project.name, reviewUrl: project.reviewUrl, stack: project.stack } });
+    } catch (failure) {
+      dispatch({ type: "create-failed", key, message: failureMessage(failure, copy.who.failed), limit: failureCode(failure) === "limit" });
+    } finally {
+      sending.delete(key);
+    }
+  };
+
+  // A create pending when this screen appears was started by an earlier one: see the comment above.
+  const resumed = useRef(false);
+  useEffect(() => {
+    const pending = state.create;
+    if (pending.status !== "creating" || resumed.current) return;
+    resumed.current = true;
+    if (pending.sent && sending.has(pending.key)) return;
+    const saved = pending.sent && backend.createKeys && state.reviewer !== null ? pendingCreate(sessionStore(), state.reviewer.id, pending.key) : null;
+    if (saved === null) return dispatch({ type: "create-cancelled", key: pending.key });
+    void send(saved.key, saved.project);
+  }, []);
+
   const choose = async (who: Who) => {
     if (creating || !ready) return;
-    const flow = state.flow;
-    dispatch({ type: "choose", who });
+    const key = newCreateKey();
+    dispatch({ type: "choose", who, key });
     const name = defaultProjectName(state.address);
     const reviewUrl = reviewUrlOf(state.address);
     // The organization the person saw when they chose. If it's gone by the time the request is sent, the server refuses it, and that's shown.
     const organizationId = chosen?.id ?? null;
-    try {
-      const stack = typeof state.address.url === "string" && state.reviewer !== null ? await stackOf(state.reviewer.id, state.address.url) : null;
-      // While the check ran, the screen may have gone, or the flow changed: nothing is created, and the choice is open again if this flow comes back.
-      if (!shown.current || now.current !== flow) return dispatch({ type: "create-cancelled", flow });
-      const id = await backend.createProject({ name, reviewUrl, organizationId, answers: { codeAccess: CODE_ACCESS_OF[who] }, stack });
-      dispatch({ type: "created", flow, project: { id, name, reviewUrl, stack } });
-    } catch (failure) {
-      dispatch({ type: "create-failed", flow, message: failureMessage(failure, copy.who.failed), limit: failureCode(failure) === "limit" });
-    }
+    const stack = typeof state.address.url === "string" && state.reviewer !== null ? await stackOf(state.reviewer.id, state.address.url) : null;
+    // While the check ran, the screen may have gone: nothing is created. A screen shown again has already opened the choice.
+    if (!shown.current) return dispatch({ type: "create-cancelled", key });
+    const project: NewProject = { name, reviewUrl, organizationId, answers: { codeAccess: CODE_ACCESS_OF[who] }, stack };
+    // Kept once, before the first send: a resend after a reload keeps the time it was first sent, which the 23 hours count from.
+    if (backend.createKeys && state.reviewer !== null) savePendingCreate(sessionStore(), { reviewerId: state.reviewer.id, key, project });
+    await send(key, project);
   };
 
   /** Uses a project the person created, with its own name, address, and saved stack, in place of a new one. */
   const chooseExisting = async (projectId: string) => {
     if (creating || state.who === null) return;
-    const flow = state.flow;
-    dispatch({ type: "choose", who: state.who });
+    const key = newCreateKey();
+    dispatch({ type: "choose", who: state.who, key });
+    dispatch({ type: "create-sent", key });
+    sending.add(key);
     try {
       const setup = await backend.projectSetup(projectId);
-      dispatch({ type: "created", flow, project: { id: setup.projectId, name: setup.projectName, reviewUrl: setup.address, stack: setup.stack?.id ?? null } });
+      dispatch({ type: "created", key, project: { id: setup.projectId, name: setup.projectName, reviewUrl: setup.address, stack: setup.stack?.id ?? null } });
     } catch (failure) {
-      dispatch({ type: "create-failed", flow, message: failureMessage(failure, copy.who.useFailed), limit: true });
+      dispatch({ type: "create-failed", key, message: failureMessage(failure, copy.who.useFailed), limit: true });
+    } finally {
+      sending.delete(key);
     }
   };
 

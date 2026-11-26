@@ -1,10 +1,10 @@
 import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth } from "convex/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { type Auth, AuthContext, BackendContext, convexBackend } from "./backend.ts";
+import { type Auth, AuthContext, BackendContext, convexBackend, resolveBackend } from "./backend.ts";
 import { copy } from "./copy.ts";
 import { clearFlowOnSignOut, sessionStore } from "./flow.ts";
 import { routeOf } from "./route.ts";
-import { type Deployment, HOSTED_BACKEND_URL, resolveDeployment, Session } from "./shared.ts";
+import { type Deployment, HOSTED_BACKEND_URL, Session } from "./shared.ts";
 import { Onboarding } from "./ui/Onboarding.tsx";
 import { Account } from "./ui/parts.tsx";
 import { Logo } from "./ui/Preview.tsx";
@@ -22,10 +22,12 @@ export function App() {
     if (found.page === "start" && window.location.pathname !== "/start") window.history.replaceState(null, "", "/start");
     return found;
   }, []);
-  const [deployment, setDeployment] = useState<{ status: "loading" } | { status: "ready"; deployment: Deployment } | { status: "error"; message: string }>({ status: "loading" });
+  const [deployment, setDeployment] = useState<{ status: "loading" } | { status: "ready"; deployment: Deployment; createKeys: boolean } | { status: "error"; message: string }>({
+    status: "loading",
+  });
   useEffect(() => {
-    resolveDeployment(BACKEND).then(
-      (deployment) => setDeployment({ status: "ready", deployment }),
+    resolveBackend(BACKEND).then(
+      ({ deployment, createKeys }) => setDeployment({ status: "ready", deployment, createKeys }),
       (error: unknown) => setDeployment({ status: "error", message: error instanceof Error ? error.message : String(error) }),
     );
   }, []);
@@ -56,7 +58,7 @@ export function App() {
     );
   }
   return (
-    <Connected deployment={deployment.deployment}>
+    <Connected deployment={deployment.deployment} createKeys={deployment.createKeys}>
       <div className="app">
         {header(true)}
         <main className={route.page === "setup" ? "page narrow" : route.page === "thread" ? "page thread" : "page"}>
@@ -68,12 +70,12 @@ export function App() {
 }
 
 /** Critiqs's backend and sign-in, for the page inside. */
-function Connected({ deployment, children }: { deployment: Deployment; children: ReactNode }) {
+function Connected({ deployment, createKeys, children }: { deployment: Deployment; createKeys: boolean; children: ReactNode }) {
   const session = useMemo(() => new Session(deployment.signInUrl), [deployment.signInUrl]);
   const client = useMemo(() => new ConvexReactClient(deployment.backendUrl), [deployment.backendUrl]);
   const backend = useMemo(
-    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }),
-    [client, deployment.siteUrl, session],
+    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, createKeys),
+    [client, deployment.siteUrl, session, createKeys],
   );
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
   // Signing out on any page, or in another tab, removes the onboarding draft.

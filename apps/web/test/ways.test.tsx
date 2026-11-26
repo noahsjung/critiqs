@@ -302,6 +302,20 @@ describe("My developer will: the email", () => {
     expect(button(page, "Send email")?.disabled).toBe(false);
   });
 
+  test("while the project's organization loads, a status line says why Send waits, and it goes once the organization is known", async () => {
+    const loading = await render(<Panel initial={["dev@acme.com"]} organizationState={{ status: "loading" }} />);
+    const send = button(loading, "Send email")!;
+    expect(send.disabled).toBe(true);
+    const status = loading.querySelector('[role="status"]');
+    expect(status?.textContent).toBe("Checking your organization before sending…");
+    // The button names the reason, so it's read with the button.
+    expect(send.getAttribute("aria-describedby")).toBe(status!.id);
+    const ready = await render(<Panel initial={["dev@acme.com"]} organization={ACME_ADMIN} />);
+    expect(ready.querySelector('[role="status"]')).toBeNull();
+    expect(button(ready, "Send email")?.hasAttribute("aria-describedby")).toBe(false);
+    expect(text(ready)).toContain("They'll also be invited to Acme.");
+  });
+
   test("a failed email offers Send again, which emails just that address", async () => {
     const sent: string[][] = [];
     const page = await render(

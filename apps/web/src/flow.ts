@@ -1,4 +1,5 @@
 import { type CodeAccess, inboxOf, isPrivateHost, MAX_DEVELOPER_INVITES_PER_PROJECT, type Role, type StackId, type TeamSize, validReviewUrl } from "@critiqs/core";
+import type { NewProject } from "./backend.ts";
 import { copy } from "./copy.ts";
 
 // Onboarding as data: three screens and one reducer over them.
@@ -48,8 +49,14 @@ export interface FlowReviewer {
   email: string;
 }
 
-/** Creating the project: the request is pending, or failed with the server's message; `limit` is a plan's project limit. */
-export type CreateState = { status: "idle" } | { status: "creating" } | { status: "failed"; message: string; limit: boolean };
+/**
+ * Creating the project: pending, or failed with the server's message
+ * (`limit` is a plan's project limit). A pending create is one attempt,
+ * named by `key` when the person chose; it is `sent` once its request went
+ * out, and until then waits on the address check. Results and call-offs
+ * name their attempt, so one for an earlier attempt changes nothing.
+ */
+export type CreateState = { status: "idle" } | { status: "creating"; key: string; sent: boolean } | { status: "failed"; message: string; limit: boolean };
 
 /** The two "while you're here" questions, asked one at a time after setup. */
 export const ABOUT_QUESTIONS = ["team-size", "role"] as const;
@@ -85,14 +92,16 @@ export type FlowAction =
   | { type: "address-continue" }
   | { type: "address-none" }
   | { type: "back" }
-  | { type: "choose"; who: Who }
+  | { type: "choose"; who: Who; key: string }
   | { type: "switch-who" }
   | { type: "developers"; developers: string[] }
   | { type: "organization"; organizationId: string }
-  | { type: "created"; flow: number; project: CreatedProject }
-  | { type: "create-failed"; flow: number; message: string; limit: boolean }
-  /** The create was called off before it was sent, such as when the chosen organization left the list. */
-  | { type: "create-cancelled"; flow: number }
+  /** The attempt's request went out. */
+  | { type: "create-sent"; key: string }
+  | { type: "created"; key: string; project: CreatedProject }
+  | { type: "create-failed"; key: string; message: string; limit: boolean }
+  /** The attempt was called off before its request went out, such as when the screen went away while it waited on the address check. */
+  | { type: "create-cancelled"; key: string }
   | { type: "setup-done"; flow: number }
   | { type: "about-answered" }
   | { type: "about-skip" };
@@ -155,19 +164,22 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
     case "choose":
       // One request at a time; the page creates the project when it sees `creating`.
       if (state.step !== "who" || state.create.status === "creating") return state;
-      return { ...state, who: action.who, create: { status: "creating" } };
+      return { ...state, who: action.who, create: { status: "creating", key: action.key, sent: false } };
     case "switch-who":
       return state.step === "setup" && state.who !== null ? { ...state, who: state.who === "me" ? "developer" : "me" } : state;
     case "developers":
       return { ...state, developers: action.developers.slice(0, MAX_DEVELOPER_INVITES_PER_PROJECT) };
     case "organization":
       return state.create.status === "creating" ? state : { ...state, organizationId: action.organizationId };
+    // Each names its attempt: one for an attempt that isn't pending now changes nothing.
+    case "create-sent":
+      return isPending(state, action.key) ? { ...state, create: { status: "creating", key: action.key, sent: true } } : state;
     case "created":
-      return state.create.status === "creating" ? { ...state, create: { status: "idle" }, project: action.project, step: "setup" } : state;
+      return isPending(state, action.key) ? { ...state, create: { status: "idle" }, project: action.project, step: "setup" } : state;
     case "create-failed":
-      return state.create.status === "creating" ? { ...state, create: { status: "failed", message: action.message, limit: action.limit } } : state;
+      return isPending(state, action.key) ? { ...state, create: { status: "failed", message: action.message, limit: action.limit } } : state;
     case "create-cancelled":
-      return state.create.status === "creating" ? { ...state, create: { status: "idle" } } : state;
+      return isPending(state, action.key) ? { ...state, create: { status: "idle" } } : state;
     case "setup-done":
       return state.step === "setup" && !state.about.shown ? { ...state, about: { ...state.about, shown: true } } : state;
     case "about-answered":
@@ -181,6 +193,11 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       return exhaustive;
     }
   }
+}
+
+/** Whether the create pending now is the attempt named `key`. */
+function isPending(state: FlowState, key: string): boolean {
+  return state.create.status === "creating" && state.create.key === key;
 }
 
 /** The answer each "while you're here" question saves. */
@@ -280,25 +297,76 @@ export function filledDevelopers(fields: readonly string[]): string[] {
 // reviewer it belongs to.
 
 const STORAGE_KEY = "critiqs:onboarding:v3";
+/** The create whose request went out with an idempotency key, until the flow saves how it ended. */
+const PENDING_CREATE_KEY = "critiqs:onboarding:create:v1";
 /** Drafts saved by earlier versions of this page, removed with the current one. */
 const OLD_STORAGE_KEYS = ["critiqs:onboarding:v2"];
 
-/** Saves a signed-in reviewer's flow; with no one signed in, removes any saved one. */
+/**
+ * Saves a signed-in reviewer's flow; with no one signed in, removes any saved
+ * one. Once the saved flow has no create pending, the pending create's key
+ * goes too: the project, or the failure, is now saved with the flow.
+ */
 export function saveFlow(storage: Storage | null, state: FlowState): void {
   if (state.reviewer === null) return clearFlow(storage);
   try {
     storage?.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (state.create.status !== "creating") storage?.removeItem(PENDING_CREATE_KEY);
   } catch {
     // Storage can be full or blocked; the flow still works without it.
+  }
+}
+
+/** A create sent with an idempotency key: whose it is, its key, the request, to send again exactly after a reload, and when it was kept. */
+export interface PendingCreate {
+  reviewerId: string;
+  key: string;
+  project: NewProject;
+  savedAt: number;
+}
+
+/**
+ * How long a kept create is sent again after a reload: the backend returns
+ * the first request's project for 24 hours, so an hour sooner, a resend never
+ * reaches a backend that has forgotten the key and makes a second project.
+ */
+export const PENDING_CREATE_MS = 23 * 60 * 60 * 1000;
+
+/** A new idempotency key: 32 random hex digits. `crypto.randomUUID` needs a secure page; this doesn't. */
+export function newCreateKey(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Keeps a create's key and request in this tab before it is sent. */
+export function savePendingCreate(storage: Storage | null, pending: Omit<PendingCreate, "savedAt">, now = Date.now()): void {
+  try {
+    storage?.setItem(PENDING_CREATE_KEY, JSON.stringify({ ...pending, savedAt: now }));
+  } catch {
+    // Without storage, a reload can't send it again: the choice opens again, as on backends without keys.
+  }
+}
+
+/** The reviewer's pending create with `key`, or null, as when it was kept `PENDING_CREATE_MS` or longer ago. */
+export function pendingCreate(storage: Storage | null, reviewerId: string, key: string, now = Date.now()): PendingCreate | null {
+  try {
+    const raw = storage?.getItem(PENDING_CREATE_KEY);
+    const pending = raw == null ? null : (JSON.parse(raw) as PendingCreate);
+    if (pending === null || pending.reviewerId !== reviewerId || pending.key !== key || typeof pending.project?.name !== "string") return null;
+    return typeof pending.savedAt === "number" && now - pending.savedAt >= 0 && now - pending.savedAt < PENDING_CREATE_MS ? pending : null;
+  } catch {
+    return null;
   }
 }
 
 /**
  * The saved flow for the signed-in reviewer, or a new one. Another
  * reviewer's saved flow, or one saved with nobody signed in, is removed. A
- * create that was pending when the page closed goes back to the choice: its
- * request may have finished, and nothing ties a new request to it, so
- * choosing again after a reload during a create can make a second project.
+ * create that was pending when the page closed stays pending when its
+ * request went out with an idempotency key (`PendingCreate`), so the page
+ * sends it again and gets the same project. Otherwise it goes back to the
+ * choice: nothing was sent yet, or, on a backend without create keys,
+ * nothing ties a new request to the old one, so choosing again after a
+ * reload during a create can make a second project there.
  */
 export function restoreFlow(storage: Storage | null, reviewer: FlowReviewer | null): FlowState {
   try {
@@ -309,7 +377,12 @@ export function restoreFlow(storage: Storage | null, reviewer: FlowReviewer | nu
       clearFlow(storage);
       return initialFlow(reviewer);
     }
-    const create: CreateState = saved.create?.status === "creating" ? { status: "idle" } : (saved.create ?? { status: "idle" });
+    const create: CreateState =
+      saved.create?.status !== "creating"
+        ? (saved.create ?? { status: "idle" })
+        : pendingCreate(storage, reviewer.id, saved.create.key) !== null
+          ? { status: "creating", key: saved.create.key, sent: true }
+          : { status: "idle" };
     return { ...initialFlow(reviewer), ...saved, reviewer, create };
   } catch {
     return initialFlow(reviewer);
@@ -340,7 +413,7 @@ export function clearFlowOnSignOut(session: { subscribe(listener: () => void): (
 
 export function clearFlow(storage: Storage | null): void {
   try {
-    for (const key of [STORAGE_KEY, ...OLD_STORAGE_KEYS]) storage?.removeItem(key);
+    for (const key of [STORAGE_KEY, PENDING_CREATE_KEY, ...OLD_STORAGE_KEYS]) storage?.removeItem(key);
   } catch {
     // Nothing to clear.
   }
