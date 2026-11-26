@@ -1,10 +1,10 @@
-import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth } from "convex/react";
+import { ConvexProviderWithAuth, useConvexAuth } from "convex/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { type Auth, AuthContext, BackendContext, convexBackend, resolveBackend } from "./backend.ts";
 import { copy } from "./copy.ts";
 import { clearFlowOnSignOut, sessionStore } from "./flow.ts";
 import { routeOf } from "./route.ts";
-import { type Deployment, HOSTED_BACKEND_URL, Session } from "./shared.ts";
+import { convexClient, type Deployment, HOSTED_BACKEND_URL, Session } from "./shared.ts";
 import { Onboarding } from "./ui/Onboarding.tsx";
 import { Account } from "./ui/parts.tsx";
 import { Logo } from "./ui/Preview.tsx";
@@ -70,9 +70,10 @@ export function App() {
 }
 
 /** Critiqs's backend and sign-in, for the page inside. */
-function Connected({ deployment, createKeys, children }: { deployment: Deployment; createKeys: boolean; children: ReactNode }) {
+export function Connected({ deployment, createKeys, children }: { deployment: Deployment; createKeys: boolean; children: ReactNode }) {
   const session = useMemo(() => new Session(deployment.signInUrl), [deployment.signInUrl]);
-  const client = useMemo(() => new ConvexReactClient(deployment.backendUrl), [deployment.backendUrl]);
+  // Built to reuse a saved token that is still good, so loading a page doesn't refresh the sign-in.
+  const client = useMemo(() => convexClient(deployment.backendUrl), [deployment.backendUrl]);
   const backend = useMemo(
     () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, createKeys),
     [client, deployment.siteUrl, session, createKeys],
