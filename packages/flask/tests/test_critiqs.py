@@ -209,12 +209,13 @@ def test_the_development_server_reads_the_project_id_from_env_and_nothing_else(a
     app.add_url_rule("/", "home", lambda: render_template_string("<body>{{ critiqs() }}</body>"))
     app.add_url_rule("/env", "env", lambda: json.dumps({key: os.environ.get(key) for key in (*OTHER_KEYS, "CRITIQS_PROJECT_ID")}))
     # The server `flask run` and app.run() start.
-    server = make_server("127.0.0.1", 6251, app)
+    server = make_server("127.0.0.1", 0, app)
+    port = server.server_port
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        home = urllib.request.urlopen("http://127.0.0.1:6251/").read().decode()
-        seen = json.loads(urllib.request.urlopen("http://127.0.0.1:6251/env").read())
+        home = urllib.request.urlopen(f"http://127.0.0.1:{port}/").read().decode()
+        seen = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/env").read())
     finally:
         server.shutdown()
         thread.join()
@@ -263,6 +264,19 @@ def test_finds_env_above_the_working_directory_as_flask_run_does(app_folder, mon
 def test_reads_the_forms_a_env_file_writes(app_folder, line):
     (app_folder / ".env").write_text(f"# Critiqs\nCRITIQS_PROJECT_ID_WEB=other\n{line}\n")
     assert SHOWN in served(DEV_SERVER)
+
+
+def test_a_byte_order_mark_does_not_hide_the_first_line(app_folder):
+    (app_folder / ".env").write_bytes(b"\xef\xbb\xbf" + f"CRITIQS_PROJECT_ID={PROJECT}\n".encode())
+    assert SHOWN in served(DEV_SERVER)
+
+
+def test_a_deleted_working_directory_means_no_project_not_an_error(app_folder, monkeypatch):
+    gone = app_folder / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+    assert served(DEV_SERVER) == "<body></body>"
 
 
 def test_no_env_file_or_no_key_means_no_project(app_folder):

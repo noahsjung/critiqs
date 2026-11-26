@@ -51,7 +51,11 @@ def _text(value):
 
 def _nearest_env_file() -> str | None:
     # Where `flask run` looks for .env: the working directory, then each folder above it.
-    folder = os.getcwd()
+    try:
+        folder = os.getcwd()
+    except OSError:
+        # The folder the server was started in is gone.
+        return None
     while True:
         path = os.path.join(folder, ".env")
         if os.path.isfile(path):
@@ -92,7 +96,7 @@ def _development_project_id() -> str | None:
     if path is None:
         return None
     try:
-        with open(path, encoding="utf-8") as file:
+        with open(path, encoding="utf-8-sig") as file:
             return _env_file_value(file.read())
     except (OSError, UnicodeDecodeError):
         return None
