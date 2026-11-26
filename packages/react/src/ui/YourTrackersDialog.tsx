@@ -7,7 +7,30 @@ import { DialogHeader, NavRow, SettingRow, Switch, usePageFocus } from "./ds.tsx
 /** Where people create a personal token, for trackers Critiqs connects so far. */
 const TOKEN_PAGES: Partial<Record<TrackerId, string>> = {
   linear: "https://linear.app/settings/account/security",
+  github: "https://github.com/settings/personal-access-tokens/new",
 };
+
+/** What each tracker calls the personal token people paste, and how to make one; an API key where a tracker isn't listed. */
+const TOKEN_KINDS: Partial<Record<TrackerId, { field: string; instead: string; help: string; settings: string }>> = {
+  github: {
+    field: "Personal access token",
+    instead: "Use a personal access token instead",
+    help: "Create a fine-grained personal access token for the repositories you want, with read and write access to Issues and read access to Contents, then paste it here.",
+    settings: "Open GitHub token settings",
+  },
+};
+
+function tokenKind(tracker: TrackerId) {
+  const name = label(tracker);
+  return (
+    TOKEN_KINDS[tracker] ?? {
+      field: "API key",
+      instead: "Use an API key instead",
+      help: `Create a personal API key in ${name}'s settings, then paste it here.`,
+      settings: `Open ${name} settings`,
+    }
+  );
+}
 
 const label = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
 
@@ -155,7 +178,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
       stop();
       popup.close();
       setWaiting(null);
-      setError(`This page doesn't allow the ${label(tracker)} sign-in window. Use an API key instead.`);
+      setError(`This page doesn't allow the ${label(tracker)} sign-in window. ${tokenKind(tracker).instead}.`);
     };
     const timer = setTimeout(() => stop(), BLOCKED_WATCH_MS);
     const stop = () => {
@@ -211,7 +234,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
           </p>
         )}
         {state.status === "ready" &&
-          offered.trackers.map(({ id, signIn: method }) => {
+          offered.trackers.map(({ id, signIn: method, installUrl }) => {
             const account = accounts.find((entry) => entry.tracker === id);
             return (
               <div key={id} className="ds-group" role="group" aria-label={label(id)}>
@@ -222,7 +245,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                     {method === "oauth" && (
                       <div className="row">
                         <button type="button" className="link-btn" disabled={busy} onClick={() => go({ kind: "token", tracker: id })}>
-                          Use an API key instead
+                          {tokenKind(id).instead}
                         </button>
                       </div>
                     )}
@@ -230,6 +253,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                 ) : (
                   <Connected
                     account={account}
+                    installUrl={account.method === "oauth" ? (installUrl ?? null) : null}
                     busy={busy}
                     confirming={confirming === id}
                     onConfirm={(on) => setConfirming(on ? id : null)}
@@ -261,6 +285,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
 
 function Connected({
   account,
+  installUrl,
   busy,
   confirming,
   onConfirm,
@@ -268,6 +293,8 @@ function Connected({
   onDisconnect,
 }: {
   account: TrackerAccountView;
+  /** Where an organization installs the tracker's app to reach more of its repositories (GitHub); null where there is none. */
+  installUrl: string | null;
   busy: boolean;
   confirming: boolean;
   onConfirm: (on: boolean) => void;
@@ -287,6 +314,13 @@ function Connected({
           {account.site !== null && <span className="note ellipsis">{account.site}</span>}
         </span>
       </div>
+      {installUrl !== null && (
+        <div className="row">
+          <a className="link-btn" href={installUrl} target="_blank" rel="noreferrer noopener">
+            Choose repositories in GitHub
+          </a>
+        </div>
+      )}
       <SettingRow label="Created from Critiqs">{(labelId) => <Switch checked={account.attribution} labelledBy={labelId} disabled={busy} onChange={onAttribution} />}</SettingRow>
       {confirming ? (
         <div className="warning stacked" role="alert">
@@ -315,6 +349,7 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
   const pageRef = useRef<HTMLDivElement>(null);
   usePageFocus(pageRef, tracker, { initial: true });
   const name = label(tracker);
+  const kind = tokenKind(tracker);
   const submit = async () => {
     if (busy || token.trim() === "") return;
     setBusy(true);
@@ -336,10 +371,10 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
         }}
       >
         <DialogHeader title={`Connect ${name}`} onBack={onBack} />
-        <p className="note">Create a personal API key in {name}'s settings, then paste it here.</p>
+        <p className="note">{kind.help}</p>
         <label className="stacked">
-          <span className="field-label">API key</span>
-          <input className="field" type="password" autoComplete="off" value={token} placeholder="Paste the key" onChange={(event) => setToken(event.target.value)} />
+          <span className="field-label">{kind.field}</span>
+          <input className="field" type="password" autoComplete="off" value={token} placeholder={`Paste the ${kind.field === "API key" ? "key" : "token"}`} onChange={(event) => setToken(event.target.value)} />
         </label>
         {error !== null && (
           <p className="error" role="alert">
@@ -349,7 +384,7 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
         <div className="ds-actions between">
           {TOKEN_PAGES[tracker] !== undefined ? (
             <a className="link-btn" href={TOKEN_PAGES[tracker]} target="_blank" rel="noreferrer noopener">
-              Open {name} settings
+              {kind.settings}
             </a>
           ) : (
             <span />

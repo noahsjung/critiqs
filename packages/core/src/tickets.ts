@@ -273,7 +273,11 @@ export type TrackerDisconnected = "ended" | "kept" | "failed" | "none";
 
 /** The trackers a backend offers, and how each one connects; from `/critiqs/config`. */
 export interface TicketsConfig {
-  trackers: { id: TrackerId; signIn: "oauth" | "token" }[];
+  /**
+   * Each tracker offered, how it connects, and, for GitHub with sign-in, where
+   * an organization installs the deployment's GitHub App to reach its repositories.
+   */
+  trackers: { id: TrackerId; signIn: "oauth" | "token"; installUrl?: string }[];
   /**
    * Whether threads can create and link tickets. A backend that offers only
    * Your trackers, from before creating and linking were built, leaves it out.

@@ -143,8 +143,8 @@ export interface FakeTrackers {
   aiDraft?: (input: AiTicketDraftInput) => Promise<AiTicketDraft>;
   /** The project's ticket templates; by default off. */
   templateSettings?: TicketTemplateSettings;
-  /** The owner's teams' templates; by default two teams' worth. */
-  trackerTemplates?: () => Promise<TrackerTemplateGroup[]>;
+  /** The owner's teams' templates, by tracker; by default two teams' worth. */
+  trackerTemplates?: (tracker: TrackerId) => Promise<TrackerTemplateGroup[]>;
   /** Answers creating a ticket; by default ENG-1 in Triage. */
   create?: (input: NewTicket) => Promise<TicketLinkView>;
   /** Answers linking a ticket; by default the chosen ticket, linked. */
@@ -397,7 +397,7 @@ function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknow
     listTrackerTemplates: async (projectId, tracker) => {
       record("listTrackerTemplates", { projectId, tracker });
       return (
-        (await trackers.trackerTemplates?.()) ?? [
+        (await trackers.trackerTemplates?.(tracker)) ?? [
           { destination: { id: "team-des", name: "Design", key: "DES" }, templates: [{ id: "tpl-copy", name: "Copy change" }] },
           {
             destination: { id: "team-eng", name: "Engineering", key: "ENG" },

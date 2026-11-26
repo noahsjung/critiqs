@@ -1,4 +1,4 @@
-import type { TicketTemplateChoice, TicketTemplateSettings, TrackerTemplateGroup } from "@critiqs/core";
+import { TRACKERS, type TicketTemplateChoice, type TicketTemplateSettings, type TrackerId, type TrackerTemplateGroup } from "@critiqs/core";
 import { useEffect, useState } from "react";
 import { errorMessage, useTransport } from "../transport.ts";
 import { ResolveWhenDoneSection } from "./ResolveWhenDone.tsx";
@@ -22,13 +22,24 @@ export function TicketsTab({ projectId, notify, templates, resolveWhenDone }: { 
 
 type Loaded<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; message: string };
 
-const same = (a: TicketTemplateChoice, b: { destinationId: string; templateId: string }) => a.destinationId === b.destinationId && a.templateId === b.templateId;
+/** Trackers whose templates Critiqs reads from the tracker, in the order Your trackers offers them. */
+const TEMPLATE_TRACKERS: readonly TrackerId[] = ["linear", "github"];
+
+/** What each tracker calls where its templates live, for this tab's notes. */
+const TEMPLATE_PLACES: Partial<Record<TrackerId, { none: string; offer: string }>> = {
+  linear: { none: "Your Linear teams have no issue templates yet.", offer: "for their team" },
+  github: { none: "Your GitHub repositories have no issue templates or issue forms yet.", offer: "in their repository" },
+};
+
+const same = (a: TicketTemplateChoice, b: { tracker: TrackerId; destinationId: string; templateId: string }) =>
+  a.tracker === b.tracker && a.destinationId === b.destinationId && a.templateId === b.templateId;
 
 /**
- * Whether the Create dialog offers the team's own Linear templates, and
+ * Whether the Create dialog offers the team's own tracker templates, and
  * which: off by default, when tickets use Critiqs's standard format. The
- * templates listed are those of the owner's own Linear teams; each change
- * saves at once.
+ * templates listed are those the owner can see with their own connected
+ * accounts: their Linear teams' templates, and their GitHub repositories'
+ * issue templates and forms. Each change saves at once.
  */
 export function TicketTemplatesSection({ projectId, notify }: { projectId: string; notify: (message: string) => void }) {
   const tickets = useTransport().tickets!;
@@ -38,25 +49,28 @@ export function TicketTemplatesSection({ projectId, notify }: { projectId: strin
   const [saved, setSaved] = useState<TicketTemplateSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [groups, setGroups] = useState<Loaded<TrackerTemplateGroup[]> | null>(null);
+  const [groups, setGroups] = useState<Partial<Record<TrackerId, Loaded<TrackerTemplateGroup[]>>>>({});
   const settings = saved ?? (state.status === "ready" ? state.data : null);
-  const linear = accounts.status === "ready" ? accounts.data.some((account) => account.tracker === "linear") : false;
+  const connected = accounts.status === "ready" ? TEMPLATE_TRACKERS.filter((tracker) => accounts.data.some((account) => account.tracker === tracker)) : [];
   const on = settings?.on === true;
+  const connectedKey = connected.join(",");
 
   const read = state.status === "ready" ? state.data : null;
   useEffect(() => setSaved(null), [read]);
   useEffect(() => {
-    if (!on || !linear) return;
+    if (!on || connected.length === 0) return;
     let cancelled = false;
-    setGroups({ status: "loading" });
-    tickets.listTrackerTemplates(projectId, "linear").then(
-      (data) => !cancelled && setGroups({ status: "ready", data }),
-      (failure) => !cancelled && setGroups({ status: "error", message: errorMessage(failure) }),
-    );
+    for (const tracker of connected) {
+      setGroups((before) => ({ ...before, [tracker]: { status: "loading" } }));
+      tickets.listTrackerTemplates(projectId, tracker).then(
+        (data) => !cancelled && setGroups((before) => ({ ...before, [tracker]: { status: "ready", data } })),
+        (failure) => !cancelled && setGroups((before) => ({ ...before, [tracker]: { status: "error", message: errorMessage(failure) } })),
+      );
+    }
     return () => {
       cancelled = true;
     };
-  }, [tickets, projectId, on, linear]);
+  }, [tickets, projectId, on, connectedKey]);
 
   if (state.status === "error") return <p className="error">{state.message}</p>;
   if (settings === null) return <p className="note">Loading…</p>;
@@ -74,8 +88,8 @@ export function TicketTemplatesSection({ projectId, notify }: { projectId: strin
     }
   };
 
-  const toggle = (group: TrackerTemplateGroup, template: { id: string; name: string }, offer: boolean) => {
-    const choice = { tracker: "linear" as const, destinationId: group.destination.id, templateId: template.id, name: template.name };
+  const toggle = (tracker: TrackerId, group: TrackerTemplateGroup, template: { id: string; name: string }, offer: boolean) => {
+    const choice = { tracker, destinationId: group.destination.id, templateId: template.id, name: template.name };
     const templates = offer ? [...settings.templates.filter((each) => !same(each, choice)), choice] : settings.templates.filter((each) => !same(each, choice));
     void save({ on: true, templates }, offer ? `Offering ${template.name}` : `No longer offering ${template.name}`);
   };
@@ -99,32 +113,46 @@ export function TicketTemplatesSection({ projectId, notify }: { projectId: strin
           )}
         </SettingRow>
       </div>
-      {on && !linear && accounts.status === "ready" && <p className="note">Connect Linear in Your trackers to choose your teams' templates.</p>}
-      {on && linear && groups?.status === "loading" && <p className="note">Loading templates…</p>}
-      {on && linear && groups?.status === "error" && <p className="error">{groups.message}</p>}
-      {on && linear && groups?.status === "ready" && groups.data.length === 0 && <p className="note">Your Linear teams have no issue templates yet.</p>}
-      {on && linear && groups?.status === "ready" && groups.data.length > 0 && (
-        <>
-          <p className="note">Create ticket offers the templates turned on here, for their team.</p>
-          {groups.data.map((group) => (
-            <div key={group.destination.id} className="ds-group" role="group" aria-label={group.destination.name}>
-              <div className="ds-group-label">{group.destination.name}</div>
-              {group.templates.map((template) => (
-                <SettingRow key={template.id} label={template.name}>
-                  {(labelId) => (
-                    <Switch
-                      checked={settings.templates.some((each) => same(each, { destinationId: group.destination.id, templateId: template.id }))}
-                      labelledBy={labelId}
-                      disabled={busy}
-                      onChange={(offer) => toggle(group, template, offer)}
-                    />
-                  )}
-                </SettingRow>
-              ))}
-            </div>
-          ))}
-        </>
+      {on && connected.length === 0 && accounts.status === "ready" && (
+        <p className="note">Connect {TEMPLATE_TRACKERS.map(trackerName).join(" or ")} in Your trackers to choose your teams' templates.</p>
       )}
+      {on &&
+        connected.map((tracker) => {
+          const loaded = groups[tracker];
+          const place = TEMPLATE_PLACES[tracker]!;
+          return (
+            <div key={tracker} className="ds-page" role="group" aria-label={`${trackerName(tracker)} templates`}>
+              {connected.length > 1 && <h4 className="ds-group-label">{trackerName(tracker)}</h4>}
+              {loaded?.status === "loading" && <p className="note">Loading templates…</p>}
+              {loaded?.status === "error" && <p className="error">{loaded.message}</p>}
+              {loaded?.status === "ready" && loaded.data.length === 0 && <p className="note">{place.none}</p>}
+              {loaded?.status === "ready" && loaded.data.length > 0 && (
+                <>
+                  <p className="note">Create ticket offers the templates turned on here, {place.offer}.</p>
+                  {loaded.data.map((group) => (
+                    <div key={group.destination.id} className="ds-group" role="group" aria-label={group.destination.name}>
+                      <div className="ds-group-label">{group.destination.name}</div>
+                      {group.templates.map((template) => (
+                        <SettingRow key={template.id} label={template.name}>
+                          {(labelId) => (
+                            <Switch
+                              checked={settings.templates.some((each) => same(each, { tracker, destinationId: group.destination.id, templateId: template.id }))}
+                              labelledBy={labelId}
+                              disabled={busy}
+                              onChange={(offer) => toggle(tracker, group, template, offer)}
+                            />
+                          )}
+                        </SettingRow>
+                      ))}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          );
+        })}
     </div>
   );
 }
+
+const trackerName = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;

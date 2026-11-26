@@ -602,6 +602,12 @@ export interface TicketLinkRecord {
   creationId?: string;
   /** For a ticket Critiqs creates: the tracker account (the tracker's ID for it) its creator submitted it with. Only that account recovers it. */
   creatorAccountId?: string;
+  /**
+   * For a ticket Critiqs creates: where it was first submitted, such as a
+   * GitHub repository, where a retry looks for the ticket an earlier attempt
+   * may have made. Absent on creations from before it was recorded.
+   */
+  destinationId?: string;
   /** For a ticket Critiqs creates: the link back to the thread, as recorded when it was submitted, and whether the tracker has it. */
   linkBack?: { url: string; title: string; added: boolean };
   /** The attempt working on a pending link, and until when it may: only it calls the tracker for this creation, and only it may finish or release it. */

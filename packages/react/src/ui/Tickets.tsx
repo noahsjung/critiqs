@@ -209,6 +209,7 @@ export function CreateTicketDialog({
   drafting = false,
   modelLists = false,
   onSetUpAi = null,
+  installUrls = {},
   onClose,
   onCreated,
   returnFocus,
@@ -225,6 +226,8 @@ export function CreateTicketDialog({
   modelLists?: boolean;
   /** Opens Your AI, which closes this dialog first; null where the person has none to set up. */
   onSetUpAi?: (() => void) | null;
+  /** Where an organization installs a tracker's app to reach its repositories, by tracker (GitHub). */
+  installUrls?: Partial<Record<TrackerId, string>>;
   onClose: () => void;
   onCreated: (ticket: TicketLinkView) => void;
   returnFocus?: HTMLElement | null;
@@ -232,7 +235,9 @@ export function CreateTicketDialog({
   const transport = useTransport();
   const tickets = transport.tickets!;
   const [tracker, setTracker] = useState<TrackerId>(accounts[0]!.tracker);
-  const [destinations, setDestinations] = useState<Loaded<TicketDestination[]>>({ status: "loading" });
+  // Each tracker's destinations are its own: another tracker's are never used, even in the render after switching.
+  const [loadedDestinations, setDestinations] = useState<{ tracker: TrackerId; loaded: Loaded<TicketDestination[]> }>({ tracker, loaded: { status: "loading" } });
+  const destinations: Loaded<TicketDestination[]> = loadedDestinations.tracker === tracker ? loadedDestinations.loaded : { status: "loading" };
   const [remembered, remember] = useStoredState<string | null>(`critiqs:ticket-destination:${projectId}:${personId}:${tracker}`, null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -274,10 +279,10 @@ export function CreateTicketDialog({
 
   useEffect(() => {
     let cancelled = false;
-    setDestinations({ status: "loading" });
+    setDestinations({ tracker, loaded: { status: "loading" } });
     tickets.listTicketDestinations(tracker).then(
-      (data) => !cancelled && setDestinations({ status: "ready", data }),
-      (failure) => !cancelled && setDestinations({ status: "error", message: errorMessage(failure) }),
+      (data) => !cancelled && setDestinations({ tracker, loaded: { status: "ready", data } }),
+      (failure) => !cancelled && setDestinations({ tracker, loaded: { status: "error", message: errorMessage(failure) } }),
     );
     return () => {
       cancelled = true;
@@ -460,6 +465,19 @@ export function CreateTicketDialog({
               )
             }
           </SettingRow>
+          {destinations.status === "ready" && options.length === 0 && (
+            <p className="note">
+              You have no {DESTINATION_LABEL[tracker].toLowerCase()} here that takes new tickets.
+              {installUrls[tracker] !== undefined && (
+                <>
+                  {" "}
+                  <a className="link-btn" href={installUrls[tracker]} target="_blank" rel="noreferrer noopener">
+                    Install Critiqs on your repositories in GitHub
+                  </a>
+                </>
+              )}
+            </p>
+          )}
           {offer.templates.length > 0 && (
             <SettingRow label="Template">
               {(labelId) => (

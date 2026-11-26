@@ -2293,8 +2293,14 @@ project's ticket templates, and labels suggested from tags, with the rules in
 `packages/server/src/tickets/drafts.ts` and the adapter's `templates`,
 `template`, and `labels`; and status from Linear's webhooks and from the check
 when a thread opens, and **Resolve when done**, with the rules in
-`packages/server/src/tickets/status.ts`. The storage, token, sign-in, calls to
-trackers, webhooks, drafting, and compatibility items below describe them.
+`packages/server/src/tickets/status.ts`. Also built, on Convex: GitHub
+Issues, as a second implementation of the same adapter
+(`packages/server/src/tickets/trackers/github.ts`): the GitHub App's sign-in
+and pasted fine-grained tokens, repositories as destinations, issues created
+and linked, templates and issue forms, labels, status, and
+`POST /trackers/github/webhook`; see [tickets](tickets.md#github-issues).
+The storage, token, sign-in, calls to trackers, webhooks, drafting, and
+compatibility items below describe them.
 
 **Proposed:** the technical choices.
 
@@ -2465,9 +2471,12 @@ trackers, webhooks, drafting, and compatibility items below describe them.
   trackers only with `tickets`, and **Create ticket…** and **Link ticket…**
   only with `threadTickets`, through an optional `tickets` part of its
   transport, as Mockup mode does with `mockups`. Linked tickets show wherever
-  thread answers carry them.
+  thread answers carry them. A tracker connected through an app that is
+  installed per organization (GitHub) also reports `installUrl`, its install
+  page, which the component shows only when it is an `https:` or `http:`
+  address.
 
-Settings for tickets on a Convex deployment (built: Linear):
+Settings for tickets on a Convex deployment (built: Linear and GitHub Issues):
 
 | Setting (Convex deployment) | Purpose |
 | --- | --- |
@@ -2475,6 +2484,9 @@ Settings for tickets on a Convex deployment (built: Linear):
 | `CRITIQS_LINEAR_CLIENT_ID`, `CRITIQS_LINEAR_CLIENT_SECRET` | The operator's Linear OAuth app, both or neither. Its callback address is `<deployment site>/trackers/linear/callback`. Without them, people paste a Linear API key |
 | `CRITIQS_LINEAR_WEBHOOK_SECRET` | The signing secret of the operator's Linear app's webhook. In the app's settings, turn on webhooks with the address `<deployment site>/trackers/linear/webhook` and the Issues events, then copy its signing secret here. Linear then sends each workspace's issue changes once someone there connects through Linear sign-in; tickets linked with pasted API keys get webhooks only from such a workspace. Without it, the webhook route refuses every call and status comes from the check when a thread opens |
 | `CRITIQS_LINEAR_API_URL`, `CRITIQS_LINEAR_APP_URL` | Tests only: Linear's API and sign-in addresses, pointed at a local stand-in. Never set them on a real deployment |
+| `CRITIQS_GITHUB_CLIENT_ID`, `CRITIQS_GITHUB_CLIENT_SECRET`, `CRITIQS_GITHUB_APP_SLUG` | The operator's GitHub App, all three or none: its client ID and a client secret, and its public name as in `https://github.com/apps/<slug>`. Its callback URL is `<deployment site>/trackers/github/callback`, with **Expire user authorization tokens** left on. Repository permissions: Issues read and write, Contents read-only, Metadata read-only; account permission: Email addresses read-only. Without them, people paste a fine-grained personal access token |
+| `CRITIQS_GITHUB_WEBHOOK_SECRET` | The secret of the GitHub App's webhook: in the app's settings, set the webhook URL to `<deployment site>/trackers/github/webhook`, set this secret, and subscribe to **Issues**. Without the app, an organization's or repository's webhook with the same address, secret, and Issues events works too. Without it, the webhook route refuses every call and status comes from the check when a thread opens |
+| `CRITIQS_GITHUB_API_URL`, `CRITIQS_GITHUB_APP_URL` | Tests only: GitHub's API and sign-in addresses, pointed at a local stand-in. Never set them on a real deployment |
 
 ## Shareable links
 

@@ -6,7 +6,8 @@ import { currentReviewer, requireUser } from "../operations.ts";
 import { canReview } from "../organizations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
 import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken } from "./trackers/index.ts";
-import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
+import { exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
+import { exchangeLinearCode, LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, linearAuthorizeUrl, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
 // tracker. Only that person sees or changes them. Tokens are verified with the
@@ -25,27 +26,41 @@ export interface TicketsDeployment {
   /** Linear's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
   linearApiUrl: string;
   linearAppUrl: string;
+  /** The operator's GitHub App; without it, people paste a fine-grained personal access token instead of signing in. */
+  github: GithubApp | null;
+  /** The secret of the GitHub App's webhook, or of an organization's or repository's webhook (`CRITIQS_GITHUB_WEBHOOK_SECRET`); without it, the webhook route refuses every call. */
+  githubWebhookSecret: string | null;
+  /** GitHub's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
+  githubApiUrl: string;
+  githubAppUrl: string;
 }
 
 /**
  * Reads the operator's settings: `CRITIQS_AI_ENCRYPTION_KEY`,
  * `CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` (both, or
- * neither), `CRITIQS_LINEAR_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`.
+ * neither), `CRITIQS_LINEAR_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`;
+ * `CRITIQS_GITHUB_CLIENT_ID`, `CRITIQS_GITHUB_CLIENT_SECRET`, and `CRITIQS_GITHUB_APP_SLUG` (all three, or none),
+ * `CRITIQS_GITHUB_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_GITHUB_API_URL` and `CRITIQS_GITHUB_APP_URL`.
  */
 export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>): TicketsDeployment {
   const clientId = env.CRITIQS_LINEAR_CLIENT_ID?.trim();
   const clientSecret = env.CRITIQS_LINEAR_CLIENT_SECRET?.trim();
+  const github = { clientId: env.CRITIQS_GITHUB_CLIENT_ID?.trim(), clientSecret: env.CRITIQS_GITHUB_CLIENT_SECRET?.trim(), slug: env.CRITIQS_GITHUB_APP_SLUG?.trim() };
   return {
     encryptionKey: validEncryptionKey(env.CRITIQS_AI_ENCRYPTION_KEY) ? env.CRITIQS_AI_ENCRYPTION_KEY! : null,
     linear: clientId && clientSecret ? { clientId, clientSecret } : null,
     linearWebhookSecret: env.CRITIQS_LINEAR_WEBHOOK_SECRET?.trim() || null,
     linearApiUrl: env.CRITIQS_LINEAR_API_URL?.trim() || LINEAR_API_URL,
     linearAppUrl: env.CRITIQS_LINEAR_APP_URL?.trim() || LINEAR_APP_URL,
+    github: github.clientId && github.clientSecret && github.slug ? { clientId: github.clientId, clientSecret: github.clientSecret, slug: github.slug } : null,
+    githubWebhookSecret: env.CRITIQS_GITHUB_WEBHOOK_SECRET?.trim() || null,
+    githubApiUrl: env.CRITIQS_GITHUB_API_URL?.trim() || GITHUB_API_URL,
+    githubAppUrl: env.CRITIQS_GITHUB_APP_URL?.trim() || GITHUB_APP_URL,
   };
 }
 
 /** The trackers people can connect so far. */
-export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
+export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear", "github"];
 
 /**
  * What `/critiqs/config` reports: the trackers offered and how each connects,
@@ -55,14 +70,62 @@ export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
  */
 export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
   if (deployment.encryptionKey === null) return null;
-  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true, drafting: true, ticketStatus: true };
+  return {
+    trackers: OFFERED_TRACKERS.map((id) => {
+      const app = trackerSignIn(id, deployment);
+      return { id, signIn: app === null ? "token" : "oauth", ...(app?.installUrl === undefined ? {} : { installUrl: app.installUrl }) };
+    }),
+    threadTickets: true,
+    drafting: true,
+    ticketStatus: true,
+  };
+}
+
+/** A tracker's API address on this deployment. */
+function apiUrlOf(tracker: TrackerId, deployment: TicketsDeployment): string {
+  return tracker === "github" ? deployment.githubApiUrl : deployment.linearApiUrl;
 }
 
 /** The adapter that talks to a tracker, at the deployment's addresses. */
 export function trackerAdapter(tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): TrackerAdapter {
   const adapter = TRACKER_ADAPTERS[tracker];
   if (adapter === undefined || !OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
-  return adapter({ fetch: fetchFn, baseUrl: deployment.linearApiUrl });
+  return adapter({ fetch: fetchFn, baseUrl: apiUrlOf(tracker, deployment) });
+}
+
+/** A tracker's sign-in on this deployment, through the operator's app: its pages and token requests. */
+export interface TrackerSignIn {
+  /** The tracker's page where the person allows Critiqs, sending them back to `redirectUri`. */
+  authorizeUrl(input: { redirectUri: string; state: string; challenge: string }): string;
+  exchange(input: { code: string; redirectUri: string; verifier: string }, now: number, fetchFn?: typeof fetch): Promise<SignInTokens>;
+  /** Trades a refresh token for new tokens; the tracker ends the one used. */
+  refresh(refreshToken: string, now: number, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<SignInTokens>;
+  /** Where an organization installs the app to reach its repositories (GitHub). */
+  installUrl?: string;
+}
+
+/** The tracker's sign-in on this deployment; null where its operator registered no app, so people paste a token. */
+export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment): TrackerSignIn | null {
+  if (tracker === "linear" && deployment.linear !== null) {
+    const app = deployment.linear;
+    const endpoint = (fetchFn?: typeof fetch) => ({ baseUrl: deployment.linearApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) });
+    return {
+      authorizeUrl: (input) => linearAuthorizeUrl(deployment.linearAppUrl, { clientId: app.clientId, ...input }),
+      exchange: (input, now, fetchFn) => exchangeLinearCode(endpoint(fetchFn), app, input, now),
+      refresh: (refreshToken, now, signal, fetchFn) => refreshLinearToken(endpoint(fetchFn), app, refreshToken, now, signal),
+    };
+  }
+  if (tracker === "github" && deployment.github !== null) {
+    const app = deployment.github;
+    const endpoint = (fetchFn?: typeof fetch) => ({ baseUrl: deployment.githubAppUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) });
+    return {
+      authorizeUrl: (input) => githubAuthorizeUrl(deployment.githubAppUrl, { clientId: app.clientId, ...input }),
+      exchange: (input, now, fetchFn) => exchangeGithubCode(endpoint(fetchFn), app, input, now),
+      refresh: (refreshToken, now, signal, fetchFn) => refreshGithubToken(endpoint(fetchFn), app, refreshToken, now, signal),
+      installUrl: githubInstallUrl(deployment.githubAppUrl, app.slug),
+    };
+  }
+  return null;
 }
 
 export function trackerLabel(tracker: TrackerId): string {
@@ -186,8 +249,8 @@ export async function saveSignedInAccount(store: Store, args: { userId: string; 
   await signIns.delete(signIn._id);
   const user = await store.users.get(args.userId);
   const critiqs = user?.email == null ? null : normalizeEmail(user.email);
-  const tracker = args.account.identity.email === null ? null : normalizeEmail(args.account.identity.email);
-  if (critiqs === null || tracker !== critiqs) return { status: "other-email" };
+  // Any of the tracker account's verified addresses: GitHub accounts often have several.
+  if (critiqs === null || !args.account.identity.emails.some((email) => normalizeEmail(email) === critiqs)) return { status: "other-email" };
   await saveTrackerAccount(store, args.userId, args.account, now);
   return { status: "saved" };
 }
@@ -374,7 +437,7 @@ export async function startTrackerSignIn(
   const tickets = ticketStore(store);
   requireKey(deployment);
   requireOffered(args.tracker);
-  if (args.tracker !== "linear" || deployment.linear === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
+  if (trackerSignIn(args.tracker, deployment) === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
   const user = await requireUser(store, identity);
   await requireConnectRoom(store, "sign-in", user._id, now);
   await tickets.signIns.insert({
@@ -614,7 +677,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
         continue;
       case "claimed": {
         const refreshToken = await decryptToken(key, binding, claim.refresh);
-        const app = deployment.linear;
+        const app = trackerSignIn(args.tracker, deployment);
         if (refreshToken === null || app === null) {
           await steps.finish(leaseId, null);
           return unreadable();
@@ -631,7 +694,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
         const timer = setTimeout(() => call.abort(), cutoff - steps.now());
         let tokens: SignInTokens;
         try {
-          tokens = await refreshLinearToken({ fetch: steps.fetch ?? fetch, baseUrl: deployment.linearApiUrl }, app, refreshToken, steps.now(), call.signal);
+          tokens = await app.refresh(refreshToken, steps.now(), call.signal, steps.fetch ?? fetch);
         } catch (error) {
           await steps.finish(leaseId, null);
           if (call.signal.aborted) fail("unavailable", `${label} took too long to refresh your sign-in. Try again in a moment.`);

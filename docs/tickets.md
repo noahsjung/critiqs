@@ -18,8 +18,13 @@ showing linked tickets on pins, the thread list, the thread window, and
 comments added to a mockup; and, on Convex for Linear, drafting with Critiqs
 AI, the team's Linear templates turned on per project by its owners, labels
 suggested from tags, status updates from Linear's webhooks and from the check
-when a thread opens, and **Resolve when done**. Not built yet: a project's
-default destination, GitHub Issues, and Jira.
+when a thread opens, and **Resolve when done**. Also built, on Convex for
+GitHub Issues: Your trackers through the operator's GitHub App or a pasted
+fine-grained token, creating and linking issues, repository templates and
+issue forms, labels from tags, status from GitHub's webhooks and the check
+when a thread opens, and **Resolve when done**; see
+[GitHub Issues](#github-issues). Not built yet: a project's default
+destination, and Jira.
 
 ## Outcomes
 
@@ -49,7 +54,7 @@ each one asks of Critiqs.
 | Link back to the thread | Link attachment on the issue | Line in the issue's text | Remote link on the issue |
 | Team templates | The team's issue templates | The repository's `.github/ISSUE_TEMPLATE` files, including issue forms | No built-in templates; an issue type's fields, and a description the team pastes in |
 | Fields Critiqs must ask for | Team; optionally labels, priority, assignee | Repository; optionally labels, assignee | Project, issue type, and any field that issue type requires |
-| Status updates | Webhook to the Critiqs app | Webhook, through the Critiqs GitHub App | Webhook registered through Jira sign-in and renewed before it expires |
+| Status updates | Webhook to the Critiqs app | Webhook, through the Critiqs GitHub App, or an organization's or repository's webhook with the same secret | Webhook registered through Jira sign-in and renewed before it expires |
 | One-time setup by the team | None, unless the workspace requires an admin to approve apps | A GitHub organization admin installs the Critiqs GitHub App | None, unless the site's admin restricts apps |
 
 To confirm while building, against each tracker's current API: how a Linear
@@ -61,7 +66,13 @@ someone in it first authorizes the app, and covers that workspace's issues
 brings no webhook in any tracker, so issues in a Linear workspace where
 everyone pasted an API key get none. Where a webhook can't be had, status
 comes from the check when a thread opens (see
-[Status from the tracker](#status-from-the-tracker)).
+[Status from the tracker](#status-from-the-tracker)). Confirmed for GitHub,
+from GitHub's documentation: a GitHub App's webhook covers the repositories it
+is installed on, whoever connected; deliveries are signed with
+`X-Hub-Signature-256` and carry no time of sending. Not confirmed: how GitHub
+writes issue-form answers into an issue's text. Its documentation says only
+that they are converted to Markdown; Critiqs writes each field's label as a
+`###` heading, as issues made from forms show it.
 
 ## Your trackers
 
@@ -447,6 +458,64 @@ Self-hosted deployments get the same features:
 - **Status:** webhooks where the server is reachable and has a webhook
   subscription for the ticket; otherwise the check when a thread opens.
 
+## GitHub Issues
+
+**Built, on Convex.** What differs from Linear:
+
+- **Connecting.** On Critiqs Cloud, the operator's GitHub App. Connecting
+  signs in through the app (OAuth with PKCE); its user access tokens last 8
+  hours and are refreshed one at a time, since each refresh ends the refresh
+  token used. Critiqs then reaches only repositories where an organization or
+  person installed the app and the person has access. **Choose repositories
+  in GitHub**, in Your trackers, opens the app's install page. A sign-in is
+  saved when any of the GitHub account's verified email addresses is the
+  Critiqs account's, since GitHub accounts often have a personal and a work
+  address. Without the app, people paste a fine-grained personal access token
+  with read and write access to Issues and read access to Contents (for
+  templates) on the repositories they choose.
+- **Where a ticket goes.** A repository that takes issues: archived
+  repositories and ones with issues turned off aren't offered.
+- **Ticket text and capture.** Markdown, as for Linear. GitHub has no API to
+  upload images, so the text says the capture is saved with the thread and
+  links to it. Each new issue starts with an HTML comment naming its
+  creation (its UUID, nothing else), which GitHub doesn't show: when an attempt's answer is lost,
+  the next one finds the issue by it among the person's issues in the
+  repository it was first submitted to, changed since, instead of creating
+  another.
+- **Link back.** A created issue has the thread's link in its text. Linking
+  an existing issue adds one comment, the thread's first line quoted and the
+  link, unless the issue's text or a comment has the link already, so linking
+  again adds nothing.
+- **Search.** By an issue's address, by `owner/repo#12` or `repo#12`, or by
+  words. Words are each quoted, so nothing typed becomes a search qualifier
+  or operator, and searched only in the person's own repositories; a
+  repository named for a search must be an `owner/name`.
+- **Templates.** A repository's `.github/ISSUE_TEMPLATE` files, read for each
+  draft: Markdown templates, by the `name` in their front matter, and issue
+  forms, as the Markdown an issue from the form has (each field's label as a
+  heading, with its preset value, and a checkbox per option). `config.yml`
+  isn't a template. Creating from a template adds the template's own labels
+  that the repository has; GitHub drops labels from people who can't push to
+  the repository.
+- **Labels.** The repository's labels, by name; GitHub has no single-select
+  label groups.
+- **Status.** Open, Closed (done), Closed as not planned or as duplicate
+  (canceled), and Deleted (canceled). `issues` webhooks are signed with the
+  webhook's secret and carry the issue's `updated_at`, which orders them as
+  Linear's are ordered, so a late or repeated delivery changes nothing.
+  Transferred issues aren't followed by webhook; the check when a thread
+  opens reads them. The ticket's permanent ID is the issue's node ID, and
+  its site is its repository (`owner/name`): a delivery changes only links to
+  issues in the repository it names. A renamed repository's deliveries name
+  its new name, so its tickets' status comes from the check when a thread
+  opens.
+- **Safety.** As for Linear: every call goes through Critiqs's tracker
+  endpoint (GitHub's own address only, no redirects, 15 seconds, 2 MB), and
+  every answer is checked (IDs and addresses, names and titles cut, lists
+  capped, a template's text at most 50,000 characters).
+- **Not built:** organization-wide default templates from an organization's
+  `.github` repository, assignees, and Projects fields.
+
 ## Order of work
 
 Each step is its own pull request.
@@ -461,7 +530,7 @@ Each step is its own pull request.
 6. AI drafting and templates.
 7. Status updates: webhooks, the check when a thread opens, and **Resolve when
    done** (built for Linear).
-8. GitHub Issues, with repository templates and issue forms.
+8. GitHub Issues, with repository templates and issue forms (built on Convex).
 9. Jira Cloud, with Atlassian Document Format and required fields.
 10. The onboarding step, and whichever proposals above are agreed, such as bulk
     creation, the export, and coding agents' tools.

@@ -24,12 +24,13 @@ import {
 } from "../src/tickets/drafts.ts";
 import { claimTicketCreation, createTicket, finishTicketCreation, releaseTicketHold, requireTicketCreator, requireTrackerAccount } from "../src/tickets/links.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
+import { NO_GITHUB } from "./github-standin.ts";
 import { deployment as aiDeployment, fakeModel } from "./contract-ai.ts";
 import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
 
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
 const REVIEW = "https://review.example/app";
 const bug: TicketTemplateChoice = { tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" };
 const copy: TicketTemplateChoice = { tracker: "linear", destinationId: "team-des", templateId: "tpl-copy", name: "Copy change" };
@@ -69,7 +70,7 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
     const id = await userId(backend, who);
     const access = await encryptToken(KEY, trackerTokenBinding("linear", id), `lin_api_${who.name!.toLowerCase()}`);
     await backend.run((store) =>
-      saveTrackerAccount(store, id, { tracker: "linear", method: "token", identity: { accountId: `u-${id}`, accountName: who.name!, email: null, site: null }, access, refresh: null, expiresAt: null }, 1_000),
+      saveTrackerAccount(store, id, { tracker: "linear", method: "token", identity: { accountId: `u-${id}`, accountName: who.name!, emails: [], site: null }, access, refresh: null, expiresAt: null }, 1_000),
     );
   }
 
@@ -186,7 +187,7 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
     expect(await backend.run((store) => getTicketTemplateSettings(store, dana, { projectId }))).toEqual({ on: false, templates: [bug, copy] });
     expect((await refusal(save(backend, dana, projectId, true, Array.from({ length: 51 }, (_, index) => ({ ...bug, templateId: `tpl-${index}` }))))).code).toBe("invalid");
     expect((await refusal(save(backend, dana, projectId, true, [{ ...bug, templateId: " " }]))).code).toBe("invalid");
-    expect((await refusal(save(backend, dana, projectId, true, [{ ...bug, tracker: "github" }]))).message).toContain("can't connect GitHub Issues yet");
+    expect((await refusal(save(backend, dana, projectId, true, [{ ...bug, tracker: "jira" }]))).message).toContain("can't connect Jira yet");
 
     // Choosing which to offer lists the owner's own Linear teams' templates, as them.
     const steps = (who: Identity) => ({ requirePerson: () => backend.run((store) => requireTemplateOwner(store, who, { projectId, tracker: "linear" }, 1_000)), token: () => token(who)() });

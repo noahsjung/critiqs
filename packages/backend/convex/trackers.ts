@@ -35,7 +35,7 @@ import { hashSecret, randomSecret } from "./lib/tokens";
 const sealedAccount = v.object({
   tracker: trackerValidator,
   method: v.union(v.literal("oauth"), v.literal("token")),
-  identity: v.object({ accountId: v.string(), accountName: v.string(), email: v.union(v.string(), v.null()), site: v.union(v.object({ id: v.string(), name: v.string() }), v.null()) }),
+  identity: v.object({ accountId: v.string(), accountName: v.string(), emails: v.array(v.string()), site: v.union(v.object({ id: v.string(), name: v.string() }), v.null()) }),
   access: storedTokenValidator,
   refresh: v.union(storedTokenValidator, v.null()),
   expiresAt: v.union(v.number(), v.null()),

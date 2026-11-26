@@ -20,12 +20,13 @@ import {
 } from "../src/tickets/status.ts";
 import type { Identity, Store } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
+import { NO_GITHUB } from "./github-standin.ts";
 import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
 const DONE: TicketStatus = { label: "Done", category: "done" };
 const STARTED: TicketStatus = { label: "In Progress", category: "started" };
 const CANCELED: TicketStatus = { label: "Canceled", category: "canceled" };
@@ -73,7 +74,7 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
       saveTrackerAccount(
         store,
         id,
-        { tracker: "linear", method: "token", identity: { accountId: accountId ?? `u-${id}`, accountName: who.name!, email: null, site: { id: "org-1", name: "Acme" } }, access, refresh: null, expiresAt: null },
+        { tracker: "linear", method: "token", identity: { accountId: accountId ?? `u-${id}`, accountName: who.name!, emails: [], site: { id: "org-1", name: "Acme" } }, access, refresh: null, expiresAt: null },
         1_000,
       ),
     );

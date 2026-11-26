@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { AiChoiceView, Anchor, TicketBadge, TicketDraftOptions, TicketsConfig, ThreadDetail, ThreadSummary, TrackerAccountView } from "@critiqs/core";
+import type { AiChoiceView, Anchor, TicketBadge, TicketDraftOptions, TicketsConfig, ThreadDetail, ThreadSummary, TrackerAccountView, TrackerId, TrackerTemplateGroup } from "@critiqs/core";
 import { ConvexError } from "convex/values";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -727,7 +727,7 @@ test("an owner turns on the team's ticket templates in Tags and AI and chooses w
 test("the Tickets tab asks an owner without Linear to connect it, and a backend without drafting has no Tickets tab", async () => {
   let shadow = await mount(backend({ trackers: { accounts: [], templateSettings: { on: true, templates: [] } } }), DRAFTING, { sidebarOpen: true });
   const settings = await openTicketsTab(shadow);
-  expect(settings.textContent).toContain("Connect Linear in Your trackers to choose your teams' templates.");
+  expect(settings.textContent).toContain("Connect Linear or GitHub Issues in Your trackers to choose your teams' templates.");
   await act(async () => root?.unmount());
   host?.remove();
   page?.remove();
@@ -889,4 +889,61 @@ test("a list row marks a ticket's status last known as its chip does; the page l
   expect(shadow.querySelector(".entry .ticket-badge")?.textContent).toBe("ENG-1 · In Progress · last known");
   // The pin is still drawn: the page layer refuses ticket fields it doesn't know, which would drop every pin.
   expect(shadow.querySelector(".pin .pin-ticket")).not.toBeNull();
+});
+
+const GITHUB: TrackerAccountView = { tracker: "github", method: "oauth", accountName: "dana-smith", site: null, connectedAt: 1, attribution: true };
+
+test("Create ticket in GitHub, with no repository that takes issues, says so and links to installing Critiqs on repositories", async () => {
+  const install = "https://github.com/apps/critiqs/installations/new";
+  const data = backend({ trackers: { accounts: [GITHUB], destinations: async () => [] } });
+  const shadow = await mount(data, { trackers: [{ id: "github", signIn: "oauth", installUrl: install }], threadTickets: true });
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  expect(create.textContent).toContain("Repository");
+  expect(create.textContent).toContain("You have no repository here that takes new tickets.");
+  const link = [...create.querySelectorAll("a")].find((anchor) => anchor.textContent === "Install Critiqs on your repositories in GitHub")!;
+  expect(link.getAttribute("href")).toBe(install);
+  expect(link.getAttribute("target")).toBe("_blank");
+});
+
+test("with Linear and GitHub connected, the Tickets tab lists each tracker's templates, and a GitHub template is saved as GitHub's", async () => {
+  const groups = async (tracker: TrackerId): Promise<TrackerTemplateGroup[]> =>
+    tracker === "github"
+      ? [{ destination: { id: "acme/web", name: "acme/web", key: null }, templates: [{ id: "acme/web:bug.yml", name: "Bug form" }] }]
+      : [{ destination: { id: "team-eng", name: "Engineering", key: "ENG" }, templates: [{ id: "tpl-bug", name: "Bug report" }] }];
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB], templateSettings: { on: true, templates: [] }, trackerTemplates: groups } });
+  const shadow = await mount(data, { ...DRAFTING, trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "oauth" }] }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect(calls(data, "listTrackerTemplates")).toEqual([
+    { projectId: "project", tracker: "linear" },
+    { projectId: "project", tracker: "github" },
+  ]);
+  expect([...settings.querySelectorAll("h4.ds-group-label")].map((label) => label.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  expect(settings.querySelector('[role="group"][aria-label="GitHub Issues templates"]')!.textContent).toContain("in their repository");
+  await click(switchFor(settings, "Bug form"));
+  expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({
+    projectId: "project",
+    on: true,
+    templates: [{ tracker: "github", destinationId: "acme/web", templateId: "acme/web:bug.yml", name: "Bug form" }],
+  });
+  expect(switchFor(settings, "Bug form")!.getAttribute("aria-checked")).toBe("true");
+  expect(switchFor(settings, "Bug report")!.getAttribute("aria-checked")).toBe("false");
+});
+
+test("with Linear and GitHub connected, switching the tracker never asks one tracker about the other's destination", async () => {
+  const destinations = async (tracker: TrackerId) => (tracker === "linear" ? [{ id: "team-des", name: "Design", key: "DES" }] : [{ id: "acme/web", name: "acme/web", key: null }]);
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB], destinations, options: async () => ({ templates: [], labels: [] }) } });
+  const both: TicketsConfig = { trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true };
+  const shadow = await mount(data, both);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Tracker")!.textContent).toContain("Linear");
+  await chooseOption(shadow, rowSelect(create, "Tracker"), "GitHub Issues");
+  expect(rowSelect(create, "Repository")!.textContent).toContain("acme/web");
+  expect(calls(data, "ticketDraftOptions")).toEqual([
+    { threadId: "thread", tracker: "linear", destinationId: "team-des" },
+    { threadId: "thread", tracker: "github", destinationId: "acme/web" },
+  ]);
 });

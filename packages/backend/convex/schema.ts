@@ -626,6 +626,8 @@ export default defineSchema({
     state: v.union(v.literal("pending"), v.literal("linked")),
     creationId: v.optional(v.string()),
     creatorAccountId: v.optional(v.string()),
+    /** Where a creation was first submitted, such as a GitHub repository, for a retry to look in. */
+    destinationId: v.optional(v.string()),
     linkBack: v.optional(v.object({ url: v.string(), title: v.string(), added: v.boolean() })),
     claimToken: v.optional(v.string()),
     leaseUntil: v.optional(v.number()),

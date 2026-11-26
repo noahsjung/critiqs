@@ -237,6 +237,14 @@ test("offers Your trackers only for the trackers the backend reports, and how ea
     trackers: [{ id: "linear", signIn: "token" }],
   });
   expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "magic" }] }))).tickets).toBeNull();
+  // GitHub's install link is kept only as a web address.
+  const install = "https://github.com/apps/critiqs/installations/new";
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "github", signIn: "oauth", installUrl: install }] }))).tickets).toEqual({
+    trackers: [{ id: "github", signIn: "oauth", installUrl: install }],
+  });
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "github", signIn: "oauth", installUrl: "javascript:alert(1)" }] }))).tickets).toEqual({
+    trackers: [{ id: "github", signIn: "oauth" }],
+  });
   expect((await resolveDeployment("https://team.convex.cloud", config(undefined))).tickets).toBeNull();
   expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).tickets).toBeNull();
 });

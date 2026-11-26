@@ -44,4 +44,5 @@ export * from "./tickets/trackers/index.ts";
 export * from "./tickets/links.ts";
 export * from "./tickets/drafts.ts";
 export * from "./tickets/trackers/linear.ts";
+export * from "./tickets/trackers/github.ts";
 export * from "./tickets/status.ts";

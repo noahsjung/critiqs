@@ -269,6 +269,8 @@ export interface TicketHold {
 export interface HeldCreation extends TicketHold {
   /** The ID the new ticket takes; the same across the creation's attempts. */
   creationId: string;
+  /** Where it was first submitted, and when: a retry looks there for a ticket an earlier attempt made. */
+  submitted: { destinationId: string; at: number };
   /** The link back to the thread, as recorded at submission; null when the thread had no link then. */
   linkBack: { url: WebAddress; title: string } | null;
 }
@@ -386,7 +388,8 @@ export async function claimTicketCreation(
     await tickets.links.patch(earlier._id, { claimToken: args.holder, leaseUntil });
     // Every creation records its link back when it is submitted, unless the thread had no link then.
     const url = earlier.linkBack === undefined ? null : webAddress(earlier.linkBack.url);
-    return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: url === null ? null : { url, title: earlier.linkBack!.title }, resumed: true, templateOffered } };
+    const submitted = { destinationId: earlier.destinationId ?? args.destinationId, at: earlier.linkedAt };
+    return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: url === null ? null : { url, title: earlier.linkBack!.title }, submitted, resumed: true, templateOffered } };
   }
   if (!templateOffered) fail("invalid", TEMPLATE_NOT_OFFERED);
   if ((await unfinishedCreation(tickets, { threadId: thread._id, userId: user._id, tracker: args.tracker, accountId: account.accountId })) !== null) {
@@ -406,6 +409,7 @@ export async function claimTicketCreation(
     state: "pending",
     creationId: args.creationId,
     creatorAccountId: account.accountId,
+    destinationId: args.destinationId,
     accountId: account.accountId,
     // The linker's workspace, so a webhook from another one can't reach the link while it is pending.
     ...(account.site === undefined ? {} : { site: account.site.id }),
@@ -416,7 +420,7 @@ export async function claimTicketCreation(
     linkedAt: now,
     createdFromCritiqs: true,
   });
-  return { status: "claimed", creation: { ...common, linkId, linkBack, resumed: false, templateOffered } };
+  return { status: "claimed", creation: { ...common, linkId, linkBack, submitted: { destinationId: args.destinationId, at: now }, resumed: false, templateOffered } };
 }
 
 /**
@@ -552,7 +556,7 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
   const adapter = heldAdapter(steps, ticket.tracker, deployment, fetchFn, held);
   const found = async () => {
     try {
-      return await adapter.findCreated(token, { creationId: held.creationId, link: held.linkBack?.url ?? null });
+      return await adapter.findCreated(token, { creationId: held.creationId, link: held.linkBack?.url ?? null, destinationId: held.submitted.destinationId, since: held.submitted.at });
     } catch (error) {
       if (!tokenRefused(error)) throw error;
       // Critiqs can't tell whether the ticket exists, and can't until the person connects again: set aside, so it holds no place on the thread.
