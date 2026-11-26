@@ -495,8 +495,13 @@ Self-hosted deployments get the same features:
 - **Templates.** A repository's `.github/ISSUE_TEMPLATE` files, read for each
   draft: Markdown templates, by the `name` in their front matter, and issue
   forms, as the Markdown an issue from the form has (each field's label as a
-  heading, with its preset value, and a checkbox per option). `config.yml`
-  isn't a template. Creating from a template adds the template's own labels
+  heading, with its preset value, and a checkbox per option). A form's
+  literal text stays literal: labels and one-line answers show exactly as
+  written, and a field GitHub renders as code (`render`) is a code block. A
+  textarea's preset text and a checkbox's label stay Markdown, as GitHub's
+  forms read them. The form's checks, such as a required field, aren't
+  carried into the draft: the Create dialog doesn't enforce them, so the
+  person fills what the team asks for. `config.yml` isn't a template. Creating from a template adds the template's own labels
   that the repository has; GitHub drops labels from people who can't push to
   the repository.
 - **Labels.** The repository's labels, by name; GitHub has no single-select

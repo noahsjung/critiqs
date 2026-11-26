@@ -357,12 +357,60 @@ describe("templates and labels", () => {
       id: "acme/web:bug.yml",
       name: "Bug report",
       destinationId: "acme/web",
-      body: "### What happened?\n\n### Version\n\n1.0\n\n### Which browsers?\n\n### Code of Conduct\n\n- [ ] I agree to follow this project's Code of Conduct\n",
+      body: "### What happened?\n\n### Version\n\n1\\.0\n\n### Which browsers?\n\n### Code of Conduct\n\n- [ ] I agree to follow this project's Code of Conduct\n",
     });
     expect((await github.template!(PAT, "acme/web:feature.md"))?.body).toBe("## Problem\n\n## Proposal\n");
     expect(await github.template!(PAT, "acme/web:gone.md")).toBeNull();
     expect(await github.template!(PAT, "acme/web:config.yml")).toBeNull();
     expect(await github.template!(PAT, "../etc:passwd.md")).toBeNull();
+  });
+
+  test("an issue form's literal text stays literal: labels and one-line answers as text, and a field GitHub renders as code in a code block", () => {
+    const form = [
+      "name: Literal",
+      "body:",
+      "  - type: textarea",
+      "    attributes:",
+      '      label: "Version *beta* <b>x</b>"',
+      '      value: "Version *beta*\\n```\\n<script>"',
+      "      render: text",
+      "  - type: input",
+      "    attributes:",
+      '      label: "Where [link](https://x.example)"',
+      '      value: "<b>1.2</b> *x* [y](https://y.example)"',
+      "  - type: textarea",
+      "    attributes:",
+      "      label: Steps",
+      '      value: "1. Do *this*"',
+      "  - type: checkboxes",
+      "    attributes:",
+      "      label: Terms",
+      "      options:",
+      '        - label: "I agree to the **Code of Conduct**"',
+      "  - type: dropdown",
+      "    attributes:",
+      '      label: "OS <i>any</i>"',
+      "      options: [Linux, macOS]",
+    ].join("\n");
+    const parsed = parseGithubTemplate("literal.yml", form);
+    expect(parsed).not.toBeNull();
+    const html = Bun.markdown.html(parsed!.body);
+    // Labels: headings with the label's characters as text, no emphasis, link, or HTML.
+    expect(html).toContain("<h3>Version *beta* &lt;b&gt;x&lt;/b&gt;</h3>");
+    expect(html).toContain("<h3>Where [link](https://x.example)</h3>");
+    expect(html).toContain("<h3>OS &lt;i&gt;any&lt;/i&gt;</h3>");
+    // A field GitHub renders as code (`render`) is a code block in that language, whatever its text holds.
+    expect(html).toContain('<pre><code class="language-text">Version *beta*\n```\n&lt;script&gt;\n</code></pre>');
+    // A one-line answer is text.
+    expect(html).toContain("<p>&lt;b&gt;1.2&lt;/b&gt; *x* [y](https://y.example)</p>");
+    // A textarea's preset text, like a Markdown template, and a checkbox's label, which GitHub's forms render as Markdown, keep their formatting.
+    expect(html).toContain("<em>this</em>");
+    expect(html).toContain("<strong>Code of Conduct</strong>");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<b>");
+    expect(html).not.toContain("<i>");
+    expect(html).not.toContain('href="https://x.example"');
+    expect(html).not.toContain('href="https://y.example"');
   });
 
   test("template files GitHub wouldn't offer are skipped", () => {

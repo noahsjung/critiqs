@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { markdownCode, markdownLines, markdownLink, markdownText } from "../src/markdown-text.ts";
+import { markdownCode, markdownCodeBlock, markdownLines, markdownLink, markdownText } from "../src/markdown-text.ts";
 import type { WebAddress } from "../src/web-address.ts";
 import { githubReferences, render, renderGfm, renderLinkified, renderMarked } from "./markdown-oracle.ts";
 
@@ -179,4 +179,12 @@ test("an & before word characters and ; reaches the browser as text, in every re
   }
   // An & in a sentence still needs no backslash.
   expect(markdownText("R&D and Q&A teams")).toBe("R&D and Q&A teams");
+});
+
+test("a code block holds any lines exactly, whatever fences they contain, and takes only a plain language name", () => {
+  const text = "a *b*\n```\n````js\n   ````\n<script>x</script>";
+  const html = Bun.markdown.html(`${markdownCodeBlock(text, "text")}\n\nAfter`);
+  expect(html).toBe(`<pre><code class="language-text">a *b*\n\`\`\`\n\`\`\`\`js\n   \`\`\`\`\n&lt;script&gt;x&lt;/script&gt;\n</code></pre>\n<p>After</p>\n`);
+  expect(markdownCodeBlock("x", "js onload=alert(1)").split("\n")[0]).toBe("```");
+  expect(markdownCodeBlock("x")).toBe("```\nx\n```");
 });

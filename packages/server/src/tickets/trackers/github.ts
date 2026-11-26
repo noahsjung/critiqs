@@ -1,4 +1,4 @@
-import { markdownLink, type TicketDestination, type TicketMarkdown, type TicketRef, type TicketStatus, ticketLinkComment, type TrackerTemplateGroup, webAddress } from "@critiqs/core";
+import { markdownCodeBlock, markdownLink, markdownText, type TicketDestination, type TicketMarkdown, type TicketRef, type TicketStatus, ticketLinkComment, type TrackerTemplateGroup, webAddress } from "@critiqs/core";
 import { parse as parseYaml } from "yaml";
 import { CritiqsError, fail } from "../../errors.ts";
 import {
@@ -389,8 +389,14 @@ function labelList(value: unknown): string[] {
  * and its labels; its text is the rest. An issue form (YAML) becomes the
  * Markdown GitHub writes when the form is submitted: each field's label as a
  * `###` heading, a field's preset value under it, a checkbox per option; its
- * Markdown blocks, which aren't submitted, are left out. Null when the file
- * isn't a template GitHub would offer, such as one without a name.
+ * Markdown blocks, which aren't submitted, are left out. What a form means
+ * as text stays text: labels and one-line answers (`input`) are escaped, and a
+ * field GitHub renders as code (`render`) is a code block in that language.
+ * A textarea's preset text and a checkbox's label are Markdown in GitHub's
+ * forms, and stay Markdown here, as a Markdown template's text does. A form's
+ * validations (such as `required`) aren't part of what GitHub writes, so the
+ * draft doesn't carry them. Null when the file isn't a template GitHub would
+ * offer, such as one without a name.
  */
 export function parseGithubTemplate(fileName: string, source: string): GithubTemplateFile | null {
   if (/\.md$/i.test(fileName)) {
@@ -407,14 +413,22 @@ export function parseGithubTemplate(fileName: string, source: string): GithubTem
     if (!isRecord(element) || !isRecord(element.attributes) || element.type === "markdown") continue;
     const { attributes } = element;
     if (!text(attributes.label)) continue;
-    const heading = `### ${attributes.label.replace(/\s+/g, " ").trim()}`;
+    const heading = `### ${markdownText(attributes.label)}`;
     if (element.type === "checkboxes" && Array.isArray(attributes.options)) {
       const boxes = attributes.options.flatMap((option) => (isRecord(option) && text(option.label) ? [`- [ ] ${option.label.replace(/\s+/g, " ").trim()}`] : []));
       sections.push([heading, "", ...boxes].join("\n"));
-    } else {
-      const value = (element.type === "textarea" || element.type === "input") && typeof attributes.value === "string" ? attributes.value.trim() : "";
-      sections.push(value === "" ? heading : `${heading}\n\n${value}`);
+      continue;
     }
+    const preset = (element.type === "textarea" || element.type === "input") && typeof attributes.value === "string" ? attributes.value.trim() : "";
+    const value =
+      preset === ""
+        ? ""
+        : element.type === "textarea" && typeof attributes.render === "string"
+          ? markdownCodeBlock(preset, attributes.render.trim())
+          : element.type === "input"
+            ? markdownText(preset)
+            : preset;
+    sections.push(value === "" ? heading : `${heading}\n\n${value}`);
   }
   return { name: form.name.trim(), labels: labelList(form.labels), body: sections.length === 0 ? "" : `${sections.join("\n\n")}\n` };
 }
