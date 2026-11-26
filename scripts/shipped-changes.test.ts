@@ -106,6 +106,8 @@ const cases: [string, Record<string, Edit>, Expect, string[]?][] = [
   ["bun.lock's overrides only", { "bun.lock": swap(/^  "workspaces": \{/m, '  "overrides": {\n    "react": "19.3.1",\n  },\n  "workspaces": {') }, "note"],
   ["bun.lock's record of critiqs's convex range only", { "bun.lock": swap(/("packages\/critiqs": \{[\s\S]*?"convex": )"[^"]+"/, '$1"^1.51.0"') }, "patch", ["critiqs"]],
   ["bun.lock's record of a workspace's name", { "bun.lock": swap('"name": "critiqs",', '"name": "critiqs-renamed",') }, "note"],
+  ["bun.lock: a bundled workspace resolved from the registry instead", { "bun.lock": swap('"@critiqs/core": ["@critiqs/core@workspace:packages/core"]', '"@critiqs/core": ["@critiqs/core@1.0.0", "", {}, "sha512-AAAA"]') }, "patch", ["critiqs"]],
+  ["bun.lock: the website's workspace entry", { "bun.lock": swap('"@critiqs/web": ["@critiqs/web@workspace:apps/web"]', '"@critiqs/web": ["@critiqs/web@workspace:apps/other"]') }, "note"],
   ["bun.lock that can't be read", { "bun.lock": (text) => `${text}\n}}}` }, "patch"],
   ["critiqs's files list, with a types bump", { "packages/critiqs/package.json": manifestEdit((m) => { m.files.push("src"); m.devDependencies["@types/react"] = "^19.9.0"; }) }, "patch"],
   ["critiqs's exports, with a types bump", { "packages/critiqs/package.json": manifestEdit((m) => { m.exports = { ...m.exports, "./x": "./dist/x.js" }; m.devDependencies["@types/react"] = "^19.9.0"; }) }, "patch"],

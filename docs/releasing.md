@@ -131,9 +131,11 @@ lets an update through, and counts every update as shipped in a package the
 list doesn't name.
 
 What the gate can't tell apart needs a note: a `bun.lock` change other than
-resolved versions and the workspaces' ranges (such as its overrides or
-trusted dependencies), a `bun.lock` it can't read, and any other file, such as
-`bunfig.toml` or `.npmrc`.
+resolved versions and the workspaces' ranges (such as its overrides, trusted
+dependencies, or where a workspace's own code comes from), a `bun.lock` it
+can't read, and any other file, such as `bunfig.toml` or `.npmrc`. When that
+change can reach a package's files (a bundled workspace resolved from
+somewhere else), a no-release note doesn't cover it either.
 
 An action's new pin needs no note only when the action itself (owner,
 repository, and path) stays the same, both pins are full commit SHAs with at

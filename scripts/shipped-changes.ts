@@ -111,7 +111,16 @@ export async function shippedChanges(cwd: string, from: string, to: string, diff
       for (const key of new Set([...Object.keys(patchesBefore), ...Object.keys(patchesAfter)])) {
         if (patchesBefore[key] !== patchesAfter[key]) ships(`bun.lock: patch for ${key}`, g.lockReach(nameOf(key)));
       }
-      for (const [name, versions] of changedEntries(before.packages ?? {}, after.packages ?? {})) ships(`bun.lock: ${name} ${versions}`, g.lockReach(name));
+      for (const [name, versions] of changedEntries(before.packages ?? {}, after.packages ?? {})) {
+        // A workspace's own entry says where its code comes from, not a dependency's version.
+        if (g.isWorkspace(name) || versions.includes("workspace:")) {
+          dependenciesOnly = false;
+          reasons.push(`bun.lock changes where the workspace ${name} comes from.`);
+          ships(`bun.lock: ${name} ${versions}`, g.bundling(name));
+        } else {
+          ships(`bun.lock: ${name} ${versions}`, g.lockReach(name));
+        }
+      }
       // The workspaces' ranges as bun.lock records them, judged like their manifests.
       const [spacesBefore, spacesAfter] = [before.workspaces ?? {}, after.workspaces ?? {}];
       for (const dir of new Set([...Object.keys(spacesBefore), ...Object.keys(spacesAfter)])) {
@@ -216,6 +225,8 @@ interface Graph {
   isWorkspace(name: string): boolean;
   /** The released packages whose files a bun.lock change to `name` can change. */
   lockReach(name: string): string[];
+  /** The released packages that bundle the workspace package `name`, itself included. */
+  bundling(name: string): string[];
   /** The released packages a range in the workspace `dir`'s `field` reaches. */
   rangeReach(dir: string, field: Field, name: string): string[];
   /** Why the gate counted every update as shipped in a package. */
@@ -281,6 +292,7 @@ async function workspaces(cwd: string, from: string, to: string, released: Map<s
     lock,
     isWorkspace: (name) => dirOf.has(name),
     lockReach: (name) => [...packages].filter(([, pkg]) => has(pkg.reach, name)).map(([dir]) => dir),
+    bundling: (name) => [...packages].filter(([, pkg]) => dirOf.has(name) && pkg.members.has(dirOf.get(name)!)).map(([dir]) => dir),
     rangeReach: (dir, field, name) => [...packages].filter(([other, pkg]) => pkg.members.has(dir) && (
       field === "devDependencies"
         ? tools.get(dir)?.has(name) || has(pkg.reach, name)
