@@ -599,10 +599,11 @@ export type PreparedLinkBack =
 
 /**
  * Checks the person may add a created ticket's link back to its thread: they
- * created it, the thread is open to tickets, and they have the account they
- * created it with. One transaction.
+ * created it, the thread is open to tickets, they have the account they
+ * created it with, and they have a tracker write left this minute, as each
+ * try calls the tracker. One transaction.
  */
-export async function prepareTicketLinkBack(store: Store, identity: Identity | null, args: { linkId: string }): Promise<PreparedLinkBack> {
+export async function prepareTicketLinkBack(store: Store, identity: Identity | null, args: { linkId: string }, now: number): Promise<PreparedLinkBack> {
   const tickets = ticketStore(store);
   const user = await requireUser(store, identity);
   const link = await tickets.links.get(args.linkId);
@@ -612,6 +613,7 @@ export async function prepareTicketLinkBack(store: Store, identity: Identity | n
   await ticketThread(store, user, link.threadId);
   if (link.linkBack.added) return { status: "added", view: await ticketView(store, link, { userId: user._id, owner: false }) };
   requireSameAccount(link, account, link.tracker, link.key);
+  await requireTrackerRoom(store, "write", user._id, now);
   return {
     status: "ready",
     person: { userId: user._id, accountId: account.accountId },

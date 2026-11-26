@@ -23,6 +23,7 @@ import {
   requireTrackerAccount,
   saveTicketLinkBack,
   searchTickets,
+  TICKET_WRITES_PER_MINUTE,
   ticketDraft,
   unlinkTicket,
 } from "../src/tickets/links.ts";
@@ -181,10 +182,10 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
   }
 
   /** Adds the missing link back to a ticket `who` created. */
-  function addLinkBack(backend: ContractBackend, who: Identity, linear: LinearStandIn, linkId: string) {
+  function addLinkBack(backend: ContractBackend, who: Identity, linear: LinearStandIn, linkId: string, clock: Clock = { now: 6_000 }) {
     return addTicketLinkBack(
       {
-        prepare: () => backend.run((store) => prepareTicketLinkBack(store, who, { linkId })),
+        prepare: () => backend.run((store) => prepareTicketLinkBack(store, who, { linkId }, clock.now)),
         token: tokens(backend),
         save: () => backend.run((store) => saveTicketLinkBack(store, who, { linkId })),
       },
@@ -873,7 +874,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     const addBack = addTicketLinkBack(
       {
         prepare: async () => {
-          const prepared = await backend.run((store) => prepareTicketLinkBack(store, dana, { linkId: created._id }));
+          const prepared = await backend.run((store) => prepareTicketLinkBack(store, dana, { linkId: created._id }, 6_000));
           await connect(backend, dana, true, "linear-account-b", "lin_api_dana_b");
           return prepared;
         },
@@ -925,6 +926,26 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     linear.intercept = null;
     expect((await create(backend, dana, linear, { threadId, submissionId })).key).toBe("ENG-1");
     expect(linear.issues).toHaveLength(1);
+  });
+
+  test(`${name}: adding a link back again counts toward the person's tracker writes, so retries can't call the tracker without limit`, async () => {
+    const backend = fresh();
+    const { threadId } = await setup(backend);
+    await connect(backend, dana);
+    const linear = linearStandIn();
+    linear.intercept = (operation) => (operation === "CritiqsLinkBack" ? new Response("bad gateway", { status: 502 }) : undefined);
+    const view = await create(backend, dana, linear, { threadId });
+    expect(view.canAddLinkBack).toBe(true);
+    const tries = () => linear.operations.filter((operation) => operation === "CritiqsLinkBack").length;
+    const before = tries();
+    const codes: string[] = [];
+    // Within one minute: the creation took one of the person's writes, so the twentieth retry is refused before Linear is asked.
+    for (let attempt = 0; attempt < 25; attempt++) codes.push((await refusal(addLinkBack(backend, dana, linear, view._id, { now: 6_000 + attempt }))).code);
+    expect(codes.filter((code) => code === "limit")).toHaveLength(25 - (TICKET_WRITES_PER_MINUTE - 1));
+    expect(tries() - before).toBe(TICKET_WRITES_PER_MINUTE - 1);
+    // A minute later, there is room again.
+    linear.intercept = null;
+    expect((await addLinkBack(backend, dana, linear, view._id, { now: 6_000 + 60_000 })).canAddLinkBack).toBe(false);
   });
 
   test(`${name}: when Linear doesn't add the link back, the created ticket is linked and says so to its creator, who can add it again with the recorded link`, async () => {

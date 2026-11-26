@@ -183,7 +183,7 @@ export const release = internalMutation({
 
 export const prepareLinkBack = internalMutation({
   args: { linkId: v.string() },
-  handler: async (ctx, args) => run(async () => prepareTicketLinkBack(convexStore(ctx), await identityOf(ctx), args)),
+  handler: async (ctx, args) => run(async () => prepareTicketLinkBack(convexStore(ctx), await identityOf(ctx), args, Date.now())),
 });
 
 export const saveLinkBack = internalMutation({
