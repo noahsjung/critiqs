@@ -337,3 +337,14 @@ function resolve(url: string, base: string): string {
     return url;
   }
 }
+
+/** The record the page shows: its one `data-critiqs-record` outside Critiqs, or null when it shows none or several. */
+export function pageRecordKey(root: HTMLElement): string | null {
+  const keys = new Set<string>();
+  for (const element of Array.from(root.querySelectorAll("[data-critiqs-record]"))) {
+    if (element.closest(HOST_TAG) !== null) continue;
+    const key = element.getAttribute("data-critiqs-record");
+    if (key) keys.add(key);
+  }
+  return keys.size === 1 ? [...keys][0]! : null;
+}

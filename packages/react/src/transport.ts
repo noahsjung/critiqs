@@ -36,6 +36,7 @@ import type {
   ThreadDetail,
   ThreadSummary,
 } from "@critiqs/core";
+import { PageLayerError } from "@critiqs/core";
 import { createContext, type ReactNode, useContext } from "react";
 
 /** A live query's state. Errors are values the interface can explain. */
@@ -321,6 +322,16 @@ export class CritiqsRequestError extends Error {
 /** Describes any backend error with Critiqs's code and explanation when there is one. */
 export function describeError(error: unknown): { status: "error"; code: string; message: string } {
   if (error instanceof CritiqsRequestError) return { status: "error", code: error.code, message: error.message };
+  // The prototype's page, when Critiqs runs beside it rather than in it.
+  if (error instanceof PageLayerError) {
+    const message =
+      error.code === "failed"
+        ? error.message
+        : error.code === "cancelled"
+          ? "The prototype changed pages before this finished. Try again."
+          : "The prototype's page didn't answer. Check that it is still open with Critiqs on it, then try again.";
+    return { status: "error", code: `page-${error.code}`, message };
+  }
   // Convex reports Critiqs's errors as structured data on the error.
   const data = (error as { data?: unknown } | null)?.data;
   if (typeof data === "object" && data !== null) {

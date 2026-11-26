@@ -1,4 +1,4 @@
-import { type LocateResult, locateTarget, type TargetLocation, type ThreadSummary } from "@critiqs/core";
+import { type Located, type LocateResult, locateTarget, type TargetLocation, type ThreadSummary } from "@critiqs/core";
 import { describeViewState } from "./ui/format.ts";
 
 export type { ProjectInfo as Project, ThreadDetail, ThreadSummary } from "@critiqs/core";
@@ -8,8 +8,8 @@ export interface LiveThread {
   summary: ThreadSummary;
   /** The current target: the reattachment, or else the original anchor. */
   location: TargetLocation;
-  /** Null when the thread belongs to another screen. */
-  located: LocateResult | null;
+  /** Null when the thread belongs to another screen. Found occurrences are the page layer's handles. */
+  located: Located | null;
   /** Whether the thread's view state matches the one the reviewer is in. */
   sameView: boolean;
 }
