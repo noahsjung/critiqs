@@ -282,6 +282,61 @@ test("a reply a coding agent wrote shows it beside the person's name", async () 
   }
 });
 
+/** The thread window's More actions menu items, by name. */
+async function moreActions(shadow: ShadowRoot) {
+  await act(async () => threadWindow(shadow)!.querySelector<HTMLButtonElement>('[aria-label="More actions"]')!.click());
+  return [...shadow.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.textContent);
+}
+
+test("Delete thread is offered only to someone the backend lets delete it, and to all on older backends", async () => {
+  prototypePage();
+  try {
+    for (const [canDelete, offered] of [
+      [false, false],
+      [true, true],
+      [undefined, true],
+    ] as const) {
+      backend.thread = canDelete === undefined ? detail : { ...detail, canDelete };
+      const shadow = await mount({ sidebarOpen: true });
+      await act(async () => shadow.querySelector<HTMLButtonElement>(".entry")!.click());
+      await frames();
+      const items = await moreActions(shadow);
+      expect(items).toContain("Mark unread");
+      expect([canDelete, items.includes("Delete thread…")]).toEqual([canDelete, offered]);
+      await act(async () => root?.unmount());
+      root = null;
+      host?.remove();
+    }
+  } finally {
+    backend.thread = detail;
+  }
+});
+
+test("a deletion the backend refuses keeps the thread open and says why", async () => {
+  prototypePage();
+  backend.thread = { ...detail, canDelete: true };
+  backend.removeThread = async () => {
+    // As Convex reports Critiqs's refusals.
+    throw Object.assign(new Error("Refused"), { data: { code: "forbidden", message: "Only the person who started this thread or the project's owners can delete it." } });
+  };
+  try {
+    const shadow = await mount({ sidebarOpen: true });
+    await act(async () => shadow.querySelector<HTMLButtonElement>(".entry")!.click());
+    await frames();
+    await moreActions(shadow);
+    const item = [...shadow.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((each) => each.textContent === "Delete thread…")!;
+    await act(async () => item.click());
+    const confirm = [...shadow.querySelectorAll<HTMLButtonElement>("button.danger")].find((button) => button.textContent === "Delete")!;
+    await act(async () => confirm.click());
+    await frames();
+    expect(threadWindow(shadow)).not.toBeNull();
+    expect(shadow.textContent).toContain("Only the person who started this thread or the project's owners can delete it.");
+  } finally {
+    backend.thread = detail;
+    backend.removeThread = undefined;
+  }
+});
+
 test("selecting a thread in the sidebar keeps the list and opens the thread beside its target", async () => {
   prototypePage();
   const shadow = await mount({ sidebarOpen: true });

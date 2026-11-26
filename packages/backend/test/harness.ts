@@ -45,3 +45,38 @@ export const anchor = {
     userAgent: "Mozilla/5.0 (Macintosh) Chrome/140",
   },
 };
+
+/** What uploads a file: a test deployment as someone signed in, `t.withIdentity(...)`. */
+type Uploader = {
+  mutation: (reference: any, args: any) => Promise<any>;
+  fetch: (path: string, init?: RequestInit) => Promise<Response>;
+};
+
+/**
+ * Uploads a file as the component does: reserved in the project for a
+ * capture (`captures.generateUploadUrl`) or a page copy
+ * (`mockups.generateUploadUrl`), then posted to the address it gives.
+ * Returns the stored file's ID; throws with the route's refusal.
+ */
+export async function upload(
+  who: Uploader,
+  projectId: string,
+  body: BlobPart,
+  options: { type?: string; purpose?: "capture" | "pageCopy" } = {},
+): Promise<any> {
+  const { api } = await import("../convex/_generated/api");
+  const purpose = options.purpose ?? "capture";
+  const site = process.env.CONVEX_SITE_URL;
+  process.env.CONVEX_SITE_URL ??= "https://test.convex.site";
+  let address: string;
+  try {
+    address = await who.mutation(purpose === "capture" ? api.captures.generateUploadUrl : api.mockups.generateUploadUrl, { projectId });
+  } finally {
+    if (site === undefined) delete process.env.CONVEX_SITE_URL;
+  }
+  const url = new URL(address);
+  const type = options.type ?? (purpose === "capture" ? "image/png" : "text/html");
+  const response = await who.fetch(url.pathname + url.search, { method: "POST", headers: { "Content-Type": type }, body });
+  if (!response.ok) throw new Error(await response.text());
+  return ((await response.json()) as { storageId: string }).storageId;
+}

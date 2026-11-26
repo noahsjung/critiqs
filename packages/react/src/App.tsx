@@ -148,11 +148,13 @@ export function App({
 
   const projectQuery = transport.useProject(signedIn ? projectId : null);
   const projectError = projectQuery.status === "error";
+  // A project limited to its organization still shows its refusal to someone outside it, even with `requireProjectId`.
+  const projectMissing = projectError && projectQuery.code !== "forbidden";
   useEffect(() => {
-    if (required && projectError) {
+    if (required && projectMissing) {
       console.warn(`Critiqs: the project ${configuredProject} isn't available on the Critiqs backend at ${deployment.backendUrl}. Check this app's project ID setting, or run npx critiqs doctor.`);
     }
-  }, [required, projectError, configuredProject, deployment.backendUrl]);
+  }, [required, projectMissing, configuredProject, deployment.backendUrl]);
   const threadsQuery = transport.useThreads(signedIn && projectQuery.status === "ready" ? projectId : null);
   const summaries = threadsQuery.status === "ready" ? threadsQuery.data : EMPTY;
   const projectTags = projectQuery.status === "ready" ? projectQuery.data.tags : EMPTY_TAGS;
@@ -598,8 +600,8 @@ export function App({
   // runs before Comment mode's listener stops keys from reaching the
   // prototype; it reads current state from a ref.
   const dismissScopeHelp = useRef<(() => void) | null>(null);
-  const keys = useRef({ mode, reattaching, picked, needsSetup, cancelComment, closeThread, hidden, unavailable: required && projectError, inMockup, mockupsOffered, chooseMode });
-  keys.current = { mode, reattaching, picked, needsSetup, cancelComment, closeThread, hidden, unavailable: required && projectError, inMockup, mockupsOffered, chooseMode };
+  const keys = useRef({ mode, reattaching, picked, needsSetup, cancelComment, closeThread, hidden, unavailable: required && projectMissing, inMockup, mockupsOffered, chooseMode });
+  keys.current = { mode, reattaching, picked, needsSetup, cancelComment, closeThread, hidden, unavailable: required && projectMissing, inMockup, mockupsOffered, chooseMode };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (keys.current.unavailable) return;
@@ -864,6 +866,16 @@ export function App({
         </SidebarFrame>
       );
     }
+    if (projectQuery.status === "error" && projectQuery.code === "forbidden") {
+      return (
+        <SidebarFrame title={panelTitle} label={panelLabel} onClose={() => setSidebarOpen(false)}>
+          <div className="empty">
+            <strong>No access to this project</strong>
+            <span>{projectQuery.message}</span>
+          </div>
+        </SidebarFrame>
+      );
+    }
     if (projectQuery.status === "error") {
       return (
         <SidebarFrame title={panelTitle} label={panelLabel} onClose={() => setSidebarOpen(false)}>
@@ -1010,7 +1022,7 @@ export function App({
   })();
 
   // Configured deployments keep project failures in the developer console, including failures after health succeeds.
-  if (required && projectError) return null;
+  if (required && projectMissing) return null;
 
   return (
     <HiddenContext.Provider value={hidden}>

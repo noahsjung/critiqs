@@ -1,7 +1,7 @@
 import { isPrivateReviewAddress, MAX_REVIEW_URL_LENGTH, reviewLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { useQuota } from "./limits.ts";
-import { projectQuota } from "./organizations.ts";
+import { canReview, projectQuota } from "./organizations.ts";
 import { type EmailEntry, type EmailHeader, type EmailImage, emailImage, MentionEmail } from "./mention-email.ts";
 import { MailError, type MailMessage } from "./signin.ts";
 import type { NotificationRecord, ProjectRecord, Store, StoredMention, ThreadRecord } from "./store.ts";
@@ -179,6 +179,8 @@ async function enqueue(
   for (const recipientId of new Set(args.recipients)) {
     if (recipientId === args.authorId) continue;
     if (!(await wantsEmail(store, recipientId, args.project._id, kind))) continue;
+    // Someone who can no longer review the project, such as after it was limited to its organization, isn't emailed its feedback.
+    if (!(await canReview(store, args.project, recipientId))) continue;
     let delivery = await store.deliveries.gathering(recipientId, args.threadId);
     if (delivery !== null) {
       const gathered = await store.notifications.forDelivery(delivery._id, MAX_PER_DELIVERY);
@@ -228,7 +230,10 @@ async function wantsEmail(store: Store, userId: string, projectId: string, kind:
 // ---------------------------------------------------------------------------
 // What reviewers see and choose
 
-/** Mention suggestions: participants whose name contains the query. Names and pictures only, never email addresses. */
+/**
+ * Mention suggestions: participants whose name contains the query, who can
+ * still review the project. Names and pictures only, never email addresses.
+ */
 export async function listParticipants(
   store: Store,
   user: { _id: string } | null,
@@ -241,6 +246,7 @@ export async function listParticipants(
     if (participant.userId === user?._id) continue;
     const person = await store.users.get(participant.userId);
     if (person === null || !person.name.toLowerCase().includes(needle)) continue;
+    if (!(await canReview(store, project, person._id))) continue;
     found.push({ _id: person._id, name: person.name, imageUrl: person.imageUrl });
     if (found.length === MAX_SUGGESTIONS) break;
   }
@@ -251,8 +257,8 @@ export async function listParticipants(
 export const NAMED_POOL = 1_000;
 
 /**
- * Everyone in a project with exactly this display name (any case), for
- * mentioning by name (`critiqs_reply`). `complete` is false when the project
+ * Everyone in a project with exactly this display name (any case), who can
+ * still review it, for mentioning by name (`critiqs_reply`). `complete` is false when the project
  * has more participants than are searched, so uniqueness can't be shown.
  */
 export async function participantsNamed(
@@ -265,7 +271,7 @@ export async function participantsNamed(
   const people: ParticipantInfo[] = [];
   for (const participant of pool.slice(0, NAMED_POOL)) {
     const person = await store.users.get(participant.userId);
-    if (person !== null && person.name.trim().toLowerCase() === wanted) people.push({ _id: person._id, name: person.name, imageUrl: person.imageUrl });
+    if (person !== null && person.name.trim().toLowerCase() === wanted && (await canReview(store, project, person._id))) people.push({ _id: person._id, name: person.name, imageUrl: person.imageUrl });
   }
   return { people, complete: pool.length <= NAMED_POOL };
 }
@@ -395,6 +401,7 @@ export async function beginDelivery(
   const thread = await store.threads.get(delivery.threadId);
   if (recipient === null || recipient.email === null) return { kind: "skip", reason: "The reviewer has no email address." };
   if (project === null || thread === null || thread.status === "deleted") return { kind: "skip", reason: "The thread was deleted." };
+  if (!(await canReview(store, project, recipient._id))) return { kind: "skip", reason: NO_LONGER_ALLOWED };
   const notices = await store.notifications.forDelivery(delivery._id, MAX_PER_DELIVERY);
   // Only the kinds the reviewer still wants count; a delivery of only unwanted kinds isn't sent.
   const wanted: NotificationRecord[] = [];
@@ -458,6 +465,8 @@ export async function discussionPage(
   const thread = await store.threads.get(delivery.threadId);
   const project = await store.projects.get(delivery.projectId);
   if (thread === null || project === null || thread.status === "deleted" || threadVersion(thread) !== args.version) return { kind: "changed" };
+  // Access can end while a long discussion is read; starting again finds the delivery is no longer wanted.
+  if (!(await canReview(store, project, delivery.recipientId))) return { kind: "changed" };
   // Only the kinds the reviewer still wants count, as when the delivery began.
   const wants = {
     mention: await wantsEmail(store, delivery.recipientId, project._id, "mention"),
@@ -534,9 +543,26 @@ export async function freezeDelivery(
   return "frozen";
 }
 
+/**
+ * Whether a held delivery may still go out: this worker holds it, its thread
+ * isn't deleted, and the reviewer may still review the project. Checked again
+ * right before the capture is read and right before the email goes to the
+ * mail service, since access can end while an email is prepared or retried.
+ */
+export async function deliveryAllowed(store: Store, args: { id: string; claimToken: string }): Promise<boolean> {
+  const delivery = await store.deliveries.get(args.id);
+  if (delivery === null || delivery.status !== "sending" || delivery.claimToken !== args.claimToken) return false;
+  const project = await store.projects.get(delivery.projectId);
+  const thread = await store.threads.get(delivery.threadId);
+  if (project === null || thread === null || thread.status === "deleted") return false;
+  return await canReview(store, project, delivery.recipientId);
+}
+
 /** How a worker reaches its backend while sending one delivery. Each step runs in its own transaction. */
 export interface DeliverySteps {
   begin(): Promise<DeliveryStart>;
+  /** See `deliveryAllowed`. */
+  allowed(): Promise<boolean>;
   page(args: { version: string; cursor: string | null }): Promise<DiscussionPage>;
   stillMentions(messageId: string): Promise<boolean>;
   freeze(args: { version: string; fileId: string; to: string }): Promise<"frozen" | "changed" | "lost">;
@@ -560,7 +586,11 @@ export async function deliverOne(steps: DeliverySteps): Promise<DeliveryOutcome>
     if (start.kind === "skip") return { result: "skipped", reason: start.reason };
     if (start.kind === "prepared" || start.kind === "legacy") {
       if (!(await anyStillMentions(steps, start.mentionIds))) return { result: "skipped", reason: "The mention was removed." };
-      if (start.kind === "legacy") return await send(() => steps.sendMessage(start.message));
+      // Each send checks access right before it; finishing as skipped discards the prepared email.
+      if (start.kind === "legacy") {
+        if (!(await steps.allowed())) return { result: "skipped", reason: NO_LONGER_ALLOWED };
+        return await send(() => steps.sendMessage(start.message));
+      }
       let body: Blob | null;
       try {
         body = await steps.readFile(start.fileId);
@@ -569,6 +599,7 @@ export async function deliverOne(steps: DeliverySteps): Promise<DeliveryOutcome>
       }
       // Never send anything else under this key; try the same email again later.
       if (body === null) return { result: "failed", reason: "The prepared email couldn't be read." };
+      if (!(await steps.allowed())) return { result: "skipped", reason: NO_LONGER_ALLOWED };
       return await send(() => steps.sendPrepared(body, start.idempotencyKey));
     }
     if (restarts >= MAX_RESTARTS) return { result: "failed", reason: "The thread kept changing while its email was prepared." };
@@ -589,6 +620,7 @@ export async function deliverOne(steps: DeliverySteps): Promise<DeliveryOutcome>
     if (!email.mentionsRecipient) return { result: "skipped", reason: "The mention was removed." };
     let image: EmailImage | null = null;
     if (email.wantsImage && start.captureFileId !== null) {
+      if (!(await steps.allowed())) return { result: "skipped", reason: NO_LONGER_ALLOWED };
       let blob: Blob | null;
       try {
         blob = await steps.readFile(start.captureFileId);
@@ -608,9 +640,13 @@ export async function deliverOne(steps: DeliverySteps): Promise<DeliveryOutcome>
       if (frozen === "lost") return null;
       continue;
     }
+    // Finishing as skipped discards the email just stored.
+    if (!(await steps.allowed())) return { result: "skipped", reason: NO_LONGER_ALLOWED };
     return await send(() => steps.sendPrepared(body, start.idempotencyKey));
   }
 }
+
+const NO_LONGER_ALLOWED = "The reviewer can no longer review this project.";
 
 async function anyStillMentions(steps: DeliverySteps, messageIds: string[]): Promise<boolean> {
   for (const messageId of messageIds) if (await steps.stillMentions(messageId)) return true;

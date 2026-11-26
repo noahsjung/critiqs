@@ -73,6 +73,7 @@ export const search = action({
     run(() =>
       runSearch({
         prepare: () => ctx.runMutation(internal.search.prepare, args),
+        authorize: async () => void (await ctx.runQuery(internal.search.authorize, { projectId: args.projectId })),
         retrieve: (query, groups) => ctx.runQuery(internal.search.retrieve, { projectId: args.projectId, query, groups }),
         finalize: (response) => ctx.runQuery(internal.search.finalize, { projectId: args.projectId, response }),
         ...credits(ctx),
@@ -101,6 +102,7 @@ export const mockupReply = action({
     run(async () => {
       const result = await runMockupTurn({
         prepare: () => ctx.runMutation(internal.mockups.prepareAi, args),
+        authorize: async () => void (await ctx.runQuery(internal.mockups.recheckAi, { threadId: args.threadId })),
         finalize: (answer, head) => ctx.runMutation(internal.mockups.finishAi, { threadId: args.threadId, head, answer }),
         ...credits(ctx),
         model: (connection) => createStructuredModel(connection, { timeoutMs: MOCKUP_AI.timeoutMs }),
@@ -131,6 +133,7 @@ export const testSettings = action({
         {
           prepare: () => ctx.runMutation(internal.aiSettings.prepareTest, { projectId }),
           record: async (epoch, result) => void (await ctx.runMutation(internal.aiSettings.recordTest, { projectId, epoch, result })),
+          recheck: async () => void (await ctx.runQuery(internal.aiSettings.recheckManager, { projectId })),
           ...credits(ctx),
           model,
           deployment: deployment(),
@@ -181,7 +184,11 @@ export const listModels = action({
   handler: async (ctx, { projectId, draft }): Promise<AiModelListResult> =>
     run(() =>
       listProviderModels(
-        { prepare: () => ctx.runMutation(internal.aiSettings.prepareModelList, { projectId }), deployment: deployment() },
+        {
+          prepare: () => ctx.runMutation(internal.aiSettings.prepareModelList, { projectId }),
+          recheck: async () => void (await ctx.runQuery(internal.aiSettings.recheckManager, { projectId })),
+          deployment: deployment(),
+        },
         draft as AiModelListDraft | undefined,
       ),
     ),

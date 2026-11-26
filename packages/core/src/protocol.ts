@@ -33,7 +33,18 @@ export interface ProjectInfo {
   isOwner: boolean;
   /** The project's organization, when the signed-in reviewer belongs to it; absent otherwise, and from backends without organizations. */
   organization?: { id: string; name: string; role: OrganizationRole };
+  /** Who can review the project; absent from backends before the setting, where anyone who signs in can. */
+  reviewAccess?: ReviewAccess;
 }
+
+/**
+ * Who can review a project: read, add to, and download its feedback.
+ * `anyone`: anyone who signs in, so the project ID alone grants access (the
+ * default). `organization`: only members of the project's organization.
+ */
+export type ReviewAccess = "anyone" | "organization";
+
+export const REVIEW_ACCESS: readonly ReviewAccess[] = ["anyone", "organization"];
 
 /** What a member may do in an organization: admins manage all its projects; members manage the ones they created. */
 export type OrganizationRole = "admin" | "member";
@@ -238,6 +249,11 @@ export interface ThreadDetail {
   readState: { lastReadAt: number; manualUnread: boolean } | null;
   /** Set on a mockup thread; absent from backends without mockups. */
   mockup?: ThreadMockup;
+  /**
+   * Whether the viewer may delete it: they started it, or they manage the
+   * project. Absent from older backends, which let anyone who could review it.
+   */
+  canDelete?: boolean;
   messages: MessageView[];
 }
 

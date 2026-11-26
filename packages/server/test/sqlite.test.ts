@@ -326,6 +326,28 @@ test("SQLite: upgrading a version 8 database gives people from before organizati
   expect(driver.get<{ count: number }>("SELECT count(*) AS count FROM organizations")?.count).toBe(3);
 });
 
+test("SQLite: upgrading a version 11 database keeps every project open to anyone who signs in, until its owners limit it", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 11)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 11");
+  const ids = { dana: `u_${"1".repeat(32)}`, organization: `o_${"2".repeat(32)}`, project: `p_${"3".repeat(32)}` };
+  driver.run("INSERT INTO users (id, token, name, email, home_organization_id) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com', ?)", [ids.dana, ids.organization]);
+  driver.run("INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Dana''s organization', ?, 1)", [ids.organization, ids.dana]);
+  driver.run("INSERT INTO memberships (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'admin', 1)", [`b_${"4".repeat(32)}`, ids.organization, ids.dana]);
+  driver.run("INSERT INTO projects (id, name, tags, created_by, created_at, organization_id) VALUES (?, 'One', '[]', ?, 1, ?)", [ids.project, ids.dana, ids.organization]);
+  const store = new SqliteStore(driver);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  expect(driver.get<{ review_access: string }>("SELECT review_access FROM projects WHERE id = ?", [ids.project])?.review_access).toBe("anyone");
+  const lee = reviewer("Lee");
+  expect((await store.transaction((s) => operations.getProject(s, lee, { projectId: ids.project }))).reviewAccess).toBe("anyone");
+  await store.transaction((s) => operations.setReviewAccess(s, reviewer("Dana"), { projectId: ids.project, reviewAccess: "organization" }));
+  expect(driver.get<{ review_access: string }>("SELECT review_access FROM projects WHERE id = ?", [ids.project])?.review_access).toBe("organization");
+  await expect(store.transaction((s) => operations.getProject(s, lee, { projectId: ids.project }))).rejects.toThrow("limited to members of its organization");
+});
+
 test("SQLite: upgrading a version 10 database holds Critiqs AI credits against what its organizations already used", async () => {
   const driver = bunDriver(new Database(":memory:"));
   for (const migration of MIGRATIONS.slice(0, 10)) {

@@ -4,7 +4,7 @@
 
 An organization owns Critiqs projects and holds their [Critiqs Cloud plan](/docs/plans-and-limits), shared usage limits, and billing.
 
-> **Note:** Reviewers do not join your organization. Anyone who can reach your staging or preview build and signs in with an email code can view threads, comment, and use Mockup mode without an organization invite. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud.
+> **Note:** By default, reviewers do not join your organization. Anyone who can reach your staging or preview build and signs in with an email code can view threads, comment, and use Mockup mode without an organization invite. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud. To limit a project to your organization instead, set its **Who can review** to **Organization members** (see [Projects](/docs/projects#access-and-what-the-project-id-protects)); then only members can review it, so invite reviewers as members.
 
 ## How organizations work
 
@@ -20,7 +20,9 @@ Every person in an organization is either an **Admin** or a **Member**. A projec
 
 | Action | Admin | Member | Reviewer (outside org) |
 | --- | --- | --- | --- |
-| Comment, reply, react, mention, resolve threads, export, use Mockup mode | Yes | Yes | Yes (on builds they can reach) |
+| Comment, reply, react, mention, resolve threads, export, use Mockup mode | Yes | Yes | Yes, unless the project is limited to **Organization members** |
+| Delete a thread | Their own, and any in the organization's projects | Their own, and any in projects they created | Their own, unless the project is limited to **Organization members** |
+| Change a project's **Who can review** | Yes | Projects they created | No |
 | Create projects in the organization | Yes | Yes | No |
 | Manage projects they created (review address, tags and groups, AI settings, plan usage) | Yes | Yes | No |
 | Manage every project in the organization | Yes | No | No |

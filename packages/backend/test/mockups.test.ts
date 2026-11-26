@@ -1,7 +1,11 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { runMockupTurn } from "@critiqs/server";
+import { createStructuredModel } from "@critiqs/server/ai-providers";
+import type { ConvexError } from "convex/values";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { anchor, reviewer, setup } from "./harness";
+import { deployment } from "../convex/lib/ai";
+import { anchor, reviewer, setup, upload as uploadFile } from "./harness";
 import { pages } from "./pages";
 
 // Mockups on Convex: page copies, versions, links, mockup threads, and
@@ -84,9 +88,12 @@ async function mockupProject() {
   const lee = t.withIdentity(reviewer("Lee"));
   const sam = t.withIdentity(reviewer("Sam"));
   const projectId = await dana.mutation(api.projects.create, { name: "Pilot" });
-  const upload = (html = PAGE, type = "text/html") => t.run((ctx) => ctx.storage.store(new Blob([html], { type })));
-  const copy = async (width = 1440, storageId?: Id<"_storage">) => ({
-    storageId: storageId ?? (await upload()),
+  type As = { who?: typeof dana; projectId?: Id<"projects"> };
+  /** A page copy `who` (Dana unless given) uploads for a project (this one unless given). */
+  const upload = (html = PAGE, as: As & { type?: string } = {}): Promise<Id<"_storage">> =>
+    uploadFile(as.who ?? dana, as.projectId ?? projectId, html, { purpose: "pageCopy", ...(as.type === undefined ? {} : { type: as.type }) });
+  const copy = async (width = 1440, as: As & { storageId?: Id<"_storage"> } = {}) => ({
+    storageId: as.storageId ?? (await upload(PAGE, as)),
     width,
     height: 2000,
     scrollY: 0,
@@ -95,8 +102,9 @@ async function mockupProject() {
   });
   const mockupId = await dana.action(api.mockups.create, { projectId, title: "  Bigger   save button ", source, snapshot: await copy() });
   const snapshotId = (await dana.query(api.mockups.get, { mockupId })).snapshots[0]!._id as Id<"mockupSnapshots">;
+  /** The mockup's thread, which only its creator starts. */
   const mockupThread = (body = "Make the save button bigger", node: number | null = 2) =>
-    lee.mutation(api.threads.create, { projectId, anchor, body, tags: [], capture: failed, mockup: { mockupId, snapshotId, node } });
+    dana.mutation(api.threads.create, { projectId, anchor, body, tags: [], capture: failed, mockup: { mockupId, snapshotId, node } });
   return { t, dana, lee, sam, projectId, upload, copy, mockupId, snapshotId, mockupThread };
 }
 
@@ -116,16 +124,16 @@ test("a mockup starts from a page copy, and anyone in the project lists and open
     expect.objectContaining({
       _id: threadId,
       status: "open",
-      unread: false,
-      preview: { body: "Make the save button bigger", authorName: "Lee", authorImageUrl: null },
+      unread: true,
+      preview: { body: "Make the save button bigger", authorName: "Dana", authorImageUrl: null },
       mockup: { mockupId: f.mockupId, snapshotId: f.snapshotId, node: 2 },
     }),
   ]);
-  expect((await f.dana.query(api.mockups.list, { projectId: f.projectId }))[0]!.threads[0]!.unread).toBe(true);
+  expect((await f.dana.query(api.mockups.list, { projectId: f.projectId }))[0]!.threads[0]!.unread).toBe(false);
   const detail = await f.lee.query(api.mockups.get, { mockupId: f.mockupId });
   expect(detail).toMatchObject({ linkedThreadIds: [], versions: [], snapshots: [{ _id: f.snapshotId, width: 1440, height: 2000, capturedAt: 1, createdByName: "Dana" }] });
 
-  const second = await f.lee.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(390) });
+  const second = await f.lee.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(390, { who: f.lee }) });
   expect((await f.dana.query(api.mockups.get, { mockupId: f.mockupId })).snapshots.map((snapshot) => snapshot._id)).toEqual([f.snapshotId, second]);
   expect((await f.dana.query(api.mockups.list, { projectId: f.projectId }))[0]!.snapshots.map((snapshot) => snapshot.width)).toEqual([1440, 390]);
   await f.lee.mutation(api.mockups.rename, { mockupId: f.mockupId, title: "Save, bigger" });
@@ -193,7 +201,7 @@ test("the list's pages hold only mockups with a thread: listed once its thread s
   expect(renamed!.listedAt).toBe(renamed!.updatedAt);
   expect(renamed!.listedAt).toBeGreaterThanOrEqual(first!.listedAt!);
 
-  await f.lee.mutation(api.threads.remove, { threadId });
+  await f.dana.mutation(api.threads.remove, { threadId });
   expect(await ids()).toEqual([]);
 
   // A mockup without a thread has no `listedAt`, and its changes don't add one.
@@ -330,19 +338,71 @@ test("page copies are served as text, only to signed-in reviewers", async () => 
 test("an upload that isn't a page copy within the limits is refused and deleted", async () => {
   const f = await mockupProject();
   const exists = (id: Id<"_storage">) => f.t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
-  const huge = await f.upload("x".repeat(10 * 1024 * 1024 + 1));
-  await expect(f.dana.action(api.mockups.create, { projectId: f.projectId, title: "Huge", source, snapshot: await f.copy(1440, huge) })).rejects.toThrow("limited to 10 MB");
-  expect(await exists(huge)).toBe(false);
+  const files = () => f.t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).length);
+  const before = await files();
+  // Too large or not HTML, it is refused as it arrives, and never stored.
+  await expect(f.upload("x".repeat(10 * 1024 * 1024 + 1))).rejects.toThrow("limited to 10 MB");
+  await expect(f.upload(PAGE, { type: "image/svg+xml" })).rejects.toThrow("must be uploaded as text/html");
+  expect(await files()).toBe(before);
+  // A copy refused once stored is deleted.
+  const unusable = await f.upload();
+  await expect(f.dana.action(api.mockups.create, { projectId: f.projectId, title: "Flat", source, snapshot: { ...(await f.copy(1440, { storageId: unusable })), height: 0 } })).rejects.toThrow("positive size");
+  expect(await exists(unusable)).toBe(false);
   // A copy already in a mockup isn't taken again, nor deleted.
   const used = (await f.t.run((ctx) => ctx.db.get(f.snapshotId)))!.storageId;
-  await expect(f.dana.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(1440, used) })).rejects.toThrow("already belongs");
+  await expect(f.dana.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(1440, { storageId: used }) })).rejects.toThrow("already belongs");
   expect(await exists(used)).toBe(true);
   // Someone who isn't signed in can't have an upload deleted.
   const fresh = await f.upload();
-  await expect(f.t.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(1440, fresh) })).rejects.toThrow("Sign in");
+  await expect(f.t.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(1440, { storageId: fresh }) })).rejects.toThrow("Sign in");
   expect(await exists(fresh)).toBe(true);
   for (let count = 1; count < 6; count++) await f.dana.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(400 + count) });
   await expect(f.dana.action(api.mockups.addSnapshot, { mockupId: f.mockupId, snapshot: await f.copy(300) })).rejects.toThrow("up to 6 page copies");
+});
+
+test("an upload is attachable only by its uploader, in its project, for its purpose, and once", async () => {
+  const f = await mockupProject();
+  const exists = (id: Id<"_storage">) => f.t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
+  const startMockup = (who: typeof f.dana, storageId: Id<"_storage">, projectId = f.projectId) =>
+    who.action(api.mockups.create, { projectId, title: "Bound", source, snapshot: { storageId, width: 1440, height: 2000, scrollY: 0, viewportHeight: 900, capturedAt: 1 } });
+  const capture = (who: typeof f.dana, storageId: Id<"_storage">, projectId = f.projectId) =>
+    who.mutation(api.threads.create, { projectId, anchor, body: "Look", tags: [], capture: { status: "captured", storageId } });
+
+  // A screenshot isn't a page copy, nor a page copy a screenshot, even without a recorded type (convex-test records none).
+  const screenshot: Id<"_storage"> = await uploadFile(f.dana, f.projectId, "png");
+  const pageCopy = await f.upload();
+  expect(await f.t.run(async (ctx) => [(await ctx.db.system.get(screenshot))?.contentType ?? null, (await ctx.db.system.get(pageCopy))?.contentType ?? null])).toEqual([null, null]);
+  await expect(startMockup(f.dana, screenshot)).rejects.toThrow("This page copy was not uploaded by you for this project.");
+  await expect(capture(f.dana, pageCopy)).rejects.toThrow("This screenshot was not uploaded by you for this project.");
+  // A refused mockup leaves an upload meant for a screenshot alone.
+  expect(await exists(screenshot)).toBe(true);
+
+  // Nor is one person's upload another's, or one project's another's.
+  const danas = await f.upload();
+  await expect(startMockup(f.lee, danas)).rejects.toThrow("This page copy was not uploaded by you for this project.");
+  // Lee's refused request doesn't delete Dana's upload.
+  expect(await exists(danas)).toBe(true);
+  const otherProject = await f.dana.mutation(api.projects.create, { name: "Other" });
+  await expect(capture(f.dana, screenshot, otherProject)).rejects.toThrow("This screenshot was not uploaded by you for this project.");
+
+  // Each file is attached once, whichever kind first took it.
+  await capture(f.dana, screenshot);
+  await expect(capture(f.dana, screenshot)).rejects.toThrow("already belongs to a thread");
+  await startMockup(f.dana, danas);
+  await expect(startMockup(f.dana, danas)).rejects.toThrow("already belongs to a mockup");
+  // A file stored without a reservation, as before them, can't be attached anew.
+  const unreserved = await f.t.run((ctx) => ctx.storage.store(new Blob([PAGE], { type: "text/html" })));
+  await expect(startMockup(f.dana, unreserved)).rejects.toThrow("Upload the page copy again.");
+});
+
+test("deleting a mockup keeps a file that, from before uploads were reserved, is also a thread's capture", async () => {
+  const f = await mockupProject();
+  const shared = (await f.t.run((ctx) => ctx.db.get(f.snapshotId)))!.storageId;
+  const threadId = await f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "Old", tags: [], capture: failed });
+  await f.t.run((ctx) => ctx.db.patch(threadId, { capture: { status: "captured", storageId: shared } }));
+  await f.dana.mutation(api.mockups.remove, { mockupId: f.mockupId });
+  expect(await f.t.run((ctx) => ctx.db.system.get(shared))).not.toBeNull();
+  expect(await (await f.lee.fetch(`/capture?threadId=${threadId}`)).text()).toBe(PAGE);
 });
 
 test("mockup threads are only the mockup's: out of the thread list, search, and export, but open by ID", async () => {
@@ -352,7 +412,7 @@ test("mockup threads are only the mockup's: out of the thread list, search, and 
   const listed = await f.dana.query(api.threads.list, { projectId: f.projectId, paginationOpts: page });
   expect(listed.page.map((thread) => thread._id)).toEqual([normal]);
   const own = await f.dana.query(api.mockups.threads, { mockupId: f.mockupId });
-  expect(own).toMatchObject([{ _id: threadId, unread: true, mockup: { mockupId: f.mockupId, snapshotId: f.snapshotId, node: 2 }, preview: { authorName: "Lee" } }]);
+  expect(own).toMatchObject([{ _id: threadId, unread: false, mockup: { mockupId: f.mockupId, snapshotId: f.snapshotId, node: 2 }, preview: { authorName: "Dana" } }]);
   expect(await f.dana.query(api.threads.get, { threadId, paginationOpts: page })).toMatchObject({ mockup: { mockupId: f.mockupId, node: 2 } });
 
   const found = await f.dana.action(api.ai.search, { projectId: f.projectId, question: "save", scope: { status: "all", screen: null } });
@@ -364,7 +424,7 @@ test("mockup threads are only the mockup's: out of the thread list, search, and 
   const otherProject = await f.sam.mutation(api.projects.create, { name: "Other" });
   const elsewhere = { mockupId: f.mockupId, snapshotId: f.snapshotId, node: null };
   await expect(f.sam.mutation(api.threads.create, { projectId: otherProject, anchor, body: "x", tags: [], capture: failed, mockup: elsewhere })).rejects.toThrow("isn't in the project");
-  const otherMockup = await f.sam.action(api.mockups.create, { projectId: otherProject, title: "Other", source, snapshot: await f.copy() });
+  const otherMockup = await f.sam.action(api.mockups.create, { projectId: otherProject, title: "Other", source, snapshot: await f.copy(1440, { who: f.sam, projectId: otherProject }) });
   const foreignCopy = (await f.sam.query(api.mockups.get, { mockupId: otherMockup })).snapshots[0]!._id as Id<"mockupSnapshots">;
   await expect(
     f.lee.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "x", tags: [], capture: failed, mockup: { mockupId: f.mockupId, snapshotId: foreignCopy, node: 1 } }),
@@ -401,12 +461,36 @@ test("existing threads of the mockup's project are linked as instructions", asyn
   expect(await f.dana.query(api.mockups.forThread, { threadId: normal })).toEqual([]);
 });
 
+test("linking another project's thread tells nothing about it: deleted, limited to its organization, or not there, the refusal is the same", async () => {
+  const f = await mockupProject();
+  const otherProject = await f.sam.mutation(api.projects.create, { name: "Other" });
+  const thread = () => f.sam.mutation(api.threads.create, { projectId: otherProject, anchor, body: "x", tags: [], capture: failed });
+  const open = await thread();
+  const deleted = await thread();
+  await f.sam.mutation(api.threads.remove, { threadId: deleted });
+  const missing = await f.t.run(async (ctx) => {
+    const { _id: _ignored, _creationTime: _time, ...copy } = (await ctx.db.get(open))!;
+    const id = await ctx.db.insert("threads", copy);
+    await ctx.db.delete(id);
+    return id;
+  });
+  // Limited to Sam's organization, which neither Lee nor Dana is in.
+  const restricted = await thread();
+  await f.sam.mutation(api.projects.setReviewAccess, { projectId: otherProject, reviewAccess: "organization" });
+  const refusals = [];
+  for (const threadId of [open, deleted, missing, restricted]) {
+    refusals.push(await f.lee.mutation(api.mockups.link, { mockupId: f.mockupId, threadId }).catch((error: ConvexError<{ code: string; message: string }>) => error.data));
+  }
+  expect(refusals).toEqual(Array(4).fill({ code: "invalid", message: "Link threads from the mockup's own project." }));
+  expect((await f.dana.query(api.mockups.get, { mockupId: f.mockupId })).linkedThreadIds).toEqual([]);
+});
+
 test("a new mockup links the comments added for it in the same step, or stores nothing when one can't be linked", async () => {
   const f = await mockupProject();
   const exists = (id: Id<"_storage">) => f.t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
   const titles = async () => (await f.dana.query(api.mockups.list, { projectId: f.projectId })).map((mockup) => mockup.title);
   const normal = await f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "Save is hard to find", tags: [], capture: failed });
-  const linked = await f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Linked", source, snapshot: await f.copy(), linkedThreadIds: [normal, normal] });
+  const linked = await f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Linked", source, snapshot: await f.copy(1440, { who: f.lee }), linkedThreadIds: [normal, normal] });
   expect((await f.dana.query(api.mockups.get, { mockupId: linked })).linkedThreadIds).toEqual([normal]);
 
   const otherProject = await f.sam.mutation(api.projects.create, { name: "Other" });
@@ -418,15 +502,19 @@ test("a new mockup links the comments added for it in the same step, or stores n
   for (let count = 0; count < 21; count++) {
     many.push(await f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: `Comment ${count}`, tags: [], capture: failed }));
   }
+  // Another project's thread is refused alike whether or not it was deleted, so nothing about it is told.
+  const foreignDeleted = await f.sam.mutation(api.threads.create, { projectId: otherProject, anchor, body: "y", tags: [], capture: failed });
+  await f.sam.mutation(api.threads.remove, { threadId: foreignDeleted });
   const refusals: [Id<"threads">[], string][] = [
-    [[normal, foreign], "own project"],
+    [[normal, foreign], "Link threads from the mockup's own project."],
+    [[foreignDeleted], "Link threads from the mockup's own project."],
     [[mockupThread], "Only feedback threads"],
     [[deleted], "was deleted"],
     [many, "up to 20"],
   ];
   for (const [linkedThreadIds, reason] of refusals) {
-    const storageId = await f.upload();
-    await expect(f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Refused", source, snapshot: await f.copy(1440, storageId), linkedThreadIds })).rejects.toThrow(reason);
+    const storageId = await f.upload(PAGE, { who: f.lee });
+    await expect(f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Refused", source, snapshot: await f.copy(1440, { storageId }), linkedThreadIds })).rejects.toThrow(reason);
     // No half-made mockup, and the upload is gone.
     expect(await exists(storageId)).toBe(false);
   }
@@ -611,7 +699,7 @@ test("only a mockup's creator or the project's owner deletes it, with its versio
 
   await expect(f.lee.mutation(api.mockups.remove, { mockupId: f.mockupId })).rejects.toThrow("Only the person who made this mockup");
   // Lee's own mockup in Dana's project: Dana owns the project, so she may delete it too.
-  const leesMockup = await f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Lee's", source, snapshot: await f.copy() });
+  const leesMockup = await f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Lee's", source, snapshot: await f.copy(1440, { who: f.lee }) });
   await f.dana.mutation(api.mockups.remove, { mockupId: leesMockup });
 
   await f.dana.mutation(api.mockups.remove, { mockupId: f.mockupId });
@@ -626,6 +714,133 @@ test("only a mockup's creator or the project's owner deletes it, with its versio
     links: await ctx.db.query("mockupLinks").collect(),
   }));
   expect(left).toEqual({ file: null, versions: [], snapshots: [], links: [] });
+});
+
+test("only a mockup's creator starts its thread: another reviewer, even one who manages the project, can't", async () => {
+  const f = await mockupProject();
+  const start = (who: typeof f.dana, body: string) =>
+    who.mutation(api.threads.create, { projectId: f.projectId, anchor, body, tags: [], capture: failed, mockup: { mockupId: f.mockupId, snapshotId: f.snapshotId, node: null } });
+  await expect(start(f.sam, "Try a darker button")).rejects.toThrow("Only the person who made this mockup can start its thread");
+  const leesMockup = await f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Lee's", source, snapshot: await f.copy(1440, { who: f.lee }) });
+  // Dana manages the project, but the proposal is Lee's.
+  await expect(
+    f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor, body: "Mine now", tags: [], capture: failed, mockup: { mockupId: leesMockup, snapshotId: null, node: null } }),
+  ).rejects.toThrow("Only the person who made this mockup can start its thread");
+  // Nothing was kept, and neither mockup is listed until its creator starts its thread.
+  expect(await f.t.run((ctx) => ctx.db.query("threads").collect())).toEqual([]);
+  expect((await listed(f, { screen: "user-details" })).page).toEqual([]);
+  // The older list still shows both, as before their threads start.
+  expect((await f.sam.query(api.mockups.list, { projectId: f.projectId })).map((mockup) => [mockup.title, mockup.threadCount]).sort()).toEqual([
+    ["Bigger save button", 0],
+    ["Lee's", 0],
+  ]);
+  const threadId = await start(f.dana, "Make the save button bigger");
+  expect((await f.sam.query(api.mockups.threads, { mockupId: f.mockupId })).map((thread) => thread._id)).toEqual([threadId]);
+  // Once the creator deletes it, the mockup's next thread is still theirs alone.
+  await f.dana.mutation(api.threads.remove, { threadId });
+  await expect(start(f.sam, "Now mine")).rejects.toThrow("Only the person who made this mockup can start its thread");
+});
+
+test("a mockup's creator can't delete it while it has a thread someone else started, and nothing is removed", async () => {
+  const f = await mockupProject();
+  const leesMockup = await f.lee.action(api.mockups.create, { projectId: f.projectId, title: "Lee's", source, snapshot: await f.copy(1440, { who: f.lee }) });
+  const leesCopy = (await f.lee.query(api.mockups.get, { mockupId: leesMockup })).snapshots[0]!._id as Id<"mockupSnapshots">;
+  // Sam, who can review the project but doesn't manage it, started the mockup's thread before only creators could.
+  const samsThread = await f.lee.mutation(api.threads.create, {
+    projectId: f.projectId,
+    anchor,
+    body: "Try a darker button",
+    tags: [],
+    capture: failed,
+    mockup: { mockupId: leesMockup, snapshotId: leesCopy, node: null },
+  });
+  await f.sam.mutation(api.users.sync, {});
+  await f.t.run(async (ctx) => {
+    const sam = (await ctx.db.query("users").collect()).find((user) => user.name === "Sam")!._id;
+    await ctx.db.patch(samsThread, { createdBy: sam });
+    for (const message of await ctx.db.query("messages").withIndex("by_thread", (q) => q.eq("threadId", samsThread)).collect()) await ctx.db.patch(message._id, { authorId: sam });
+  });
+  await expect(f.lee.mutation(api.mockups.remove, { mockupId: leesMockup })).rejects.toThrow(
+    "Someone else started this mockup's thread. Only they or the project's owners can delete it.",
+  );
+  expect((await f.sam.query(api.threads.get, { threadId: samsThread, paginationOpts: page })).page.map((message) => message.body)).toEqual(["Try a darker button"]);
+  expect((await f.lee.query(api.mockups.get, { mockupId: leesMockup })).snapshots).toHaveLength(1);
+  // Once Sam deletes their thread, Lee may delete the mockup.
+  await f.sam.mutation(api.threads.remove, { threadId: samsThread });
+  await f.lee.mutation(api.mockups.remove, { mockupId: leesMockup });
+  await expect(f.lee.query(api.mockups.get, { mockupId: leesMockup })).rejects.toThrow("does not exist");
+});
+
+test("a Critiqs AI turn whose project is limited to its organization after it is prepared sends the model nothing", async () => {
+  withAi();
+  const f = await mockupProject();
+  const threadId = await f.mockupThread();
+  let asked = 0;
+  const saved: unknown[] = [];
+  const turn = runMockupTurn({
+    prepare: async () => {
+      const plan = await f.lee.mutation(internal.mockups.prepareAi, { threadId, snapshots: [{ snapshotId: f.snapshotId, description: "body #1", complete: true }], continuation: false });
+      // The turn read the thread; then Dana limits the project to her organization, which Lee isn't in.
+      await f.dana.mutation(api.projects.setReviewAccess, { projectId: f.projectId, reviewAccess: "organization" });
+      return plan;
+    },
+    authorize: async () => void (await f.lee.query(internal.mockups.recheckAi, { threadId })),
+    finalize: async (answer) => {
+      saved.push(answer);
+      return { messageId: "", version: null };
+    },
+    reserve: (payer, credits) => f.lee.mutation(internal.aiSettings.reserve, { ...payer, credits }),
+    settle: async (hold, charge) => void (await f.lee.mutation(internal.aiSettings.settle, { hold, charge })),
+    model: () => ({
+      description: "never asked",
+      // As the AI SDK path does, checks before sending.
+      generate: async (request) => {
+        await request.beforeSend?.();
+        asked++;
+        throw new Error("The model was asked.");
+      },
+    }),
+    deployment: deployment(),
+  });
+  await expect(turn).rejects.toThrow("limited to members of its organization");
+  expect(asked).toBe(0);
+  expect(saved).toEqual([]);
+});
+
+test("a managed Critiqs AI turn whose project is limited to its organization while its credits are held sends the model nothing", async () => {
+  process.env.CRITIQS_MANAGED_AI = "enabled";
+  process.env.CRITIQS_MANAGED_AI_PROVIDER = "compatible";
+  process.env.CRITIQS_MANAGED_AI_MODEL = "managed-model";
+  process.env.CRITIQS_MANAGED_AI_PRICE = JSON.stringify({ input: 4, output: 20 });
+  process.env.CRITIQS_MANAGED_AI_API_KEY = "managed-key";
+  process.env.CRITIQS_MANAGED_AI_BASE_URL = `http://127.0.0.1:${endpoint.port}/v1`;
+  process.env.CRITIQS_PLANS = "enabled";
+  const f = await mockupProject();
+  const threadId = await f.mockupThread();
+  let reserved = 0;
+  const turn = runMockupTurn({
+    prepare: () => f.lee.mutation(internal.mockups.prepareAi, { threadId, snapshots: [{ snapshotId: f.snapshotId, description: "body #1", complete: true }], continuation: false }),
+    authorize: async () => void (await f.lee.query(internal.mockups.recheckAi, { threadId })),
+    finalize: async () => {
+      throw new Error("Nothing was asked, so nothing is saved.");
+    },
+    // The turn's credits are held; then Dana limits the project to her organization, which Lee isn't in.
+    reserve: async (payer, credits) => {
+      const held = await f.lee.mutation(internal.aiSettings.reserve, { ...payer, credits });
+      reserved++;
+      await f.dana.mutation(api.projects.setReviewAccess, { projectId: f.projectId, reviewAccess: "organization" });
+      return held;
+    },
+    settle: async (hold, charge) => void (await f.lee.mutation(internal.aiSettings.settle, { hold, charge })),
+    // The real AI SDK path, against the local stand-in.
+    model: (connection) => createStructuredModel(connection),
+    deployment: deployment(),
+  });
+  await expect(turn).rejects.toThrow("limited to members of its organization");
+  expect(reserved).toBe(1);
+  expect(prompts).toEqual([]);
+  // The hold was released.
+  expect(await f.t.run((ctx) => ctx.db.query("creditHolds").collect())).toEqual([]);
 });
 
 test("Critiqs AI in a mockup thread follows the project's AI usage rule, with the person's own key and the model they name", async () => {

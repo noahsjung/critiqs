@@ -30,7 +30,7 @@ import {
 } from "./lib/pages";
 import { linkSecret } from "./lib/links";
 import { developerEmailSetup } from "./onboarding";
-import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture } from "./captureHttp";
+import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadSnapshot } from "./captureHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
@@ -52,7 +52,8 @@ http.route({ path: "/capture", method: "GET", handler: downloadCapture });
 http.route({ path: "/capture/upload", method: "POST", handler: uploadCapture });
 // Mockups' page copies, read with the same access checks as their project's threads.
 http.route({ path: "/mockup/snapshot", method: "GET", handler: downloadSnapshot });
-for (const path of ["/capture", "/capture/upload", "/mockup/snapshot"]) {
+http.route({ path: "/mockup/upload", method: "POST", handler: uploadSnapshot });
+for (const path of ["/capture", "/capture/upload", "/mockup/snapshot", "/mockup/upload"]) {
   http.route({ path, method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CAPTURE_CORS })) });
 }
 
@@ -86,6 +87,8 @@ http.route({
       // `organizationMembers`: an organization's members and invites (`organizations:get`, `rename`, `invite`,
       // `revokeInvite`, `setRole`, `removeMember`), `home` on organizations, and `organizationId` on `projects:create`.
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`organizations:setOverageCap`).
+      // `reviewAccess`: projects report who can review them (`reviewAccess` on projects), and their owners
+      // limit them to their organization's members (`projects:setReviewAccess`).
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
@@ -106,6 +109,7 @@ http.route({
         organizations: true,
         organizationMembers: true,
         overageCap: true,
+        reviewAccess: true,
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,

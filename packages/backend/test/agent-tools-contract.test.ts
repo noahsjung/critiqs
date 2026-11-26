@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createTools } from "../../critiqs/bin/mcp.mjs";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { anchor, reviewer, setup } from "./harness";
+import { anchor, reviewer, setup, upload } from "./harness";
 
 // The MCP server's tools for reading feedback, against the real Convex
 // functions and sign-in routes: the code approval, the session kept on this
@@ -110,7 +110,7 @@ async function feedback(t: Test) {
   });
   await lee.mutation(api.threads.toggleReaction, { messageId: mention, emoji: "👍" });
 
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" })));
+  const storageId = await upload(lee, projectId, "png-bytes");
   const spacing = await lee.mutation(api.threads.create, {
     projectId,
     anchor: { ...anchor, screen: "settings", target: { ...anchor.target, purposeId: "settings.save" } },
@@ -299,7 +299,7 @@ test("mockup threads aren't among the feedback agents read", async () => {
   const { t, tools } = local();
   const ids = await feedback(t);
   const dana = t.withIdentity(reviewer("Dana"));
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["<html><body></body></html>"], { type: "text/html" })));
+  const storageId = await upload(dana, ids.projectId, "<html><body></body></html>", { purpose: "pageCopy" });
   const source = { url: "https://planner.example/review", screen: "user-details", viewState: {}, revision: null, persona: null };
   const snapshot = { storageId, width: 1440, height: 900, scrollY: 0, viewportHeight: 900, capturedAt: 1 };
   const mockupId = await dana.action(api.mockups.create, { projectId: ids.projectId, title: "Department fix", source, snapshot });
@@ -323,8 +323,8 @@ const COPY =
 async function mockupOf(t: Test, ids: Awaited<ReturnType<typeof feedback>>) {
   const dana = t.withIdentity(reviewer("Dana"));
   const lee = t.withIdentity(reviewer("Lee"));
-  const copy = async (width: number) => ({
-    storageId: await t.run((ctx) => ctx.storage.store(new Blob([COPY], { type: "text/html" }))),
+  const copy = async (width: number, who = dana) => ({
+    storageId: await upload(who, ids.projectId, COPY, { purpose: "pageCopy" }),
     width,
     height: 2000,
     scrollY: 0,
@@ -337,7 +337,7 @@ async function mockupOf(t: Test, ids: Awaited<ReturnType<typeof feedback>>) {
   const phone = await dana.action(api.mockups.addSnapshot, { mockupId, snapshot: await copy(390) });
   await dana.mutation(api.mockups.link, { mockupId, threadId: ids.department });
   const failed = { status: "failed" as const, failureReason: "x" };
-  const thread = await lee.mutation(api.threads.create, {
+  const thread = await dana.mutation(api.threads.create, {
     projectId: ids.projectId,
     anchor,
     body: "Make Save stand out and add Cancel",
@@ -360,7 +360,7 @@ async function mockupOf(t: Test, ids: Awaited<ReturnType<typeof feedback>>) {
   await turn(1, "Cancel as a link", [{ kind: "attribute", node: 6, name: "class", value: "link" }]);
   await dana.mutation(api.mockups.restore, { mockupId, number: 1, expectedHead: 2 });
   // A second, older mockup on another screen.
-  const other = await lee.action(api.mockups.create, { projectId: ids.projectId, title: "Department picker", source: { ...source, screen: "user-details" }, snapshot: await copy(1024) });
+  const other = await lee.action(api.mockups.create, { projectId: ids.projectId, title: "Department picker", source: { ...source, screen: "user-details" }, snapshot: await copy(1024, lee) });
   await t.run(async (ctx) => ctx.db.patch(other, { updatedAt: 1 }));
   return { mockupId, other, desktop, phone, thread };
 }
@@ -393,7 +393,7 @@ test("an agent lists a project's mockups, newest first, filtered by screen and t
       { id: made.phone, width: 390 },
     ],
 
-    threads: [{ id: made.thread, status: "open", firstMessage: "Make Save stand out and add Cancel", author: "Lee", lastMessageAt: expect.any(String) }],
+    threads: [{ id: made.thread, status: "open", firstMessage: "Make Save stand out and add Cancel", author: "Dana", lastMessageAt: expect.any(String) }],
   });
 
   const ids_ = async (args: Record<string, unknown>) =>
@@ -451,7 +451,7 @@ test("an agent reads a mockup to build it: each change with the element it chang
     pin: { copyId: made.desktop, node: 3, original: { tag: "button", text: "Save changes" } },
   });
   expect(result.threads[0].messages.map((message: any) => [message.author, message.body, message.via ?? null, message.askedBy ?? null, message.mockupVersion ?? null])).toEqual([
-    ["Lee", "Make Save stand out and add Cancel", null, null, null],
+    ["Dana", "Make Save stand out and add Cancel", null, null, null],
     ["Critiqs AI", "Done: Bolder Save, Cancel beside it", "ai", "Lee", 1],
     ["Critiqs AI", "Done: Cancel as a link", "ai", "Lee", 2],
   ]);

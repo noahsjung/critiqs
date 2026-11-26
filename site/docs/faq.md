@@ -16,11 +16,11 @@ No. Reviewers open your staging or preview link in any browser, click **Sign in*
 
 ## Do reviewers need to join our organization?
 
-No. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud. Anyone who can reach your staging or preview build can sign in and comment without an organization invite. See [Organizations and roles](/docs/organizations).
+Not by default. Organizations are for the team members who create projects, manage settings, and pay for Critiqs Cloud. Anyone who can reach your staging or preview build can sign in and comment without an organization invite. If a project's owners set its **Who can review** to **Organization members**, reviewers must be invited to the organization; they join when they sign in. See [Organizations and roles](/docs/organizations).
 
 ## Is the project ID a secret?
 
-No. The project ID is public configuration that identifies which project a build talks to. Because anyone who has a project ID and signs in can view its feedback, guard access to your staging or preview build itself. See [Projects](/docs/projects) and [Best practices](/docs/best-practices).
+No. The project ID is public configuration that identifies which project a build talks to, and it ships in your build's JavaScript. With the default **Who can review** setting, **Anyone who signs in**, anyone who has the project ID and signs in can read, export, and add to its feedback and download its captures, so guard access to your staging or preview build itself. To keep the feedback inside your team, set **Who can review** to **Organization members** in Project setup: then the project ID grants nothing to people outside your organization. See [Projects](/docs/projects#access-and-what-the-project-id-protects) and [Best practices](/docs/best-practices).
 
 ## What happens to comments when the UI changes?
 

@@ -151,6 +151,7 @@ export const ARGUMENTS: Record<string, Check> = {
   projectSetup: object({ projectId: string }),
   developerSends: object({ projectId: string }),
   setReviewUrl: object({ projectId: string, reviewUrl: string }),
+  setReviewAccess: object({ projectId: string, reviewAccess: literal("anyone", "organization") }),
   setOverageCap: object({ organizationId: string, cap: union(nullable(number), literal("default")) }),
   createThread: object({
     projectId: string,

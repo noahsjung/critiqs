@@ -243,16 +243,21 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
             >
               Mark unread
             </MenuItem>
-            <hr />
-            <MenuItem
-              danger
-              onSelect={() => {
-                overflow.close();
-                setConfirmDelete(true);
-              }}
-            >
-              Delete thread…
-            </MenuItem>
+            {/* Only its author or the project's owners may delete it; older backends don't say, and let anyone. */}
+            {thread.canDelete !== false && (
+              <>
+                <hr />
+                <MenuItem
+                  danger
+                  onSelect={() => {
+                    overflow.close();
+                    setConfirmDelete(true);
+                  }}
+                >
+                  Delete thread…
+                </MenuItem>
+              </>
+            )}
           </Menu>
         )}
       </Header>
@@ -343,9 +348,12 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
               className="btn danger solid"
               onClick={() => {
                 setConfirmDelete(false);
-                props.onClose();
+                // The thread stays open until it is deleted, so a refusal is shown beside it.
                 remove(threadId)
-                  .then(() => props.notify("Thread deleted"))
+                  .then(() => {
+                    props.onClose();
+                    props.notify("Thread deleted");
+                  })
                   .catch((failure) => props.notify(errorMessage(failure)));
               }}
             >

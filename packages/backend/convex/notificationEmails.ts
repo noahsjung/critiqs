@@ -48,6 +48,7 @@ export const deliver = internalAction({
       // Prepared emails are private files: captures are attached, never linked, since Convex storage links open for anyone who has them.
       const outcome = await deliverOne({
         begin: () => ctx.runQuery(internal.notifications.begin, { id, claimToken, secret }),
+        allowed: () => ctx.runQuery(internal.notifications.allowed, { id, claimToken }),
         page: ({ version, cursor }) => ctx.runQuery(internal.notifications.page, { id, claimToken, version, cursor }),
         stillMentions: (messageId) => ctx.runQuery(internal.notifications.mentioned, { id, claimToken, messageId: messageId as Id<"messages"> }),
         freeze: ({ version, fileId, to }) =>

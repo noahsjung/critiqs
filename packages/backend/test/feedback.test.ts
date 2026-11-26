@@ -2,7 +2,7 @@ import { type Client, exportAll, list, mine, thread as getThread } from "./pages
 import type { Id } from "../convex/_generated/dataModel";
 import { expect, test } from "bun:test";
 import { api } from "../convex/_generated/api";
-import { anchor, reviewer, setup } from "./harness";
+import { anchor, reviewer, setup, upload } from "./harness";
 
 const failedCapture = { status: "failed" as const, failureReason: "Canvas was tainted by a cross-origin image" };
 
@@ -52,13 +52,13 @@ test("unverified email addresses are rejected", async () => {
 });
 
 test("a failed capture still saves the comment, and a screenshot can be supplied", async () => {
-  const { t, dana, threadId } = await projectWithThread();
+  const { dana, projectId, threadId } = await projectWithThread();
   const thread = await getThread(dana, { threadId });
   expect(thread.capture).toEqual(failedCapture);
   expect(thread.messages[0]?.body).toBe("Department is wrong");
   expect(thread.messages[0]?.revision).toBe("abc123");
 
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["png"], { type: "image/png" })));
+  const storageId = await upload(dana, projectId, "png");
   await dana.mutation(api.threads.attachScreenshot, { threadId, storageId });
   const updated = await getThread(dana, { threadId });
   expect(updated.capture).toEqual({ status: "supplied", failureReason: failedCapture.failureReason });
@@ -116,13 +116,14 @@ test("only the author can edit a message", async () => {
   expect(edited.messages[0]?.isMine).toBe(false);
 });
 
-test("anyone with access can resolve, reopen, and delete; deleted threads are unavailable", async () => {
+test("anyone with access can resolve and reopen; only the author or the project's owners delete; deleted threads are unavailable", async () => {
   const { dana, lee, projectId, threadId } = await projectWithThread();
   await lee.mutation(api.threads.setStatus, { threadId, status: "resolved" });
   expect((await getThread(dana, { threadId })).status).toBe("resolved");
   await dana.mutation(api.threads.setStatus, { threadId, status: "open" });
 
-  await lee.mutation(api.threads.remove, { threadId });
+  await expect(lee.mutation(api.threads.remove, { threadId })).rejects.toThrow("Only the person who started this thread or the project's owners can delete it.");
+  await dana.mutation(api.threads.remove, { threadId });
   await expect(getThread(dana, { threadId })).rejects.toThrow("deleted");
   expect(await list(dana, { projectId })).toEqual([]);
   await expect(dana.mutation(api.threads.setStatus, { threadId, status: "open" })).rejects.toThrow("deleted");

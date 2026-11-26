@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { httpAction } from "./_generated/server";
 import { r2Config, r2Storage } from "./lib/r2";
+import { readUploadBody, storeUpload } from "./uploads";
 
 // Bearer-token requests, without cookies, can come from any host prototype.
 export const CAPTURE_CORS = {
@@ -23,35 +24,15 @@ function failure(error: unknown) {
   return new Response("Screenshot storage is unavailable. Try again shortly.", { status: 503, headers: CAPTURE_CORS });
 }
 
-/** Bounded streaming read: Content-Length is only an early check, never trusted. */
+/** Bounded streaming read of an image: Content-Length is only an early check, never trusted. */
 export async function readCaptureBody(request: Request): Promise<ArrayBuffer> {
-  const length = request.headers.get("Content-Length");
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_IMAGE_BYTES)) {
-    throw new ConvexError({ code: "too-large", message: "Images are limited to 10 MB." });
-  }
-  const reader = request.body?.getReader();
-  if (!reader) throw new ConvexError({ code: "invalid", message: "The image is empty." });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_IMAGE_BYTES) {
-      await reader.cancel();
-      throw new ConvexError({ code: "too-large", message: "Images are limited to 10 MB." });
-    }
-    chunks.push(value);
-  }
-  if (size === 0) throw new ConvexError({ code: "invalid", message: "The image is empty." });
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
-  return body.buffer;
+  return await readUploadBody(request, MAX_IMAGE_BYTES, "Images are limited to 10 MB.");
 }
 
 export const uploadCapture = httpAction(async (ctx, request): Promise<Response> => {
   try {
+    // An upload reserved in Convex's own storage.
+    if (new URL(request.url).searchParams.has("uploadId")) return stored(await storeUpload(ctx, request, "capture"));
     const fileId = new URL(request.url).searchParams.get("fileId");
     if (fileId === null) throw new ConvexError({ code: "invalid", message: "Missing fileId." });
     const contentType = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
@@ -66,51 +47,71 @@ export const uploadCapture = httpAction(async (ctx, request): Promise<Response> 
   }
 });
 
-export const downloadCapture = httpAction(async (ctx, request): Promise<Response> => {
+/** Stores a mockup's page copy, reserved by `mockups.generateUploadUrl`, in Convex's own storage. */
+export const uploadSnapshot = httpAction(async (ctx, request): Promise<Response> => {
   try {
-    const threadId = new URL(request.url).searchParams.get("threadId");
-    if (threadId === null) return new Response("Missing threadId", { status: 400, headers: CAPTURE_CORS });
-    const fileId = await ctx.runQuery(internal.captures.authorizedCapture, { threadId });
-    if (fileId === null) return new Response("No capture", { status: 404, headers: CAPTURE_CORS });
-    const location = await ctx.runQuery(internal.captures.fileLocation, { fileId: fileId as Id<"_storage"> | Id<"captureFiles"> });
-    const headers = {
-      ...CAPTURE_CORS,
-      "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": "default-src 'none'; sandbox",
-      "Cache-Control": "private, no-store",
-    };
-    if (location !== null) {
-      if (location.status !== "attached") return new Response("No capture", { status: 404, headers });
-      const response = await r2Storage(r2Config()).get(location);
-      return response === null
-        ? new Response("No capture", { status: 404, headers })
-        : new Response(response.body, { headers: { ...headers, "Content-Type": location.contentType ?? "application/octet-stream" } });
-    }
-    const image = await ctx.storage.get(fileId as Id<"_storage">);
-    return image === null
-      ? new Response("No capture", { status: 404, headers })
-      : new Response(image, { headers: { ...headers, "Content-Type": IMAGE_TYPES.includes(image.type) ? image.type : "application/octet-stream" } });
+    return stored(await storeUpload(ctx, request, "pageCopy"));
   } catch (error) {
     return failure(error);
   }
 });
 
-/** A mockup's page copy as HTML text, for reviewers who can read its project; never rendered from here. */
+function stored(storageId: string): Response {
+  return Response.json({ storageId }, { headers: { ...CAPTURE_CORS, "Cache-Control": "no-store" } });
+}
+
+const DOWNLOAD_HEADERS = {
+  ...CAPTURE_CORS,
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'none'; sandbox",
+  "Cache-Control": "private, no-store",
+};
+
+/**
+ * Access is checked before a file is fetched and again once it has been,
+ * right before any of it is returned: access, or the file itself, can change
+ * while storage answers. A thread's image is returned only if the thread
+ * still uses that same file.
+ */
+export const downloadCapture = httpAction(async (ctx, request): Promise<Response> => {
+  try {
+    const threadId = new URL(request.url).searchParams.get("threadId");
+    if (threadId === null) return new Response("Missing threadId", { status: 400, headers: CAPTURE_CORS });
+    const fileId = await ctx.runQuery(internal.captures.authorizedCapture, { threadId });
+    const missing = () => new Response("No capture", { status: 404, headers: DOWNLOAD_HEADERS });
+    if (fileId === null) return missing();
+    const stillUsed = async () => (await ctx.runQuery(internal.captures.authorizedCapture, { threadId })) === fileId;
+    const location = await ctx.runQuery(internal.captures.fileLocation, { fileId: fileId as Id<"_storage"> | Id<"captureFiles"> });
+    if (location !== null) {
+      if (location.status !== "attached") return missing();
+      const response = await r2Storage(r2Config()).get(location);
+      if (response === null) return missing();
+      // Read the whole image (at most 10 MB) before checking again, so none of it is sent unless access still holds once storage has finished.
+      const bytes = await new Response(response.body).arrayBuffer();
+      const current = await ctx.runQuery(internal.captures.fileLocation, { fileId: location._id });
+      if (!(await stillUsed()) || current?.status !== "attached") return missing();
+      return new Response(bytes, { headers: { ...DOWNLOAD_HEADERS, "Content-Type": location.contentType ?? "application/octet-stream" } });
+    }
+    const image = await ctx.storage.get(fileId as Id<"_storage">);
+    if (image === null || !(await stillUsed())) return missing();
+    return new Response(image, { headers: { ...DOWNLOAD_HEADERS, "Content-Type": IMAGE_TYPES.includes(image.type) ? image.type : "application/octet-stream" } });
+  } catch (error) {
+    return failure(error);
+  }
+});
+
+/** A mockup's page copy as HTML text, for reviewers who can read its project; never rendered from here. Checked again once fetched, like captures. */
 export const downloadSnapshot = httpAction(async (ctx, request): Promise<Response> => {
   try {
     const snapshotId = new URL(request.url).searchParams.get("snapshotId");
     if (snapshotId === null) return new Response("Missing snapshotId", { status: 400, headers: CAPTURE_CORS });
     const storageId = await ctx.runQuery(internal.mockups.authorizedSnapshot, { snapshotId });
-    const headers = {
-      ...CAPTURE_CORS,
-      "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": "default-src 'none'; sandbox",
-      "Cache-Control": "private, no-store",
-    };
     const file = await ctx.storage.get(storageId);
-    return file === null
-      ? new Response("No page copy", { status: 404, headers })
-      : new Response(file, { headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
+    // Throws, as before the fetch, if access ended or the copy was deleted meanwhile.
+    const still = file === null ? null : await ctx.runQuery(internal.mockups.authorizedSnapshot, { snapshotId });
+    return file === null || still !== storageId
+      ? new Response("No page copy", { status: 404, headers: DOWNLOAD_HEADERS })
+      : new Response(file, { headers: { ...DOWNLOAD_HEADERS, "Content-Type": "text/plain; charset=utf-8" } });
   } catch (error) {
     return failure(error);
   }

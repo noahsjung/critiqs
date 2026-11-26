@@ -13,6 +13,7 @@ import { beginSetup, CLOUD_BACKEND_URL, defaultProjectName, doctor, doctorReport
 
 const PROJECT = "js71q5kzssedhq0rp6myv7zdf58gbb1t";
 const OTHER = "p_0123456789abcdef0123456789abcdef";
+const RESTRICTED = "kd71q5kzssedhq0rp6myv7zdf58gbb2r";
 const VITE_MAIN = `import { createRoot } from "react-dom/client";\nimport App from "./App";\n\ncreateRoot(document.getElementById("root")!).render(<App />);\n`;
 const NEXT_LAYOUT = `export default function RootLayout({ children }) {\n  return (\n    <html lang="en">\n      <body>\n        {children}\n      </body>\n    </html>\n  );\n}\n`;
 
@@ -64,7 +65,7 @@ function cloud({ mine = [] as { _id: string; name: string; reviewUrl: string | n
     if (url.endsWith("/critiqs/config")) return Response.json({ signInUrl: "https://brazen-snail-591.convex.site", protocol: 5, deviceSignIn: true });
     if (url.includes("/critiqs/health")) {
       const asked = new URL(url).searchParams.get("projectId");
-      return Response.json({ protocol: 5, signIn: "email", email: true, mentionEmails: {}, ...(asked === null ? {} : { project: asked === PROJECT ? "found" : "missing" }) });
+      return Response.json({ protocol: 5, signIn: "email", email: true, mentionEmails: {}, ...(asked === null || asked === RESTRICTED ? {} : { project: asked === PROJECT ? "found" : "missing" }) });
     }
     // A current sign-in service repeats the backend and site its approval page names, at the start and with the tokens.
     if (url.endsWith("/auth/device/start")) {
@@ -416,6 +417,12 @@ test("doctor reads the local setting, checks it with the backend, and says what 
   expect(found.project).toMatchObject({ status: "pass", basis: "observed", detail: `${PROJECT} (VITE_CRITIQS_PROJECT_ID in .env.local) exists on this backend.` });
   expect(found.deployments).toMatchObject({ status: "info", basis: "configuration", detail: expect.stringContaining("which doctor can't see; where it's unset, Critiqs stays hidden") });
   expect((await project({ ".env.local": `VITE_CRITIQS_PROJECT_ID=${OTHER}\n` })).project).toMatchObject({ status: "fail", basis: "observed", detail: expect.stringContaining("doesn't exist on this backend") });
+  // A project limited to its organization isn't described to doctor, which doesn't sign in.
+  expect((await project({ ".env.local": `VITE_CRITIQS_PROJECT_ID=${RESTRICTED}\n` })).project).toMatchObject({
+    status: "warn",
+    basis: "observed",
+    detail: expect.stringContaining("the backend describes projects limited to their organization only to signed-in members"),
+  });
   expect((await project({})).project).toMatchObject({ status: "warn", detail: expect.stringContaining("which no .env file here sets, so Critiqs stays hidden") });
   expect((await project({ ".env.local": "VITE_CRITIQS_PROJECT_ID=VITE_CRITIQS_PROJECT_ID\n" })).project).toMatchObject({ status: "fail", detail: expect.stringContaining("not a Critiqs project ID") });
   const committed = await project({ ".env": `VITE_CRITIQS_PROJECT_ID=${PROJECT}\n` }, false, { VITE_CRITIQS_PROJECT_ID: OTHER });

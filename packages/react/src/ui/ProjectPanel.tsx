@@ -54,8 +54,9 @@ export function ProjectPanel({
       <section className="review-address" aria-label="Who has access">
         <strong>Who has access</strong>
         <span className="note">
-          Anyone who signs in while using this prototype can see and add comments. Control access by controlling who can
-          reach the prototype.
+          {project.reviewAccess === "organization"
+            ? "Only members of the project's organization can see and add comments. Invite people to the organization to let them review."
+            : "Anyone who signs in while using this prototype can see and add comments. Control access by controlling who can reach the prototype."}
         </span>
         <ul className="people">
           <li>

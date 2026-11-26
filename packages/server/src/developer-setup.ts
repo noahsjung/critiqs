@@ -167,7 +167,7 @@ export async function reserveDeveloperSends(
   now: number,
 ): Promise<{ results: DeveloperSendResult[]; reserved: ReservedEmail[] }> {
   const user = await requireUser(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const project = await requireProject(store, user, args.projectId);
   const { access, organization } = await projectRole(store, project, user._id);
   if (access !== "manage") fail("forbidden", "Only the people who manage this project can send its setup steps.");
   if (args.emails.length === 0 || args.emails.length > MAX_DEVELOPER_INVITES_PER_PROJECT) {
@@ -464,7 +464,7 @@ function inert(text: string): string {
 /** Who a project sent setup steps to, for the people who manage it: each address and its email's status. */
 export async function listDeveloperSends(store: Store, identity: Identity | null, args: { projectId: string }): Promise<DeveloperSendSummary[]> {
   const { user } = await currentReviewer(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const project = await requireProject(store, user, args.projectId);
   if ((await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("forbidden", "Only the people who manage this project can see who it sent setup steps to.");
   const sends = await store.developerSends.forProject(project._id, MAX_DEVELOPER_INVITES_PER_PROJECT);
   return sends.map((send) => ({
@@ -507,7 +507,7 @@ export async function getDeveloperSetup(store: Store, identity: Identity | null,
  */
 export async function getProjectSetup(store: Store, identity: Identity | null, args: { projectId: string }): Promise<ProjectSetup> {
   const { user } = await currentReviewer(store, identity);
-  const project = await requireProject(store, args.projectId);
+  const project = await requireProject(store, user, args.projectId);
   return setupOf(project, (await projectAccess(store, project, user?._id ?? null)) === "manage");
 }
 

@@ -99,6 +99,7 @@ test("reports itself as a server in the host app, current with the component", a
     addressCheck: true,
     onboardingAnswers: true,
     developerEmails: false,
+    reviewAccess: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -264,6 +265,82 @@ test("stores uploaded images and serves them after the same checks as the thread
   expect((await browser(handler).request(`/critiqs/capture?threadId=${threadId}`)).status).toBe(401);
 });
 
+test("a project limited to its organization serves its feedback, captures, and uploads only to members; only its owners change that", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const projectId = (await dana.api("createProject", { name: "Pilot" })).body.value;
+  const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+  const upload = (who: ReturnType<typeof browser>) =>
+    who.request(`/critiqs/upload?projectId=${projectId}`, { method: "POST", headers: { "X-Critiqs-Request": "1", "Content-Type": "image/png", Origin: SITE }, body: png });
+  const { fileId } = await (await upload(dana)).json();
+  const threadId = (await dana.api("createThread", { projectId, anchor, body: "Look", tags: [], capture: { status: "captured", fileId } })).body.value;
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  expect((await lee.api("project", { projectId })).body.value.reviewAccess).toBe("anyone");
+  expect((await lee.api("setReviewAccess", { projectId, reviewAccess: "organization" })).body.error).toEqual({
+    code: "forbidden",
+    message: "Only the project's owners can change who can review it.",
+  });
+  expect((await dana.api("setReviewAccess", { projectId, reviewAccess: "everyone" })).status).toBe(400);
+  expect((await dana.api("setReviewAccess", { projectId, reviewAccess: "organization" })).status).toBe(200);
+
+  const refused = { code: "forbidden", message: "This project is limited to members of its organization. Ask one of its admins to invite you." };
+  for (const [name, args] of [
+    ["project", { projectId }],
+    ["threads", { projectId }],
+    ["thread", { threadId }],
+    ["participants", { projectId, query: "" }],
+    ["exportPage", { projectId, threadIds: [threadId], threadIndex: 0, paginationOpts: { numItems: 40, cursor: null } }],
+    ["reply", { threadId, body: "Hi", revision: null }],
+    ["remove", { threadId }],
+  ] as const) {
+    const response = await lee.api(name, args);
+    expect([name, response.status, response.body.error]).toEqual([name, 403, refused]);
+  }
+  expect((await lee.request(`/critiqs/capture?threadId=${threadId}`)).status).toBe(403);
+  expect((await upload(lee)).status).toBe(403);
+
+  // Riley, invited to Dana's organization, joins when she signs in, and gets in.
+  const [organization] = (await dana.api("myOrganizations")).body.value;
+  await dana.api("inviteMember", { organizationId: organization.id, email: "riley@example.com", role: "member" });
+  const riley = await signIn(handler, sent, "riley@example.com", "Riley");
+  await riley.api("sync");
+  expect((await riley.api("thread", { threadId })).status).toBe(200);
+  expect(new Uint8Array(await (await riley.request(`/critiqs/capture?threadId=${threadId}`)).arrayBuffer())).toEqual(png);
+  expect((await upload(riley)).status).toBe(200);
+});
+
+test("an upload that started before its project was limited to the organization isn't saved", async () => {
+  const database = new Database(":memory:");
+  const { handler, sent } = await server({ database });
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  const projectId = (await dana.api("createProject", { name: "Pilot" })).body.value;
+  const files = () => (database.query("SELECT COUNT(*) AS count FROM files").get() as { count: number }).count;
+  // Lee's image arrives slowly; Dana limits the project to her organization while it does.
+  let limited = false;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (!limited) {
+        controller.enqueue(new Uint8Array([137, 80, 78, 71]));
+        expect((await dana.api("setReviewAccess", { projectId, reviewAccess: "organization" })).status).toBe(200);
+        limited = true;
+      } else {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.close();
+      }
+    },
+  });
+  const response = await lee.request(`/critiqs/upload?projectId=${projectId}`, {
+    method: "POST",
+    headers: { "X-Critiqs-Request": "1", "Content-Type": "image/png", Origin: SITE },
+    body,
+    duplex: "half",
+  } as RequestInit);
+  expect(response.status).toBe(403);
+  expect((await response.json()).error.message).toBe("This project is limited to members of its organization. Ask one of its admins to invite you.");
+  expect(files()).toBe(0);
+});
+
 test("with the host app's sign-in, whoever the app signed in is the reviewer", async () => {
   const { handler } = await server({
     identify: (request) => (request.headers.get("Authorization") === "Bearer app-session" ? { id: "42", name: "Pat", email: "pat@acme.test" } : null),
@@ -390,6 +467,22 @@ test("reports health for critiqs doctor, as Convex backends do", async () => {
   const read = await (await handler.fetch(new Request(`${SITE}/critiqs/critiqs/health?projectId=${tailnet}`))).text();
   expect(JSON.parse(read)).toMatchObject({ reviewAddress: true, reviewAddressLocal: true });
   expect(read).not.toContain("ts.net");
+});
+
+test("health describes a project limited to its organization only to its members", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  const projectId = (await dana.api("createProject", { name: "Pilot", reviewUrl: "https://proto.example/admin" })).body.value;
+  await dana.api("setReviewAccess", { projectId, reviewAccess: "organization" });
+  const project = (health: Record<string, unknown>) => ({ project: health.project, reviewAddress: health.reviewAddress, reviewAddressLocal: health.reviewAddressLocal });
+  const nothing = { project: undefined, reviewAddress: undefined, reviewAddressLocal: undefined };
+  const path = `/critiqs/critiqs/health?projectId=${projectId}`;
+  const anonymous = await (await handler.fetch(new Request(`${SITE}${path}`))).json();
+  expect(project(anonymous)).toEqual(nothing);
+  expect(anonymous.mentionEmails).toEqual({ overdue: false, waitingSince: null, last: null });
+  expect(project(await (await lee.request(path)).json())).toEqual(nothing);
+  expect(project(await (await dana.request(path)).json())).toEqual({ project: "found", reviewAddress: true, reviewAddressLocal: false });
 });
 
 // Regressions from review

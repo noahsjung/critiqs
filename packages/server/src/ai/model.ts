@@ -18,6 +18,34 @@ export interface StructuredRequest<T> {
   /** Checks and narrows the model's answer; returns null when it doesn't fit. */
   parse: (value: unknown) => T | null;
   maxOutputTokens: number;
+  /**
+   * Runs right before each attempt is sent to the provider, retries
+   * included, and stops the request by throwing: access to what the request
+   * carries can end at any point before it is sent. See `accessCheck`.
+   */
+  beforeSend?: () => Promise<void>;
+}
+
+/**
+ * A check of access for `beforeSend`, which remembers a refusal: model code
+ * reports any failure as an AiError, so the work that asked ends with the
+ * refusal itself (`rethrow`), never treating it as the model failing.
+ */
+export function accessCheck(check: () => Promise<void>): { beforeSend: () => Promise<void>; rethrow: () => void } {
+  let refusal: { error: unknown } | null = null;
+  return {
+    beforeSend: async () => {
+      try {
+        await check();
+      } catch (error) {
+        refusal ??= { error };
+        throw error;
+      }
+    },
+    rethrow: () => {
+      if (refusal !== null) throw refusal.error;
+    },
+  };
 }
 
 /**

@@ -32,6 +32,23 @@ test("health reports how a deployment that trusts Critiqs Cloud's sign-in is set
   expect((await (await t.fetch("/critiqs/health?projectId=not-an-id")).json()).project).toBe("missing");
 });
 
+test("health describes a project limited to its organization only to its members", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const lee = t.withIdentity(reviewer("Lee"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Pilot", reviewUrl: "https://proto.example/admin" });
+  await dana.mutation(api.projects.setReviewAccess, { projectId, reviewAccess: "organization" });
+  await lee.mutation(api.users.sync, {});
+  const project = (health: Record<string, unknown>) => ({ project: health.project, reviewAddress: health.reviewAddress, reviewAddressLocal: health.reviewAddressLocal });
+  const nothing = { project: undefined, reviewAddress: undefined, reviewAddressLocal: undefined };
+  const anonymous = await (await t.fetch(`/critiqs/health?projectId=${projectId}`)).json();
+  expect(project(anonymous)).toEqual(nothing);
+  // The deployment's own diagnostics stay public.
+  expect(anonymous.mentionEmails).toEqual({ overdue: false, waitingSince: null, last: null });
+  expect(project(await (await lee.fetch(`/critiqs/health?projectId=${projectId}`)).json())).toEqual(nothing);
+  expect(project(await (await dana.fetch(`/critiqs/health?projectId=${projectId}`)).json())).toEqual({ project: "found", reviewAddress: true, reviewAddressLocal: false });
+});
+
 test("health notices mention emails that scheduled sending left waiting", async () => {
   process.env.CRITIQS_AUTH_ISSUER = "https://team.convex.site";
   process.env.CONVEX_SITE_URL = "https://team.convex.site";

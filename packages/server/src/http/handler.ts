@@ -14,6 +14,7 @@ import {
   preparePersonalTest,
   prepareTest,
   recordPersonalTest,
+  recheckAiManager,
   recordTest,
   removePersonalAiSettings,
   requirePersonalAiOwner,
@@ -24,11 +25,12 @@ import { listModels } from "../ai/model-lists.ts";
 import { type AddressCheckDeps, checkPrototypeAddress, nodeNetwork } from "../address-check.ts";
 import { applyGrouping, claimGrouping, failGrouping, groupDueTags } from "../ai/grouping.ts";
 import type { StructuredModel } from "../ai/model.ts";
-import { finalizeSearch, prepareSearch, retrieveSearch, runSearch } from "../ai/search.ts";
+import { authorizeSearch, finalizeSearch, prepareSearch, retrieveSearch, runSearch } from "../ai/search.ts";
 import { type AiDeployment, type AiConnectionConfig, prepareSettings, type ResolvedConnection, sealKey } from "../ai/settings.ts";
 import { keyBinding, validEncryptionKey } from "../ai/secrets.ts";
 import { CritiqsError, fail } from "../errors.ts";
 import {
+  canReview,
   claimInviteEmail,
   getOrganization,
   inviteMember,
@@ -47,6 +49,7 @@ import {
   cleanUpDeliveries,
   completeDeliveries,
   deliverOne,
+  deliveryAllowed,
   discussionPage,
   freezeDelivery,
   isLocalReviewAddress,
@@ -345,14 +348,26 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     settle: (hold, charge) => store.transaction((s) => settleCredits(s, hold, charge, Date.now())),
   };
   /** A model for a connection; the AI SDK loads only when a model is first used. */
-  const modelFor = (connection: Extract<ResolvedConnection, { ready: true }>): StructuredModel =>
-    options.aiModel?.(connection) ?? {
+  const modelFor = (connection: Extract<ResolvedConnection, { ready: true }>): StructuredModel => {
+    const standIn = options.aiModel?.(connection);
+    // A stand-in sends nothing itself; it is checked once, as a provider's request would be.
+    if (standIn !== undefined) {
+      return {
+        description: standIn.description,
+        generate: async (request) => {
+          await request.beforeSend?.();
+          return await standIn.generate(request);
+        },
+      };
+    }
+    return {
       description: `${connection.provider} · ${connection.model}`,
       generate: async (request) => {
         const { createStructuredModel } = await import("../ai/providers.ts");
         return await createStructuredModel(connection, { timeoutMs: aiOptions.timeoutMs }).generate(request);
       },
     };
+  };
   /** How model lists reach providers: within the request time limit, and through the test stand-in when one is given. */
   const modelListOptions = {
     ...(aiOptions.timeoutMs === undefined ? {} : { timeoutMs: aiOptions.timeoutMs }),
@@ -469,6 +484,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     createProject: (args) => (s, id) => ops.createProject(s, id, args),
     saveAboutYou: (args) => (s, id) => saveAboutYou(s, id, args),
     setReviewUrl: (args) => (s, id) => ops.setReviewUrl(s, id, args),
+    setReviewAccess: (args) => (s, id) => ops.setReviewAccess(s, id, args),
     setOverageCap: (args) => (s, id) => setOverageCap(s, id, args),
     createThread: (args) => (s, id) =>
       // This server doesn't store mockups yet; its /critiqs/config doesn't offer them.
@@ -514,6 +530,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     search: (args: { projectId: string; question: string; scope: SearchScope }, identity) =>
       runSearch({
         prepare: () => store.transaction((s) => prepareSearch(s, identity, args, deployment, Date.now())),
+        authorize: () => store.transaction((s) => authorizeSearch(s, identity, { projectId: args.projectId })),
         retrieve: (query, groups) => store.transaction((s) => retrieveSearch(s, identity, { projectId: args.projectId, query, groups })),
         finalize: (response) => store.transaction((s) => finalizeSearch(s, identity, { projectId: args.projectId, response })),
         ...credits,
@@ -531,7 +548,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       testConnection(
         {
           prepare: () => store.transaction((s) => prepareTest(s, identity, args, deployment, Date.now())),
-          record: (epoch, result) => store.transaction((s) => recordTest(s, { projectId: args.projectId, epoch, result }, Date.now())),
+          record: (epoch, result) => store.transaction((s) => recordTest(s, identity, { projectId: args.projectId, epoch, result }, Date.now())),
+          recheck: () => store.transaction((s) => recheckAiManager(s, identity, { projectId: args.projectId })),
           ...credits,
           model: modelFor,
           deployment,
@@ -562,7 +580,15 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       );
     },
     listAiModels: (args: { projectId: string; draft?: AiModelListDraft }, identity) =>
-      listModels({ prepare: () => store.transaction((s) => prepareModelList(s, identity, args, Date.now())), deployment, ...modelListOptions }, args.draft),
+      listModels(
+        {
+          prepare: () => store.transaction((s) => prepareModelList(s, identity, args, Date.now())),
+          recheck: () => store.transaction((s) => recheckAiManager(s, identity, { projectId: args.projectId })),
+          deployment,
+          ...modelListOptions,
+        },
+        args.draft,
+      ),
     listPersonalAiModels: (args: { draft?: AiModelListDraft }, identity) =>
       listModels({ prepare: () => store.transaction((s) => preparePersonalModelList(s, identity, Date.now())), deployment, ...modelListOptions }, args.draft),
     // Reserved and counted in one transaction, then each email sent and its answer recorded in its own.
@@ -667,7 +693,11 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       const contentType = request.headers.get("Content-Type")?.split(";")[0]?.trim().toLowerCase() ?? "";
       if (!ops.IMAGE_TYPES.includes(contentType)) fail("invalid", "Upload a PNG, JPEG, WebP, or GIF image.");
       const data = await readBody(request, ops.MAX_IMAGE_BYTES, "Images must be 10 MB or smaller.");
-      const fileId = await store.saveFile(data, contentType);
+      // Access can end while the image arrives, so it is checked again in the transaction that saves it.
+      const fileId = await store.transaction(async (s) => {
+        await ops.authorizeUpload(s, identity, { projectId });
+        return await store.saveFile(data, contentType);
+      });
       return json({ fileId });
     } catch (error) {
       return failure(error);
@@ -969,6 +999,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         // Each step is its own transaction, so other requests run between pages of a long discussion.
         const outcome = await deliverOne({
           begin: () => store.transaction((s) => beginDelivery(s, { id, claimToken, preferenceUrl })),
+          allowed: () => store.transaction((s) => deliveryAllowed(s, { id, claimToken })),
           page: ({ version, cursor }) => store.transaction((s) => discussionPage(s, { id, claimToken, version, cursor })),
           stillMentions: (messageId) => store.transaction((s) => stillMentions(s, { id, claimToken, messageId })),
           freeze: ({ version, fileId, to }) => store.transaction((s) => freezeDelivery(s, { id, claimToken, version, fileId, to })),
@@ -1050,16 +1081,23 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     return messagePage("Done", REPORT_DONE, 200);
   }
 
-  /** What `critiqs doctor` checks, as on Convex: sign-in, email, whether mention emails go out, and a project. Reveals no feedback. */
+  /**
+   * What `critiqs doctor` checks, as on Convex: sign-in, email, whether
+   * mention emails go out, and a project. Reveals no feedback, and nothing
+   * about a project limited to its organization except to its members.
+   */
   async function health(request: Request): Promise<Response> {
     const projectId = new URL(request.url).searchParams.get("projectId");
     const now = Date.now();
+    const identity = projectId === null ? null : await identityOf(request);
     const state = await store.withSql(async (db, s) => {
       const [stuck] = await s.deliveries.due(now - OVERDUE_MS, 1);
       const last = db.get<{ status: string; finished_at: number }>(
         "SELECT status, finished_at FROM deliveries WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1",
       );
-      const project = projectId === null ? undefined : await s.projects.get(projectId);
+      const found = projectId === null ? undefined : await s.projects.get(projectId);
+      const viewer = identity === null ? null : await s.users.byToken(identity.tokenIdentifier);
+      const project = found === undefined || found === null || (await canReview(s, found, viewer?._id ?? null)) ? found : undefined;
       return {
         mentionEmails: {
           // Due mention emails exist only when the worker is behind; it runs every minute while the server runs.
@@ -1103,6 +1141,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // `developerEmails`: a project's owners email its setup steps to developers (`sendDeveloperSetup`, `developerSends`), and
       // setup links show them (`developerSetup`); false without email, `webUrl`, or `publicUrl`. A copied message's
       // setup page shows the project and its install commands (`projectSetup`), with or without email.
+      // `reviewAccess`: projects report who can review them (`reviewAccess` on projects), and their owners
+      // limit them to their organization's members (`setReviewAccess`).
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1117,6 +1157,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         addressCheck: addressCheckOn,
         onboardingAnswers: true,
         developerEmails: developerEmails !== null,
+        reviewAccess: true,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);

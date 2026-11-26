@@ -1,4 +1,4 @@
-import type { Anchor, CodeAccess, FeedbackFrom, OrganizationRole, PageRequest, Purpose, Revision, Role, StackId, TargetLocation, TeamSize, ThreadMockup } from "@critiqs/core";
+import type { Anchor, CodeAccess, FeedbackFrom, OrganizationRole, PageRequest, Purpose, ReviewAccess, Revision, Role, StackId, TargetLocation, TeamSize, ThreadMockup } from "@critiqs/core";
 import type { Plan } from "./limits.ts";
 
 // The storage a backend gives Critiqs's rules. Each operation runs in one
@@ -53,6 +53,8 @@ export interface ProjectRecord {
   organizationId?: string;
   /** Present when the project was created in onboarding with at least one answer. */
   onboarding?: ProjectOnboarding;
+  /** Who can review it; absent means `anyone`. */
+  reviewAccess?: ReviewAccess;
 }
 
 /** A group of people that owns projects and the Critiqs Cloud plan covering them. */
@@ -505,7 +507,7 @@ export type AiSettingsChanges = Partial<Pick<AiSettingsRecord, "enabled" | "mode
 export type PersonalAiSettingsChanges = Partial<Pick<PersonalAiSettingsRecord, "enabled" | "mode" | "epoch" | "updatedAt">> & {
   [K in ConnectionField]?: PersonalAiSettingsRecord[K] | null;
 };
-export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId">>;
+export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess">>;
 export type DeliveryChanges = Partial<
   Pick<DeliveryRecord, "status" | "attempts" | "dueAt" | "claimToken" | "leaseUntil" | "message" | "payload" | "finishedAt" | "reason">
 >;

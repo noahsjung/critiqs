@@ -43,7 +43,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -501,6 +501,10 @@ export const MIGRATIONS: Migration[] = [
   CREATE UNIQUE INDEX developer_sends_by_project_email ON developer_sends (project_id, email);
   CREATE TABLE email_suppressions (inbox TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
   `,
+  // Who can review a project: anyone who signs in, as before, unless its owners limit it to its organization.
+  `
+  ALTER TABLE projects ADD COLUMN review_access TEXT NOT NULL DEFAULT 'anyone';
+  `,
 ];
 
 /**
@@ -869,6 +873,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     ...(row.review_url === null ? {} : { reviewUrl: row.review_url }),
     ...(row.organization_id === null ? {} : { organizationId: row.organization_id }),
     ...(row.onboarding === null ? {} : { onboarding: JSON.parse(row.onboarding) as ProjectOnboarding }),
+    reviewAccess: row.review_access === "organization" ? "organization" : "anyone",
   });
   const thread = (row: ThreadRow): ThreadRecord => ({
     _id: row.id,
@@ -1248,7 +1253,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
       },
       insert: async (record) => {
         const id = newId("projects");
-        sql.run("INSERT INTO projects (id, name, tags, created_by, created_at, review_url, organization_id, onboarding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+        sql.run("INSERT INTO projects (id, name, tags, created_by, created_at, review_url, organization_id, onboarding, review_access) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
           id,
           record.name,
           json(record.tags),
@@ -1257,10 +1262,11 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           record.reviewUrl ?? null,
           record.organizationId ?? null,
           record.onboarding === undefined ? null : json(record.onboarding),
+          record.reviewAccess ?? "anyone",
         ]);
         return id;
       },
-      patch: async (id, changes) => patch("projects", id, { review_url: changes.reviewUrl, organization_id: changes.organizationId }),
+      patch: async (id, changes) => patch("projects", id, { review_url: changes.reviewUrl, organization_id: changes.organizationId, review_access: changes.reviewAccess }),
       listByCreator: async (userId, request) =>
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),
     },
@@ -1949,6 +1955,7 @@ interface ProjectRow {
   review_url: string | null;
   organization_id: string | null;
   onboarding: string | null;
+  review_access: string;
 }
 interface ParticipantRow {
   seq: number;

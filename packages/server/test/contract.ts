@@ -1,5 +1,5 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
-import type { Anchor, ProjectUsage } from "@critiqs/core";
+import { type Anchor, type ProjectUsage, REACTIONS } from "@critiqs/core";
 import { reserveCredits, settleCredits } from "../src/ai/credits.ts";
 import { DEFAULT_PLANS, type Limit, type Plan, usageKey, utcDay } from "../src/limits.ts";
 import type { CaptureInput } from "../src/operations.ts";
@@ -201,7 +201,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
   test(`${name}: a deleted thread leaves the list and export, and reports unavailable`, async () => {
     const backend = fresh();
     const { projectId, threadId } = await projectWithThread(backend);
-    await backend.run((store) => ops.removeThread(store, lee, { threadId }));
+    await backend.run((store) => ops.removeThread(store, dana, { threadId }));
     const listed = await backend.run((store) => ops.listThreads(store, dana, { projectId }, page));
     expect(listed.page).toEqual([]);
     await expect(backend.run((store) => ops.getThread(store, dana, { threadId }, page))).rejects.toThrow("deleted");
@@ -430,6 +430,8 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
 
   /** Ways a test can step into a worker's sending. */
   interface SendHooks {
+    /** Runs before each check that the delivery may still go out. */
+    beforeAllowed?: (check: number) => Promise<void>;
     /** Runs after each page of a discussion is read. */
     afterPage?: (page: number) => Promise<void>;
     beforeFreeze?: () => Promise<void>;
@@ -447,8 +449,13 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     const failed: { deliveryId: string; reason: string }[] = [];
     for (const id of ids) {
       let pages = 0;
+      let checks = 0;
       const outcome = await notify.deliverOne({
         begin: () => backend.run((store) => notify.beginDelivery(store, { id, claimToken: token, ...links })),
+        allowed: async () => {
+          await hooks.beforeAllowed?.(++checks);
+          return await backend.run((store) => notify.deliveryAllowed(store, { id, claimToken: token }));
+        },
         page: async ({ version, cursor }) => {
           const page = await backend.run((store) => notify.discussionPage(store, { id, claimToken: token, version, cursor }));
           await hooks.afterPage?.(++pages);
@@ -2585,5 +2592,329 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     await backend.run((store) => ops.reply(store, dana, { threadId, body: "Older tab", revision: null }));
     const authors = (await allMessages(backend, lee, threadId)).map((message) => message.author.name);
     expect(authors).toEqual(["Dana Kim", "Dana Kim", "Dana Kim"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Who can review
+
+  /** What an attempt came to: "allowed", or the refusal's code and message. */
+  async function outcome(work: Promise<unknown>): Promise<string> {
+    try {
+      await work;
+      return "allowed";
+    } catch (error) {
+      return `${(error as { code?: string }).code}: ${(error as Error).message}`;
+    }
+  }
+
+  const refusedOutsideOrganization = `forbidden: ${organizations.ORGANIZATION_ONLY}`;
+
+  /**
+   * Dana's project, limited to her organization: Riley joined it through an
+   * invite when she signed in, and Lee, who commented while anyone could, is
+   * outside it.
+   */
+  async function limitedProject(backend: ContractBackend) {
+    const riley = reviewer("Riley");
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype" }));
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    const image = await backend.saveFile("image/png");
+    const threadId = await backend.run((store) =>
+      ops.createThread(store, dana, { projectId, anchor, body: "Department is wrong", tags: ["Bug"], capture: { status: "captured", fileId: image } }),
+    );
+    const leeMessageId = await backend.run((store) => ops.reply(store, lee, { threadId, body: "Agreed", revision: null }));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: "riley@example.com", role: "member" }, Date.now()));
+    await backend.run((store) => ops.syncReviewer(store, riley));
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    return { projectId, organizationId, threadId, leeMessageId, image, riley };
+  }
+
+  /** Every operation on a project or on something in it, as `who`; `own` names the thread, message, and failed capture `who` may change. */
+  function projectOperations(projectId: string, own: { threadId: string; messageId: string; failedThreadId: string; screenshot: string }) {
+    const { evidence: _evidence, ...location } = anchor;
+    const { threadId, messageId } = own;
+    const each: Record<string, (who: Identity) => (store: Store) => Promise<unknown>> = {
+      getProject: (who) => (store) => ops.getProject(store, who, { projectId }),
+      listThreads: (who) => (store) => ops.listThreads(store, who, { projectId }, page),
+      getThread: (who) => (store) => ops.getThread(store, who, { threadId }, page),
+      listReactions: (who) => (store) => ops.listReactions(store, who, { threadId }, page),
+      exportThreads: (who) => (store) => ops.exportThreads(store, who, { projectId, threadIds: [threadId], threadIndex: 0 }, page),
+      listParticipants: (who) => (store) => ops.listParticipants(store, who, { projectId, query: "" }),
+      listParticipantsNamed: (who) => (store) => ops.listParticipantsNamed(store, who, { projectId, name: "Dana" }),
+      getNotificationSettings: (who) => (store) => ops.getNotificationSettings(store, who, { projectId }),
+      setNotificationSettings: (who) => (store) => ops.setNotificationSettings(store, who, { projectId, projectMuted: false }),
+      listTags: (who) => (store) => ops.listTags(store, who, { projectId }),
+      createThread: (who) => (store) => ops.createThread(store, who, { projectId, anchor, body: "Another", tags: [], capture: failed }),
+      reply: (who) => (store) => ops.reply(store, who, { threadId, body: "Still here", revision: null }),
+      editMessage: (who) => (store) => ops.editMessage(store, who, { messageId, body: "Edited" }),
+      toggleReaction: (who) => (store) => ops.toggleReaction(store, who, { messageId, emoji: REACTIONS[0] }),
+      setStatus: (who) => (store) => ops.setStatus(store, who, { threadId, status: "resolved" }),
+      setTags: (who) => (store) => ops.setTags(store, who, { threadId, tags: ["Bug"] }),
+      reattach: (who) => (store) => ops.reattach(store, who, { threadId, location }),
+      attachScreenshot: (who) => (store) => ops.attachScreenshot(store, who, { threadId: own.failedThreadId, fileId: own.screenshot }),
+      authorizeUpload: (who) => (store) => ops.authorizeUpload(store, who, { projectId }),
+      authorizedCapture: (who) => (store) => ops.authorizedCapture(store, who, { threadId }),
+      markRead: (who) => (store) => ops.markRead(store, who, { threadId, seenThrough: Date.now() }),
+      markUnread: (who) => (store) => ops.markUnread(store, who, { threadId }),
+      removeThread: (who) => (store) => ops.removeThread(store, who, { threadId }),
+    };
+    return each;
+  }
+
+  async function outcomes(backend: ContractBackend, who: Identity, each: ReturnType<typeof projectOperations>) {
+    const results: Record<string, string> = {};
+    // In order: removing the thread comes last.
+    for (const [name, operation] of Object.entries(each)) results[name] = await outcome(backend.run(operation(who)));
+    return results;
+  }
+
+  test(`${name}: projects let anyone who signs in review them until their owners limit them, and report which`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype" }));
+    expect((await backend.run((store) => ops.getProject(store, lee, { projectId }))).reviewAccess).toBe("anyone");
+    expect(await outcome(backend.run((store) => ops.listThreads(store, reviewer("Sam"), { projectId }, page)))).toBe("allowed");
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    expect((await backend.run((store) => ops.getProject(store, dana, { projectId }))).reviewAccess).toBe("organization");
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "anyone" }));
+    expect((await backend.run((store) => ops.getProject(store, lee, { projectId }))).reviewAccess).toBe("anyone");
+  });
+
+  test(`${name}: limited to its organization, a project refuses everyone outside it on every operation, and lets its members in`, async () => {
+    const backend = fresh();
+    const { projectId, threadId, leeMessageId, image, riley } = await limitedProject(backend);
+    const failedThreadId = await backend.run((store) => ops.createThread(store, dana, { projectId, anchor, body: "No capture", tags: [], capture: failed }));
+    const outside = projectOperations(projectId, { threadId, messageId: leeMessageId, failedThreadId, screenshot: await backend.saveFile("image/png") });
+    const everyRefused = Object.fromEntries(Object.keys(outside).map((name) => [name, refusedOutsideOrganization]));
+    // Lee commented before; Sam has never signed in here, so has no record yet.
+    expect(await outcomes(backend, lee, outside)).toEqual(everyRefused);
+    expect(await outcomes(backend, reviewer("Sam"), outside)).toEqual(everyRefused);
+    // Nothing Lee or Sam tried changed anything.
+    const thread = await backend.run((store) => ops.getThread(store, dana, { threadId }, page));
+    expect(thread).toMatchObject({ status: "open", messageCount: 2 });
+    expect(thread.page.map((message) => message.body)).toEqual(["Department is wrong", "Agreed"]);
+
+    // Riley, a member, may do each, on her own thread and message where it matters.
+    const rileyThreadId = await backend.run((store) => ops.createThread(store, riley, { projectId, anchor, body: "Mine", tags: [], capture: failed }));
+    const rileyMessageId = (await backend.run((store) => ops.getThread(store, riley, { threadId: rileyThreadId }, page))).page[0]!._id;
+    const inside = projectOperations(projectId, { threadId: rileyThreadId, messageId: rileyMessageId, failedThreadId, screenshot: await backend.saveFile("image/png") });
+    expect(await outcomes(backend, riley, inside)).toEqual(Object.fromEntries(Object.keys(inside).map((name) => [name, "allowed"])));
+    expect(await backend.run((store) => ops.authorizedCapture(store, riley, { threadId }))).toBe(image);
+    expect((await backend.run((store) => ops.listThreads(store, riley, { projectId }, page))).page.map((each) => each._id)).toContain(threadId);
+  });
+
+  test(`${name}: a thread, message, or capture named by its own ID is refused like its project, deleted or not`, async () => {
+    const backend = fresh();
+    const { projectId, organizationId, threadId, leeMessageId } = await limitedProject(backend);
+    // Lee's own project, open to anyone, can't reach Dana's thread through its export either.
+    const leeProjectId = await backend.run((store) => ops.createProject(store, lee, { name: "Lee's prototype" }));
+    const exported = await backend.run((store) => ops.exportThreads(store, lee, { projectId: leeProjectId, threadIds: [threadId], threadIndex: 0 }, page));
+    expect(exported.thread).toBeNull();
+    expect(await outcome(backend.run((store) => ops.getThread(store, lee, { threadId }, page)))).toBe(refusedOutsideOrganization);
+    expect(await outcome(backend.run((store) => ops.authorizedCapture(store, lee, { threadId })))).toBe(refusedOutsideOrganization);
+    expect(await outcome(backend.run((store) => ops.toggleReaction(store, lee, { messageId: leeMessageId, emoji: REACTIONS[0] })))).toBe(refusedOutsideOrganization);
+    // A deleted thread is reported deleted only to those who may review the project.
+    await backend.run((store) => ops.removeThread(store, dana, { threadId }));
+    expect(await outcome(backend.run((store) => ops.getThread(store, lee, { threadId }, page)))).toBe(refusedOutsideOrganization);
+    expect(await outcome(backend.run((store) => ops.getThread(store, dana, { threadId }, page)))).toBe("unavailable: This thread was deleted.");
+    // A creator who leaves the organization no longer reaches the project, nor lists it to reconnect to.
+    expect((await backend.run((store) => ops.listMyProjects(store, dana, page))).page.map((project) => project._id)).toEqual([projectId]);
+    const danaId = await idOf(backend, dana);
+    const membership = (await backend.run((store) => store.memberships.find(organizationId, danaId)))!;
+    await backend.run((store) => store.memberships.delete(membership._id));
+    expect((await backend.run((store) => ops.listMyProjects(store, dana, page))).page).toEqual([]);
+    expect(await outcome(backend.run((store) => ops.getProject(store, dana, { projectId })))).toBe(refusedOutsideOrganization);
+  });
+
+  test(`${name}: only a thread's author or the project's owners delete it`, async () => {
+    const backend = fresh();
+    const { projectId, organizationId } = await danasOrganization(backend);
+    const riley = reviewer("Riley");
+    const morgan = reviewer("Morgan");
+    await invite(backend, dana, organizationId, "riley@example.com");
+    await invite(backend, dana, organizationId, "morgan@example.com", "admin");
+    await signIn(backend, riley);
+    await signIn(backend, morgan);
+    const start = (who: Identity) => backend.run((store) => ops.createThread(store, who, { projectId, anchor, body: `${who.name}'s`, tags: [], capture: failed }));
+    const remove = (who: Identity, threadId: string) => outcome(backend.run((store) => ops.removeThread(store, who, { threadId })));
+    const notYours = "forbidden: Only the person who started this thread or the project's owners can delete it.";
+    const danas = await start(dana);
+    const lees = await start(lee);
+    const rileys = await start(riley);
+    // Each thread says whether the person reading it may delete it, so the Delete menu matches.
+    const canDelete = async (who: Identity, threadId: string) => (await backend.run((store) => ops.getThread(store, who, { threadId }, page))).canDelete;
+    expect([await canDelete(lee, danas), await canDelete(lee, lees), await canDelete(riley, lees), await canDelete(morgan, lees), await canDelete(dana, rileys)]).toEqual([false, true, false, true, true]);
+    // Anyone may review this project, but not delete others' threads: neither a reviewer outside the organization nor a member.
+    expect(await remove(lee, danas)).toBe(notYours);
+    expect(await remove(riley, danas)).toBe(notYours);
+    expect(await remove(riley, lees)).toBe(notYours);
+    // Authors delete their own; an admin and the project's creator delete anyone's.
+    expect(await remove(lee, lees)).toBe("allowed");
+    expect(await remove(morgan, rileys)).toBe("allowed");
+    expect(await remove(dana, await start(riley))).toBe("allowed");
+    // The creator while only a member still manages the project; once removed, not even their own project's threads.
+    const danaId = await idOf(backend, dana);
+    const membership = (await backend.run((store) => store.memberships.find(organizationId, danaId)))!;
+    await backend.run((store) => store.memberships.patch(membership._id, { role: "member" }));
+    expect(await remove(dana, await start(lee))).toBe("allowed");
+    await backend.run((store) => store.memberships.delete(membership._id));
+    expect(await remove(dana, await start(lee))).toBe(notYours);
+    // Others' messages stay theirs to edit, whoever manages the project.
+    const leeThread = await start(lee);
+    const leeMessage = (await backend.run((store) => ops.getThread(store, lee, { threadId: leeThread }, page))).page[0]!._id;
+    expect(await outcome(backend.run((store) => ops.editMessage(store, morgan, { messageId: leeMessage, body: "Changed" })))).toBe(
+      "forbidden: You can only edit your own messages.",
+    );
+    expect(await outcome(backend.run((store) => ops.removeThread(store, morgan, { threadId: danas })))).toBe("allowed");
+  });
+
+  test(`${name}: only the project's owners change who can review it`, async () => {
+    const backend = fresh();
+    const { projectId, organizationId } = await danasOrganization(backend);
+    const riley = reviewer("Riley");
+    const morgan = reviewer("Morgan");
+    await invite(backend, dana, organizationId, "riley@example.com");
+    await invite(backend, dana, organizationId, "morgan@example.com", "admin");
+    await signIn(backend, riley);
+    await signIn(backend, morgan);
+    const set = (who: Identity | null, reviewAccess: "anyone" | "organization") =>
+      outcome(backend.run((store) => ops.setReviewAccess(store, who, { projectId, reviewAccess })));
+    const onlyOwners = "forbidden: Only the project's owners can change who can review it.";
+    expect(await set(lee, "organization")).toBe(onlyOwners);
+    expect(await set(riley, "organization")).toBe(onlyOwners);
+    expect(await set(null, "organization")).toBe("unauthenticated: Sign in to view feedback.");
+    expect(await outcome(backend.run((store) => ops.setReviewAccess(store, morgan, { projectId, reviewAccess: "everyone" as "anyone" })))).toBe(
+      "invalid: Choose anyone who signs in, or members of the organization.",
+    );
+    expect((await backend.run((store) => ops.getProject(store, riley, { projectId }))).reviewAccess).toBe("anyone");
+    expect(await set(morgan, "organization")).toBe("allowed");
+    expect((await backend.run((store) => ops.getProject(store, riley, { projectId }))).reviewAccess).toBe("organization");
+    // Once limited, someone outside can't even try to open it again.
+    expect(await set(lee, "anyone")).toBe(refusedOutsideOrganization);
+    expect(await set(dana, "anyone")).toBe("allowed");
+    expect(await outcome(backend.run((store) => ops.listThreads(store, lee, { projectId }, page)))).toBe("allowed");
+  });
+
+  test(`${name}: once a project is limited to its organization, people outside it are neither suggested nor emailed`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await projectWithThread(backend);
+    await backend.run((store) => ops.reply(store, lee, { threadId, body: "Hi", revision: null }));
+    // Dana's reply owes Lee an email before the project is limited.
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "Thanks", revision: null }));
+    await settle(backend);
+    expect((await backend.run((store) => ops.listParticipants(store, dana, { projectId, query: "" }))).map((person) => person.name)).toEqual(["Lee"]);
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    expect(await backend.run((store) => ops.listParticipants(store, dana, { projectId, query: "" }))).toEqual([]);
+    expect(await backend.run((store) => ops.listParticipantsNamed(store, dana, { projectId, name: "Lee" }))).toEqual({ people: [], complete: true });
+    const now = Date.now() + notify.GATHER_MS + 60_000;
+    const sent = await sendDue(backend, now);
+    expect(sent.sends.map((send) => send.message.to)).toEqual(["dana@example.com"]);
+    expect(sent.skipped.map((row) => row.reason)).toEqual(["The reviewer can no longer review this project."]);
+    await backend.run((store) =>
+      notify.completeDeliveries(store, [...sent.skipped.map(({ deliveryId, reason }) => ({ deliveryId, claimToken: "worker", result: "skipped" as const, reason })), ...sent.sends.map(({ deliveryId }) => ({ deliveryId, claimToken: "worker", result: "sent" as const }))], now),
+    );
+    // Later replies and mentions owe Lee nothing.
+    const leeId = await idOf(backend, lee);
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "@Lee more", revision: null, mentions: [mention(leeId, "Lee")] }));
+    expect((await owed(backend)).filter((delivery) => delivery.recipientId === leeId)).toEqual([]);
+  });
+
+  /** Finishes what `sendDue` sent and skipped, as the worker does, returning the prepared email each delivery had. */
+  async function finish(backend: ContractBackend, sent: Awaited<ReturnType<typeof sendDue>>, now: number) {
+    const prepared = new Map<string, string | undefined>();
+    for (const id of sent.ids) prepared.set(id, (await backend.run((store) => store.deliveries.get(id)))?.payload?.fileId);
+    await backend.run((store) =>
+      notify.completeDeliveries(
+        store,
+        [
+          ...sent.skipped.map(({ deliveryId, reason }) => ({ deliveryId, claimToken: "worker", result: "skipped" as const, reason })),
+          ...sent.failed.map(({ deliveryId, reason }) => ({ deliveryId, claimToken: "worker", result: "failed" as const, reason })),
+          ...sent.sends.map(({ deliveryId }) => ({ deliveryId, claimToken: "worker", result: "sent" as const })),
+        ],
+        now,
+      ),
+    );
+    return prepared;
+  }
+
+  test(`${name}: an email being prepared when its project is limited to the organization reads no capture and isn't sent`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype" }));
+    const image = await backend.saveFile("image/png");
+    const threadId = await backend.run((store) =>
+      ops.createThread(store, dana, { projectId, anchor, body: "Department is wrong", tags: [], capture: { status: "captured", fileId: image } }),
+    );
+    await backend.run((store) => ops.reply(store, lee, { threadId, body: "Agreed", revision: null }));
+    await backend.run((store) => ops.setNotificationSettings(store, dana, { projectId, replyEmails: false }));
+    // Dana's reply owes Lee, outside her organization, an email with the capture.
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "Thanks", revision: null }));
+    const now = Date.now() + notify.GATHER_MS + 60_000;
+    const read: string[] = [];
+    const sent = await sendDue(backend, now, "worker", {
+      // The delivery was approved and its discussion read; then the owners limit the project.
+      afterPage: () => backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" })),
+      readFile: async (fileId, readIt) => {
+        read.push(fileId);
+        return await readIt();
+      },
+    });
+    expect(sent.ids).toHaveLength(1);
+    expect(sent.sends).toEqual([]);
+    expect(read).toEqual([]);
+    expect(sent.skipped.map((row) => row.reason)).toEqual(["The reviewer can no longer review this project."]);
+  });
+
+  test(`${name}: an email prepared before its project is limited to the organization is discarded, not sent`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await projectWithThread(backend);
+    await backend.run((store) => ops.reply(store, lee, { threadId, body: "Hi", revision: null }));
+    await backend.run((store) => ops.setNotificationSettings(store, dana, { projectId, replyEmails: false }));
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "Thanks", revision: null }));
+    const now = Date.now() + notify.GATHER_MS + 60_000;
+    // The email is stored, then the owners limit the project before it goes to the mail service.
+    const sent = await sendDue(backend, now, "worker", {
+      beforeFreeze: () => backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" })),
+    });
+    expect(sent.sends).toEqual([]);
+    expect(sent.skipped.map((row) => row.reason)).toEqual(["The reviewer can no longer review this project."]);
+    const prepared = await finish(backend, sent, now);
+    const fileId = prepared.get(sent.ids[0]!);
+    expect(fileId).toBeDefined();
+    expect(await backend.readFile(fileId!)).toBeNull();
+  });
+
+  test(`${name}: a retried email isn't sent to a member removed from the organization after it was approved`, async () => {
+    const backend = fresh();
+    const { projectId, organizationId } = await danasOrganization(backend);
+    const riley = reviewer("Riley");
+    await invite(backend, dana, organizationId, "riley@example.com");
+    await signIn(backend, riley);
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    const threadId = await backend.run((store) => ops.createThread(store, riley, { projectId, anchor, body: "Department is wrong", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "Thanks", revision: null }));
+    // The first attempt is prepared and stored, but the mail service fails it.
+    let now = Date.now() + notify.GATHER_MS + 60_000;
+    const first = await sendDue(backend, now, "worker", {
+      send: async () => {
+        throw new MailError("The mail service is down.");
+      },
+    });
+    expect(first.failed.map((row) => row.reason)).toEqual(["The mail service is down."]);
+    const prepared = await finish(backend, first, now);
+    const fileId = prepared.get(first.ids[0]!)!;
+    expect(await backend.readFile(fileId)).not.toBeNull();
+    // The retry is approved; then Riley leaves the organization before it is sent.
+    now += 24 * 60 * 60_000;
+    const rileyId = await idOf(backend, riley);
+    const retry = await sendDue(backend, now, "worker", {
+      beforeAllowed: async () => {
+        const membership = await backend.run((store) => store.memberships.find(organizationId, rileyId));
+        if (membership !== null) await backend.run((store) => store.memberships.delete(membership._id));
+      },
+    });
+    expect(retry.ids).toEqual(first.ids);
+    expect(retry.sends).toEqual([]);
+    expect(retry.skipped.map((row) => row.reason)).toEqual(["The reviewer can no longer review this project."]);
+    await finish(backend, retry, now);
+    expect(await backend.readFile(fileId)).toBeNull();
   });
 }

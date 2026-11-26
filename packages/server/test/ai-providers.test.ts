@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { AiProvider } from "@critiqs/core";
 import { isLocalHost } from "@critiqs/server";
 import { checkEndpoint, guardedFetch } from "../src/ai/endpoints.ts";
-import { AiError } from "../src/ai/model.ts";
+import { accessCheck, AiError } from "../src/ai/model.ts";
 import { testRequest, interpretRequest } from "../src/ai/prompts.ts";
 import { createStructuredModel } from "../src/ai/providers.ts";
 import type { ResolvedConnection } from "../src/ai/settings.ts";
@@ -293,5 +293,39 @@ describe("endpoints owners may enter", () => {
     expect(checkEndpoint("http://ollama.internal:11434/v1", { ...policy, allowLocal: true })).toMatchObject({ ok: true });
     // Still only listed ones.
     expect(checkEndpoint("http://127.0.0.1:8080/v1", { ...policy, allowLocal: true })).toMatchObject({ ok: false });
+  });
+});
+
+describe("access checks at dispatch", () => {
+  test("every attempt the AI SDK sends, its retry included, is checked first, and a refused check sends nothing more", async () => {
+    let failFirst = true;
+    const { seen, base } = provider((request) => {
+      if (failFirst) {
+        failFirst = false;
+        return Response.json({ error: { message: "overloaded", type: "server_error" } }, { status: 500 });
+      }
+      return answer("compatible", JSON.stringify({ status: "ok" }), request);
+    });
+    const model = createStructuredModel(connection("compatible", base));
+    let checks = 0;
+    const result = await model.generate({ ...testRequest(), beforeSend: async () => void checks++ });
+    expect(result.output).toEqual({ ok: true });
+    // The first attempt failed and was retried: two requests, each checked.
+    expect(seen).toHaveLength(2);
+    expect(checks).toBe(2);
+
+    // Access ends after the first attempt: the retry isn't sent, and the refusal comes back as it was thrown.
+    failFirst = true;
+    seen.length = 0;
+    checks = 0;
+    const refusal = new Error("Access ended.");
+    const access = accessCheck(async () => {
+      if (++checks > 1) throw refusal;
+    });
+    const failure = await model.generate({ ...testRequest(), beforeSend: access.beforeSend }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AiError);
+    expect(() => access.rethrow()).toThrow(refusal);
+    expect(seen).toHaveLength(1);
+    expect(checks).toBe(2);
   });
 });

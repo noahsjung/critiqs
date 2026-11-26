@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { anchor, reviewer, setup } from "./harness";
+import { anchor, reviewer, setup, upload } from "./harness";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -94,7 +94,7 @@ test("the backfill counts images stored before they counted per organization, an
   };
   await backfill();
   expect(await stored()).toBe(1500);
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" })));
+  const storageId = await upload(t.withIdentity(dana), projectIds[1]!, "png-bytes");
   await t.withIdentity(dana).mutation(api.threads.create, { projectId: projectIds[1]!, anchor, body: "Look", tags: [], capture: { status: "captured", storageId } });
   expect(await stored()).toBe(1509);
   await backfill();

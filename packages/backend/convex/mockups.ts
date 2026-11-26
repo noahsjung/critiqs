@@ -17,6 +17,7 @@ import {
   operations,
   projectAccess,
   projectQuota,
+  recheckMockupTurn,
   type ProjectRecord,
   type Store,
   type UserRecord,
@@ -31,6 +32,7 @@ import { action, type ActionCtx, internalMutation, internalQuery, mutation, type
 import { deployment } from "./lib/ai";
 import { convexStore, identityOf, run, threadRecord } from "./lib/store";
 import { mockupEditValidator, mockupSourceValidator, type threadMockupValidator } from "./lib/validators";
+import { checkUpload, markUploadAttached, reserveUpload, usedFile } from "./uploads";
 import type { Infer } from "convex/values";
 
 // Mockups: proposed changes to frozen page copies, discussed in mockup
@@ -194,8 +196,8 @@ export const forThread = query({
   handler: async (ctx, args): Promise<{ _id: Id<"mockups">; title: string }[]> =>
     run(async () => {
       const store = convexStore(ctx);
-      await operations.currentReviewer(store, await identityOf(ctx));
-      const { thread } = await operations.requireThread(store, args.threadId);
+      const { user } = await operations.currentReviewer(store, await identityOf(ctx));
+      const { thread } = await operations.requireThread(store, user, args.threadId);
       const links = await ctx.db
         .query("mockupLinks")
         .withIndex("by_thread", (q) => q.eq("threadId", thread._id as Id<"threads">))
@@ -227,13 +229,16 @@ export const authorizedSnapshot = internalQuery({
 // ---------------------------------------------------------------------------
 // Changing
 
-/** An upload address for a page copy, for anyone who may add to the project. */
+/** An upload address for a page copy, reserved for the caller in the project (see `uploads.ts`), for anyone who may add to it. */
 export const generateUploadUrl = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args): Promise<string> =>
     run(async () => {
-      await operations.authorizeUpload(convexStore(ctx), await identityOf(ctx), args);
-      return await ctx.storage.generateUploadUrl();
+      const store = convexStore(ctx);
+      const identity = await identityOf(ctx);
+      await operations.authorizeUpload(store, identity, args);
+      const user = await operations.requireUser(store, identity);
+      return await reserveUpload(ctx, { projectId: args.projectId, userId: user._id as Id<"users">, purpose: "pageCopy" });
     }),
 });
 
@@ -270,7 +275,7 @@ export const insert = internalMutation({
     run(async () => {
       const store = convexStore(ctx);
       const user = await operations.requireUser(store, await identityOf(ctx));
-      const project = await operations.requireProject(store, args.projectId);
+      const project = await operations.requireProject(store, user, args.projectId);
       const title = mockupTitle(args.title);
       const linkedThreadIds = [...new Set(args.linkedThreadIds ?? [])];
       checkLinkedThreads(project._id, await Promise.all(linkedThreadIds.map((threadId) => store.threads.get(threadId))), 0);
@@ -305,15 +310,25 @@ export const insertSnapshot = internalMutation({
     }),
 });
 
-/** Deletes a page copy a refused `create` or `addSnapshot` uploaded, unless something uses it or it isn't fresh. */
+/**
+ * Deletes a page copy a refused `create` or `addSnapshot` uploaded, unless it
+ * isn't fresh, something uses it, someone else uploaded it, or it was
+ * uploaded as a screenshot: a refusal of one person's request never deletes
+ * another's upload, nor one meant for something else.
+ */
 export const discardUpload = internalMutation({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, { storageId }) => {
     const file = await ctx.db.system.get(storageId);
     if (file === null || file._creationTime < Date.now() - MOCKUP_RULES.uploadMinutes * 60_000) return;
-    const snapshot = await ctx.db.query("mockupSnapshots").withIndex("by_storage", (q) => q.eq("storageId", storageId)).first();
-    const capture = await ctx.db.query("threads").withIndex("by_capture_storage", (q) => q.eq("capture.storageId", storageId)).first();
-    if (snapshot === null && capture === null) await ctx.storage.delete(storageId);
+    const upload = await ctx.db.query("uploads").withIndex("by_storage", (q) => q.eq("storageId", storageId)).first();
+    const identity = await identityOf(ctx);
+    const user = identity === null ? null : await convexStore(ctx).users.byToken(identity.tokenIdentifier);
+    if (upload === null || user === null || upload.uploadedBy !== user._id || upload.purpose !== "pageCopy" || upload.status === "attached") return;
+    if (!(await usedFile(ctx, storageId))) {
+      await ctx.storage.delete(storageId);
+      await ctx.db.delete(upload._id);
+    }
   },
 });
 
@@ -348,16 +363,22 @@ export const restore = mutation({
     }),
 });
 
-/** Adds an existing thread of the same project to a mockup as instructions. Linking twice changes nothing. */
+/**
+ * Adds an existing thread of the same project to a mockup as instructions.
+ * Linking twice changes nothing. The thread is checked against the mockup's
+ * project before anything else, so a thread that doesn't exist, and one in
+ * another project, whether limited to its organization or deleted, get the
+ * same refusal.
+ */
 export const link = mutation({
   args: { mockupId: v.id("mockups"), threadId: v.id("threads") },
   handler: async (ctx, args) =>
     run(async () => {
       const { mockup, user, store } = await changeable(ctx, args.mockupId);
-      const { thread } = await operations.requireThread(store, args.threadId);
       const links = await linksOf(ctx, mockup._id);
+      // Links hold only the mockup's own project's threads, so this tells nothing about another's.
       if (links.some((existing) => existing.threadId === args.threadId)) return;
-      checkLinkedThreads(mockup.projectId, [thread], links.length);
+      checkLinkedThreads(mockup.projectId, [await store.threads.get(args.threadId)], links.length);
       await ctx.db.insert("mockupLinks", {
         mockupId: mockup._id,
         threadId: args.threadId,
@@ -383,7 +404,10 @@ export const unlink = mutation({
 
 /**
  * Deletes a mockup with its versions, links, and page copies, and deletes its
- * threads as deleting a thread does. Only its creator or those who manage the project may.
+ * threads as deleting a thread does. Only its creator or those who manage the
+ * project may, and only if they may delete each of its threads: a creator
+ * can't delete a mockup whose thread someone else started, so nothing is
+ * removed until that thread is deleted by its author or the project's owners.
  */
 export const remove = mutation({
   args: { mockupId: v.id("mockups") },
@@ -393,6 +417,12 @@ export const remove = mutation({
       if (user._id !== mockup.createdBy && (await projectAccess(store, project, user._id)) !== "manage") {
         fail("forbidden", "Only the person who made this mockup or the project's owner can delete it.");
       }
+      const threads = await threadsOf(ctx, mockup._id);
+      for (const thread of threads) {
+        if (!(await operations.canDeleteThread(store, project, thread, user._id))) {
+          fail("forbidden", "Someone else started this mockup's thread. Only they or the project's owners can delete it.");
+        }
+      }
       const now = Date.now();
       for (const version of await ctx.db.query("mockupVersions").withIndex("by_mockup_number", (q) => q.eq("mockupId", mockup._id)).collect()) {
         await ctx.db.delete(version._id);
@@ -400,9 +430,10 @@ export const remove = mutation({
       for (const link of await linksOf(ctx, mockup._id)) await ctx.db.delete(link._id);
       for (const snapshot of await snapshotsOf(ctx, mockup._id)) {
         await ctx.db.delete(snapshot._id);
-        if ((await ctx.db.system.get(snapshot.storageId)) !== null) await ctx.storage.delete(snapshot.storageId);
+        // A file stored before uploads were reserved might also be a thread's capture or another copy; then it stays.
+        if ((await ctx.db.system.get(snapshot.storageId)) !== null && !(await usedFile(ctx, snapshot.storageId))) await ctx.storage.delete(snapshot.storageId);
       }
-      for (const thread of await threadsOf(ctx, mockup._id)) {
+      for (const thread of threads) {
         await ctx.db.patch(thread._id, { status: "deleted", statusChangedBy: user._id as Id<"users">, statusChangedAt: now });
       }
       await ctx.db.delete(mockup._id);
@@ -413,9 +444,11 @@ export const remove = mutation({
 // Mockup threads and Critiqs AI
 
 /**
- * Checks a new mockup thread's mockup and copy belong to its project, and that
+ * Checks a new mockup thread's mockup and copy belong to its project, that
  * the mockup has no thread yet: each mockup thread is its own proposal, with
- * its own copies and versions. `threads.create` calls it.
+ * its own copies and versions, and that the mockup's creator starts it.
+ * Someone else starting it would own the proposal, and could keep its creator
+ * from deleting the mockup. `threads.create` calls it.
  */
 export async function checkThreadMockup(
   ctx: MutationCtx,
@@ -432,6 +465,9 @@ export async function checkThreadMockup(
   // The new thread is already inserted, so any other thread is a second one.
   if ((await threadsOf(ctx, found._id)).some((thread) => thread._id !== threadId)) {
     fail("invalid", "This mockup already has its thread. Start a new mockup for another proposal.");
+  }
+  if ((await ctx.db.get(threadId))?.createdBy !== found.createdBy) {
+    fail("forbidden", "Only the person who made this mockup can start its thread. Start a new mockup for your proposal.");
   }
   // Its thread exists now, so the panel lists it.
   const now = Date.now();
@@ -507,6 +543,12 @@ export const prepareAi = internalMutation({
     }),
 });
 
+/** Checks access again right before the model is asked (see `recheckMockupTurn`). */
+export const recheckAi = internalQuery({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args) => run(async () => recheckMockupTurn(convexStore(ctx), await identityOf(ctx), args)),
+});
+
 /**
  * The last step of a Critiqs AI turn: saves its reply and, when it changed
  * anything, the next version, unless another version was saved since `head`.
@@ -526,7 +568,7 @@ export const finishAi = internalMutation({
     run(async () => {
       const store = convexStore(ctx);
       const user = await operations.requireUser(store, await identityOf(ctx));
-      const { thread, project } = await operations.requireThread(store, threadId);
+      const { thread, project } = await operations.requireThread(store, user, threadId);
       const mockup = thread.mockup === undefined ? null : await ctx.db.get(thread.mockup.mockupId as Id<"mockups">);
       if (mockup === null) fail("not-found", "This mockup was deleted.");
       if (mockup.headVersion !== head) {
@@ -568,7 +610,7 @@ function movedTo(mockup: Doc<"mockups">, at: number): Pick<Doc<"mockups">, "upda
 async function listable(ctx: QueryCtx, projectId: Id<"projects">) {
   const store = convexStore(ctx);
   const { user } = await operations.currentReviewer(store, await identityOf(ctx));
-  const project = await operations.requireProject(store, projectId);
+  const project = await operations.requireProject(store, user, projectId);
   return { store, user, projectId: project._id as Id<"projects"> };
 }
 
@@ -578,7 +620,7 @@ async function readable(ctx: QueryCtx, mockupId: Id<"mockups">) {
   const { user } = await operations.currentReviewer(store, await identityOf(ctx));
   const mockup = await ctx.db.get(mockupId);
   if (mockup === null) fail("not-found", "This mockup does not exist.");
-  const project = await operations.requireProject(store, mockup.projectId);
+  const project = await operations.requireProject(store, user, mockup.projectId);
   return { store, user, mockup, project };
 }
 
@@ -588,7 +630,7 @@ async function changeable(ctx: MutationCtx, mockupId: Id<"mockups">) {
   const user = await operations.requireUser(store, await identityOf(ctx));
   const mockup = await ctx.db.get(mockupId);
   if (mockup === null) fail("not-found", "This mockup does not exist.");
-  const project = await operations.requireProject(store, mockup.projectId);
+  const project = await operations.requireProject(store, user, mockup.projectId);
   return { store, user, mockup, project };
 }
 
@@ -685,9 +727,10 @@ async function addCopy(
   }
   const file = await ctx.db.system.get(snapshot.storageId);
   checkSnapshotFile(file === null ? null : { ...(file.contentType === undefined ? {} : { contentType: file.contentType }), size: file.size, createdAt: file._creationTime }, args.now);
-  const used = await ctx.db.query("mockupSnapshots").withIndex("by_storage", (q) => q.eq("storageId", snapshot.storageId)).first();
-  if (used !== null) fail("invalid", "This page copy already belongs to a mockup.");
+  // Only the caller's own upload for a page copy in this project, used by nothing yet.
+  await checkUpload(ctx, snapshot.storageId, { projectId: project._id, userId: args.user._id, purpose: "pageCopy" });
   await useQuota(store, { ...(await projectQuota(store, project)), metric: "captureBytes", amount: file!.size, now: args.now });
+  await markUploadAttached(ctx, snapshot.storageId);
   return await ctx.db.insert("mockupSnapshots", {
     ...snapshot,
     mockupId: args.mockupId,
