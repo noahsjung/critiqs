@@ -111,8 +111,8 @@ install it, or a package's build puts its code in or runs it:
   the AI SDK into its browser and server builds), as
   [`scripts/bundled-dependencies.json`](../scripts/bundled-dependencies.json)
   lists it;
-- the commands a package's build runs, such as `tsc` or `svelte-package`, and
-  what they depend on;
+- the commands a package's build runs, such as `tsc` or `svelte-package`,
+  any package that provides one of those commands, and what they depend on;
 - a version, registry, or integrity the root `bun.lock` records for any of
   these, and a patch to one.
 

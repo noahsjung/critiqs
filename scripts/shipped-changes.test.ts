@@ -89,6 +89,7 @@ const cases: [string, Record<string, Edit>, Expect, string[]?][] = [
   ["bun.lock: react's registry", { "bun.lock": moveLock("react") }, "patch", ["critiqs"]],
   ["bun.lock: react's integrity", { "bun.lock": reHashLock("react") }, "patch", ["critiqs"]],
   ["bun.lock: esbuild, which convex's own command uses on the user's machine", { "bun.lock": bumpLock("esbuild") }, "free"],
+  ["bun.lock: esbuild now also provides the tsc command critiqs's build runs", { "bun.lock": swap(/("esbuild": \["esbuild@[^"]+", "", \{[^\n]*"bin": \{ )/, '$1"tsc": "bin/tsc", ') }, "patch", ["critiqs"]],
   // Manifests.
   ["a bundled workspace's range: workspace:* → workspace:^", { "packages/critiqs/package.json": manifestEdit((m) => { m.devDependencies["@critiqs/server"] = "workspace:^"; }) }, "patch"],
   ["a peer range of critiqs-vue", { "packages/vue/package.json": manifestEdit((m) => { m.peerDependencies.vue = "^3.4.0"; }) }, "patch", ["critiqs-vue"]],
@@ -166,7 +167,8 @@ async function expectAnswer(name: string, edits: Record<string, Edit>, expected:
   expect(withNoRelease.messages.join("\n")).toMatch(/no-release note does not cover/);
   expect(withNoRelease.ok).toBe(false);
   // A pull request of dependency updates only is told which packages they ship in; one with other changes too gets the shipped updates listed beside its no-release note.
-  if (/These dependency updates ship in/.test(text)) for (const pkg of packages) expect(text).toMatch(new RegExp(`ship in [^\\n]*\\b${pkg}\\b`));
+  const named = /These dependency updates ship in (.*?), so they need/.exec(text)?.[1]?.split(", ");
+  if (named !== undefined) expect(packages.filter((pkg) => !named.includes(pkg))).toEqual([]);
   else if (packages.length > 0) expect(withNoRelease.messages.join("\n")).toMatch(/does not cover them[^\n]*\n  (bun\.lock|packages\/)/);
   const withPatch = await check(root, head, await commit({ ...edits, ...patch("critiqs") }));
   expect(withPatch.messages.join("\n")).toMatch(/case-patch\.md: critiqs patch/);

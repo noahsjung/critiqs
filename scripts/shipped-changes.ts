@@ -10,8 +10,8 @@
 //   recorded in scripts/bundled-dependencies.json (bundled-dependencies.ts
 //   writes it from the bundler's own list of inputs, and `bun run test` fails
 //   when a build bundles something the record leaves out);
-// - the commands a package's build runs (`tsc`, `svelte-package`) and what they
-//   depend on;
+// - the commands a package's build runs (`tsc`, `svelte-package`), every
+//   package that provides one of those commands, and what they depend on;
 // - a version bun.lock resolves for any of those.
 //
 // Only released packages ship: a private workspace ships inside the released
@@ -255,11 +255,12 @@ async function workspaces(cwd: string, from: string, to: string, released: Map<s
   const runtime = (manifest: Manifest) => new Set(RUNTIME.flatMap((field) => Object.keys(manifest[field] ?? {})));
 
   // The commands a workspace's package.json build scripts run.
-  const bins = (name: string) => byName.get(name)!.flatMap(([, , info]) => typeof info?.bin === "string" ? [name.split("/").pop()!] : Object.keys(info?.bin ?? {}));
+  const bins = (name: string) => (byName.get(name) ?? []).flatMap(([, , info]) => typeof info?.bin === "string" ? [name.split("/").pop()!] : Object.keys(info?.bin ?? {}));
+  /** Every package that provides one of these commands, at either commit. */
+  const providers = (words: Set<string>) => [...byName.keys()].filter((name) => bins(name).some((bin) => words.has(bin)));
   const tools = new Map<string, Set<string>>();
   for (const [dir, { scripts }] of manifests) {
-    const words = new Set(BUILD_SCRIPTS.flatMap((script) => scripts?.[script]?.split(/\s+|&&|\|\|/) ?? []));
-    tools.set(dir, new Set([...byName.keys()].filter((name) => bins(name).some((bin) => words.has(bin)))));
+    tools.set(dir, new Set(providers(new Set(BUILD_SCRIPTS.flatMap((script) => scripts?.[script]?.split(/\s+|&&|\|\|/) ?? [])))));
   }
 
   // What each released package's build bundles and runs, by the record at both commits.
@@ -283,7 +284,9 @@ async function workspaces(cwd: string, from: string, to: string, released: Map<s
     const runs = recorded(name, "runs");
     if (bundles === null || runs === null) unknown.push(`${RECORD} doesn't say what ${name} bundles at both commits, so every dependency update counts as shipped in it.`);
     const built = [...members].flatMap((member) => [...tools.get(member) ?? []]);
-    const reach = bundles === null || runs === null ? null : new Set([...bundles, ...closure([...built, ...runs], byName)]);
+    // The commands its build runs, and every package that provides one of them.
+    const commands = runs === null ? [] : providers(new Set([...runs].flatMap(bins)));
+    const reach = bundles === null || runs === null ? null : new Set([...bundles, ...closure([...built, ...runs, ...commands], byName)]);
     packages.set(dir, { external: runtime(manifest), members, bundles, reach });
   }
   const has = (known: Knowledge, name: string) => known === null || known.has(name);
