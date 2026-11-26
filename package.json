@@ -10,11 +10,11 @@
     "typecheck": "bun run build && bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test && bun run test:release && bun run check:package",
     "check": "bun run typecheck && bun run test",
-    "build": "bun run --filter critiqs-react build",
+    "build": "bun run --filter './packages/*' build",
     "check:package": "bun scripts/check-package.ts",
     "test:release": "bun test ./scripts/",
     "changeset": "changeset",
-    "check:consumers": "bun scripts/check-consumers.ts",
+    "check:consumers": "bun scripts/check-consumers.ts && bun run --filter './packages/*' check:consumer",
     "measure:setup": "bun scripts/measure-setup.ts"
   },
   "devDependencies": {

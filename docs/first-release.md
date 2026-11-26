@@ -283,8 +283,11 @@ version need not remain runnable for its feedback to remain readable.
 - Additional storage, such as Postgres hosts including Supabase, if teams ask.
 - Additional storage integrations, such as GitHub Issues/Discussions, sign-in
   integrations, project configuration, and tools to switch services.
-- Frameworks beyond React, a browser extension, and standalone URL-based review.
-  Opening arbitrary sites requires a separate approach to browser access and embedding.
+- A browser extension and standalone URL-based review. Opening arbitrary sites
+  requires a separate approach to browser access and embedding. Frameworks
+  beyond React are in progress: a shared `critiqs` package with a package per
+  framework, all released at one version
+  ([what is released](releasing.md#what-is-released)).
 - Scrollable historical page snapshots and element/source tracking to help
   locate threads after redesigns.
 - Richer attachments and reactions; separate archiving only if needed.

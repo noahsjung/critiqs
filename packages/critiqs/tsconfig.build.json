@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "types": ["bun"],
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "../..",
+    "outDir": "build/types",
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src", "../core/src/types.ts"]
+}

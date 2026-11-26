@@ -1,7 +1,8 @@
 name: Release
 
 # Keeps one "Release Critiqs" pull request up to date with the release notes
-# merged to main. It never merges, approves, publishes, or deploys; see
+# merged to main. Every Critiqs package is versioned together, to one shared
+# version. It never merges, approves, publishes, or deploys; see
 # docs/releasing.md.
 on:
   push:
@@ -53,13 +54,13 @@ jobs:
             exit 0
           fi
 
-          version=$(jq -r .version packages/react/package.json)
-          title="Release Critiqs: critiqs-react $version"
+          version=$(bun scripts/release.ts shared-version)
+          title="Release Critiqs $version"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C "$BRANCH"
           git add -A
-          git commit -m "Release critiqs-react $version"
+          git commit -m "Release Critiqs $version"
           bun scripts/release.ts pr-body > "$RUNNER_TEMP/release-body.md"
 
           # Push only when the generated release differs from the current one.

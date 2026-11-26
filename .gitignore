@@ -27,3 +27,6 @@ __pycache__/
 
 # Temporary folders `critiqs init` deploys from
 .deploy-*/
+
+# Release artifacts built by gem and Python packages
+packages/*/release/

@@ -59,6 +59,21 @@
         "@types/bun": "^1.4.2",
       },
     },
+    "packages/critiqs": {
+      "name": "critiqs",
+      "version": "0.3.0",
+      "devDependencies": {
+        "@critiqs/core": "workspace:*",
+        "@happy-dom/global-registrator": "^20.14.6",
+        "@types/bun": "^1.4.2",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "convex": "^1.46.0",
+        "modern-screenshot": "^4.6.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
+      },
+    },
     "packages/react": {
       "name": "critiqs-react",
       "version": "0.3.0",
@@ -332,6 +347,8 @@
     "convex": ["convex@1.46.0", "", { "dependencies": { "esbuild": "0.27.0", "prettier": "^3.0.0", "ws": "8.21.0" }, "peerDependencies": { "@auth0/auth0-react": "^2.0.1", "@clerk/clerk-react": "^4.12.8 || ^5.0.0", "@clerk/react": "^6.4.3", "react": "^18.0.0 || ^19.0.0-0 || ^19.0.0" }, "optionalPeers": ["@auth0/auth0-react", "@clerk/clerk-react", "@clerk/react", "react"], "bin": { "convex": "bin/main.js" } }, "sha512-dhBwDQTZDOhi5SUGAX17EWNehCdNq6/UFrSL0eLZuGfMkdsQbCVWVRZCzbZ5CF+/pgvoGxtApbEoTSipqL4JTw=="],
 
     "convex-test": ["convex-test@0.0.61", "", { "peerDependencies": { "convex": "^1.43.0" } }, "sha512-uYKCFk9+iu8jJB7TW3BHm3EAM6yPoXERoLHGiomhgUwuTLdSUjOk9SYnnnDc1UA1MQrMPYfUFSp+0+GWyFREng=="],
+
+    "critiqs": ["critiqs@workspace:packages/critiqs"],
 
     "critiqs-react": ["critiqs-react@workspace:packages/react"],
 

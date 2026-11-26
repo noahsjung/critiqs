@@ -25,16 +25,35 @@ These are working definitions. Proposed choices remain open.
 
 ## Repository
 
-The first release is built and ready to publish as `critiqs-react` under the
-[MIT license](LICENSE); it is not on npm yet, and Critiqs Cloud still runs an
-earlier backend. [First-release status](docs/first-release.md#implementation-status)
-lists what works and what remains.
+The first release is published on npm as `critiqs-react` 0.3.0 under the
+[MIT license](LICENSE); Critiqs Cloud still runs an earlier backend.
+[First-release status](docs/first-release.md#implementation-status) lists what
+works and what remains.
+
+Every Critiqs package is released at one shared version
+([what is released](docs/releasing.md#what-is-released)). Framework packages
+build on the shared `critiqs` package:
+
+| Package | Registry | For | Status |
+| --- | --- | --- | --- |
+| `critiqs` | npm | Any web app: `mountCritiqs` and the `<critiqs-app>` element; the base of every framework package | Not on npm yet |
+| `critiqs-react` | npm | React and Next.js | On npm (0.3.0) |
+| `critiqs-vue` | npm | Vue | In progress |
+| `critiqs-nuxt` | npm | Nuxt | In progress |
+| `critiqs-svelte` | npm | Svelte and SvelteKit | In progress |
+| `critiqs-angular` | npm | Angular | In progress |
+| `critiqs-astro` | npm | Astro | In progress |
+| `critiqs-solid` | npm | Solid and SolidStart | In progress |
+| `critiqs-rails` | RubyGems | Rails | In progress |
+| `django-critiqs` | PyPI | Django | In progress |
+| `flask-critiqs` | PyPI | Flask | In progress |
 
 | Path | Contents |
 | --- | --- |
 | `packages/core` | Framework-independent logic: anchors, target location, read state, sidebar grouping, links, export, and the backend contract. |
 | `packages/server` | Critiqs's server rules over a storage interface, with a SQLite store and contract tests every backend passes. |
 | `packages/backend` | Convex schema, server functions, and Critiqs's sign-in service, shared by Critiqs Cloud and team-owned deployments. |
+| `packages/critiqs` | The shared `critiqs` package: `mountCritiqs`, the `<critiqs-app>` element, and the setup adapters for each framework. |
 | `packages/react` | The `<Critiqs />` component (toolbar, sidebar, pins, commenting, setup) and the `critiqs init` command. |
 | `examples/pilot` | Small React host app for the [pilot scenarios](docs/first-release.md#pilot-scenarios). |
 | `site` | The [critiqs.app](https://critiqs.app) landing page: static HTML, CSS, and JavaScript with no build step, deployed by Vercel from `main` (pull requests get preview links). |
@@ -53,9 +72,9 @@ Use Bun 1.4.2 or later (CI uses 1.4.2); older versions rewrite `bun.lock`.
 The React package is `critiqs-react`. `bun run build` emits its browser ES
 module (marked `"use client"`), public type declarations, the Node CLI, and
 the backend it can deploy. Every pull request adds a release note
-(`bun run changeset`); a generated release pull request calculates the
-version, and a maintainer publishes it to npm with the manual Publish workflow
-([releasing](docs/releasing.md)).
+(`bun run changeset`); a generated release pull request calculates the shared
+version, and a maintainer publishes every package to npm, RubyGems, and PyPI
+with the manual Publish workflow ([releasing](docs/releasing.md)).
 
 ### Run the pilot locally
 

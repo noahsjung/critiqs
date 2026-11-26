@@ -1,8 +1,10 @@
-// Release notes gate and version step for critiqs-react. The procedure and
-// its rules are in docs/releasing.md.
+// Release notes gate and version step for the Critiqs packages, which all
+// release at one shared version. The procedure and its rules are in
+// docs/releasing.md.
 //
 //   bun scripts/release.ts check --base <ref> [--head <ref>]
 //   bun scripts/release.ts version
+//   bun scripts/release.ts shared-version
 //   bun scripts/release.ts pr-body
 import { parseChangesetFile } from "@changesets/parse";
 import { lstat, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
@@ -10,14 +12,135 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const RELEASE_PACKAGE = "critiqs-react";
-const RELEASE_MANIFEST = "packages/react/package.json";
-const RELEASE_CHANGELOG = "packages/react/CHANGELOG.md";
 const BUMPS = ["patch", "minor", "major"];
-// Files bundled into critiqs-react: the package and the private workspaces it
-// bundles. Tests do not ship.
-const SHIPPED = /^packages\/(core|server|backend|react)\//;
-const TEST = /(^|\/)(test|tests|__tests__)\/|\.test\.[cm]?[jt]sx?$/;
+// Files that ship: every package under packages/ is a released package or a
+// private workspace bundled into one. Tests do not ship.
+const SHIPPED = /^packages\//;
+const TEST = /(^|\/)(test|tests|__tests__|spec)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_(test|spec)\.rb$/;
+
+/** Where a released package is published. */
+export type Registry = "npm" | "rubygems" | "pypi";
+
+export interface Manifest {
+  name?: string;
+  version?: string;
+  private?: boolean;
+  license?: string;
+  publishConfig?: { access?: string };
+  files?: string[];
+  scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  /** For a private package published outside npm: its registry. */
+  critiqsRelease?: { registry?: string };
+}
+
+/**
+ * A workspace package in the Changesets fixed group (`critiqs`, `critiqs-*`).
+ * Every one is versioned together. `registry` is null when the manifest names
+ * no registry it can be published to: public packages go to npm; private ones
+ * need `critiqsRelease.registry` (rubygems or pypi) and a `release:build`
+ * script.
+ */
+export interface ReleasePackage {
+  name: string;
+  /** Workspace folder, relative to the repository root. */
+  dir: string;
+  version: string;
+  registry: Registry | null;
+  manifest: Manifest;
+}
+
+/** Files of the repository, read from the working tree or from one commit. */
+interface Tree {
+  read(path: string): Promise<string | null>;
+  /** Paths of files matching any of the glob patterns. */
+  match(patterns: string[]): Promise<string[]>;
+}
+
+export const workingTree = (cwd: string): Tree => ({
+  read: (path) => Bun.file(join(cwd, path)).text().catch(() => null),
+  async match(patterns) {
+    const found = new Set<string>();
+    for (const pattern of patterns) {
+      for await (const path of new Bun.Glob(pattern).scan({ cwd, onlyFiles: true })) found.add(path);
+    }
+    return [...found];
+  },
+});
+
+const commitTree = (cwd: string, commit: string): Tree => ({
+  read: (path) => git(cwd, "show", `${commit}:${path}`).catch(() => null),
+  async match(patterns) {
+    const globs = patterns.map((pattern) => new Bun.Glob(pattern));
+    const paths = (await run(["git", "ls-tree", "-r", "-z", "--name-only", commit], cwd)).split("\0").filter(Boolean);
+    return paths.filter((path) => globs.some((glob) => glob.match(path)));
+  },
+});
+
+function registryOf(manifest: Manifest): Registry | null {
+  if (manifest.private !== true) return "npm";
+  const registry = manifest.critiqsRelease?.registry;
+  return (registry === "rubygems" || registry === "pypi") && manifest.scripts?.["release:build"] ? registry : null;
+}
+
+/**
+ * The released packages: every workspace package whose name matches the
+ * Changesets fixed group that contains `critiqs`, each after the packages
+ * it depends on (so `critiqs` comes first), otherwise by name.
+ */
+export async function releasePackages(tree: Tree): Promise<ReleasePackage[]> {
+  const root = JSON.parse(await tree.read("package.json") ?? "{}");
+  const workspaces: string[] = Array.isArray(root.workspaces) ? root.workspaces : root.workspaces?.packages ?? [];
+  const config = JSON.parse(await tree.read(".changeset/config.json") ?? "{}");
+  const group = ((config.fixed ?? []) as string[][]).find((patterns) => patterns.includes("critiqs")) ?? [];
+  const globs = group.map((pattern) => new Bun.Glob(pattern));
+  const found: ReleasePackage[] = [];
+  for (const path of await tree.match(workspaces.map((workspace) => `${workspace.replace(/\/$/, "")}/package.json`))) {
+    const manifest = JSON.parse(await tree.read(path) ?? "{}") as Manifest;
+    if (!manifest.name || !globs.some((glob) => glob.match(manifest.name!))) continue;
+    found.push({ name: manifest.name, dir: path.slice(0, -"/package.json".length), version: manifest.version ?? "0.0.0", registry: registryOf(manifest), manifest });
+  }
+  return dependencyOrder(found.sort((a, b) => a.name.localeCompare(b.name)));
+}
+
+/**
+ * Packages after the group packages they depend on (`critiqs` first, then
+ * such as `critiqs-vue` before `critiqs-nuxt`), so a registry never holds a
+ * package whose dependency isn't published yet; otherwise in the given order.
+ */
+function dependencyOrder(packages: ReleasePackage[]): ReleasePackage[] {
+  const names = new Set(packages.map((pkg) => pkg.name));
+  const ordered: ReleasePackage[] = [];
+  const placed = new Set<string>();
+  const visiting = new Set<string>();
+  const byName = new Map(packages.map((pkg) => [pkg.name, pkg]));
+  const place = (pkg: ReleasePackage) => {
+    if (placed.has(pkg.name)) return;
+    if (visiting.has(pkg.name)) throw new Error(`The Critiqs packages depend on each other in a cycle through ${pkg.name}.`);
+    visiting.add(pkg.name);
+    const needs = { ...pkg.manifest.dependencies, ...pkg.manifest.optionalDependencies, ...pkg.manifest.peerDependencies };
+    for (const name of Object.keys(needs).sort()) if (names.has(name) && name !== pkg.name) place(byName.get(name)!);
+    visiting.delete(pkg.name);
+    placed.add(pkg.name);
+    ordered.push(pkg);
+  };
+  for (const pkg of packages) place(pkg);
+  return ordered;
+}
+
+/** The one version every released package has; throws when they differ. */
+export function sharedVersion(packages: ReleasePackage[]): string {
+  const versions = [...new Set(packages.map((pkg) => pkg.version))];
+  if (versions.length !== 1) {
+    throw new Error(`The Critiqs packages must share one version, but have ${packages.map((pkg) => `${pkg.name} ${pkg.version}`).join(", ") || "none"}.`);
+  }
+  return versions[0]!;
+}
+
+const highestVersion = (packages: ReleasePackage[]) =>
+  packages.map((pkg) => pkg.version).sort((a, b) => Bun.semver.order(b, a))[0] ?? "0.0.0";
 
 const changesetsDir = fileURLToPath(new URL("../node_modules/@changesets/", import.meta.url));
 
@@ -40,7 +163,7 @@ const SKIPPED_NOTE_NAMES = [/^\./, /^README\.md$/i, /^(AGENTS|CLAUDE|GEMINI)\.md
 export const isNoteName = (name: string) => name.endsWith(".md") && !SKIPPED_NOTE_NAMES.some((pattern) => pattern.test(name));
 
 /** Releases named by notes waiting in `.changeset/`, read as the Changesets CLI reads them. */
-async function pendingReleases(cwd: string): Promise<number> {
+export async function pendingReleases(cwd: string): Promise<number> {
   const names = await readdir(join(cwd, ".changeset")).catch(() => []);
   let releases = 0;
   for (const name of names.filter(isNoteName)) {
@@ -50,9 +173,10 @@ async function pendingReleases(cwd: string): Promise<number> {
 }
 
 /**
- * Consumes pending changesets with the Changesets CLI and refreshes bun.lock.
- * Returns the new critiqs-react version, or null when no pending note
- * releases anything; no-release notes wait to be consumed with the next
+ * Consumes pending changesets with the Changesets CLI, which versions every
+ * released package to one version and writes each one's changelog, and
+ * refreshes bun.lock. Returns the new shared version, or null when no pending
+ * note releases anything; no-release notes wait to be consumed with the next
  * release.
  */
 export async function version(cwd: string): Promise<string | null> {
@@ -66,7 +190,7 @@ export async function version(cwd: string): Promise<string | null> {
   }
   await run(["node", join(changesetsDir, "cli/bin.js"), "version"], cwd);
   await run(["bun", "install", "--lockfile-only"], cwd);
-  return (await Bun.file(join(cwd, RELEASE_MANIFEST)).json()).version;
+  return sharedVersion(await releasePackages(workingTree(cwd)));
 }
 
 type Change = { status: string; path: string };
@@ -147,7 +271,8 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
   if (edits.length > 0) {
     const problem = await isGeneratedRelease(cwd, mergeBase, head);
     if (problem === null) {
-      return { ok: true, kind: "release", messages: [`Verified generated release of ${RELEASE_PACKAGE} ${await manifestVersion(cwd, head, RELEASE_MANIFEST)}.`] };
+      const released = await releasePackages(commitTree(cwd, head));
+      return { ok: true, kind: "release", messages: [`Verified generated release of Critiqs ${sharedVersion(released)}: ${released.map((pkg) => pkg.name).join(", ")}.`] };
     }
     return {
       ok: false, kind: "release", messages: [
@@ -161,7 +286,9 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
   const errors: string[] = [];
   const notes: string[] = [];
   let releases = 0;
-  const current = await manifestVersion(cwd, mergeBase, RELEASE_MANIFEST) ?? "0.0.0";
+  // A pull request may add a package to the group and name it in its note.
+  const names = (await releasePackages(commitTree(cwd, head))).map((pkg) => pkg.name);
+  const current = highestVersion(await releasePackages(commitTree(cwd, mergeBase)));
   for (const { status, path } of diff) {
     if (!path.startsWith(".changeset/")) continue;
     if (path === ".changeset/config.json" || path === ".changeset/README.md") continue;
@@ -183,41 +310,48 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
     }
     if (!parsed.summary) errors.push(`${path}: write a summary: the change for a release, or why no release is needed.`);
     for (const { name, type } of parsed.releases) {
-      if (name !== RELEASE_PACKAGE) {
-        errors.push(`${path}: "${name}" is not released; name "${RELEASE_PACKAGE}", which bundles the private workspaces.`);
+      if (!names.includes(name)) {
+        errors.push(`${path}: "${name}" is not released; name the Critiqs packages the change ships in (${names.join(", ")}). Private workspaces ship inside them.`);
       } else if (!BUMPS.includes(type)) {
         errors.push(`${path}: "${type}" is not a release type; use patch, minor, or major, or leave the frontmatter empty for no release.`);
       } else if (type === "major" && Bun.semver.order(current, "1.0.0") < 0) {
-        errors.push(`${path}: ${RELEASE_PACKAGE} is ${current}; before 1.0.0 an approved breaking change is a minor release (see docs/releasing.md), and 1.0.0 is the owner's decision.`);
+        errors.push(`${path}: Critiqs is ${current}; before 1.0.0 an approved breaking change is a minor release (see docs/releasing.md), and 1.0.0 is the owner's decision.`);
       } else {
         releases++;
-        notes.push(`${path}: ${RELEASE_PACKAGE} ${type}`);
+        notes.push(`${path}: ${name} ${type}`);
       }
     }
     if (parsed.releases.length === 0) notes.push(`${path}: no release`);
   }
   if (notes.length === 0 && errors.length === 0) {
-    errors.push('Add a release note (docs/releasing.md): `bun run changeset` for a patch, minor, or major release of critiqs-react, or `bun run changeset add --empty -m "<why>"` when nothing ships.');
+    errors.push('Add a release note (docs/releasing.md): `bun run changeset` for a patch, minor, or major release of the Critiqs packages the change ships in, or `bun run changeset add --empty -m "<why>"` when nothing ships.');
   }
   const shipped = diff.filter(({ path }) => SHIPPED.test(path) && !TEST.test(path)).map(({ path }) => path);
   if (shipped.length > 0 && releases === 0 && errors.length === 0) {
-    errors.push(`These files ship in ${RELEASE_PACKAGE}, so a no-release note does not cover them; add a patch, minor, or major note:`,
+    errors.push("These files ship in Critiqs packages, so a no-release note does not cover them; add a patch, minor, or major note naming those packages:",
       ...shipped.slice(0, 10).map((path) => `  ${path}`), ...(shipped.length > 10 ? [`  and ${shipped.length - 10} more`] : []));
   }
   return { ok: errors.length === 0, kind: "notes", messages: errors.length > 0 ? errors : notes };
 }
 
-/** The release pull request's description: the new changelog entry. */
+/** The release pull request's description: each package's new changelog entry. */
 export async function prBody(cwd: string): Promise<string> {
-  const changelog = await Bun.file(join(cwd, RELEASE_CHANGELOG)).text();
-  const entry = changelog.split(/^## /m)[1] ?? "";
+  const packages = await releasePackages(workingTree(cwd));
+  const next = sharedVersion(packages);
+  const sections: string[] = [];
+  for (const pkg of packages) {
+    const changelog = await Bun.file(join(cwd, pkg.dir, "CHANGELOG.md")).text().catch(() => "");
+    const [heading = "", ...body] = (changelog.split(/^## /m)[1] ?? "").split("\n");
+    const entry = heading.trim() === next ? body.join("\n").trim() : "";
+    sections.push(`## ${pkg.name}`, "", entry || "No changes of its own; released at the shared version.", "");
+  }
   return [
-    `Generated by the Release workflow from the release notes on \`main\`. Merging it releases \`${RELEASE_PACKAGE}\` ${entry.split("\n")[0]}.`,
+    `Generated by the Release workflow from the release notes on \`main\`. Merging it releases Critiqs ${next}: ${packages.map((pkg) => `\`${pkg.name}\``).join(", ")}.`,
     "",
-    "Publishing to npm stays a separate, owner-approved step. See [releasing](docs/releasing.md).",
+    "Publishing to npm, RubyGems, and PyPI stays a separate, owner-approved step. See [releasing](docs/releasing.md).",
     "",
-    `## ${entry.trim()}`,
-  ].join("\n");
+    ...sections,
+  ].join("\n").trimEnd();
 }
 
 if (import.meta.main) {
@@ -235,10 +369,12 @@ if (import.meta.main) {
     if (!result.ok) process.exit(1);
   } else if (command === "version") {
     const next = await version(cwd);
-    console.log(next === null ? "No release notes to consume." : `Versioned ${RELEASE_PACKAGE} ${next}.`);
+    console.log(next === null ? "No release notes to consume." : `Versioned Critiqs ${next}.`);
+  } else if (command === "shared-version") {
+    console.log(sharedVersion(await releasePackages(workingTree(cwd))));
   } else if (command === "pr-body") {
     console.log(await prBody(cwd));
   } else {
-    throw new Error("Usage: bun scripts/release.ts check|version|pr-body");
+    throw new Error("Usage: bun scripts/release.ts check|version|shared-version|pr-body");
   }
 }

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chmod, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { check, isNoteName, version } from "./release.ts";
+import { check, isNoteName, prBody, releasePackages, version } from "./release.ts";
 
 setDefaultTimeout(60_000);
 const root = new URL("../", import.meta.url).pathname;
@@ -39,6 +39,16 @@ async function caseSensitive(dir: string): Promise<boolean> {
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 let fixtures = 0;
 
+/** The released packages of the fixture: two on npm, a gem, and a PyPI project. */
+const manifests = (version: string) => ({
+  "packages/critiqs/package.json": { name: "critiqs", version, license: "MIT", publishConfig: { access: "public" }, devDependencies: { "@critiqs/core": "workspace:*" } },
+  "packages/react/package.json": { name: "critiqs-react", version, license: "MIT", publishConfig: { access: "public" }, dependencies: { critiqs: version }, devDependencies: { "@critiqs/core": "workspace:*" } },
+  "packages/rails/package.json": { name: "critiqs-rails", version, private: true, critiqsRelease: { registry: "rubygems" }, scripts: { "release:build": "bun build.ts" } },
+  "packages/django/package.json": { name: "critiqs-django", version, private: true, critiqsRelease: { registry: "pypi" }, scripts: { "release:build": "bun build.ts" } },
+});
+const released = ["critiqs", "critiqs-django", "critiqs-rails", "critiqs-react"];
+const manifestOf = (name: string) => Object.entries(manifests("0")).find(([, manifest]) => manifest.name === name)![0];
+
 /**
  * A Git repository with the workspace's package layout and release
  * configuration, on `main`. Without `readme`, `.changeset/README.md` is left
@@ -46,14 +56,19 @@ let fixtures = 0;
  * a case-insensitive disk (macOS's default), where it would otherwise be
  * the same file as README.md.
  */
-async function fixture(reactVersion = "0.1.0", { readme = true } = {}) {
+async function fixture(startVersion = "0.1.0", { readme = true } = {}) {
   const dir = join(scratch, `repo-${fixtures++}`);
   const files: Record<string, string> = {
     ".gitignore": "node_modules/\n",
     "package.json": json({ name: "fixture", private: true, workspaces: ["packages/*", "examples/*"] }),
-    "packages/react/package.json": json({ name: "critiqs-react", version: reactVersion, license: "MIT", publishConfig: { access: "public" }, devDependencies: { "@critiqs/core": "workspace:*" } }),
+    ...Object.fromEntries(Object.entries(manifests(startVersion)).map(([path, manifest]) => [path, json(manifest)])),
+    "packages/critiqs/src/index.ts": "export const m = 1;\n",
     "packages/react/src/index.ts": "export const a = 1;\n",
     "packages/react/test/index.test.ts": "// test\n",
+    "packages/rails/lib/critiqs.rb": "module Critiqs; end\n",
+    "packages/rails/test/critiqs_test.rb": "# test\n",
+    "packages/django/django_critiqs/__init__.py": "\n",
+    "packages/django/tests/test_tags.py": "# test\n",
     "packages/core/package.json": json({ name: "@critiqs/core", version: "0.0.0", private: true }),
     "packages/core/src/index.ts": "export const b = 1;\n",
     "examples/pilot/package.json": json({ name: "@critiqs/example-pilot", version: "0.0.0", private: true, dependencies: { "critiqs-react": "workspace:*" } }),
@@ -90,7 +105,7 @@ async function fixture(reactVersion = "0.1.0", { readme = true } = {}) {
       await repo.branch("changeset-release/main");
       const next = await version(dir);
       await sh(dir, "git", "add", "-A");
-      await sh(dir, "git", "commit", "-qm", `Release critiqs-react ${next}`);
+      await sh(dir, "git", "commit", "-qm", `Release Critiqs ${next}`);
       return next;
     },
   };
@@ -102,16 +117,52 @@ const note = (releases: Record<string, string>, summary: string) =>
 
 describe("version step (real Changesets CLI)", () => {
   for (const [type, expected] of [["patch", "1.2.4"], ["minor", "1.3.0"], ["major", "2.0.0"]]) {
-    test(`${type} note bumps 1.2.3 to ${expected}`, async () => {
+    test(`a ${type} note for one package moves every package from 1.2.3 to ${expected}`, async () => {
       const repo = await fixture("1.2.3");
       await repo.commit({ ".changeset/a.md": note({ "critiqs-react": type }, `A ${type} change.`) });
       expect(await version(repo.dir)).toBe(expected);
-      expect((await repo.manifest("packages/react/package.json")).version).toBe(expected);
-      expect(await repo.read("packages/react/CHANGELOG.md")).toContain(`## ${expected}`);
+      for (const name of released) {
+        expect((await repo.manifest(manifestOf(name))).version).toBe(expected);
+        expect(await repo.read(manifestOf(name).replace("package.json", "CHANGELOG.md"))).toContain(`## ${expected}`);
+      }
+      expect(await repo.read("packages/react/CHANGELOG.md")).toContain(`A ${type} change.`);
+      expect(await repo.read("packages/critiqs/CHANGELOG.md")).not.toContain(`A ${type} change.`);
+      // critiqs-react's exact dependency on critiqs follows the shared version.
+      expect((await repo.manifest("packages/react/package.json")).dependencies).toEqual({ critiqs: expected });
       expect(await repo.read("bun.lock")).toContain(`"version": "${expected}"`);
       expect(await Bun.file(join(repo.dir, ".changeset/a.md")).exists()).toBe(false);
     });
   }
+
+  test("notes for a gem and a PyPI package land in their own changelogs at the shared version", async () => {
+    const repo = await fixture("0.3.0");
+    await repo.commit({
+      ".changeset/rails.md": note({ "critiqs-rails": "minor" }, "Add the Rails helper."),
+      ".changeset/python.md": note({ "critiqs-django": "patch", critiqs: "patch" }, "Fix the Django template tag."),
+    });
+    expect(await version(repo.dir)).toBe("0.4.0");
+    for (const name of released) expect((await repo.manifest(manifestOf(name))).version).toBe("0.4.0");
+    expect(await repo.read("packages/rails/CHANGELOG.md")).toContain("Add the Rails helper.");
+    expect(await repo.read("packages/django/CHANGELOG.md")).toContain("Fix the Django template tag.");
+    expect(await repo.read("packages/critiqs/CHANGELOG.md")).toContain("Fix the Django template tag.");
+    // The private packages stay private: they publish to their own registries, never npm.
+    expect((await repo.manifest("packages/rails/package.json")).private).toBe(true);
+    const body = await prBody(repo.dir);
+    expect(body).toContain("Merging it releases Critiqs 0.4.0: `critiqs`, `critiqs-django`, `critiqs-rails`, `critiqs-react`.");
+    expect(body).toMatch(/## critiqs-rails\n\n### Minor Changes\n\n- [0-9a-f]+: Add the Rails helper\./);
+    expect(body.indexOf("## critiqs\n")).toBeLessThan(body.indexOf("## critiqs-django\n"));
+  });
+
+  test("a package added to the group joins the shared version", async () => {
+    const repo = await fixture("0.3.0");
+    await repo.commit({
+      "packages/vue/package.json": json({ name: "critiqs-vue", version: "0.3.0", license: "MIT", publishConfig: { access: "public" }, dependencies: { critiqs: "0.3.0" } }),
+      ".changeset/vue.md": note({ "critiqs-vue": "minor", critiqs: "minor" }, "Add Critiqs for Vue."),
+    });
+    expect(await version(repo.dir)).toBe("0.4.0");
+    expect((await repo.manifest("packages/vue/package.json")).version).toBe("0.4.0");
+    expect((await repo.manifest("packages/rails/package.json")).version).toBe("0.4.0");
+  });
 
   test("mixed notes take the largest bump, keep every summary, and leave private workspaces unversioned", async () => {
     const repo = await fixture("0.1.0");
@@ -131,6 +182,7 @@ describe("version step (real Changesets CLI)", () => {
     // The public package keeps its publishing settings; versioning publishes nothing.
     expect(await repo.manifest("packages/react/package.json")).toMatchObject({ license: "MIT", publishConfig: { access: "public" } });
     expect((await repo.manifest("packages/react/package.json")).private).toBeUndefined();
+    for (const name of released) expect((await repo.manifest(manifestOf(name))).version).toBe("0.2.0");
     expect(await Bun.file(join(repo.dir, "packages/core/CHANGELOG.md")).exists()).toBe(false);
     expect(await Bun.file(join(repo.dir, ".changeset/docs.md")).exists()).toBe(false);
     await sh(repo.dir, "bun", "install", "--frozen-lockfile");
@@ -156,18 +208,27 @@ describe("pull request gate", () => {
     ["a reasoned no-release note for documentation", { "docs/guide.md": "# Changed\n", ".changeset/docs.md": "---\n---\n\nDocumentation only.\n" }, true, /no release/],
     ["a no-release note for test-only changes", { "packages/react/test/index.test.ts": "// more\n", ".changeset/t.md": "---\n---\n\nTests only.\n" }, true, /no release/],
     ["a patch note for shipped code", { "packages/core/src/index.ts": "export const b = 2;\n", ".changeset/f.md": note({ "critiqs-react": "patch" }, "Fix b.") }, true, /critiqs-react patch/],
-    ["a forged skip for shipped code in a bundled workspace", { "packages/core/src/index.ts": "export const b = 2;\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /ship in critiqs-react/],
+    ["a note naming the shared package", { "packages/critiqs/src/index.ts": "export const m = 2;\n", ".changeset/f.md": note({ critiqs: "minor" }, "Add m.") }, true, /f\.md: critiqs minor/],
+    ["a note naming the gem", { "packages/rails/lib/critiqs.rb": "module Critiqs; VERSION = 1; end\n", ".changeset/f.md": note({ "critiqs-rails": "patch" }, "Fix.") }, true, /critiqs-rails patch/],
+    ["a note naming several packages", { ".changeset/f.md": note({ "critiqs-django": "minor", critiqs: "minor" }, "Add.") }, true, /critiqs-django minor\n.*critiqs minor/],
+    ["a no-release note for gem and Python tests", { "packages/rails/test/critiqs_test.rb": "# more\n", "packages/django/tests/test_tags.py": "# more\n", ".changeset/t.md": "---\n---\n\nTests only.\n" }, true, /no release/],
+    ["a forged skip for shipped code in a bundled workspace", { "packages/core/src/index.ts": "export const b = 2;\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /ship in Critiqs packages/],
+    ["a forged skip for shipped Python code", { "packages/django/django_critiqs/__init__.py": "x = 1\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /packages\/django\/django_critiqs\/__init__\.py/],
     ["a no-release note without a reason", { "docs/guide.md": "# Changed\n", ".changeset/docs.md": "---\n---\n" }, false, /write a summary/],
-    ["a note naming a bundled private workspace", { ".changeset/f.md": note({ "@critiqs/core": "minor" }, "Core.") }, false, /"@critiqs\/core" is not released/],
+    ["a note naming a bundled private workspace", { ".changeset/f.md": note({ "@critiqs/core": "minor" }, "Core.") }, false, /"@critiqs\/core" is not released; name the Critiqs packages the change ships in \(critiqs, critiqs-django, critiqs-rails, critiqs-react\)/],
     ["a note naming an unknown package", { ".changeset/f.md": note({ "left-pad": "patch" }, "X.") }, false, /"left-pad" is not released/],
+    ["a note naming the PyPI project instead of the workspace package", { ".changeset/f.md": note({ "django-critiqs": "patch" }, "X.") }, false, /"django-critiqs" is not released/],
+    ["a note naming a new package added in the same pull request", { "packages/vue/package.json": json({ name: "critiqs-vue", version: "0.1.0", license: "MIT", publishConfig: { access: "public" } }), ".changeset/f.md": note({ "critiqs-vue": "minor" }, "Add Vue.") }, true, /critiqs-vue minor/],
     ["a malformed note", { ".changeset/f.md": "no frontmatter at all\n" }, false, /missing or invalid frontmatter/],
     ["an invalid release type", { ".changeset/f.md": note({ "critiqs-react": "huge" }, "X.") }, false, /invalid version type/],
     ["the Changesets \"none\" type", { ".changeset/f.md": note({ "critiqs-react": "none" }, "X.") }, false, /not a release type/],
     ["a major note before 1.0.0", { ".changeset/f.md": note({ "critiqs-react": "major" }, "Break.") }, false, /before 1\.0\.0/],
     ["an unexpected file in .changeset", { ".changeset/notes.txt": "x\n", ".changeset/f.md": note({ "critiqs-react": "patch" }, "X.") }, false, /only new release notes/],
-    ["a manual version edit", { "packages/react/package.json": json({ name: "critiqs-react", version: "0.2.0", license: "MIT", publishConfig: { access: "public" }, devDependencies: { "@critiqs/core": "workspace:*" } }), ".changeset/f.md": note({ "critiqs-react": "minor" }, "X.") }, false, /version field/],
+    ["a manual version edit", { "packages/react/package.json": json({ ...manifests("0.2.0")["packages/react/package.json"], dependencies: { critiqs: "0.1.0" } }), ".changeset/f.md": note({ "critiqs-react": "minor" }, "X.") }, false, /version field/],
+    ["a manual gem version edit", { "packages/rails/package.json": json(manifests("0.2.0")["packages/rails/package.json"]), ".changeset/f.md": note({ "critiqs-rails": "minor" }, "X.") }, false, /packages\/rails\/package.json \(version field\)/],
     ["a manual private workspace version edit", { "packages/core/package.json": json({ name: "@critiqs/core", version: "1.0.0", private: true }), ".changeset/f.md": "---\n---\n\nX.\n" }, false, /packages\/core\/package.json \(version field\)/],
     ["a manual changelog edit", { "packages/react/CHANGELOG.md": "# critiqs-react\n", ".changeset/f.md": note({ "critiqs-react": "patch" }, "X.") }, false, /changelog/],
+    ["a manual Python changelog edit", { "packages/django/CHANGELOG.md": "# critiqs-django\n", ".changeset/f.md": note({ "critiqs-django": "patch" }, "X.") }, false, /packages\/django\/CHANGELOG.md \(changelog\)/],
   ];
   for (const [name, changes, ok, message] of cases) {
     test(`${ok ? "accepts" : "rejects"} ${name}`, async () => {
@@ -394,7 +455,7 @@ describe("release pull request verification with Git LFS files", () => {
     await expect(sh(repo.dir, "git", "worktree", "add", "--detach", join(scratch, `plain-${fixtures}`), "main"))
       .rejects.toThrow(/smudge filter lfs failed/);
     await repo.release({ ".changeset/a.md": note({ "critiqs-react": "minor" }, "Feature.") });
-    expect(await checkAndCleanUp(repo.dir)).toEqual({ status: 0, output: "Verified generated release of critiqs-react 0.2.0.\n" });
+    expect(await checkAndCleanUp(repo.dir)).toEqual({ status: 0, output: "Verified generated release of Critiqs 0.2.0: critiqs, critiqs-django, critiqs-rails, critiqs-react.\n" });
   });
 
   test("still rejects a release commit that changes an LFS file", async () => {
@@ -504,7 +565,7 @@ esac
 
     expect(await run()).toEqual(["pr list", "pr create", "run list", "workflow run"]);
     const first = await branchHead();
-    expect(await sh(origin, "git", "log", "-1", "--format=%s", first)).toBe("Release critiqs-react 0.2.0");
+    expect(await sh(origin, "git", "log", "-1", "--format=%s", first)).toBe("Release Critiqs 0.2.0");
     await sh(repo.dir, "git", "fetch", "-q", "origin");
     expect(await check(repo.dir, "origin/main", "origin/changeset-release/main")).toMatchObject({ ok: true, kind: "release" });
 
@@ -589,5 +650,26 @@ esac
     expect(ci.permissions).toEqual({ contents: "read" });
     expect(Object.keys(ci.on)).not.toContain("pull_request_target");
     for (const ciJob of Object.values<any>(ci.jobs)) expect(ciJob.permissions).toBeUndefined();
+  });
+});
+
+describe("release order", () => {
+  test("each package comes after the Critiqs packages it depends on", async () => {
+    const files: Record<string, unknown> = {
+      "package.json": { workspaces: ["packages/*"] },
+      ".changeset/config.json": { fixed: [["critiqs", "critiqs-*"]] },
+      "packages/nuxt/package.json": { name: "critiqs-nuxt", version: "1.0.0", dependencies: { critiqs: "1.0.0", "critiqs-vue": "1.0.0" } },
+      "packages/vue/package.json": { name: "critiqs-vue", version: "1.0.0", dependencies: { critiqs: "1.0.0" } },
+      "packages/angular/package.json": { name: "critiqs-angular", version: "1.0.0", dependencies: { critiqs: "1.0.0" } },
+      "packages/critiqs/package.json": { name: "critiqs", version: "1.0.0" },
+      // An optional dependency is still installed when present, so it is published first too.
+      "packages/astro/package.json": { name: "critiqs-astro", version: "1.0.0", optionalDependencies: { "critiqs-solid": "1.0.0" } },
+      "packages/solid/package.json": { name: "critiqs-solid", version: "1.0.0", peerDependencies: { critiqs: "1.0.0" } },
+    };
+    const tree = {
+      read: async (path: string) => (path in files ? JSON.stringify(files[path]) : null),
+      match: async () => Object.keys(files).filter((path) => path.startsWith("packages/")),
+    };
+    expect((await releasePackages(tree)).map((pkg) => pkg.name)).toEqual(["critiqs", "critiqs-angular", "critiqs-solid", "critiqs-astro", "critiqs-vue", "critiqs-nuxt"]);
   });
 });

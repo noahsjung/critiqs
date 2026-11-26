@@ -17,7 +17,8 @@ export function usePageVersion(): number {
       });
     };
     const observer = new MutationObserver(bump);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+    // The whole document, not today's <body>: client routers such as Astro's replace the body on navigation.
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
     window.addEventListener("popstate", bump);
     window.addEventListener("hashchange", bump);
     window.addEventListener("resize", bump);
