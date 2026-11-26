@@ -41,6 +41,7 @@ Write down its address: ________________
 | 16 | Open `chrome://extensions` in a tab and click the icon. | The panel says **Critiqs can't open here**. | |
 | 17 | Back on the first page: **Settings → Sign out**. | The panel shows **Sign in to Critiqs**. Signing in again with the same email skips the name. | |
 | 18 | Press Alt+Shift+C on a page. | Same as clicking the icon. | |
+| 19 | Open a second site that no project lists. Click the icon, then choose **Add to a project**. | The list shows the projects you created and, if you're an admin of an organization, its other projects too. When they come from more than one organization, each shows its organization's name. Choose one. Critiqs's panel shows that project, and reopening the panel on this site shows it again. | |
 
 ## Report
 

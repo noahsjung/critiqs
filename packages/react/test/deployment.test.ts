@@ -27,6 +27,8 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     overageCap: false,
     billing: false,
     addressLists: false,
+    addressEdits: false,
+    createKeys: false,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -84,6 +86,8 @@ test("a server in the host app answers at its path, with its own sign-in", async
     overageCap: false,
     billing: false,
     addressLists: false,
+    addressEdits: false,
+    createKeys: false,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });
@@ -133,6 +137,14 @@ test("records opened projects only where the backend reports address lists", asy
   expect((await resolveDeployment("https://team.convex.cloud", config(true))).addressLists).toBe(true);
   expect((await resolveDeployment("https://team.convex.cloud", config(undefined))).addressLists).toBe(false);
   expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).addressLists).toBe(false);
+});
+
+test("reads single-address edits and keyed creates only where the backend reports them", async () => {
+  const config = (value: unknown) =>
+    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, createKeys: value })) as unknown as typeof fetch;
+  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, createKeys: true });
+  expect(await resolveDeployment("https://team.convex.cloud", config(undefined))).toMatchObject({ addressEdits: false, createKeys: false });
+  expect(await resolveDeployment("https://team.convex.cloud", config("yes"))).toMatchObject({ addressEdits: false, createKeys: false });
 });
 
 test("offers the cap on extra Critiqs AI credits only where the backend reports it", async () => {

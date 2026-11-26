@@ -51,6 +51,10 @@ export interface Deployment {
   website?: string;
   /** The backend keeps projects' address lists and records the projects each person opened; absent from backends before them. */
   addressLists?: boolean;
+  /** The backend adds or removes one address at a time and lists the projects a person manages; absent from backends before it. */
+  addressEdits?: boolean;
+  /** The backend accepts `idempotencyKey` on project creation; absent from backends before it. */
+  createKeys?: boolean;
 }
 
 /** What `/critiqs/config` reports; only `signInUrl` is always there. */
@@ -69,6 +73,8 @@ interface ServiceConfig {
   threadPages?: boolean;
   website?: unknown;
   addressLists?: boolean;
+  addressEdits?: boolean;
+  createKeys?: boolean;
 }
 
 /** The website a backend reports for its thread pages, when it reports them and the address is a web address. */
@@ -119,6 +125,8 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
     billing: config.billing === true,
     website: threadPageWebsite(config),
     addressLists: config.addressLists === true,
+    addressEdits: config.addressEdits === true,
+    createKeys: config.createKeys === true,
   };
 }
 
@@ -149,7 +157,7 @@ export async function resolveDeployment(given: string, fetchFn: typeof fetch = f
     );
     if (!signIn.current) throw new Error(`Critiqs's sign-in service at ${backend.signInUrl} isn't ready for this version of Critiqs yet.`);
   }
-  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, ...(backend.website === undefined ? {} : { website: backend.website }) };
+  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, createKeys: backend.createKeys, ...(backend.website === undefined ? {} : { website: backend.website }) };
 }
 
 /** The usage query's `aiCredits` argument, only for backends that accept it: those that report `overageCap` came with it. */

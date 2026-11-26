@@ -245,10 +245,20 @@ try {
     await expectReview(panel, `fresh.critiqs.test:${sites.port}`);
     await shot(panel, "review-1-panel");
     const convex = await convexAs(worker);
-    const mine = (await convex.query(api.projects.listMine, { paginationOpts: { numItems: 20, cursor: null } })).page;
+    const mine = (await convex.query(api.projects.manageable, {})).projects;
     const started = mine.find((project: { name: string }) => project.name === `fresh.critiqs.test:${sites.port}`)!;
     assert.deepEqual(await convex.query(api.projects.addresses, { projectId: started._id as Id<"projects"> }), [site("fresh")]);
     note(`Start reviewing this site: created "${started.name}" with the address list [${site("fresh")}].`);
+    // The panel kept its start key only until the start finished.
+    const leftover = Object.keys(await worker.evaluate(() => (globalThis as any).chrome.storage.local.get(null))).filter((key) => key.startsWith("start:"));
+    assert.deepEqual(leftover, []);
+    // A create retried with its key, as after a lost response, returns the same project on this backend.
+    const retryKey = `start-${crypto.randomUUID()}`;
+    const once = await convex.mutation(api.projects.create, { name: "Retried start", reviewUrl: null, idempotencyKey: retryKey });
+    const again = await convex.mutation(api.projects.create, { name: "Retried start", reviewUrl: null, idempotencyKey: retryKey });
+    assert.equal(again, once);
+    assert.equal((await convex.query(api.projects.manageable, {})).projects.filter((project: { name: string }) => project.name === "Retried start").length, 1);
+    note(`Keyed create: sent twice with one key, it returned the same project (${once}); the panel left no pending start key behind.`);
 
     // Mockup mode draws over the page, which a side panel can't: it isn't offered.
     assert.equal(await panel.getByRole("button", { name: "Mockup mode" }).count(), 0);
@@ -350,6 +360,15 @@ try {
     await expectReview(panel, "Acme prototype");
     assert.deepEqual(await convex.query(api.projects.addresses, { projectId: acme }), [site("proto"), site("other")]);
     note(`Add to a project: Acme prototype now lists [${site("proto")}, ${site("other")}].`);
+    // Two panels adding at once, against the real backend: both addresses stay.
+    const second = await convexAs(worker);
+    await Promise.all([
+      convex.mutation(api.projects.addAddress, { projectId: acme, address: site("one") }),
+      second.mutation(api.projects.addAddress, { projectId: acme, address: site("two") }),
+    ]);
+    const afterBoth = await convex.query(api.projects.addresses, { projectId: acme });
+    assert.deepEqual([...afterBoth].sort(), [site("one"), site("other"), site("proto"), site("two")].sort());
+    note(`Two concurrent adds from separate clients: Acme prototype lists [${afterBoth.join(", ")}].`);
 
     // Built in.
     const installed = await openTab(context, worker, site("installed"));
