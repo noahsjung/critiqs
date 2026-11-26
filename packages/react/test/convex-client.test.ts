@@ -78,7 +78,14 @@ function signedIn() {
   return { accessToken, refreshes, session };
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+/** Waits until `ready()` holds, however long the client takes on a busy machine, and fails after 5 s. */
+async function until(ready: () => boolean) {
+  const deadline = Date.now() + 5000;
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${ready}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 test("loading a page with a sign-in that is still good uses the saved token without refreshing it", async () => {
   const { accessToken, refreshes, session } = signedIn();
@@ -86,7 +93,7 @@ test("loading a page with a sign-in that is still good uses the saved token with
   const client = convexClient("https://happy-otter-123.convex.cloud", { webSocketConstructor: Socket, unsavedChangesWarning: false });
   const changes: boolean[] = [];
   client.setAuth(session.fetchAccessToken, (isAuthenticated) => changes.push(isAuthenticated));
-  await settle();
+  await until(() => changes.length > 0);
   expect(refreshes).toEqual([]);
   expect(authenticated).toEqual([accessToken]);
   expect(changes).toEqual([true]);
@@ -99,7 +106,7 @@ test("a token the deployment rejects is still replaced", async () => {
   const client = convexClient("https://happy-otter-123.convex.cloud", { webSocketConstructor: Socket, unsavedChangesWarning: false });
   const changes: boolean[] = [];
   client.setAuth(session.fetchAccessToken, (isAuthenticated) => changes.push(isAuthenticated));
-  await settle();
+  await until(() => changes.length > 0);
   expect(refreshes).toEqual([`${SIGN_IN}/auth/refresh`]);
   expect(authenticated).toHaveLength(2);
   expect(authenticated[0]).toBe(accessToken);

@@ -90,6 +90,14 @@ const ROUTES: RouteTable = {
 };
 
 const settle = (ms = 50) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Waits until `ready()` holds, however long React takes to render Critiqs on a busy machine, and fails after 5 s. */
+async function until(ready: () => boolean) {
+  const deadline = Date.now() + 5000;
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${ready}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 const hosts = () => [...document.querySelectorAll("critiqs-root")];
 const toolbar = () => hosts()[0]?.shadowRoot?.querySelector(".toolbar") ?? null;
 const lastPushed = () => pushed[pushed.length - 1];
@@ -145,9 +153,8 @@ test("Critiqs starts on the first page and reports its route, with functions giv
   const getContext = () => ({ persona: "Admin" });
   configureCritiqs({ getContext });
   startCritiqs(SETTINGS, router);
-  await settle();
+  await until(() => toolbar() !== null);
   expect(hosts()).toHaveLength(1);
-  expect(toolbar()).not.toBeNull();
   expect(lastPushed()).toEqual({ screen: "items/:id", viewState: { "route.id": "42" } });
   expect(latest.getContext).toBe(getContext);
 });
