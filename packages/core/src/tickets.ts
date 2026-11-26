@@ -1,5 +1,5 @@
 import type { ExportThread } from "./export.ts";
-import { markdownLink, markdownText } from "./markdown-text.ts";
+import { markdownLink, markdownText, unresolvedText } from "./markdown-text.ts";
 import { contextLines, discussionLines, quoted, summarize, TICKET_STYLE } from "./thread-markdown.ts";
 
 // Tickets in a team's tracker, created from a thread or linked to one. Each
@@ -120,7 +120,8 @@ export function ticketText(thread: ExportThread, options: TicketTextOptions): { 
     lines.push("", "---", "", `Created from Critiqs by ${markdownText(options.attribution.name)}: ${markdownLink("open the thread", options.link)}`);
   }
   return {
-    title: first === undefined ? "(no messages)" : summarize(first.body),
+    // The title is the reviewer's text too, which a tracker shows as text: it mentions no one and references no issue.
+    title: first === undefined ? "(no messages)" : unresolvedText(summarize(first.body)),
     body: `${lines.join("\n")}\n`,
   };
 }

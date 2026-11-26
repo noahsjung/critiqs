@@ -46,7 +46,7 @@ test("the text carries the thread's link, context, and whole discussion", () => 
   expect(body).toContain("- Link: [open the thread](");
   // Reviewers' and the app's text is escaped, so it renders exactly as written.
   expect(body).toContain("- Screen: user-details");
-  expect(body).toContain('- Target: `user.department`, "Sales", record user\\:alex');
+  expect(body).toContain('- Target: `user.department`, "Sales", record user\\:\u2060alex');
   expect(body).toContain("- Scope: this record only");
   expect(body).toContain("- Revision: abc123");
   expect(body).toContain("- Tags: Bug, Wording");

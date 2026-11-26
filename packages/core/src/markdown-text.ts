@@ -23,10 +23,15 @@ const ALWAYS = new Set(["`", "[", "]", "|", "$"]);
 /**
  * Where the line's first character starts a block, the index to escape:
  * a heading (`#`), a quote (`>`), a list item (`-`, `+`, `*`, or digits and
- * `.` or `)`), a rule or a heading's underline (`---`, `===`). -1 otherwise.
+ * `.` or `)`), a rule, Linear's collapsed section (`+++`), or a line that
+ * means something under the line above it: a heading's underline (`---`,
+ * `===`), or a table's delimiter row, which in GitHub's Markdown needs no
+ * pipe (`:-`, `-:`, `:-:`). Any line of only `-`, `:` and spaces counts.
+ * Escaping the first character is enough, since none of these takes a
+ * backslash. -1 otherwise.
  */
 function blockStart(text: string): number {
-  if (/^#{1,6}(?:\s|$)/.test(text) || text.startsWith(">") || /^[-+*](?:\s|$)/.test(text) || /^[-\s]+$/.test(text) || /^=+$/.test(text)) return 0;
+  if (/^#{1,6}(?:\s|$)/.test(text) || text.startsWith(">") || /^[-+*](?:\s|$)/.test(text) || text.startsWith("+++") || /^[-:\s]*-[-:\s]*$/.test(text) || /^=+$/.test(text)) return 0;
   const ordered = /^\d{1,9}[.)](?:\s|$)/.exec(text);
   return ordered === null ? -1 : ordered[0].trimEnd().length - 1;
 }
@@ -64,9 +69,9 @@ function opens(chars: string[], index: number): boolean {
     // A domain's dot, which turns a word into a web or email address, and the dot of `www.`.
     case ".":
       return word(after) || after === "-" || after === "_" || /www$/i.test(chars.slice(Math.max(0, index - 3), index).join(""));
-    // An address's scheme, such as `https:` or `mailto:`.
+    // An address's scheme, such as `https:` or `mailto:`; at the end, one whose address follows straight after it.
     case ":":
-      return before !== undefined && /[A-Za-z]/.test(before) && after !== undefined && !space(after);
+      return before !== undefined && /[A-Za-z]/.test(before) && (after === undefined ? /(?:mailto|xmpp)$/i.test(chars.slice(Math.max(0, index - 6), index).join("")) : !space(after));
     // A scheme-relative address.
     case "/":
       return after === "/";
@@ -84,19 +89,66 @@ function opens(chars: string[], index: number): boolean {
   }
 }
 
+/** A word joiner: it shows nothing and never breaks a line. */
+const JOINER = "\u2060";
+
+/**
+ * Whether the character at `index` is the sign of something a tracker
+ * resolves after rendering, whatever the backslashes, so a word joiner goes
+ * after it. GitHub resolves (its docs on autolinked references, and its
+ * Markdown endpoint): a mention (`@name`, `@org/team`), an email address,
+ * an issue or pull request (`#1`, `GH-1`, `owner/repo#1`, or its address's
+ * path, `owner/repo/issues/1`), and an emoji (`:smile:`). With the joiner
+ * between the sign and the rest, none of them matches, and the text reads
+ * the same.
+ */
+function resolves(chars: string[], index: number): boolean {
+  const after = chars[index + 1];
+  if (after === undefined) return false;
+  const behind = (length: number) => chars.slice(Math.max(0, index - length), index).join("");
+  switch (chars[index]) {
+    case "@":
+      return /[A-Za-z0-9]/.test(after);
+    case "#":
+      return /[0-9]/.test(after);
+    case "-":
+      return /[0-9]/.test(after) && /gh$/i.test(behind(2));
+    case "/":
+      return /[0-9]/.test(after) && /(?:issues|pulls?|discussions)$/i.test(behind(11));
+    // An emoji's name runs to its closing `:`, or to the end, where Critiqs's own text may close it.
+    case ":":
+      return /^[A-Za-z0-9_+-]+(?::|$)/.test(chars.slice(index + 1, index + 66).join(""));
+    default:
+      return false;
+  }
+}
+
+/**
+ * Plain text that a tracker shows as text, such as a ticket's title, as
+ * written, with a word joiner after each sign it would resolve
+ * (`resolves`), so a reviewer's line can't mention anyone or reference an
+ * issue there either.
+ */
+export function unresolvedText(value: string): string {
+  const chars = Array.from(value);
+  return chars.map((char, index) => (resolves(chars, index) ? `${char}${JOINER}` : char)).join("");
+}
+
 /**
  * Text as Markdown that renders exactly as written, on one line, as part of
  * a paragraph, list item, or heading: line breaks become spaces, and a
  * character is escaped only where a Markdown renderer would give it a
  * meaning (`opens`, `blockStart`), so ordinary sentences have no
  * backslashes. No link, autolink, image, HTML, entity, code, emphasis,
- * heading, list, quote, rule, or table can form.
+ * heading, list, quote, rule, or table can form. Nor can a mention, issue
+ * reference, or emoji, which a tracker resolves in the rendered text: a word
+ * joiner, which shows nothing, follows their sign (`resolves`).
  */
 export function markdownText(value: unknown): string {
   const chars = Array.from(oneLine(value));
   const start = blockStart(chars.join(""));
   // `blockStart` counts UTF-16 units; it only ever points at ASCII at the line's start, before any other character.
-  return chars.map((char, index) => (index === start || opens(chars, index) ? `\\${char}` : char)).join("");
+  return chars.map((char, index) => `${index === start || opens(chars, index) ? `\\${char}` : char}${resolves(chars, index) ? JOINER : ""}`).join("");
 }
 
 /**

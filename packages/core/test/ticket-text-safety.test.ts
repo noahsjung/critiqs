@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExportThread } from "../src/export.ts";
 import { ticketText } from "../src/tickets.ts";
-import { render, TICKET_TAGS } from "./markdown-oracle.ts";
+import { githubReferences, render, renderGfm, TICKET_TAGS } from "./markdown-oracle.ts";
 
 // Ticket text goes into a tracker the whole team reads, under the creator's
 // name. Everything in it that a reviewer or a tracker wrote must render
@@ -69,4 +69,19 @@ test("a ticket's page address leaves out the page's query and fragment, which ca
   const { body } = ticketText(thread, { attribution: null, link: LINK, captureNote: "uploaded" });
   expect(body).not.toContain("SECRET");
   expect(render(body).text).toContain("Page: https://proto.example/users/alex at 1440×900");
+});
+
+test("a reviewer's comment line that is only a table's delimiter stays a line of the comment in a GitHub issue, and the comment pings and links no one", () => {
+  const comment = "The totals column is wrong\n:-\nIt should add up the rows\n-:\n:-:\n@octocat see #12, acme/app#3 and https://github.com/acme/app/issues/4 :smile:";
+  const { body } = ticketText({ ...thread, messages: [{ ...thread.messages[0]!, body: comment }] }, { attribution: null, link: LINK, captureNote: "link" });
+  const quote = body.slice(0, body.indexOf("## Context"));
+  const rendered = renderGfm(quote);
+  expect({ tables: rendered.tags.filter((tag) => tag === "table"), references: githubReferences(rendered.html) }).toEqual({ tables: [], references: [] });
+  expect(rendered.text).toBe(comment.replace(/\n/g, " "));
+});
+
+test("a ticket's title from a reviewer's first line reads as written and mentions no one", () => {
+  const { title } = ticketText({ ...thread, messages: [{ ...thread.messages[0]!, body: "@octocat #12 is back :smile:\nmore" }] }, { attribution: null, link: LINK, captureNote: "link" });
+  expect(title.replace(/\u2060/g, "")).toBe("@octocat #12 is back :smile:");
+  expect(githubReferences(title)).toEqual([]);
 });

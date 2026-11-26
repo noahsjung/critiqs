@@ -111,7 +111,15 @@ Critiqs escapes it, so none of it can form a link, image, HTML, code block,
 heading, or other structure in the tracker. A character is escaped only where
 Markdown would read it (a full stop after a number at the start of a line, a
 `*` that could start emphasis, a dot inside an address), so ordinary sentences
-show no backslashes in the Create dialog. The thread's link is the only
+show no backslashes in the Create dialog. A line of a comment can't become a
+table either, which in GitHub's Markdown needs no pipe (a line such as `:-`
+under another line). Nor can that text mention anyone, reference an issue, or
+make an emoji, which GitHub resolves even when escaped: Critiqs puts an
+invisible word joiner after the `@` of `@name`, the `#` of `#12`, and the like,
+so they read the same and stay text, in the ticket's title too. Linear and Jira
+make mentions only from a profile's address or a mention node, which ticket
+text never forms. Text the person writes in the Create dialog is theirs: it
+goes to the tracker as they wrote it. The thread's link is the only
 link Critiqs writes. The page's address leaves out its query
 and fragment, which can carry a prototype's sign-in token. The Markdown
 export, a file the team downloads, keeps comments' own Markdown.
