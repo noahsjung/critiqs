@@ -95,7 +95,7 @@ describe("onboarding's ways to review without installing", () => {
     expect(none.offered).toEqual(["share-build"]);
     expect(none.page.querySelector(".command")?.textContent).toBe("npx critiqs share dist/ --project p1");
     expect((await ways({ kind: "local" }, ALL)).offered).toEqual(["share-build"]);
-    expect((await ways({ kind: "public", stack: null }, null)).page.querySelector(".ways-free")).toBeNull();
+    expect((await ways({ kind: "public", stack: null }, null)).page.querySelector(".ways-free") === null).toBe(true);
     expect((await ways({ kind: "public", stack: null }, { ...ALL, live: false })).offered).toEqual([]);
   });
 
