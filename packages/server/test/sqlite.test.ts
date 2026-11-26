@@ -4,10 +4,12 @@ import { bunDriver, migrate, SCHEMA_VERSION, SqliteStore } from "../src/sqlite/i
 import { MIGRATIONS } from "../src/sqlite/store.ts";
 import { reserveCredits, settleCredits } from "../src/ai/credits.ts";
 import * as operations from "../src/operations.ts";
+import { saveAboutYou } from "../src/onboarding.ts";
 import { listMyOrganizations } from "../src/organizations.ts";
 import type { Plan } from "../src/limits.ts";
 import { anchor, type ContractBackend, defineContract, reviewer } from "./contract.ts";
 import { defineAiContract } from "./contract-ai.ts";
+import { defineOnboardingContract } from "./contract-onboarding.ts";
 
 function sqliteBackend(plans?: Record<string, Plan>): ContractBackend {
   const live = { ...plans };
@@ -30,6 +32,7 @@ function sqliteBackend(plans?: Record<string, Plan>): ContractBackend {
 
 defineContract("SQLite", () => sqliteBackend());
 defineAiContract("SQLite", () => sqliteBackend());
+defineOnboardingContract("SQLite", () => sqliteBackend());
 
 test("SQLite: operations on one database run one at a time", async () => {
   const store = new SqliteStore(bunDriver(new Database(":memory:")));
@@ -337,7 +340,7 @@ test("SQLite: upgrading a version 10 database holds Critiqs AI credits against w
   const month = new Date().toISOString().slice(0, 7);
   driver.run("INSERT INTO usage (id, key, count) VALUES (?, ?, 3990)", [`c_${"5".repeat(32)}`, `aiCredits:${ids.organization}:${month}`]);
   const store = new SqliteStore(driver, { plans: {} });
-  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(11);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
   const payer = { payer: "project" as const, ownerId: ids.project };
   const reserve = (credits: number) => store.transaction((s) => reserveCredits(s, payer, credits, Date.now()));
   // Plus allows 2,000 credits and 2,000 extra: 10 of them are left.
@@ -349,6 +352,35 @@ test("SQLite: upgrading a version 10 database holds Critiqs AI credits against w
   await store.transaction((s) => settleCredits(s, held.ok ? held.hold : null, { ...payer, credits: 7 }, Date.now()));
   expect(await store.transaction((s) => s.usage.find(`aiCredits:${ids.organization}:${month}`))).toMatchObject({ count: 3997 });
   expect(driver.get<{ count: number }>("SELECT count(*) AS count FROM credit_holds")?.count).toBe(0);
+});
+
+test("SQLite: upgrading a version 11 database keeps people and projects, with no onboarding answers until given", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 11)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 11");
+  const ids = { dana: `u_${"1".repeat(32)}`, organization: `o_${"2".repeat(32)}`, project: `p_${"3".repeat(32)}` };
+  driver.run("INSERT INTO users (id, token, name, email, home_organization_id) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com', ?)", [ids.dana, ids.organization]);
+  driver.run("INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Dana''s organization', ?, 1)", [ids.organization, ids.dana]);
+  driver.run("INSERT INTO memberships (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'admin', 1)", [`b_${"4".repeat(32)}`, ids.organization, ids.dana]);
+  driver.run("INSERT INTO projects (id, name, tags, created_by, created_at, organization_id) VALUES (?, 'One', '[\"Bug\"]', ?, 1, ?)", [ids.project, ids.dana, ids.organization]);
+  const store = new SqliteStore(driver);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  const dana = reviewer("Dana");
+  expect(await store.transaction((s) => s.users.get(ids.dana))).toEqual({
+    _id: ids.dana,
+    tokenIdentifier: "https://auth.example|dana",
+    name: "Dana",
+    email: "dana@example.com",
+    imageUrl: null,
+    homeOrganizationId: ids.organization,
+  });
+  expect(await store.transaction((s) => s.projects.get(ids.project))).not.toHaveProperty("onboarding");
+  await store.transaction((s) => saveAboutYou(s, dana, { role: "founder" }));
+  expect(await store.transaction((s) => s.users.get(ids.dana))).toMatchObject({ role: "founder" });
+  expect((await store.transaction((s) => operations.getProject(s, dana, { projectId: ids.project }))).tags).toEqual(["Bug"]);
 });
 
 test("SQLite: upgrading a version 9 database counts each organization's images from what its projects store", async () => {

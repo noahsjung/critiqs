@@ -8,6 +8,9 @@ import {
   mockupEditValidator,
   mockupSourceValidator,
   profileValidator,
+  projectOnboardingValidator,
+  roleValidator,
+  teamSizeValidator,
   revisionValidator,
   threadMockupValidator,
 } from "./lib/validators";
@@ -44,6 +47,9 @@ export default defineSchema({
     plan: v.optional(v.string()),
     /** Where the person's new projects go, and whose plan covers their own Critiqs AI. */
     homeOrganizationId: v.optional(v.id("organizations")),
+    /** Onboarding's "About you" answers; absent when skipped. */
+    role: v.optional(roleValidator),
+    teamSize: v.optional(teamSizeValidator),
   }).index("by_token", ["tokenIdentifier"]),
 
   /** A group of people that owns projects and the Critiqs Cloud plan covering them. */
@@ -95,6 +101,8 @@ export default defineSchema({
     reviewUrl: v.optional(v.string()),
     /** The organization that owns it; absent on projects from before organizations until `organizations:backfill`. */
     organizationId: v.optional(v.id("organizations")),
+    /** Present when the project was created in onboarding with at least one answer. */
+    onboarding: v.optional(projectOnboardingValidator),
   })
     .index("by_creator", ["createdBy"])
     .index("by_organization", ["organizationId"]),

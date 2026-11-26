@@ -1,7 +1,8 @@
+import { parseOnboardingAnswers } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { countWithinAll } from "./limits.ts";
 import { requireUser } from "./operations.ts";
-import type { Identity, Store } from "./store.ts";
+import type { Identity, Store, UserChanges } from "./store.ts";
 
 // Onboarding on the Critiqs website. The address check itself fetches from
 // the network (`checkPrototypeAddress` in address-check.ts, Node only); this
@@ -31,4 +32,19 @@ export async function claimAddressCheck(store: Store, identity: Identity | null,
   if (!(await countWithinAll(store, [[`addressChecks:all:${hour}`, ADDRESS_CHECKS_PER_HOUR]]))) {
     fail("limit", "Critiqs is checking a lot of addresses right now. Try again in a few minutes, or skip this step.");
   }
+}
+
+/**
+ * Saves onboarding's "About you" answers on the signed-in person. Values it
+ * doesn't know are dropped, as if skipped, and a skipped answer leaves any
+ * saved one as it is, so skipping saves nothing.
+ */
+export async function saveAboutYou(store: Store, identity: Identity | null, args: { role?: string; teamSize?: string }): Promise<void> {
+  const user = await requireUser(store, identity);
+  const { role, teamSize } = parseOnboardingAnswers(args);
+  const changes: UserChanges = {
+    ...(role === undefined || role === user.role ? {} : { role }),
+    ...(teamSize === undefined || teamSize === user.teamSize ? {} : { teamSize }),
+  };
+  if (Object.keys(changes).length > 0) await store.users.patch(user._id, changes);
 }

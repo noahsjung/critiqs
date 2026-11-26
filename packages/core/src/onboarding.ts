@@ -97,6 +97,11 @@ export interface StackInfo {
 
 export const STACKS: readonly StackInfo[] = STACK_LIST;
 
+/** A stack someone picked or confirmed, as sent to the server; anything else is no stack. */
+export function parseStack(value: unknown): StackId | undefined {
+  return STACKS.find((stack) => stack.id === value)?.id;
+}
+
 /**
  * A page's body and response headers. Header names are lowercase; several
  * `Set-Cookie` headers are one value joined with ", ", as `Headers.get` gives.

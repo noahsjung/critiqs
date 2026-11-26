@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { type PageRequest, tagKey } from "@critiqs/core";
+import { type PageRequest, type Role, tagKey, type TeamSize } from "@critiqs/core";
 import type {
   DeliveryRecord,
   InviteRecord,
   PlanAlertKind,
   PlanAlertRecord,
+  ProjectOnboarding,
   MembershipRecord,
   MessageRecord,
   OrganizationRecord,
@@ -39,7 +40,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -472,6 +473,12 @@ export const MIGRATIONS: Migration[] = [
   );
   CREATE INDEX IF NOT EXISTS credit_holds_by_scope ON credit_holds (scope, expires_at);
   `,
+  // Onboarding's answers: about the person, and about each project created in it.
+  `
+  ALTER TABLE users ADD COLUMN role TEXT;
+  ALTER TABLE users ADD COLUMN team_size TEXT;
+  ALTER TABLE projects ADD COLUMN onboarding TEXT;
+  `,
 ];
 
 /**
@@ -791,6 +798,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     ...(row.profile_version === null ? {} : { profileVersion: row.profile_version }),
     ...(row.plan === null ? {} : { plan: row.plan }),
     ...(row.home_organization_id === null ? {} : { homeOrganizationId: row.home_organization_id }),
+    ...(row.role === null ? {} : { role: row.role as Role }),
+    ...(row.team_size === null ? {} : { teamSize: row.team_size as TeamSize }),
   });
   const organization = (row: OrganizationRow): OrganizationRecord => ({
     _id: row.id,
@@ -825,6 +834,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     createdAt: row.created_at,
     ...(row.review_url === null ? {} : { reviewUrl: row.review_url }),
     ...(row.organization_id === null ? {} : { organizationId: row.organization_id }),
+    ...(row.onboarding === null ? {} : { onboarding: JSON.parse(row.onboarding) as ProjectOnboarding }),
   });
   const thread = (row: ThreadRow): ThreadRecord => ({
     _id: row.id,
@@ -1038,7 +1048,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
       },
       insert: async (record) => {
         const id = newId("users");
-        sql.run("INSERT INTO users (id, token, name, email, image_url, profile_version, plan, home_organization_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+        sql.run("INSERT INTO users (id, token, name, email, image_url, profile_version, plan, home_organization_id, role, team_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
           id,
           record.tokenIdentifier,
           record.name,
@@ -1047,6 +1057,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           record.profileVersion ?? null,
           record.plan ?? null,
           record.homeOrganizationId ?? null,
+          record.role ?? null,
+          record.teamSize ?? null,
         ]);
         return id;
       },
@@ -1058,6 +1070,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           plan: changes.plan,
           profile_version: changes.profileVersion,
           home_organization_id: changes.homeOrganizationId,
+          role: changes.role,
+          team_size: changes.teamSize,
         }),
     },
 
@@ -1156,7 +1170,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
       },
       insert: async (record) => {
         const id = newId("projects");
-        sql.run("INSERT INTO projects (id, name, tags, created_by, created_at, review_url, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+        sql.run("INSERT INTO projects (id, name, tags, created_by, created_at, review_url, organization_id, onboarding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
           id,
           record.name,
           json(record.tags),
@@ -1164,6 +1178,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           record.createdAt,
           record.reviewUrl ?? null,
           record.organizationId ?? null,
+          record.onboarding === undefined ? null : json(record.onboarding),
         ]);
         return id;
       },
@@ -1803,6 +1818,8 @@ interface UserRow {
   profile_version: number | null;
   plan: string | null;
   home_organization_id: string | null;
+  role: string | null;
+  team_size: string | null;
 }
 interface OrganizationRow {
   seq: number;
@@ -1841,6 +1858,7 @@ interface ProjectRow {
   created_at: number;
   review_url: string | null;
   organization_id: string | null;
+  onboarding: string | null;
 }
 interface ParticipantRow {
   seq: number;

@@ -138,7 +138,14 @@ export const ARGUMENTS: Record<string, Check> = {
   usage: object({ projectId: string, "day?": string, "aiCredits?": boolean }),
   exportPage: object({ projectId: string, threadIds: array(string), threadIndex: number, paginationOpts: page }),
   sync: object({}),
-  createProject: object({ name: string, "reviewUrl?": nullable(string), "organizationId?": string }),
+  createProject: object({
+    name: string,
+    "reviewUrl?": nullable(string),
+    "organizationId?": string,
+    "onboarding?": object({ "codeAccess?": string, "feedbackFrom?": array(string, 10), "purpose?": string }),
+    "stack?": string,
+  }),
+  saveAboutYou: object({ "role?": string, "teamSize?": string }),
   setReviewUrl: object({ projectId: string, reviewUrl: string }),
   setOverageCap: object({ organizationId: string, cap: union(nullable(number), literal("default")) }),
   createThread: object({

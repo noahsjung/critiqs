@@ -12,6 +12,7 @@ import {
   type OnboardingAnswers,
   type PageHop,
   parseOnboardingAnswers,
+  parseStack,
   recommend,
   type StackId,
   STACKS,
@@ -79,6 +80,11 @@ describe("onboarding answers", () => {
 });
 
 describe("stacks", () => {
+  test("a picked stack is one of the list, and anything else is no stack", () => {
+    for (const stack of STACKS) expect(parseStack(stack.id)).toBe(stack.id);
+    for (const other of ["Next.js", "NEXT", "", null, undefined, 1, ["next"], { id: "next" }, "toString"]) expect(parseStack(other)).toBeUndefined();
+  });
+
   test("are found from durable markers in realistic pages", () => {
     const cases: [string, { html: string; headers?: Record<string, string> }, StackId | null][] = [
       ["Next.js pages router", { html: page(`<div id="__next"></div><script id="__NEXT_DATA__" type="application/json">{"props":{}}</script>`) }, "next"],

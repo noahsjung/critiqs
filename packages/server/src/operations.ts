@@ -18,6 +18,9 @@ import {
   type ThreadDetailPage,
   type ThreadMockup,
   type ThreadSummary,
+  parseOnboardingAnswers,
+  parseStack,
+  startingTags,
   validReviewUrl,
 } from "@critiqs/core";
 import { fail } from "./errors.ts";
@@ -36,7 +39,7 @@ import {
   touchParticipant,
   validateMentions,
 } from "./notify.ts";
-import type { Identity, ProjectRecord, StoredCapture, StoredMention, Store, ThreadRecord, UserRecord } from "./store.ts";
+import type { Identity, ProjectOnboarding, ProjectRecord, StoredCapture, StoredMention, Store, ThreadRecord, UserRecord } from "./store.ts";
 import {
   explicitTags,
   messageHashtags,
@@ -153,33 +156,57 @@ export async function requireThread(store: Store, threadId: string) {
   return { thread, project };
 }
 
+/** Onboarding's answers about a project, as sent: values it doesn't know are dropped, as if skipped. */
+export interface ProjectAnswersInput {
+  codeAccess?: string;
+  feedbackFrom?: string[];
+  purpose?: string;
+}
+
 /**
  * Project setup: any signed-in reviewer can create a project, optionally with
  * its review address, in an organization they belong to: the one they choose,
  * or else their home organization. Setup checks the address first; an
  * address emails can't link to, which older setup could send, is left out
- * rather than refused.
+ * rather than refused. Onboarding also sends its answers about the project
+ * and the stack: what it's for picks the starting tags, and without it the
+ * project starts with the default tags.
  */
 export async function createProject(
   store: Store,
   identity: Identity | null,
-  args: { name: string; reviewUrl?: string | null; organizationId?: string },
+  args: { name: string; reviewUrl?: string | null; organizationId?: string; onboarding?: ProjectAnswersInput; stack?: string },
 ): Promise<string> {
   const user = await requireUser(store, identity);
   const name = args.name.trim();
   if (name === "") fail("invalid", "A project needs a name.");
   const reviewUrl = args.reviewUrl == null ? null : validReviewUrl(args.reviewUrl.trim());
+  const onboarding = projectOnboarding(args.onboarding, args.stack);
   const now = Date.now();
   const organization = args.organizationId === undefined ? await homeOrganization(store, user, now) : await chosenOrganization(store, user, args.organizationId);
   await useQuota(store, { plan: await planFor(store, organization), metric: "projects", accountId: organization._id, projectId: null, now });
   return await store.projects.insert({
     name,
-    tags: [...CORE_DEFAULT_TAGS],
+    tags: [...startingTags(onboarding?.purpose)],
     createdBy: user._id,
     createdAt: now,
     organizationId: organization._id,
     ...(reviewUrl === null ? {} : { reviewUrl }),
+    ...(onboarding === null ? {} : { onboarding }),
   });
+}
+
+/** The answers worth keeping on a new project; null when every one was skipped or unknown. */
+function projectOnboarding(answers: ProjectAnswersInput | undefined, stack: string | undefined): ProjectOnboarding | null {
+  const { codeAccess, feedbackFrom, purpose } = parseOnboardingAnswers(answers);
+  const picked = parseStack(stack);
+  const kept: ProjectOnboarding = {
+    ...(codeAccess === undefined ? {} : { codeAccess }),
+    ...(feedbackFrom === undefined ? {} : { feedbackFrom: [...feedbackFrom] }),
+    ...(purpose === undefined ? {} : { purpose }),
+    ...(picked === undefined ? {} : { stack: picked }),
+  };
+  return Object.keys(kept).length === 0 ? null : kept;
 }
 
 async function chosenOrganization(store: Store, user: UserRecord, organizationId: string) {
