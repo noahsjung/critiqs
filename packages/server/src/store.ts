@@ -158,7 +158,12 @@ export interface StoredMail {
  */
 export interface DeveloperAttempt {
   at: number;
-  answer: "accepted" | "refused" | null;
+  /**
+   * The mail service's answer: `unknown` when the attempt ended without one,
+   * so it may have gone out; null while the attempt is still waiting for it,
+   * which holds the email (`DEVELOPER_ATTEMPT_CLAIM_MS`).
+   */
+  answer: "accepted" | "refused" | "unknown" | null;
 }
 
 /** The setup email a project sent to one developer's address. */

@@ -381,6 +381,27 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect(await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + HOUR))).toBeNull();
   });
 
+  test(`${name}: presses at once claim one attempt: while it waits for the mail service, no other is sent`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    // Three presses of Send at once each queue the email under its one key, and each tries to claim it before the mail service answers.
+    const again = await send(backend, projectId, ["sam@acme.com"], day + 1_000);
+    const more = await send(backend, projectId, ["sam@acme.com"], day + 2_000);
+    expect([again.reserved, more.reserved]).toEqual([first.reserved, first.reserved]);
+    const claims = [];
+    for (const at of [day + 3_000, day + 3_001, day + 3_002]) {
+      claims.push(await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, at)));
+    }
+    expect(claims.map((claim) => claim?.attempt ?? null)).toEqual([0, null, null]);
+    // Once the attempt ends without an answer, sending again retries it under the same key.
+    expect(await backend.run((store) => recordDeveloperEmail(store, { ...first.reserved[0]!, attempt: 0, answer: "unknown" }))).toBe("uncertain");
+    expect((await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + 60_000)))?.attempt).toBe(1);
+    // An attempt that never ended (the sender stopped mid-send) holds the email for DEVELOPER_ATTEMPT_CLAIM_MS, then a retry may claim it.
+    expect(await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + 61_000))).toBeNull();
+    expect((await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + 60_000 + 15 * 60_000)))?.attempt).toBe(2);
+  });
+
   test(`${name}: after an attempt goes unanswered, a refused retry leaves the email uncertain, under the same key`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
@@ -752,7 +773,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     ]);
   });
 
-  test(`${name}: two overlapping attempts that are both refused (429) settle failed, and a new email can go out at once`, async () => {
+  test(`${name}: a press while an attempt waits for its answer sends nothing; a refusal settles it failed, and a new email can go out at once`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
     const first = await send(backend, projectId, ["sam@acme.com"]);
@@ -764,14 +785,14 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       throw refused429();
     });
     await started.promise;
-    // While the first attempt waits for its answer, asking again retries under the same key, and that is refused first.
+    // While the first attempt waits for its answer, asking again queues the same key, but the waiting attempt holds the email.
     const retry = await send(backend, projectId, ["sam@acme.com"], day + 1000);
     expect(retry.reserved).toEqual(first.reserved);
     const fast = await deliverOne(backend, retry.reserved[0]!, day + 1000, async () => {
-      throw refused429();
+      throw new Error("A second attempt must not reach the mail service.");
     });
     answer.resolve();
-    expect([await slow, fast]).toEqual(["failed", "uncertain"]);
+    expect([await slow, fast]).toEqual(["failed", "skipped"]);
     expect((await listed(backend, projectId))[0]).toMatchObject({ status: "failed" });
     const again = await send(backend, projectId, ["sam@acme.com"], day + 2000);
     expect(again.reserved.map((each) => each.idempotencyKey)).toEqual([`critiqs-developer:${first.reserved[0]!.sendId}:1`]);

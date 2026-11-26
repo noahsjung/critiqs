@@ -166,7 +166,7 @@ export const prepareDeveloperEmail = internalMutation({
 
 /** Records the mail service's answer to one attempt at an email. */
 export const recordDeveloperEmail = internalMutation({
-  args: { sendId: v.string(), idempotencyKey: v.string(), attempt: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused")) },
+  args: { sendId: v.string(), idempotencyKey: v.string(), attempt: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.literal("unknown")) },
   handler: async (ctx, args) => await record(convexStore(ctx), args),
 });
 

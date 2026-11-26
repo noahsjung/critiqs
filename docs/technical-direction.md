@@ -1008,6 +1008,12 @@ resend. `developerSends` says when each address can be sent them again
 (`resendAt`, null when it can't), and `/critiqs/config` reports
 `developerResends`. The website shows Send again on the setup page and in
 onboarding once that time comes, and says when before then.
+Every email is claimed in the store before it goes to the mail service: an
+attempt still waiting for its answer holds the email
+(`DEVELOPER_ATTEMPT_CLAIM_MS`), so presses of Send or Send again at once send
+one email, even through a host's own mail service that ignores idempotency
+keys. An attempt that ends without an answer is recorded as `unknown`, and a
+later retry may claim the email again under the same key.
 
 **Proposed, built in the pilot:** Critiqs renders in its own React root inside a
 shadow root, so its events, contexts, and styles stay separate from the host

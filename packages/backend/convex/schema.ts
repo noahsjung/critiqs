@@ -103,8 +103,8 @@ export default defineSchema({
     reservedAt: v.number(),
     /** The current email's number, from 0, in its idempotency key. */
     emailNumber: v.number(),
-    /** The current email's attempts at the mail service, oldest first, each with its answer, or null while none came. */
-    attempts: v.array(v.object({ at: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.null()) })),
+    /** The current email's attempts at the mail service, oldest first, each with its answer: `unknown` when one ended without it, null while one waits for it. */
+    attempts: v.array(v.object({ at: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.literal("unknown"), v.null()) })),
     /** The current email exactly as first prepared, so a retry sends the same request. */
     message: v.optional(storedMailValidator),
     /** How many times the address was sent the steps again after an email went out; absent means none. */

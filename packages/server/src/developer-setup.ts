@@ -99,6 +99,21 @@ function retryable(attempts: readonly DeveloperAttempt[], now: number): boolean 
   return sendStatus(attempts) === "uncertain" && (attempts.length === 0 || now < attempts[0]!.at + RETRY_WINDOW_MS);
 }
 
+/**
+ * How long an attempt still waiting for the mail service's answer holds its
+ * email: no other attempt is claimed meanwhile, so presses of Send at once
+ * send one email even through a mail service that ignores idempotency keys.
+ * Longer than any send runs (a Convex action stops after 10 minutes), so it
+ * only frees an email whose sender stopped mid-send.
+ */
+export const DEVELOPER_ATTEMPT_CLAIM_MS = 15 * 60_000;
+
+/** Whether an attempt may be claimed at `now`: the email is retryable, and no attempt is still waiting for an answer. */
+function claimable(attempts: readonly DeveloperAttempt[], now: number): boolean {
+  const last = attempts.at(-1);
+  return retryable(attempts, now) && (last === undefined || last.answer !== null || now >= last.at + DEVELOPER_ATTEMPT_CLAIM_MS);
+}
+
 /** A link's scheme, or `www.`. */
 const LINK_START = /:\/\/|www\./i;
 /** A run of characters a domain-like name is made of, split at spaces, `@`, `/`, and other punctuation. */
@@ -342,7 +357,8 @@ export interface PreparedEmail {
 /**
  * Claims an attempt at the reserved email under `idempotencyKey` at `now`,
  * returning it exactly as first prepared. Null unless the email may go to
- * the mail service (`retryable`), or when its inbox reported
+ * the mail service (`retryable`) and no other attempt is still waiting for
+ * its answer (`claimable`), or when its inbox reported
  * Critiqs's email as unwanted, which is checked again here, at delivery. An
  * opted-out email never tried certainly wasn't sent, so its claim is
  * recorded as refused, which settles it `failed`; one already tried may have
@@ -361,7 +377,7 @@ export async function prepareDeveloperEmail(
   now: number,
 ): Promise<PreparedEmail | null> {
   const send = await store.developerSends.get(args.sendId);
-  if (send === null || developerEmailKey(send._id, send.emailNumber) !== args.idempotencyKey || !retryable(send.attempts, now)) return null;
+  if (send === null || developerEmailKey(send._id, send.emailNumber) !== args.idempotencyKey || !claimable(send.attempts, now)) return null;
   if (await store.emailSuppressions.has(inboxOf(send.email))) {
     if (send.attempts.length === 0) await store.developerSends.patch(send._id, { attempts: [{ at: now, answer: "refused" }] });
     return null;
@@ -409,7 +425,7 @@ export async function prepareDeveloperEmail(
  */
 export async function recordDeveloperEmail(
   store: Store,
-  args: { sendId: string; idempotencyKey: string; attempt: number; answer: "accepted" | "refused" },
+  args: { sendId: string; idempotencyKey: string; attempt: number; answer: "accepted" | "refused" | "unknown" },
 ): Promise<DeveloperSendStatus | null> {
   const send = await store.developerSends.get(args.sendId);
   if (send === null || developerEmailKey(send._id, send.emailNumber) !== args.idempotencyKey || send.attempts[args.attempt]?.answer !== null) return null;
@@ -424,15 +440,16 @@ export type DeveloperDelivery = "sent" | "failed" | "uncertain" | "skipped";
 /**
  * Sends one reserved email, each step in its own transaction: claim an
  * attempt, send it through the mail service under the email's key, then
- * record the answer. An answer that never came, or a refusal while another
- * attempt is unanswered, leaves the send `uncertain`, for a retry under the
- * same key. Errors other than the mail service's propagate, leaving the
- * attempt unanswered too.
+ * record the answer. An answer that never came (`unknown`), or a refusal
+ * after an earlier attempt that may have gone out, leaves the send
+ * `uncertain`, for a retry under the same key. Errors other than the mail
+ * service's propagate, leaving the attempt claimed until
+ * `DEVELOPER_ATTEMPT_CLAIM_MS` passes.
  */
 export async function deliverDeveloperEmail(steps: {
   prepare: () => Promise<PreparedEmail | null>;
   send: (message: MailMessage) => Promise<void>;
-  record: (attempt: number, answer: "accepted" | "refused") => Promise<DeveloperSendStatus | null>;
+  record: (attempt: number, answer: "accepted" | "refused" | "unknown") => Promise<DeveloperSendStatus | null>;
 }): Promise<DeveloperDelivery> {
   const prepared = await steps.prepare();
   if (prepared === null) return "skipped";
@@ -440,7 +457,8 @@ export async function deliverDeveloperEmail(steps: {
     await steps.send(prepared.message);
   } catch (error) {
     if (!(error instanceof MailError)) throw error;
-    if (!error.confirmed) return "uncertain";
+    // Ended without an answer: it may have gone out, and a retry under the same key may claim the email again.
+    if (!error.confirmed) return (await steps.record(prepared.attempt, "unknown"), "uncertain");
     return (await steps.record(prepared.attempt, "refused")) === "failed" ? "failed" : "uncertain";
   }
   await steps.record(prepared.attempt, "accepted");

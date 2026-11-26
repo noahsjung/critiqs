@@ -1231,3 +1231,17 @@ test("the component's report reads a small body only, so a huge one is never hel
   expect([response.status, response.headers.get("Access-Control-Allow-Origin")]).toEqual([204, "*"]);
   expect(pulled).toBeLessThan(1_000_000);
 }, 10_000);
+
+test("several presses of Send at once send one email, even through a mailer that ignores idempotency keys", async () => {
+  const delivered: MailMessage[] = [];
+  // A host's own mailer, such as plain SMTP: no idempotency, and slow enough that the presses overlap.
+  const mailer: Mailer = { send: async (message) => void (await Bun.sleep(50), delivered.push(message)) };
+  const { handler } = await server({ identify: asPerson, webUrl: "https://critiqs.example/", publicUrl: "https://app.example.com/", mailer });
+  const dana = personBrowser(handler, "dana");
+  const projectId = (await dana.api("createProject", { name: "Acme", reviewUrl: "https://acme.example" })).body.value;
+  // The first press's email has no answer yet when two more arrive.
+  const presses = await Promise.all([0, 1, 2].map(() => dana.api("sendDeveloperSetup", { projectId, emails: ["sam@acme.test"] })));
+  expect(presses.map((press) => press.body.value?.[0]?.status ?? press.body.error)).toEqual(["sent", "sent", "sent"]);
+  const signups = delivered.filter((message) => message.to === "sam@acme.test" && message.idempotencyKey.startsWith("critiqs-developer:"));
+  expect(signups).toHaveLength(1);
+});
