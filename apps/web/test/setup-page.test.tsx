@@ -26,6 +26,12 @@ describe("the setup page", () => {
     expect(button(page, "Sign in with email")).toBeDefined();
   });
 
+  test("signed in: pending invitations are accepted, so someone invited to the team joins here too", async () => {
+    const backend = fakeBackend();
+    await render(<SetupPage id="s1" />, { backend, auth: fakeAuth("dev@acme.com") });
+    expect(backend.calls.filter((call) => call.name === "syncReviewer").length).toBe(1);
+  });
+
   test("loading", async () => {
     const page = await render(<SetupView state={{ status: "loading" }} email="dev@acme.com" onSignOut={noop} />);
     expect(text(page)).toBe("Loading…");

@@ -172,7 +172,8 @@ export const copy = {
 
   invite: {
     heading: "Invite your team",
-    lead: (organization: string, host: string | null) => `They'll get an email to join ${organization} and comment on ${host ?? "the prototype"}.`,
+    lead: (organization: string, host: string | null) =>
+      `Invite them to ${organization}, so they can comment on ${host ?? "the prototype"}. They join when they sign in to Critiqs with the address you invite.`,
     field: "Teammate's email",
     placeholder: "teammate@company.com",
     button: "Invite",
@@ -180,6 +181,7 @@ export const copy = {
     invalid: "Enter a valid email address.",
     own: "That's your own address.",
     invited: (email: string, organization: string) => `${email} is invited to ${organization}.`,
+    emailed: "An email with the invitation is on its way.",
     notEmailed: (email: string) => `This Critiqs deployment can't send email, so tell ${email} to sign in to Critiqs with that address to join.`,
     member: (email: string, organization: string) => `${email} is already in ${organization}.`,
     pending: (email: string, organization: string) => `${email} was already invited to ${organization}.`,

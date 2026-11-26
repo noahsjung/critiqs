@@ -501,7 +501,10 @@ describe("inviting the team, at the end of setup", () => {
     const page = await finish(backend, "6–20");
     const card = page.querySelector(".invite")!;
     expect(card.textContent).toContain("Invite your team");
-    expect(card.textContent).toContain("They'll get an email to join Acme and comment on acme-proto.vercel.app.");
+    // Nothing is promised up front: a deployment that can't send email sends none, and says so after the invite.
+    expect(card.querySelector(".note")?.textContent).toBe(
+      "Invite them to Acme, so they can comment on acme-proto.vercel.app. They join when they sign in to Critiqs with the address you invite.",
+    );
     // Optional: nothing stops the person from leaving, and nothing is sent until they ask.
     expect(backend.calls.filter((call) => call.name === "inviteMember")).toEqual([]);
     await type(labelled(page, "Teammate's email"), "Kim@Acme.com ");
@@ -518,7 +521,7 @@ describe("inviting the team, at the end of setup", () => {
     expect([...card.querySelectorAll(".deliveries li")].map((line) => line.textContent)).toEqual([
       "ray@acme.com is invited to Acme. This Critiqs deployment can't send email, so tell ray@acme.com to sign in to Critiqs with that address to join.",
       "lee@acme.com is already in Acme.",
-      "kim@acme.com is invited to Acme.",
+      "kim@acme.com is invited to Acme. An email with the invitation is on its way.",
     ]);
   });
 
@@ -551,6 +554,17 @@ describe("inviting the team, at the end of setup", () => {
 });
 
 describe("the page", () => {
+  test("someone invited who signs in on the website joins: their pending invitations are accepted once", async () => {
+    sessionStorage.clear();
+    const backend = fakeBackend();
+    await render(<Onboarding />, { backend, auth: fakeAuth(null) });
+    expect(backend.calls.filter((call) => call.name === "syncReviewer")).toEqual([]);
+    await rerender(<Onboarding />, { backend, auth: fakeAuth("kim@acme.com", "r3") });
+    await settle();
+    await rerender(<Onboarding />, { backend, auth: fakeAuth("kim@acme.com", "r3") });
+    expect(backend.calls.filter((call) => call.name === "syncReviewer").length).toBe(1);
+  });
+
   test("another reviewer signing in gets a fresh flow, and signing out removes the draft", async () => {
     sessionStorage.clear();
     const page = await render(<Onboarding />, { auth: fakeAuth(ME, "r1") });

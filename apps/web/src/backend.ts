@@ -17,7 +17,7 @@ import type {
 } from "@critiqs/core";
 import type { ConvexReactClient } from "convex/react";
 import type { GenericId as Id } from "convex/values";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { type Deployment, describeError, type QueryState, resolveDeployment, type Reviewer, useAllPages, useQueryState, useUtcDay } from "./shared.ts";
 
 // What the pages need from Critiqs's backend, so they can be tested with a
@@ -136,6 +136,29 @@ export function useAuth(): Auth {
   const auth = useContext(AuthContext);
   if (auth === null) throw new Error("The page needs sign-in.");
   return auth;
+}
+
+/** The reviewers each backend already accepted pending invitations for on this page. */
+const invitesAccepted = new WeakMap<Backend, Set<string>>();
+
+/**
+ * Accepts the signed-in person's pending invitations to organizations
+ * (`syncReviewer`), once per page load and reviewer, as signing in through an
+ * install does: someone invited who signs in on the website joins too. A
+ * failure is tried again on the next page load.
+ */
+export function useAcceptInvites(): void {
+  const auth = useAuth();
+  const backend = useBackend();
+  const reviewerId = auth.ready ? (auth.reviewer?.id ?? null) : null;
+  useEffect(() => {
+    if (reviewerId === null) return;
+    const accepted = invitesAccepted.get(backend) ?? new Set<string>();
+    invitesAccepted.set(backend, accepted);
+    if (accepted.has(reviewerId)) return;
+    accepted.add(reviewerId);
+    backend.syncReviewer().catch(() => accepted.delete(reviewerId));
+  }, [backend, reviewerId]);
 }
 
 /** A failed call's message for people: Critiqs's own explanation when the backend gave one. */

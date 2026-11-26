@@ -15,9 +15,9 @@ interface InviteLine {
 export function inviteAnswerLine(email: string, answer: InviteAnswer, organization: string): InviteLine {
   switch (answer.status) {
     case "invited":
-      return answer.email === "not-sent"
-        ? { email, text: `${copy.invite.invited(email, organization)} ${copy.invite.notEmailed(email)}`, tone: "note" }
-        : { email, text: copy.invite.invited(email, organization), tone: "success" };
+      if (answer.email === "not-sent") return { email, text: `${copy.invite.invited(email, organization)} ${copy.invite.notEmailed(email)}`, tone: "note" };
+      // Only an email that was queued is mentioned: the card promises none up front.
+      return { email, text: answer.email === "pending" ? `${copy.invite.invited(email, organization)} ${copy.invite.emailed}` : copy.invite.invited(email, organization), tone: "success" };
     case "member":
       return { email, text: copy.invite.member(email, organization), tone: "note" };
     case "pending":
@@ -32,9 +32,10 @@ export function inviteAnswerLine(email: string, answer: InviteAnswer, organizati
 /**
  * Inviting the team at the end of setup, optional: an admin of the project's
  * organization invites people as members, one address at a time, with the
- * organization's own invites. Each gets the invite email, which links to the
- * prototype, and joins when they sign in with that address. Someone who
- * isn't an admin is told who can.
+ * organization's own invites. Each joins when they sign in with that address,
+ * on the prototype or the website, and gets the invite email, which links to
+ * the prototype, when the deployment sends email: the card says so only once
+ * the answer shows it. Someone who isn't an admin is told who can.
  */
 export function InviteTeam({ project, email }: { project: CreatedProject; email: string | null }) {
   const backend = useBackend();

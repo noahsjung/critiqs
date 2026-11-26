@@ -1,6 +1,6 @@
 import { type AddressCheck, isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
 import { type Dispatch, useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
-import { type Backend, failureCode, failureMessage, type NewProject, useAuth, useBackend } from "../backend.ts";
+import { type Backend, failureCode, failureMessage, type NewProject, useAcceptInvites, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import {
   checkFor,
@@ -39,6 +39,7 @@ import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
  */
 export function Onboarding() {
   const auth = useAuth();
+  useAcceptInvites();
   const reviewer: FlowReviewer | null = auth.reviewer === null ? null : { id: auth.reviewer.id, email: auth.reviewer.email };
   const [state, dispatch] = useReducer(flowReducer, reviewer, (signedIn) => restoreFlow(sessionStore(), signedIn));
   useEffect(() => saveFlow(sessionStore(), state), [state]);

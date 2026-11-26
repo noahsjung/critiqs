@@ -1,5 +1,5 @@
 import { installCommands, PROJECT_ID_PATTERN } from "@critiqs/core";
-import { type Backend, type SetupInfo, useAuth, useBackend } from "../backend.ts";
+import { type Backend, type SetupInfo, useAcceptInvites, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import type { QueryState } from "../shared.ts";
 import { BackendStep, Command, ConnectionStatus, Heading, ScriptTagStep, SendList, SignInButton, waitingForInstall } from "./parts.tsx";
@@ -11,6 +11,7 @@ import { BackendStep, Command, ConnectionStatus, Heading, ScriptTagStep, SendLis
  */
 export function SetupPage({ id }: { id: string }) {
   const auth = useAuth();
+  useAcceptInvites();
   if (auth.reviewer === null || !auth.ready) {
     return (
       <>
