@@ -559,7 +559,9 @@ export const MIGRATIONS: Migration[] = [
  * already has threads was installed: each was left with Critiqs on the page,
  * since nothing else could make one before this version. It starts connected
  * at its first thread, on that thread's page's origin, in one pass over the
- * threads (SQLite takes a bare column from the row `MIN` picks).
+ * threads (SQLite takes a bare column from the row `MIN` picks). A stored
+ * anchor whose page can't be read still connects the project, with no origin,
+ * so no row can stop the upgrade.
  */
 function addConnections(sql: SqlDriver): void {
   sql.exec("ALTER TABLE projects ADD COLUMN connected_at INTEGER");
@@ -568,8 +570,18 @@ function addConnections(sql: SqlDriver): void {
     "SELECT project_id, MIN(created_at) AS created_at, anchor FROM threads GROUP BY project_id",
   );
   for (const first of firsts) {
-    const { at, origin } = connectionFromThread({ createdAt: first.created_at, pageUrl: (JSON.parse(first.anchor) as Anchor).evidence.url });
+    const { at, origin } = connectionFromThread({ createdAt: first.created_at, pageUrl: storedPageUrl(first.anchor) });
     sql.run("UPDATE projects SET connected_at = ?, connected_origin = ? WHERE id = ? AND connected_at IS NULL", [at, origin, first.project_id]);
+  }
+}
+
+/** The page address a stored anchor names, or "" when it names none or can't be read. */
+function storedPageUrl(anchor: string): string {
+  try {
+    const url = (JSON.parse(anchor) as Partial<Anchor> | null)?.evidence?.url;
+    return typeof url === "string" ? url : "";
+  } catch {
+    return "";
   }
 }
 
