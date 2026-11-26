@@ -240,6 +240,14 @@
 <td>The sign-in service was unreachable, so your local sign-in was kept. Run <code>npx critiqs-react sign-out</code> again once it is reachable.</td>
 </tr>
 <tr>
+<td><code>didn&#39;t confirm ending an earlier session</code></td>
+<td>Your sign-in ended, but the sign-in service didn&#39;t answer for a session this computer kept from an interrupted renewal, so its token stays saved. Run <code>npx critiqs-react sign-out</code> again once the service is reachable.</td>
+</tr>
+<tr>
+<td><code>changed this computer&#39;s sign-in while it was signing out</code></td>
+<td>Another Critiqs process renewed the sign-in, or signed in again, during sign-out. Run <code>npx critiqs-react sign-out</code> again.</td>
+</tr>
+<tr>
 <td><code>Deploying to the team&#39;s own Convex needs CONVEX_DEPLOY_KEY</code></td>
 <td>Inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or shell environment (not in a committed config file, chat messages, or tool arguments), or run <code>npx critiqs-react init --own-convex</code> in a terminal using its hidden prompt.</td>
 </tr>

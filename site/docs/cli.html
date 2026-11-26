@@ -365,7 +365,7 @@
 </div>
 <p>Credentials are saved in <code>sign-in.v2.json</code> under <code>$CRITIQS_CONFIG_DIR</code>, <code>$XDG_CONFIG_HOME/critiqs</code> (<code>~/.config/critiqs</code>), or <code>%APPDATA%\critiqs</code>. Sign-in lasts until <code>critiqs sign-out</code>, 30 days without use, or 90 days total.</p>
 <h3 id="critiqs-sign-out"><code>critiqs sign-out</code><a class="anchor" href="#critiqs-sign-out"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
-<p>Ends this computer&#39;s saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of <code>critiqs-react</code> saved on this computer.</p>
+<p>Ends this computer&#39;s saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of <code>critiqs-react</code> saved on this computer. If the sign-in service doesn&#39;t confirm ending every session saved on this computer, the command says what is left and exits with status 1; run it again once the service is reachable.</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-out [--backend &lt;url&gt;]</code></pre></div>
 <div class="table-wrap"><table>
 <thead>

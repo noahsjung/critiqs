@@ -336,13 +336,38 @@ export const finishAttempt = internalMutation({
   },
 });
 
-/** Keeps a session alive for the site that owns it. Sessions slide forward on use. */
+/**
+ * Keeps a session alive for the site that owns it, replacing its refresh
+ * token. Sessions slide forward on use.
+ *
+ * The client may choose the replacement and save it before asking, so it can
+ * repeat a refresh whose answer it never received. Repeating it, with both
+ * the replaced token and the replacement, is accepted until the replacement
+ * is used. Any other use of a replaced token, however long ago it was
+ * replaced, means two holders: the session ends, as stolen. "invalid" means
+ * the replacement is already in use.
+ */
 export const refreshSession = internalMutation({
   args: { refreshHash: v.string(), nextRefreshHash: v.string(), origin: v.string() },
   handler: async (ctx, { refreshHash, nextRefreshHash, origin }) => {
-    const session = await sessionFor(ctx, refreshHash);
     const now = Date.now();
-    if (session === null || session.origin !== origin) return null;
+    let session = await sessionFor(ctx, refreshHash);
+    let repeated = false;
+    if (session === null) {
+      const replaced = await replacedToken(ctx, refreshHash);
+      const owner = replaced === null ? null : await ctx.db.get(replaced.sessionId);
+      if (replaced === null || owner === null || owner.origin !== origin) return null;
+      if (replaced.nextRefreshHash !== nextRefreshHash || owner.refreshHash !== nextRefreshHash) {
+        await ctx.db.delete(owner._id);
+        return null;
+      }
+      session = owner;
+      repeated = true;
+    } else if (session.origin !== origin) {
+      return null;
+    } else if ((await sessionFor(ctx, nextRefreshHash)) !== null || (await replacedToken(ctx, nextRefreshHash)) !== null) {
+      return "invalid" as const;
+    }
     // Sessions slide forward with use, but never past their absolute end, so a
     // leaked refresh token can't keep a session alive forever.
     const endsAt = sessionEnd(session);
@@ -356,20 +381,26 @@ export const refreshSession = internalMutation({
       await ctx.db.delete(session._id);
       return null;
     }
-    await ctx.db.patch(session._id, {
-      refreshHash: nextRefreshHash,
-      expiresAt: Math.min(now + SESSION_DAYS * DAY_MS, endsAt),
-    });
+    const expiresAt = Math.min(now + SESSION_DAYS * DAY_MS, endsAt);
+    await ctx.db.patch(session._id, { ...(repeated ? {} : { refreshHash: nextRefreshHash }), expiresAt });
+    // Kept until the session can't be used however often it is renewed, so a repeat or a reuse is always recognized.
+    if (!repeated) await ctx.db.insert("replacedRefreshTokens", { refreshHash, sessionId: session._id, nextRefreshHash, expiresAt: endsAt });
     // The current display name, so a rename reaches every deployment with the next token.
     return { profile: { ...session.profile, name: reviewer.name, profileVersion: reviewer.nameVersion }, endsAt };
   },
 });
 
-/** Ends the session; whether there was one to end. */
+/**
+ * Ends the session; whether there was one to end. A replaced token ends its
+ * session too, so a sign-out that crosses a refresh still ends it, unless
+ * `onlyIfCurrent`: a client cleaning up after a refresh answered late uses
+ * that, since another tab may have finished the refresh and moved on.
+ */
 export const endSession = internalMutation({
-  args: { refreshHash: v.string(), origin: v.string() },
-  handler: async (ctx, { refreshHash, origin }) => {
-    const session = await sessionFor(ctx, refreshHash);
+  args: { refreshHash: v.string(), origin: v.string(), onlyIfCurrent: v.optional(v.boolean()) },
+  handler: async (ctx, { refreshHash, origin, onlyIfCurrent }) => {
+    const replaced = onlyIfCurrent === true ? null : await replacedToken(ctx, refreshHash);
+    const session = (await sessionFor(ctx, refreshHash)) ?? (replaced === null ? null : await ctx.db.get(replaced.sessionId));
     if (session === null || session.origin !== origin) return false;
     await ctx.db.delete(session._id);
     return true;
@@ -403,8 +434,10 @@ export const cleanUp = internalMutation({
       if (ended === CLEANUP_BATCH) unlisted = true;
       else await ctx.db.delete(tracked._id);
     }
+    const replaced = await ctx.db.query("replacedRefreshTokens").withIndex("by_expiry", (q) => q.lt("expiresAt", now)).take(CLEANUP_BATCH);
+    for (const token of replaced) await ctx.db.delete(token._id);
     // Keep going in further transactions until the backlog is gone.
-    if (unlisted || [attempts, sessions, limits, devices].some((batch) => batch.length === CLEANUP_BATCH)) {
+    if (unlisted || [attempts, sessions, limits, devices, replaced].some((batch) => batch.length === CLEANUP_BATCH)) {
       await ctx.scheduler.runAfter(0, internal.signIn.cleanUp, {});
     }
   },
@@ -474,6 +507,13 @@ function stillTrusted(session: Doc<"sessions">): boolean {
 /** Whether a session may still be used: within both its sliding and its absolute end. */
 function sessionLive(session: Doc<"sessions">, now: number): boolean {
   return session.expiresAt > now && sessionEnd(session) > now;
+}
+
+async function replacedToken(ctx: MutationCtx, refreshHash: string) {
+  return await ctx.db
+    .query("replacedRefreshTokens")
+    .withIndex("by_refresh_hash", (q) => q.eq("refreshHash", refreshHash))
+    .first();
 }
 
 async function sessionFor(ctx: MutationCtx, refreshHash: string) {

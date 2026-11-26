@@ -34,6 +34,13 @@ interface StoredSession {
   refreshToken: string;
   /** Access token expiry, in milliseconds. */
   expiresAt: number;
+  /**
+   * The refresh token this site chose to replace `refreshToken` with, saved
+   * before asking for it. If the answer never arrives (the page closed, the
+   * network dropped), the service may already have made the switch, so the
+   * same request is sent again until it has an answer.
+   */
+  nextRefreshToken?: string;
 }
 
 export class SignInError extends Error {
@@ -133,11 +140,13 @@ export class Session implements TokenSession {
     const stored = this.read();
     this.write(null);
     if (stored === null) return;
-    await this.fetchFn(new URL("/auth/sign-out", this.signInUrl), {
+    // After a refresh whose answer was lost, the service holds whichever token it switched to.
+    const tokens = [stored.refreshToken, ...(stored.nextRefreshToken === undefined ? [] : [stored.nextRefreshToken])];
+    await Promise.all(tokens.map((refreshToken) => this.fetchFn(new URL("/auth/sign-out", this.signInUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: stored.refreshToken }),
-    }).catch(() => undefined);
+      body: JSON.stringify({ refreshToken }),
+    }).catch(() => undefined)));
   }
 
   /**
@@ -167,6 +176,13 @@ export class Session implements TokenSession {
         const latest = this.read();
         if (latest === null || !sameReviewer(latest)) throw new Error("You signed out, so your name wasn't changed.");
         if (latest.refreshToken !== current.refreshToken) return "rotated" as const;
+        // A refresh whose answer was lost may have replaced this token; finish it first.
+        if (latest.nextRefreshToken !== undefined) {
+          await this.refresh(latest);
+          // Still pending: the service couldn't be reached or didn't answer.
+          if (this.read()?.refreshToken === latest.refreshToken) throw new Error("Your name couldn't be changed. Check your connection and try again.");
+          return "rotated" as const;
+        }
         const response = await this.fetchFn(new URL("/auth/profile", this.signInUrl), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -190,25 +206,40 @@ export class Session implements TokenSession {
     const stored = this.read();
     if (stored === null) return null;
     if (!forceRefreshToken && stored.expiresAt - Date.now() > REFRESH_LEEWAY_MS) return stored.accessToken;
+    // Without Web Locks, a claim left by a page that closed mid-refresh never
+    // clears. Sending the saved pair again is safe from any page (the service
+    // repeats that refresh), so it goes ahead once a saved pair is there.
+    const savedPair = () => {
+      const current = this.read();
+      return current?.refreshToken === stored.refreshToken && current.nextRefreshToken !== undefined;
+    };
     this.refreshing ??= withSessionLock(this.storageKey, stored.refreshToken, async () => {
       const current = this.read();
       if (current === null) return null;
       // A competing instance/tab already rotated this token while we waited.
       if (current.refreshToken !== stored.refreshToken) return current.accessToken;
       return await this.refresh(current);
-    }).catch(() => null).finally(() => {
+    }, savedPair).catch(() => null).finally(() => {
       this.refreshing = null;
     });
     return await this.refreshing;
   };
 
-  private async refresh(stored: StoredSession): Promise<string | null> {
+  private async refresh(seen: StoredSession): Promise<string | null> {
+    // The caller may have waited (a rename's request): if the reviewer signed
+    // out or in since, this refresh belongs to a session that is gone.
+    const stored = this.read();
+    if (stored?.refreshToken !== seen.refreshToken) return stored?.accessToken ?? null;
+    // Saved before it is sent, so the page can finish this refresh even if it closes before the answer.
+    const nextRefreshToken = stored.nextRefreshToken ?? randomRefreshToken();
+    // Nothing to show changes, so listeners aren't told.
+    if (stored.nextRefreshToken === undefined) this.storage.setItem(this.storageKey, JSON.stringify({ ...stored, nextRefreshToken }));
     let response: Response;
     try {
       response = await this.fetchFn(new URL("/auth/refresh", this.signInUrl), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: stored.refreshToken }),
+        body: JSON.stringify({ refreshToken: stored.refreshToken, nextRefreshToken }),
         signal: AbortSignal.timeout(15_000),
       });
     } catch {
@@ -227,16 +258,21 @@ export class Session implements TokenSession {
     try { next = await response.json() as StoredSession; } catch { return null; }
     if (typeof next.accessToken !== "string" || typeof next.refreshToken !== "string" || !Number.isFinite(next.expiresAt)) return null;
     if (!isCurrent()) {
+      // Another tab finished this same refresh (it sent the same saved replacement): the session is theirs and ours.
+      const latest = this.read();
+      if (latest?.refreshToken === next.refreshToken) return latest.accessToken;
       // Rotation may have committed after sign-out revoked the old token.
-      // Revoke the newly issued token rather than leaving that session alive.
+      // Revoke the newly issued token rather than leaving that session alive,
+      // but only while it is current: another tab may have finished this
+      // refresh and renewed since, and that session is the reviewer's.
       await this.fetchFn(new URL("/auth/sign-out", this.signInUrl), {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: next.refreshToken }),
+        body: JSON.stringify({ refreshToken: next.refreshToken, onlyIfCurrent: true }),
       }).catch(() => undefined);
       return this.read()?.accessToken ?? null;
     }
-    const { accessToken } = next;
-    this.write(next);
+    const { accessToken, refreshToken, expiresAt } = next;
+    this.write({ accessToken, refreshToken, expiresAt });
     return accessToken;
   }
 
@@ -276,6 +312,12 @@ function reviewerOf(session: StoredSession | null): Reviewer | null {
   } catch {
     return null;
   }
+}
+
+/** 32 random bytes, base64url: the form the sign-in service accepts for a refresh token a site chooses. */
+function randomRefreshToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function randomState(): string {

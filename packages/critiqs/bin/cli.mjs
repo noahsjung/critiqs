@@ -291,9 +291,9 @@ async function runSignIn(options, { print, env = process.env, fetchFn = fetch, s
   }
 }
 
-async function runSignOut(options, { print, env = process.env } = {}) {
+async function runSignOut(options, { print, env = process.env, fetchFn = fetch } = {}) {
   try {
-    const result = await signOutComputer({ backendUrl: options.backendUrl, env });
+    const result = await signOutComputer({ backendUrl: options.backendUrl, env, fetchFn });
     const who = result?.reviewer?.name ? ` ${result.reviewer.name}` : "";
     print(
       result === null
@@ -356,7 +356,7 @@ export async function runCli(argv, { cwd = process.cwd(), print = console.log, e
       return 2;
     }
     const backendUrl = options.target === null || options.target === "cloud" ? undefined : options.target;
-    return options.command === "sign-in" ? await runSignIn({ ...options, backendUrl }, { print, env, fetchFn, sleep }) : await runSignOut({ backendUrl }, { print });
+    return options.command === "sign-in" ? await runSignIn({ ...options, backendUrl }, { print, env, fetchFn, sleep }) : await runSignOut({ backendUrl }, { print, env, fetchFn });
   }
   if (options.projectId !== null) {
     if (options.target !== null || options.name !== null || options.reviewUrl !== null || options.signIn !== null || options.newProject || options.json) {

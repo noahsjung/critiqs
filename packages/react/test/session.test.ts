@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { Session } from "../src/session.ts";
 
 const SIGN_IN = "https://auth.example";
@@ -6,6 +6,13 @@ const SIGN_IN = "https://auth.example";
 function token(claims: Record<string, unknown>) {
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=+$/, "");
   return `${encode({ alg: "ES256" })}.${encode(claims)}.signature`;
+}
+
+/** A request body without the replacement token the session chose, which is random. */
+function chosen(body: unknown) {
+  const { nextRefreshToken, ...rest } = JSON.parse(String(body)) as { nextRefreshToken?: string };
+  if (nextRefreshToken !== undefined) expect(nextRefreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return JSON.stringify(rest);
 }
 
 function store(session: { accessToken: string; refreshToken: string; expiresAt: number }) {
@@ -40,7 +47,7 @@ test("refreshes once for concurrent requests near expiry", async () => {
   const session = new Session(SIGN_IN, localStorage, async (url, init) => {
     calls += 1;
     expect(String(url)).toBe(`${SIGN_IN}/auth/refresh`);
-    expect(JSON.parse(String(init.body))).toEqual({ refreshToken: "r1" });
+    expect(chosen(init.body)).toBe('{"refreshToken":"r1"}');
     return Response.json({ accessToken: fresh, refreshToken: "r2", expiresAt: Date.now() + 15 * 60_000 });
   });
   const [a, b] = await Promise.all([
@@ -131,8 +138,12 @@ test("sign-out revokes a replacement issued by an in-flight refresh", async () =
   store({ accessToken: token({ name: "Dana" }), refreshToken: "r1", expiresAt: 0 });
   let respond!: (response: Response) => void;
   const revoked: string[] = [];
+  let chosenToken = "";
   const session = new Session(SIGN_IN, localStorage, async (url, init) => {
-    if (url.pathname === "/auth/refresh") return await new Promise<Response>(resolve => { respond = resolve; });
+    if (url.pathname === "/auth/refresh") {
+      chosenToken = JSON.parse(String(init.body)).nextRefreshToken;
+      return await new Promise<Response>(resolve => { respond = resolve; });
+    }
     revoked.push(JSON.parse(String(init.body)).refreshToken);
     return new Response(null, { status: 204 });
   });
@@ -141,7 +152,8 @@ test("sign-out revokes a replacement issued by an in-flight refresh", async () =
   await session.signOut();
   respond(Response.json({ accessToken: "new-access", refreshToken: "r2", expiresAt: Date.now() + 900_000 }));
   expect(await pending).toBeNull();
-  expect(revoked).toEqual(["r1", "r2"]);
+  // The token the refresh asked for is ended too: the service may already have switched to it.
+  expect(revoked).toEqual(["r1", chosenToken, "r2"]);
   expect(localStorage.getItem(`critiqs:session:${SIGN_IN}`)).toBeNull();
 });
 
@@ -168,7 +180,7 @@ test("changing the display name updates the server, then refreshes so the token 
   store({ accessToken: token({ name: "Dana" }), refreshToken: "r1", expiresAt: Date.now() + 10 * 60_000 });
   const requests: string[] = [];
   const session = new Session(SIGN_IN, localStorage, async (url, init) => {
-    requests.push(`${String(url)} ${String(init.body)}`);
+    requests.push(`${String(url)} ${chosen(init.body)}`);
     if (String(url).endsWith("/auth/profile")) return new Response(null, { status: 204 });
     return Response.json({ accessToken: token({ name: "Dana Kim" }), refreshToken: "r2", expiresAt: Date.now() + 15 * 60_000 });
   });
@@ -210,7 +222,7 @@ test("a rename waits for a refresh already under way and uses the token it deliv
   const held = new Promise<void>((resolve) => (release = resolve));
   let refreshes = 0;
   const session = new Session(SIGN_IN, localStorage, async (url, init) => {
-    bodies.push(`${new URL(String(url)).pathname} ${String(init.body)}`);
+    bodies.push(`${new URL(String(url)).pathname} ${chosen(init.body)}`);
     if (String(url).endsWith("/auth/profile")) return new Response(null, { status: 204 });
     refreshes += 1;
     if (refreshes === 1) await held;
@@ -249,7 +261,7 @@ test("a rename waiting for a lock claimed on a token another tab has since rotat
   });
   const bodies: string[] = [];
   const session = new Session(SIGN_IN, localStorage, async (url, init) => {
-    bodies.push(`${new URL(String(url)).pathname} ${String(init.body)}`);
+    bodies.push(`${new URL(String(url)).pathname} ${chosen(init.body)}`);
     if (String(url).endsWith("/auth/profile")) return new Response(null, { status: 204 });
     return Response.json({ accessToken: token({ name: "Dana Kim" }), refreshToken: "r3", expiresAt: Date.now() + 15 * 60_000 });
   });
@@ -309,4 +321,138 @@ test("sign-in accepts tokens only from its own popup", async () => {
   } finally {
     window.open = realOpen;
   }
+});
+
+test("the replacement token is saved before the refresh is sent, and sent again until an answer arrives", async () => {
+  store({ accessToken: token({ name: "Dana" }), refreshToken: "r1", expiresAt: 0 });
+  const sent: { refreshToken: string; nextRefreshToken: string }[] = [];
+  let online = false;
+  const session = new Session(SIGN_IN, localStorage, async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    // Already on disk when the request leaves, so a page that closes now can finish it later.
+    expect(JSON.parse(localStorage.getItem(`critiqs:session:${SIGN_IN}`)!).nextRefreshToken).toBe(body.nextRefreshToken);
+    sent.push(body);
+    if (!online) throw new TypeError("offline");
+    return Response.json({ accessToken: token({ name: "Dana" }), refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+  });
+  expect(await session.fetchAccessToken({ forceRefreshToken: true })).toBeNull();
+  online = true;
+  expect(await session.fetchAccessToken({ forceRefreshToken: true })).toBeString();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toEqual(sent[0]!);
+  const saved = JSON.parse(localStorage.getItem(`critiqs:session:${SIGN_IN}`)!);
+  expect(saved.refreshToken).toBe(sent[0]!.nextRefreshToken);
+  expect(saved.nextRefreshToken).toBeUndefined();
+});
+
+test("a rename whose answer arrives after sign-out doesn't bring the cleared sign-in back", async () => {
+  store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: "r1", expiresAt: Date.now() + 10 * 60_000 });
+  let answer!: () => void;
+  const session = new Session(SIGN_IN, localStorage, async (url) => {
+    if (url.pathname === "/auth/profile") {
+      await new Promise<void>((resolve) => (answer = resolve));
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/auth/refresh") throw new TypeError("offline");
+    return new Response(null, { status: 204 });
+  });
+  const renaming = session.setDisplayName("Dana Kim");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await session.signOut();
+  answer();
+  await renaming.catch(() => undefined);
+  expect(localStorage.getItem(`critiqs:session:${SIGN_IN}`)).toBeNull();
+  expect(session.getSnapshot().reviewer).toBeNull();
+});
+
+test("a rename that can't reach the service to finish a pending refresh says so", async () => {
+  store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: "r1", expiresAt: Date.now() + 10 * 60_000 });
+  // A refresh whose answer was lost left its chosen token saved.
+  const saved = JSON.parse(localStorage.getItem(`critiqs:session:${SIGN_IN}`)!);
+  localStorage.setItem(`critiqs:session:${SIGN_IN}`, JSON.stringify({ ...saved, nextRefreshToken: "n".repeat(43) }));
+  const paths: string[] = [];
+  const session = new Session(SIGN_IN, localStorage, async (url) => {
+    paths.push(url.pathname);
+    throw new TypeError("offline");
+  });
+  await expect(session.setDisplayName("Dana Kim")).rejects.toThrow("couldn't be changed");
+  expect(paths).toEqual(["/auth/refresh"]);
+  expect(session.getSnapshot().reviewer?.name).toBe("Dana");
+});
+
+test("a refresh another tab already finished with the same replacement is kept, not ended", async () => {
+  store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: "r1", expiresAt: 0 });
+  const ended: string[] = [];
+  const session = new Session(SIGN_IN, localStorage, async (url, init) => {
+    const body = JSON.parse(String(init.body));
+    if (url.pathname === "/auth/sign-out") {
+      ended.push(body.refreshToken);
+      return new Response(null, { status: 204 });
+    }
+    // While this page was suspended, another tab repeated the same refresh and saved its result.
+    store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+    return Response.json({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+  });
+  expect(await session.fetchAccessToken({ forceRefreshToken: true })).toBeString();
+  expect(ended).toEqual([]);
+  expect(session.getSnapshot().reviewer?.name).toBe("Dana");
+});
+
+test("without Web Locks, a claim left by a closed page doesn't stop the page from finishing the saved refresh", async () => {
+  const { IDBFactory } = await import("fake-indexeddb");
+  const originalIndexedDb = globalThis.indexedDB;
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: new IDBFactory() });
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+  const key = `critiqs:session:${SIGN_IN}`;
+  // The closed page saved its chosen token, sent the refresh, and never released its claim.
+  store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: "r1", expiresAt: 0 });
+  const saved = JSON.parse(localStorage.getItem(key)!);
+  const chosenToken = "c".repeat(43);
+  localStorage.setItem(key, JSON.stringify({ ...saved, nextRefreshToken: chosenToken }));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("r1"));
+  const claim = `${key}:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  await new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open("critiqs-session-locks", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("leases");
+    open.onsuccess = () => {
+      const tx = open.result.transaction("leases", "readwrite");
+      tx.objectStore("leases").put({ owner: "closed-page" }, claim);
+      tx.oncomplete = () => { open.result.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+  const sent: unknown[] = [];
+  const session = new Session(SIGN_IN, localStorage, async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    sent.push(body);
+    return Response.json({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+  });
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => (now += 5_000));
+  try {
+    expect(await session.fetchAccessToken({ forceRefreshToken: true })).toBeString();
+  } finally {
+    clock.mockRestore();
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
+  }
+  expect(sent).toEqual([{ refreshToken: "r1", nextRefreshToken: chosenToken }]);
+  expect(JSON.parse(localStorage.getItem(key)!).refreshToken).toBe(chosenToken);
+});
+
+test("a page whose late answer finds another session saved ends it only if it is still current", async () => {
+  store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: "r1", expiresAt: 0 });
+  const signOuts: unknown[] = [];
+  const session = new Session(SIGN_IN, localStorage, async (url, init) => {
+    const body = JSON.parse(String(init.body));
+    if (url.pathname === "/auth/sign-out") {
+      signOuts.push(body);
+      return new Response(null, { status: 204 });
+    }
+    // Meanwhile another tab finished this refresh and renewed again.
+    store({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: "r3", expiresAt: Date.now() + 900_000 });
+    return Response.json({ accessToken: token({ sub: "dana", name: "Dana" }), refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+  });
+  await session.fetchAccessToken({ forceRefreshToken: true });
+  expect(signOuts).toEqual([{ refreshToken: expect.any(String), onlyIfCurrent: true }]);
+  expect(JSON.parse(localStorage.getItem(`critiqs:session:${SIGN_IN}`)!).refreshToken).toBe("r3");
 });

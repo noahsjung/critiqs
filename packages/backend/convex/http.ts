@@ -799,14 +799,18 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const origin = normalizeOrigin(request.headers.get("Origin"));
     const headers = sessionCors(origin);
-    const refreshToken = await readRefreshToken(request);
-    if (origin === null || refreshToken === null) return new Response("Bad request", { status: 400, headers });
-    const nextRefreshToken = randomSecret();
+    const body = await readRefreshBody(request);
+    if (origin === null || body === null) return new Response("Bad request", { status: 400, headers });
+    // Clients save the token they choose before sending it, so a refresh
+    // whose answer never arrives (the page closed, the network dropped) can
+    // be sent again. Older clients send none and get one chosen here.
+    const nextRefreshToken = body.nextRefreshToken ?? randomSecret();
     const session = await ctx.runMutation(internal.signIn.refreshSession, {
-      refreshHash: await hashSecret(refreshToken),
+      refreshHash: await hashSecret(body.refreshToken),
       nextRefreshHash: await hashSecret(nextRefreshToken),
       origin,
     });
+    if (session === "invalid") return new Response("Bad request", { status: 400, headers });
     if (session === null) return new Response("Signed out", { status: 401, headers });
     const { accessToken, expiresAt } = await issueAccessToken(signInUrl(), session.profile, origin, Date.now(), session.endsAt);
     return Response.json({ accessToken, refreshToken: nextRefreshToken, expiresAt }, { headers });
@@ -850,10 +854,13 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const origin = normalizeOrigin(request.headers.get("Origin"));
     const headers = sessionCors(origin);
-    const refreshToken = await readRefreshToken(request);
+    let body: { refreshToken?: unknown; onlyIfCurrent?: unknown } = {};
+    try { body = (await request.json()) ?? {}; } catch {}
+    const refreshToken = typeof body.refreshToken === "string" && body.refreshToken !== "" ? body.refreshToken : null;
     let ended = false;
     if (origin !== null && refreshToken !== null) {
-      ended = await ctx.runMutation(internal.signIn.endSession, { refreshHash: await hashSecret(refreshToken), origin });
+      // `onlyIfCurrent`: a late clean-up after a refresh, which must not end a session that has moved on.
+      ended = await ctx.runMutation(internal.signIn.endSession, { refreshHash: await hashSecret(refreshToken), origin, onlyIfCurrent: body.onlyIfCurrent === true });
     }
     // `critiqs sign-out` reports a session it couldn't find, such as one replaced by a renewal whose answer was lost.
     return new Response(null, { status: 204, headers: { ...headers, "Critiqs-Session-Ended": String(ended) } });
@@ -880,6 +887,21 @@ function sessionCors(origin: string | null): Record<string, string> {
     "Cache-Control": "no-store",
     Vary: "Origin",
   };
+}
+
+/** A refresh token the client chose: as random as the ones this service makes (32 bytes, base64url). */
+const CHOSEN_REFRESH_TOKEN = /^[A-Za-z0-9_-]{43,128}$/;
+
+async function readRefreshBody(request: Request): Promise<{ refreshToken: string; nextRefreshToken?: string } | null> {
+  try {
+    const { refreshToken, nextRefreshToken } = (await request.json()) as { refreshToken?: unknown; nextRefreshToken?: unknown };
+    if (typeof refreshToken !== "string" || refreshToken === "") return null;
+    if (nextRefreshToken === undefined) return { refreshToken };
+    if (typeof nextRefreshToken !== "string" || !CHOSEN_REFRESH_TOKEN.test(nextRefreshToken) || nextRefreshToken === refreshToken) return null;
+    return { refreshToken, nextRefreshToken };
+  } catch {
+    return null;
+  }
 }
 
 async function readRefreshToken(request: Request): Promise<string | null> {

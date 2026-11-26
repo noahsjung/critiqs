@@ -58,6 +58,8 @@ If your host app sends a strict `Content-Security-Policy` header, allow Critiqs'
 | `No one named ... has commented in this project` | Only project participants can be mentioned. Pick a name or `authorId` from `critiqs_thread`. |
 | `can't post agent replies yet` or `has no mockups yet` | The backend runs an older version than `critiqs-react`. Upgrade the backend deployment. |
 | `didn't confirm signing out` | The sign-in service was unreachable, so your local sign-in was kept. Run `npx critiqs-react sign-out` again once it is reachable. |
+| `didn't confirm ending an earlier session` | Your sign-in ended, but the sign-in service didn't answer for a session this computer kept from an interrupted renewal, so its token stays saved. Run `npx critiqs-react sign-out` again once the service is reachable. |
+| `changed this computer's sign-in while it was signing out` | Another Critiqs process renewed the sign-in, or signed in again, during sign-out. Run `npx critiqs-react sign-out` again. |
 | `Deploying to the team's own Convex needs CONVEX_DEPLOY_KEY` | Inject `CONVEX_DEPLOY_KEY` into the MCP server's process environment from a secret store or shell environment (not in a committed config file, chat messages, or tool arguments), or run `npx critiqs-react init --own-convex` in a terminal using its hidden prompt. |
 
 ## `critiqs init` setup messages

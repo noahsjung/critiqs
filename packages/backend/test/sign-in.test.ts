@@ -164,7 +164,7 @@ test("sessions refresh only from their own site and end at sign-out from that si
   const rotated = await ok.json();
   expect(rotated.accessToken).toBeString();
   expect(rotated.refreshToken).not.toBe(refreshToken);
-  expect((await call("/auth/refresh", PROTOTYPE)).status).toBe(401);
+  // Reusing the replaced token ends the session; see the rotation tests below.
   refreshToken = rotated.refreshToken;
   expect((await call("/auth/refresh", "https://other.example")).status).toBe(401);
 
@@ -523,4 +523,112 @@ test("sign-in attempts stored before email codes still fit the schema", async ()
       createdAt: Date.now(),
     });
   });
+});
+
+// Refresh token rotation
+
+/** A refresh token a client chose for itself, as the component and command line do. */
+function chosenToken() {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function refresh(t: Test, body: Record<string, string>, origin = PROTOTYPE) {
+  return t.fetch("/auth/refresh", { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+test("a refresh whose answer never arrived finishes when the client sends the same request again", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const next = chosenToken();
+  // The service rotates to the token the client chose, but the answer is lost (the page closed).
+  expect((await refresh(t, { refreshToken, nextRefreshToken: next })).status).toBe(200);
+
+  const again = await refresh(t, { refreshToken, nextRefreshToken: next });
+  expect(again.status).toBe(200);
+  const body = await again.json();
+  expect(body.refreshToken).toBe(next);
+  expect(claimsOf(body.accessToken).email).toBe("dana@example.com");
+  // The chosen token is now the session's, and rotates as usual.
+  const later = await refresh(t, { refreshToken: next, nextRefreshToken: chosenToken() });
+  expect(later.status).toBe(200);
+});
+
+test("the previous refresh token without its successor ends the session as stolen", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const next = chosenToken();
+  expect((await refresh(t, { refreshToken, nextRefreshToken: next })).status).toBe(200);
+  // Someone else replays the old token, choosing their own successor.
+  expect((await refresh(t, { refreshToken, nextRefreshToken: chosenToken() })).status).toBe(401);
+  expect((await refresh(t, { refreshToken: next })).status).toBe(401);
+});
+
+test("an older client's reused refresh token ends the session as stolen", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const first = await refresh(t, { refreshToken });
+  expect(first.status).toBe(200);
+  const { refreshToken: issued } = await first.json();
+  expect((await refresh(t, { refreshToken })).status).toBe(401);
+  expect((await refresh(t, { refreshToken: issued })).status).toBe(401);
+});
+
+test("a replaced token ends the session however many refreshes ago it was replaced", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const second = chosenToken();
+  const third = chosenToken();
+  expect((await refresh(t, { refreshToken, nextRefreshToken: second })).status).toBe(200);
+  expect((await refresh(t, { refreshToken: second, nextRefreshToken: third })).status).toBe(200);
+  // The first token's replacement was already used, so this is not a repeat: someone else holds it.
+  expect((await refresh(t, { refreshToken, nextRefreshToken: second })).status).toBe(401);
+  expect((await refresh(t, { refreshToken: third })).status).toBe(401);
+});
+
+test("signing out with a replaced token ends the session, so a sign-out racing a refresh still ends it", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const next = chosenToken();
+  // The sign-out for the replacement arrived first, before the refresh switched to it.
+  const early = await t.fetch("/auth/sign-out", { method: "POST", headers: { Origin: PROTOTYPE }, body: JSON.stringify({ refreshToken: next }) });
+  expect(early.headers.get("Critiqs-Session-Ended")).toBe("false");
+  expect((await refresh(t, { refreshToken, nextRefreshToken: next })).status).toBe(200);
+  // The sign-out for the replaced token arrives after.
+  const late = await t.fetch("/auth/sign-out", { method: "POST", headers: { Origin: PROTOTYPE }, body: JSON.stringify({ refreshToken }) });
+  expect(late.headers.get("Critiqs-Session-Ended")).toBe("true");
+  expect((await refresh(t, { refreshToken: next })).status).toBe(401);
+  expect(await t.run((ctx) => ctx.db.query("sessions").collect())).toEqual([]);
+});
+
+test("a chosen refresh token must be a new random value", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const lee = (await signInAs(t, "lee@example.com", "Lee"))!.message.refreshToken;
+  for (const nextRefreshToken of ["short", "x".repeat(43) + "!", "a".repeat(129), refreshToken, lee]) {
+    expect((await refresh(t, { refreshToken, nextRefreshToken })).status).toBe(400);
+  }
+  // Refused requests change nothing.
+  expect((await refresh(t, { refreshToken, nextRefreshToken: chosenToken() })).status).toBe(200);
+  expect((await refresh(t, { refreshToken: lee })).status).toBe(200);
+});
+
+test("a sign-out marked only-if-current ends a session only by its current token", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const next = chosenToken();
+  expect((await refresh(t, { refreshToken, nextRefreshToken: next })).status).toBe(200);
+  const signOut = (body: Record<string, unknown>) =>
+    t.fetch("/auth/sign-out", { method: "POST", headers: { Origin: PROTOTYPE }, body: JSON.stringify(body) });
+  // A late clean-up for a replaced token leaves the session that moved on alone.
+  expect((await signOut({ refreshToken, onlyIfCurrent: true })).headers.get("Critiqs-Session-Ended")).toBe("false");
+  expect((await refresh(t, { refreshToken: next, nextRefreshToken: chosenToken() })).status).toBe(200);
+  expect((await signOut({ refreshToken: next, onlyIfCurrent: true })).headers.get("Critiqs-Session-Ended")).toBe("false");
+});
+
+test("a sign-out marked only-if-current ends the session its current token belongs to", async () => {
+  const t = local();
+  const { refreshToken } = (await signInAs(t, "dana@example.com", "Dana"))!.message;
+  const ended = await t.fetch("/auth/sign-out", { method: "POST", headers: { Origin: PROTOTYPE }, body: JSON.stringify({ refreshToken, onlyIfCurrent: true }) });
+  expect(ended.headers.get("Critiqs-Session-Ended")).toBe("true");
+  expect((await refresh(t, { refreshToken })).status).toBe(401);
 });

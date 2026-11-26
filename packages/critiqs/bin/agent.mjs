@@ -219,7 +219,7 @@ async function signOutLegacyCloud(file, fetchFn) {
     });
   }
   // Unconfirmed, it stays in `recovered`, and the next sign-out tries to end it again.
-  return { reviewer: taken.reviewer ?? null, found: ended.found };
+  return { reviewer: taken.reviewer ?? null, found: ended.found, answered: ended.answered };
 }
 
 /** Replaces the file in one step, readable only by its owner. */
@@ -247,14 +247,16 @@ function timed(fetchFn, url, init) {
 
 /**
  * Ends a saved session with its sign-in service. `answered` is whether the
- * service confirmed, and `found` whether it had the session to end.
+ * service confirmed, and `found` whether it had the session to end. With
+ * `onlyIfCurrent`, the service ends it only by its current token, so a late
+ * clean-up after a renewal can't end a session another process renewed since.
  */
-async function endSession(fetchFn, signInUrl, entry) {
+async function endSession(fetchFn, signInUrl, entry, { onlyIfCurrent = false } = {}) {
   try {
     const response = await timed(fetchFn, `${signInUrl}/auth/sign-out`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: entry.origin ?? new URL(signInUrl).origin },
-      body: JSON.stringify({ refreshToken: entry.refreshToken }),
+      body: JSON.stringify({ refreshToken: entry.refreshToken, ...(onlyIfCurrent ? { onlyIfCurrent: true } : {}) }),
     });
     return { answered: response.ok, found: response.headers.get("Critiqs-Session-Ended") !== "false" };
   } catch (error) {
@@ -533,32 +535,42 @@ export async function accessTokenFor(signInUrl, { backendUrl, siteUrl, env = pro
   const first = approved(readSignIns(file).services[signInUrl]);
   if (usable(first)) return first.accessToken;
   requireSecureTokenTarget(signInUrl);
-  return await withLock(file, async (held) => {
+  /** What to do when the saved sign-in is no longer the one renewed: a replacement is held to the same approval. */
+  const replaced = (replacement) => {
+    if (replacement !== undefined && usable(replacement)) return approved(replacement).accessToken;
+    throw new SetupError("This computer's Critiqs sign-in changed while renewing. Try again.");
+  };
+  const outcome = await withLock(file, async (held) => {
     // Another process may have refreshed while this one waited for the lock.
     const stored = readSignIns(file);
     const entry = approved(stored.services[signInUrl]);
-    if (usable(entry)) return entry.accessToken;
+    if (usable(entry)) return { accessToken: entry.accessToken };
+    // The replacement is saved before it is sent, so a renewal whose answer is
+    // lost (the process stopped, the request timed out) is sent again as is,
+    // and the service, which may already have switched to it, finishes it.
+    const nextRefreshToken = entry.nextRefreshToken ?? randomBytes(32).toString("base64url");
+    if (entry.nextRefreshToken === undefined) {
+      stored.services[signInUrl] = { ...entry, nextRefreshToken };
+      // Nothing is spent yet, so a lock lost here just stops this renewal.
+      held();
+      writeSignIns(file, stored);
+    }
     let response;
     try {
       response = await timed(fetchFn, `${signInUrl}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: entry.origin },
-        body: JSON.stringify({ refreshToken: entry.refreshToken }),
+        body: JSON.stringify({ refreshToken: entry.refreshToken, nextRefreshToken }),
       });
     } catch (error) {
       if (error instanceof SetupError) throw error;
       throw new SetupError(`Can't reach Critiqs's sign-in service at ${signInUrl}.`);
     }
-    /** What to do when the saved sign-in is no longer the one renewed: a replacement is held to the same approval. */
-    const replaced = (replacement) => {
-      if (replacement !== undefined && usable(replacement)) return approved(replacement).accessToken;
-      throw new SetupError("This computer's Critiqs sign-in changed while renewing. Try again.");
-    };
     if (response.status === 401) {
       // Forget the sign-in only if no one replaced it meanwhile.
       return await persist(file, held, (heldNow) => {
         const latest = readSignIns(file);
-        if (latest.services[signInUrl]?.refreshToken !== entry.refreshToken) return replaced(latest.services[signInUrl]);
+        if (latest.services[signInUrl]?.refreshToken !== entry.refreshToken) return { accessToken: replaced(latest.services[signInUrl]) };
         delete latest.services[signInUrl];
         heldNow();
         writeSignIns(file, latest);
@@ -576,18 +588,53 @@ export async function accessTokenFor(signInUrl, { backendUrl, siteUrl, env = pro
       reviewer: tokenReviewer(body.accessToken),
     };
     // The old refresh token is spent, so the new one is written even if another process took the lock over meanwhile.
-    return await persist(file, held, (heldNow) => {
+    // Read again: if this process was suspended long enough for another to take the lock and sign out (or in), the
+    // renewed session is no longer this computer's, and isn't brought back.
+    const saved = await persist(file, held, (heldNow) => {
       const latest = readSignIns(file);
       const current = latest.services[signInUrl];
-      const mine = current?.refreshToken === entry.refreshToken;
-      if (mine) latest.services[signInUrl] = { ...current, ...renewed };
-      // Replaced meanwhile: kept aside, so signing out ends this session too.
-      else latest.recovered = [...recoveredOf(latest), { signInUrl, origin: entry.origin, refreshToken: body.refreshToken }];
+      // Another process finished this same renewal (it sent the same saved replacement): keep what it saved.
+      const same = current?.refreshToken === body.refreshToken;
+      if (same && usable(current)) return { entry: approved(current) };
+      if (same || (current !== undefined && current.refreshToken === entry.refreshToken)) {
+        // The replacement this renewal sent was used, so it is no longer pending. After another process finished
+        // this same renewal, a replacement saved is for that process's next renewal, which may have reached the
+        // service already, so it is kept.
+        const { nextRefreshToken: _sent, ...kept } = current;
+        latest.services[signInUrl] = { ...(same ? current : kept), ...renewed };
+        heldNow();
+        writeSignIns(file, latest);
+        return { entry: latest.services[signInUrl] };
+      }
+      // Replaced meanwhile: kept aside first, so signing out ends this session if the clean-up below doesn't.
+      latest.recovered = [...recoveredOf(latest), { signInUrl, origin: entry.origin, refreshToken: body.refreshToken }];
       heldNow();
       writeSignIns(file, latest);
-      return mine ? body.accessToken : replaced(current);
+      return { current };
     });
+    if (saved.entry === undefined) return { current: saved.current, spare: { origin: entry.origin, refreshToken: body.refreshToken } };
+    // An answer that arrived after its access token expired, such as to a process that was suspended, is kept but not used.
+    if (saved.entry.accessExpiresAt <= now()) throw new SetupError("This computer's Critiqs sign-in was renewed, but the answer came too late to use. Try again.");
+    return { accessToken: saved.entry.accessToken };
   });
+  if (outcome.accessToken !== undefined) return outcome.accessToken;
+  // End the renewed session now, only while current: another process may have finished this renewal and renewed
+  // again since. Sent after letting go of the lock, so other processes don't wait for a second request.
+  const { spare } = outcome;
+  const cleanedUp = await endSession(fetchFn, signInUrl, spare, { onlyIfCurrent: true }).catch(() => ({ answered: false }));
+  if (cleanedUp.answered) {
+    // Ended, or no longer current: either way no one needs its token.
+    await withLockRetry(file, (held) => {
+      const latest = readSignIns(file);
+      const kept = recoveredOf(latest).filter((each) => each.refreshToken !== spare.refreshToken);
+      if (kept.length > 0) latest.recovered = kept;
+      else delete latest.recovered;
+      held();
+      writeSignIns(file, latest);
+    });
+  }
+  if (outcome.current === undefined) throw notSignedIn();
+  return replaced(outcome.current);
 }
 
 /** Resolved backends, so each tool call doesn't ask again. */
@@ -675,42 +722,67 @@ const recoveredOf = (stored) => (Array.isArray(stored.recovered) ? stored.recove
  * was signed in and whether the service found the session to end, or null when
  * this computer wasn't signed in. If the service can't be reached or refuses,
  * the sign-in is kept so signing out can be tried again. A session the service
- * didn't find was already ended, or was replaced by a renewal whose answer was
- * lost; no one holds that one's token, and it ends after 30 days without use.
- * Sessions kept aside for the service (`recovered`) are ended too. Signing out
- * of Critiqs Cloud also ends a Critiqs Cloud sign-in an older version keeps.
+ * didn't find was already ended, or (with an older sign-in service) was
+ * replaced by a renewal whose answer was lost; no one holds that one's token,
+ * and it ends after 30 days without use. Sessions kept aside for the service
+ * (`recovered`) are ended too, and kept aside until the service confirms.
+ * Signing out of Critiqs Cloud also ends a Critiqs Cloud sign-in an older
+ * version keeps. Throws, saying what is left, when a session it didn't
+ * confirm ending stays saved, or another process changed the sign-in meanwhile.
  */
 export async function signOutComputer({ backendUrl, env = process.env, fetchFn = fetch } = {}) {
   const { signInUrl } = await backendFor(backendUrl, fetchFn);
   const file = credentialsFile(env);
   await migrateLegacy(file);
-  const result = await withLock(file, async (held) => {
+  const outcome = await withLock(file, async (held) => {
     const stored = readSignIns(file);
     const entry = stored.services[signInUrl];
     const spares = recoveredOf(stored).filter((spare) => spare.signInUrl === signInUrl);
-    if (entry === undefined && spares.length === 0) return null;
+    if (entry === undefined && spares.length === 0) return { result: null, left: 0, changed: false };
     requireSecureTokenTarget(signInUrl);
-    const ended = entry === undefined ? null : await endSession(fetchFn, signInUrl, entry);
+    // After a renewal whose answer was lost, the service holds whichever token it switched to.
+    const tokens = entry === undefined ? [] : [entry.refreshToken, ...(typeof entry.nextRefreshToken === "string" ? [entry.nextRefreshToken] : [])];
+    let ended = null;
+    if (entry !== undefined) {
+      ended = { answered: true, found: false };
+      for (const refreshToken of tokens) {
+        const each = await endSession(fetchFn, signInUrl, { origin: entry.origin, refreshToken });
+        ended = { answered: ended.answered && each.answered, found: ended.found || each.found };
+      }
+    }
     if (ended !== null && !ended.answered) {
       throw new SetupError(`Critiqs's sign-in service at ${signInUrl} didn't confirm signing out, so this computer is still signed in. Try again when it's reachable.`);
     }
-    for (const spare of spares) await endSession(fetchFn, signInUrl, spare);
-    const spent = new Set(spares.map((spare) => spare.refreshToken));
-    await persist(file, held, (heldNow) => {
+    // A spare the service didn't confirm ending stays aside, and the next sign-out tries it again.
+    const spent = new Set();
+    for (const spare of spares) if ((await endSession(fetchFn, signInUrl, spare)).answered) spent.add(spare.refreshToken);
+    const changed = await persist(file, held, (heldNow) => {
       const latest = readSignIns(file);
-      if (entry !== undefined && latest.services[signInUrl]?.refreshToken === entry.refreshToken) delete latest.services[signInUrl];
+      // Saved under a token just ended: the one read above, or its replacement, if another process finished that renewal meanwhile.
+      if (tokens.includes(latest.services[signInUrl]?.refreshToken)) delete latest.services[signInUrl];
       if (signInUrl === CLOUD_SIGN_IN_URL) latest.cloudSignedOutAt = Date.now();
       const kept = recoveredOf(latest).filter((spare) => !spent.has(spare.refreshToken));
       if (kept.length > 0) latest.recovered = kept;
       else delete latest.recovered;
       heldNow();
       writeSignIns(file, latest);
+      return latest.services[signInUrl] !== undefined;
     });
-    return ended === null ? null : { reviewer: entry.reviewer ?? null, found: ended.found };
+    return { result: ended === null ? null : { reviewer: entry.reviewer ?? null, found: ended.found }, left: spares.length - spent.size, changed };
   });
-  if (signInUrl !== CLOUD_SIGN_IN_URL) return result;
-  const older = await signOutLegacyCloud(file, fetchFn);
-  return result ?? older;
+  const older = signInUrl === CLOUD_SIGN_IN_URL ? await signOutLegacyCloud(file, fetchFn) : null;
+  if (outcome.changed) throw new SetupError("Another Critiqs process changed this computer's sign-in while it was signing out, so it may still be signed in. Sign out again.");
+  const left = outcome.left + (older?.answered === false ? 1 : 0);
+  const result = outcome.result ?? (older === null ? null : { reviewer: older.reviewer, found: older.found });
+  if (left > 0) {
+    const name = result?.reviewer?.name ? ` ${result.reviewer.name}` : "";
+    throw new SetupError(
+      `${result === null ? "" : `Signed out${name}, but `}Critiqs's sign-in service at ${signInUrl} didn't confirm ending ` +
+        `${left === 1 ? "an earlier session from this computer, so it stays" : `${left} earlier sessions from this computer, so they stay`} saved here. ` +
+        "Sign out again when it's reachable.",
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
