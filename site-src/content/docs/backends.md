@@ -18,15 +18,15 @@ This guide covers two backend options: **Critiqs Cloud** by default, or your tea
 
 ## Critiqs Cloud (default)
 
-Critiqs Cloud is the default backend when you omit the `backend` prop on `<Critiqs />`. Critiqs operates the Convex backend, email-code sign-in service, and notification emails.
+Critiqs Cloud is the default backend when you set no backend. Critiqs operates the Convex backend, email-code sign-in service, and notification emails.
 
-You do not configure any backend keys or environment secrets. Run `npx critiqs-react init`, sign in with your email, and Critiqs Cloud creates your project.
+You do not configure any backend keys or environment secrets. Run `npx critiqs init`, sign in with your email, and Critiqs Cloud creates your project.
 
 > **Plan:** Critiqs Cloud includes a Free plan (1 project, 5 reviewers a month, 500 comments a month, 200 Critiqs AI credits a month, and 500 MB of captures), Plus ($20/month regular, $10/month beta), and Pro ($100/month regular, $50/month beta). See [AI models and credits](/docs/ai-models-and-credits) for credit details.
 
 ## Team-owned Convex deployment
 
-To keep all comments, threads, mockups, and captures in your own Convex account, deploy Critiqs's Convex functions to your own deployment. The `critiqs-react` package bundles the backend functions for you.
+To keep all comments, threads, mockups, and captures in your own Convex account, deploy Critiqs's Convex functions to your own deployment. The `critiqs` package, which every Critiqs npm package and the setup CLI use, bundles the backend functions for you.
 
 ### 1. Create a Convex deploy key
 
@@ -37,10 +37,10 @@ Create a project in your Convex dashboard and generate a production deploy key (
 Run `init` with `--own-convex`:
 
 ```sh
-npx critiqs-react init --own-convex
+npx critiqs init --own-convex
 ```
 
-Init asks for `CONVEX_DEPLOY_KEY` (or reads it from your environment) and sends secrets through standard input rather than command arguments. It deploys Critiqs's functions to your deployment, connects your app, and adds the `backend` prop to `<Critiqs />`:
+Init asks for `CONVEX_DEPLOY_KEY` (or reads it from your environment) and sends secrets through standard input rather than command arguments. It deploys Critiqs's functions to your deployment, connects your app, and sets its backend. In a React app, that is the `backend` prop on `<Critiqs />`:
 
 ```tsx
 <Critiqs
@@ -53,14 +53,14 @@ Init asks for `CONVEX_DEPLOY_KEY` (or reads it from your environment) and sends 
 To connect another app or checkout to a Convex deployment that already runs Critiqs, pass `--backend`:
 
 ```sh
-npx critiqs-react init --backend https://your-deployment.convex.cloud
+npx critiqs init --backend https://your-deployment.convex.cloud
 ```
 
 Self-hosted Convex backends are also supported by setting `CONVEX_SELF_HOSTED_URL` and `CONVEX_SELF_HOSTED_ADMIN_KEY` in your environment before running `init --own-convex`.
 
 ### 3. Configure optional backend services
 
-Set environment variables on your Convex deployment from your terminal (typing secrets into stdin, not as command arguments) or in the Convex dashboard. Never put backend keys in your React app or build settings.
+Set environment variables on your Convex deployment from your terminal (typing secrets into stdin, not as command arguments) or in the Convex dashboard. Never put backend keys in your app or its build settings.
 
 #### Mention and reply emails
 
@@ -100,7 +100,7 @@ Generate a value of at least 32 random characters (for example with `openssl ran
 Run `doctor` to verify that your component, backend version, project, and optional services are configured:
 
 ```sh
-npx critiqs-react doctor
+npx critiqs doctor
 ```
 
 Pass `--backend <url>` to check a specific deployment URL.

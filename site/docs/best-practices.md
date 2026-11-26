@@ -8,18 +8,18 @@ These patterns keep build reviews focused, prevent feedback from fragmenting acr
 
 Give every review environment for the same app the same Critiqs project ID. Staging, pull request previews, and QA builds then share one thread list instead of splitting comments by URL.
 
-- Set the app's environment variable (`VITE_CRITIQS_PROJECT_ID` or `NEXT_PUBLIC_CRITIQS_PROJECT_ID`) to the same project ID in your staging, preview, and QA build settings.
+- Set the app's project ID variable (such as `VITE_CRITIQS_PROJECT_ID`, `NEXT_PUBLIC_CRITIQS_PROJECT_ID`, or `CRITIQS_PROJECT_ID` for Rails, Django, and Flask) to the same project ID in your staging, preview, and QA build settings or environment.
 - Point the project's review address to your main staging build so mention and reply emails open a stable URL for everyone:
 
   ```sh
-  npx critiqs-react init --review-url https://staging.example.com
+  npx critiqs init --review-url https://staging.example.com
   ```
 
 - In a monorepo, keep one separate Critiqs project per app (for example `VITE_CRITIQS_PROJECT_ID_WEB` and `VITE_CRITIQS_PROJECT_ID_ADMIN`). Do not share one project ID across different apps.
 
 ## 2. Keep production clean and invite clients to staging
 
-Use `requireProjectId` on `<Critiqs />` (added automatically by `critiqs init` in Vite and Next.js apps) and leave the project ID environment variable unset in production builds:
+Use `requireProjectId` (added by `critiqs init` wherever the project ID comes from an environment variable, and on by default in Rails, Django, and Flask) and leave the project ID variable unset in production. In a React app:
 
 ```tsx
 import { Critiqs } from "critiqs-react";

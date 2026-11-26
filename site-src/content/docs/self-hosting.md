@@ -12,7 +12,7 @@ Self-hosted deployments have no Critiqs Cloud plans or plan limits.
 ## Prerequisites
 
 - Node.js 20 or later
-- A React 18 or 19 host app with `critiqs-react` installed
+- An app with its framework's Critiqs package installed (see [Install Critiqs](/docs/install))
 - Either:
   - A Convex Cloud project and its **production deploy key** (`CONVEX_DEPLOY_KEY`, starting with `prod:`), from your Convex project settings, or
   - A self-hosted Convex backend with `CONVEX_SELF_HOSTED_URL` and `CONVEX_SELF_HOSTED_ADMIN_KEY`
@@ -20,7 +20,7 @@ Self-hosted deployments have no Critiqs Cloud plans or plan limits.
 
 ## 1. Deploy and connect your app
 
-1. Install `critiqs-react` if you have not already:
+1. Install your framework's Critiqs package if you have not already, such as:
 
    ```sh
    npm install critiqs-react
@@ -29,7 +29,7 @@ Self-hosted deployments have no Critiqs Cloud plans or plan limits.
 2. Run `init` with `--own-convex`:
 
    ```sh
-   npx critiqs-react init --own-convex
+   npx critiqs init --own-convex
    ```
 
    In an interactive terminal, `init` prompts for your Convex production deploy key with hidden input (and offers an optional prompt for a Resend API key and sender address). For non-interactive runs, inject `CONVEX_DEPLOY_KEY` into the process environment from your secret store (for example, `op run` or CI secrets) instead of typing a literal key into your shell history or a repository file.
@@ -39,18 +39,18 @@ Self-hosted deployments have no Critiqs Cloud plans or plan limits.
    `init --own-convex` performs these steps:
    - Configures `CRITIQS_AUTH_ISSUER` (and optional Resend variables) on your Convex deployment via standard input, never via command arguments.
    - Deploys Critiqs's bundled Convex functions to your deployment.
-   - Signs you in, creates your project, and writes both `backend="https://<deployment>.convex.cloud"` and your project ID into your app.
+   - Signs you in, creates your project, and writes both your backend (`backend="https://<deployment>.convex.cloud"` in React, or your framework package's backend setting) and your project ID into your app.
 
 3. Verify the deployment:
 
    ```sh
-   npx critiqs-react doctor
+   npx critiqs doctor
    ```
 
 4. Set the project's review address once your staging build is live:
 
    ```sh
-   npx critiqs-react init --review-url https://staging.example.com
+   npx critiqs init --review-url https://staging.example.com
    ```
 
 ## Connect additional apps to the same deployment
@@ -58,10 +58,10 @@ Self-hosted deployments have no Critiqs Cloud plans or plan limits.
 Once Critiqs is deployed to your Convex backend, connect other apps to it without redeploying:
 
 ```sh
-npx critiqs-react init --backend https://<deployment>.convex.cloud
+npx critiqs init --backend https://<deployment>.convex.cloud
 ```
 
-For coding agents, pass `--backend https://<deployment>.convex.cloud` to `npx critiqs-react sign-in` and in MCP tool calls (see [MCP](/docs/mcp)).
+For coding agents, pass `--backend https://<deployment>.convex.cloud` to `npx critiqs sign-in` and in MCP tool calls (see [MCP](/docs/mcp)).
 
 ## Configure sign-in
 
@@ -76,7 +76,7 @@ To run your own sign-in service on your Convex deployment with no Critiqs Cloud 
 | `RESEND_API_KEY` | Your Resend API key |
 | `CRITIQS_EMAIL_FROM` | A sender address on a domain verified in Resend (such as `Critiqs <sign-in@example.com>`) |
 
-If you run a custom sign-in service at another address, set `CRITIQS_SIGN_IN_URL` in your shell before running `npx critiqs-react init --own-convex`.
+If you run a custom sign-in service at another address, set `CRITIQS_SIGN_IN_URL` in your shell before running `npx critiqs init --own-convex`.
 
 ## Configure mention and reply emails
 
@@ -105,7 +105,7 @@ By default, captures and screenshots are stored in native Convex file storage. T
    | `CRITIQS_R2_ACCESS_KEY_ID` | Bucket-restricted R2 access key ID |
    | `CRITIQS_R2_SECRET_ACCESS_KEY` | Bucket-restricted R2 secret access key |
 
-4. Run `npx critiqs-react doctor` to confirm screenshot storage is configured, then leave a real comment to verify upload access.
+4. Run `npx critiqs doctor` to confirm screenshot storage is configured, then leave a real comment to verify upload access.
 
 Existing Convex-stored captures remain readable without migration. Incomplete R2 settings fail explicitly instead of silently falling back to Convex storage.
 
@@ -139,15 +139,15 @@ AI is optional; commenting, threads, mentions, tags, and exports work without it
 
 <!-- GAP: no supported backend-only upgrade command -->
 
-Keep your Convex backend functions in step with your installed `critiqs-react` version.
+Keep your Convex backend functions in step with your installed Critiqs package version.
 
-`critiqs-react` does not currently include a supported command for a backend-only upgrade. Do not rerun `npx critiqs-react init --own-convex` on an app that already names a project: `init` refuses when a project is already configured, and passing `--new-project` creates a replacement project instead of upgrading your existing one.
+Critiqs does not currently include a supported command for a backend-only upgrade. Do not rerun `npx critiqs init --own-convex` on an app that already names a project: `init` refuses when a project is already configured, and passing `--new-project` creates a replacement project instead of upgrading your existing one.
 
 To upgrade the backend while keeping your current project ID, existing data, and `CRITIQS_AUTH_ISSUER`:
 
-1. Update `critiqs-react` and read the release notes for any new backend environment variables or one-time migrations.
-2. Deploy the package's bundled Convex functions (`node_modules/critiqs-react/dist/backend/convex`) to the same deployment with the Convex CLI, using `CONVEX_DEPLOY_KEY` (or your self-hosted Convex variables) injected from your secret store or process environment, without overwriting `CRITIQS_AUTH_ISSUER`.
-3. Run `npx critiqs-react doctor` to confirm the deployment reports a matching backend version.
+1. Update your Critiqs package and read the release notes for any new backend environment variables or one-time migrations.
+2. Deploy the package's bundled Convex functions (`node_modules/critiqs/dist/backend/convex`) to the same deployment with the Convex CLI, using `CONVEX_DEPLOY_KEY` (or your self-hosted Convex variables) injected from your secret store or process environment, without overwriting `CRITIQS_AUTH_ISSUER`.
+3. Run `npx critiqs doctor` to confirm the deployment reports a matching backend version.
 
 After upgrading an older deployment that already had comments before hashtags were introduced, run the backfill once against the same deployment (for example with `--prod`, or with `CONVEX_DEPLOYMENT` or `CONVEX_DEPLOY_KEY` set):
 

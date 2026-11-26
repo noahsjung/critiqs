@@ -176,7 +176,7 @@
 <h2 id="prerequisites">Prerequisites<a class="anchor" href="#prerequisites"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <ul>
 <li>Node.js 20 or later</li>
-<li>A React 18 or 19 host app with <code>critiqs-react</code> installed</li>
+<li>An app with its framework&#39;s Critiqs package installed (see <a href="/docs/install">Install Critiqs</a>)</li>
 <li>Either:<ul>
 <li>A Convex Cloud project and its <strong>production deploy key</strong> (<code>CONVEX_DEPLOY_KEY</code>, starting with <code>prod:</code>), from your Convex project settings, or</li>
 <li>A self-hosted Convex backend with <code>CONVEX_SELF_HOSTED_URL</code> and <code>CONVEX_SELF_HOSTED_ADMIN_KEY</code></li>
@@ -186,31 +186,31 @@
 </ul>
 <h2 id="1-deploy-and-connect-your-app">1. Deploy and connect your app<a class="anchor" href="#1-deploy-and-connect-your-app"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <ol>
-<li><p>Install <code>critiqs-react</code> if you have not already:</p>
+<li><p>Install your framework&#39;s Critiqs package if you have not already, such as:</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npm install critiqs-react</code></pre></div>
 </li>
 <li><p>Run <code>init</code> with <code>--own-convex</code>:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --own-convex</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init --own-convex</code></pre></div>
 <p>In an interactive terminal, <code>init</code> prompts for your Convex production deploy key with hidden input (and offers an optional prompt for a Resend API key and sender address). For non-interactive runs, inject <code>CONVEX_DEPLOY_KEY</code> into the process environment from your secret store (for example, <code>op run</code> or CI secrets) instead of typing a literal key into your shell history or a repository file.</p>
 <p>For a self-hosted Convex backend, inject <code>CONVEX_SELF_HOSTED_URL</code> and <code>CONVEX_SELF_HOSTED_ADMIN_KEY</code> through the process environment instead (do not set both <code>CONVEX_DEPLOY_KEY</code> and self-hosted variables).</p>
 <p><code>init --own-convex</code> performs these steps:</p>
 <ul>
 <li>Configures <code>CRITIQS_AUTH_ISSUER</code> (and optional Resend variables) on your Convex deployment via standard input, never via command arguments.</li>
 <li>Deploys Critiqs&#39;s bundled Convex functions to your deployment.</li>
-<li>Signs you in, creates your project, and writes both <code>backend=&quot;https://&lt;deployment&gt;.convex.cloud&quot;</code> and your project ID into your app.</li>
+<li>Signs you in, creates your project, and writes both your backend (<code>backend=&quot;https://&lt;deployment&gt;.convex.cloud&quot;</code> in React, or your framework package&#39;s backend setting) and your project ID into your app.</li>
 </ul>
 </li>
 <li><p>Verify the deployment:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs doctor</code></pre></div>
 </li>
 <li><p>Set the project&#39;s review address once your staging build is live:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --review-url https://staging.example.com</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init --review-url https://staging.example.com</code></pre></div>
 </li>
 </ol>
 <h2 id="connect-additional-apps-to-the-same-deployment">Connect additional apps to the same deployment<a class="anchor" href="#connect-additional-apps-to-the-same-deployment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>Once Critiqs is deployed to your Convex backend, connect other apps to it without redeploying:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --backend https://&lt;deployment&gt;.convex.cloud</code></pre></div>
-<p>For coding agents, pass <code>--backend https://&lt;deployment&gt;.convex.cloud</code> to <code>npx critiqs-react sign-in</code> and in MCP tool calls (see <a href="/docs/mcp">MCP</a>).</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init --backend https://&lt;deployment&gt;.convex.cloud</code></pre></div>
+<p>For coding agents, pass <code>--backend https://&lt;deployment&gt;.convex.cloud</code> to <code>npx critiqs sign-in</code> and in MCP tool calls (see <a href="/docs/mcp">MCP</a>).</p>
 <h2 id="configure-sign-in">Configure sign-in<a class="anchor" href="#configure-sign-in"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>By default, <code>init --own-convex</code> sets <code>CRITIQS_AUTH_ISSUER</code> to Critiqs Cloud&#39;s sign-in service. Your feedback, captures, and mockups stay on your Convex deployment, while Critiqs Cloud emails one-time sign-in codes.</p>
 <p>To run your own sign-in service on your Convex deployment with no Critiqs Cloud involvement, set these environment variables on your Convex deployment (passing secret values via standard input or the Convex dashboard):</p>
@@ -239,7 +239,7 @@
 </tr>
 </tbody></table>
 </div>
-<p>If you run a custom sign-in service at another address, set <code>CRITIQS_SIGN_IN_URL</code> in your shell before running <code>npx critiqs-react init --own-convex</code>.</p>
+<p>If you run a custom sign-in service at another address, set <code>CRITIQS_SIGN_IN_URL</code> in your shell before running <code>npx critiqs init --own-convex</code>.</p>
 <h2 id="configure-mention-and-reply-emails">Configure mention and reply emails<a class="anchor" href="#configure-mention-and-reply-emails"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>To send mention, reply, and organization invite emails from your Convex deployment, target the same deployment (for example with <code>--prod</code>, or by setting <code>CONVEX_DEPLOYMENT</code> or <code>CONVEX_DEPLOY_KEY</code> in the process environment) and set these variables:</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx convex <span class="hljs-built_in">env</span> <span class="hljs-built_in">set</span> --prod RESEND_API_KEY
@@ -283,7 +283,7 @@ npx convex <span class="hljs-built_in">env</span> <span class="hljs-built_in">se
 </tbody></table>
 </div>
 </li>
-<li><p>Run <code>npx critiqs-react doctor</code> to confirm screenshot storage is configured, then leave a real comment to verify upload access.</p>
+<li><p>Run <code>npx critiqs doctor</code> to confirm screenshot storage is configured, then leave a real comment to verify upload access.</p>
 </li>
 </ol>
 <p>Existing Convex-stored captures remain readable without migration. Incomplete R2 settings fail explicitly instead of silently falling back to Convex storage.</p>
@@ -317,13 +317,13 @@ npx convex <span class="hljs-built_in">env</span> <span class="hljs-built_in">se
 </li>
 </ol>
 <h2 id="upgrading-your-deployment">Upgrading your deployment<a class="anchor" href="#upgrading-your-deployment"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<!-- GAP: no supported backend-only upgrade command --><p>Keep your Convex backend functions in step with your installed <code>critiqs-react</code> version.</p>
-<p><code>critiqs-react</code> does not currently include a supported command for a backend-only upgrade. Do not rerun <code>npx critiqs-react init --own-convex</code> on an app that already names a project: <code>init</code> refuses when a project is already configured, and passing <code>--new-project</code> creates a replacement project instead of upgrading your existing one.</p>
+<!-- GAP: no supported backend-only upgrade command --><p>Keep your Convex backend functions in step with your installed Critiqs package version.</p>
+<p>Critiqs does not currently include a supported command for a backend-only upgrade. Do not rerun <code>npx critiqs init --own-convex</code> on an app that already names a project: <code>init</code> refuses when a project is already configured, and passing <code>--new-project</code> creates a replacement project instead of upgrading your existing one.</p>
 <p>To upgrade the backend while keeping your current project ID, existing data, and <code>CRITIQS_AUTH_ISSUER</code>:</p>
 <ol>
-<li>Update <code>critiqs-react</code> and read the release notes for any new backend environment variables or one-time migrations.</li>
-<li>Deploy the package&#39;s bundled Convex functions (<code>node_modules/critiqs-react/dist/backend/convex</code>) to the same deployment with the Convex CLI, using <code>CONVEX_DEPLOY_KEY</code> (or your self-hosted Convex variables) injected from your secret store or process environment, without overwriting <code>CRITIQS_AUTH_ISSUER</code>.</li>
-<li>Run <code>npx critiqs-react doctor</code> to confirm the deployment reports a matching backend version.</li>
+<li>Update your Critiqs package and read the release notes for any new backend environment variables or one-time migrations.</li>
+<li>Deploy the package&#39;s bundled Convex functions (<code>node_modules/critiqs/dist/backend/convex</code>) to the same deployment with the Convex CLI, using <code>CONVEX_DEPLOY_KEY</code> (or your self-hosted Convex variables) injected from your secret store or process environment, without overwriting <code>CRITIQS_AUTH_ISSUER</code>.</li>
+<li>Run <code>npx critiqs doctor</code> to confirm the deployment reports a matching backend version.</li>
 </ol>
 <p>After upgrading an older deployment that already had comments before hashtags were introduced, run the backfill once against the same deployment (for example with <code>--prod</code>, or with <code>CONVEX_DEPLOYMENT</code> or <code>CONVEX_DEPLOY_KEY</code> set):</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx convex run --prod tags:backfill</code></pre></div>

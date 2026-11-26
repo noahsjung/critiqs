@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Install Critiqs · Critiqs docs</title>
-  <meta name="description" content="Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.">
+  <meta name="description" content="Install the Critiqs package for any of 12 frameworks, from React and Vue to Rails and Django, run npx critiqs init, and verify your setup.">
   <link rel="canonical" href="https://critiqs.app/docs/install">
   <meta name="theme-color" content="#fbfbfa">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -15,14 +15,14 @@
   <meta property="og:url" content="https://critiqs.app/docs/install">
   <meta property="og:site_name" content="Critiqs">
   <meta property="og:title" content="Install Critiqs · Critiqs docs">
-  <meta property="og:description" content="Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.">
+  <meta property="og:description" content="Install the Critiqs package for any of 12 frameworks, from React and Vue to Rails and Django, run npx critiqs init, and verify your setup.">
   <meta property="og:image" content="https://critiqs.app/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Install Critiqs · Critiqs docs">
-  <meta name="twitter:description" content="Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.">
+  <meta name="twitter:description" content="Install the Critiqs package for any of 12 frameworks, from React and Vue to Rails and Django, run npx critiqs init, and verify your setup.">
   <meta name="twitter:image" content="https://critiqs.app/og.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,7 +39,7 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "headline": "Install Critiqs",
-  "description": "Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.",
+  "description": "Install the Critiqs package for any of 12 frameworks, from React and Vue to Rails and Django, run npx critiqs init, and verify your setup.",
   "url": "https://critiqs.app/docs/install",
   "mainEntityOfPage": "https://critiqs.app/docs/install",
   "articleSection": "Get started",
@@ -169,11 +169,12 @@
           <header class="doc-header">
             <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Get started</li></ol></nav>
             <h1 class="heading-3">Install Critiqs</h1>
-            <p class="doc-lede title-2">Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.</p>
+            <p class="doc-lede title-2">Install the Critiqs package for any of 12 frameworks, from React and Vue to Rails and Django, run npx critiqs init, and verify your setup.</p>
           </header>
-<p>Critiqs works in any React 18 or 19 application, including Vite, Next.js (App Router or Pages Router), Remix, and Create React App. React and React DOM are its only peer dependencies. The setup CLI requires Node.js 20 or later.</p>
-<h2 id="other-frameworks">Other frameworks<a class="anchor" href="#other-frameworks"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask each have their own Critiqs package. Install it, then run setup in the app&#39;s folder:</p>
+<p>Critiqs has a package for each of 12 frameworks: React 18 or 19 (Vite, Next.js App Router or Pages Router, Remix, Create React App), Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask. One setup command, <code>npx critiqs init</code>, finds the framework and adds Critiqs for all of them. The setup command requires Node.js 20 or later, also for Rails, Django, and Flask apps.</p>
+<p>A site with no Critiqs package, such as WordPress or Laravel, can add Critiqs with <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag">one script tag</a>.</p>
+<h2 id="1-install-the-package">1. Install the package<a class="anchor" href="#1-install-the-package"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<p>Install your framework&#39;s package in the app&#39;s folder:</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -182,6 +183,10 @@
 </tr>
 </thead>
 <tbody><tr>
+<td>React, Next.js</td>
+<td><code>npm install critiqs-react</code></td>
+</tr>
+<tr>
 <td>Vue</td>
 <td><code>npm install critiqs-vue</code></td>
 </tr>
@@ -202,7 +207,7 @@
 <td><code>npm install critiqs-astro</code></td>
 </tr>
 <tr>
-<td>Solid</td>
+<td>Solid, SolidStart</td>
 <td><code>npm install critiqs-solid</code></td>
 </tr>
 <tr>
@@ -219,10 +224,7 @@
 </tr>
 </tbody></table>
 </div>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init</code></pre></div>
-<p>Setup finds the framework, adds Critiqs where the app renders, signs you in, and connects the app to a new project on Critiqs Cloud, as it does for React. <code>npx critiqs init &lt;projectId&gt;</code> connects a project you already have. A site with no Critiqs package, such as WordPress or Laravel, can add Critiqs with <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag">one script tag</a>. The rest of this page covers React.</p>
-<h2 id="1-install-the-package">1. Install the package<a class="anchor" href="#1-install-the-package"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>Install <code>critiqs-react</code> with your project&#39;s package manager:</p>
+<p>Use your project&#39;s own package manager for the npm packages. For React:</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh"><span class="hljs-comment"># npm</span>
 npm install critiqs-react
 
@@ -235,9 +237,9 @@ yarn add critiqs-react
 <span class="hljs-comment"># Bun</span>
 bun add critiqs-react</code></pre></div>
 <h2 id="2-run-setup">2. Run setup<a class="anchor" href="#2-run-setup"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>Run <code>init</code> in the folder that contains your app&#39;s <code>package.json</code>:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh"><span class="hljs-comment"># npm</span>
-npx critiqs-react init
+<p>Run <code>init</code> in the app&#39;s folder (the one with its <code>package.json</code>, <code>Gemfile</code>, or <code>manage.py</code>):</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh"><span class="hljs-comment"># npm, or any app without a JavaScript package manager</span>
+npx critiqs init
 
 <span class="hljs-comment"># pnpm</span>
 pnpm <span class="hljs-built_in">exec</span> critiqs init
@@ -246,13 +248,86 @@ pnpm <span class="hljs-built_in">exec</span> critiqs init
 yarn critiqs init
 
 <span class="hljs-comment"># Bun</span>
-bunx critiqs-react init</code></pre></div>
-<p>The <code>init</code> command adds <code>&lt;Critiqs /&gt;</code> where your app renders, signs you in with a one-time email code, creates a project on Critiqs Cloud, and wires up its project ID. Critiqs Cloud runs storage, sign-in, and email, so you enter no API keys.</p>
+bunx critiqs init</code></pre></div>
+<p>The <code>init</code> command finds your framework, adds Critiqs where your app renders, signs you in with a one-time email code, creates a project on Critiqs Cloud, and wires up its project ID. Critiqs Cloud runs storage, sign-in, and email, so you enter no API keys.</p>
 <div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>Over SSH, in a container, or on a machine without a desktop browser, <code>init</code> switches to remote approval (or pass <code>--remote</code>). It prints a URL and a short setup code such as <code>BCDF-GHJK</code>. Open that URL on any device, enter the code, sign in with your email, and click <strong>Approve</strong>.</p>
 </div>
 <p>Running <code>init</code> again is safe. It keeps any project ID your code already configures and reuses your project if an earlier run was interrupted. Pass <code>--new-project</code> only if you want a separate project.</p>
 <p>To connect an existing project ID without signing in, pass the ID directly:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init &lt;projectId&gt;</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init &lt;projectId&gt;</code></pre></div>
+<h2 id="what-init-changes-by-framework">What init changes, by framework<a class="anchor" href="#what-init-changes-by-framework"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Framework</th>
+<th>Where Critiqs goes</th>
+<th>Where the project ID goes on your computer</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>React (Vite)</td>
+<td><code>&lt;Critiqs /&gt;</code> beside <code>&lt;App /&gt;</code> in the entry file</td>
+<td><code>VITE_CRITIQS_PROJECT_ID</code> in <code>.env.local</code></td>
+</tr>
+<tr>
+<td>Next.js</td>
+<td><code>&lt;Critiqs /&gt;</code> in <code>app/layout.tsx</code> or <code>pages/_app.tsx</code></td>
+<td><code>NEXT_PUBLIC_CRITIQS_PROJECT_ID</code> in <code>.env.local</code></td>
+</tr>
+<tr>
+<td>Vue</td>
+<td><code>&lt;Critiqs /&gt;</code> in <code>src/App.vue</code></td>
+<td><code>VITE_CRITIQS_PROJECT_ID</code> in <code>.env.local</code></td>
+</tr>
+<tr>
+<td>Nuxt</td>
+<td><code>critiqs-nuxt</code> in the <code>modules</code> of <code>nuxt.config</code></td>
+<td><code>NUXT_PUBLIC_CRITIQS_PROJECT_ID</code> in <code>.env</code></td>
+</tr>
+<tr>
+<td>Svelte</td>
+<td><code>&lt;Critiqs /&gt;</code> in the root component</td>
+<td><code>VITE_CRITIQS_PROJECT_ID</code> in <code>.env.local</code></td>
+</tr>
+<tr>
+<td>SvelteKit</td>
+<td>Critiqs in the root <code>+layout.svelte</code></td>
+<td><code>PUBLIC_CRITIQS_PROJECT_ID</code> in <code>.env.local</code></td>
+</tr>
+<tr>
+<td>Angular</td>
+<td><code>provideCritiqs({ projectId })</code> in <code>src/app/app.config.ts</code></td>
+<td>In that call (Angular has no public environment variables)</td>
+</tr>
+<tr>
+<td>Astro</td>
+<td>The <code>critiqs()</code> integration in <code>astro.config</code></td>
+<td><code>PUBLIC_CRITIQS_PROJECT_ID</code> in <code>.env</code></td>
+</tr>
+<tr>
+<td>Solid</td>
+<td><code>&lt;Critiqs /&gt;</code> in <code>src/App.tsx</code></td>
+<td><code>VITE_CRITIQS_PROJECT_ID</code> in <code>.env.local</code></td>
+</tr>
+<tr>
+<td>Ruby on Rails</td>
+<td><code>&lt;%= critiqs_tag %&gt;</code> before <code>&lt;/body&gt;</code> in the application layout</td>
+<td><code>CRITIQS_PROJECT_ID</code> in <code>.env</code> with dotenv, otherwise <code>ENV[&quot;CRITIQS_PROJECT_ID&quot;] ||= …</code> in <code>config/environments/development.rb</code></td>
+</tr>
+<tr>
+<td>Django</td>
+<td><code>django_critiqs</code> in <code>INSTALLED_APPS</code>, <code>{% critiqs %}</code> in the base template</td>
+<td><code>os.environ.setdefault(&quot;CRITIQS_PROJECT_ID&quot;, …)</code> in <code>manage.py</code>, which starts the development server</td>
+</tr>
+<tr>
+<td>Flask</td>
+<td><code>Critiqs(app)</code> where the app is created, <code>{{ critiqs() }}</code> in the base template</td>
+<td><code>CRITIQS_PROJECT_ID</code> in <code>.env</code>, which <code>flask run</code> loads</td>
+</tr>
+</tbody></table>
+</div>
+<p>Each deployment sets the same variable to its own project ID. Rails, Django, and Flask read it when the server handles a request; a production server (Puma, Gunicorn, uWSGI, Waitress) doesn&#39;t run <code>manage.py</code>, the development configuration, or <code>flask run</code>, so it shows Critiqs only where the variable is set. An environment variable you set yourself always wins over what init wrote. Each package&#39;s README covers its options: <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages/rails#readme">critiqs-rails</a>, <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages/django#readme">django-critiqs</a>, <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages/flask#readme">flask-critiqs</a>, and the <a rel="noopener" href="https://github.com/noahsjung/critiqs/tree/main/packages">other packages</a>.</p>
+<p>The rest of this section shows the React code init writes.</p>
 <h2 id="vite-and-nextjs-setup">Vite and Next.js setup<a class="anchor" href="#vite-and-nextjs-setup"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>In Vite and Next.js apps, <code>init</code> wires <code>&lt;Critiqs /&gt;</code> to a public environment variable, adds <code>requireProjectId</code>, writes the project ID to <code>.env.local</code>, and adds an empty entry to <code>.env.example</code>.</p>
 <h3 id="vite">Vite<a class="anchor" href="#vite"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
@@ -296,28 +371,28 @@ root.<span class="hljs-title function_">render</span>(
 }</code></pre></div>
 <h3 id="other-react-setups">Other React setups<a class="anchor" href="#other-react-setups"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>If your app has a custom entry file or multiple roots, pass <code>--entry</code> and <code>--mount</code>:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --entry src/Shell.tsx --mount Outlet</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init --entry src/Shell.tsx --mount Outlet</code></pre></div>
 <p>In a monorepo workspace, run <code>init</code> once per app with <code>--dir apps/&lt;app&gt;</code>. See <a href="/docs/projects">Projects and project IDs</a>.</p>
 <h2 id="keep-critiqs-out-of-production-with-requireprojectid">Keep Critiqs out of production with requireProjectId<a class="anchor" href="#keep-critiqs-out-of-production-with-requireprojectid"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>Adding <code>requireProjectId</code> ensures Critiqs renders only when <code>projectId</code> holds a valid project ID:</p>
+<p>When the project ID comes from an environment variable, init turns on <code>requireProjectId</code> (Rails, Django, and Flask have it on by default), so Critiqs renders only when the variable holds a valid project ID:</p>
 <ul>
-<li><strong>Unset variable (production):</strong> <code>&lt;Critiqs /&gt;</code> adds nothing to the DOM and makes no network requests.</li>
+<li><strong>Unset variable (production):</strong> Critiqs adds nothing to the page and makes no network requests.</li>
 <li><strong>Invalid or unknown ID:</strong> Visitors see nothing. Critiqs logs a warning to the browser console explaining what is wrong.</li>
 <li><strong>No browser fallback:</strong> Critiqs never falls back to a project remembered in <code>localStorage</code>, so two apps on the same domain cannot pick up each other&#39;s project.</li>
 </ul>
-<p>Vite and Next.js inline <code>VITE_*</code> and <code>NEXT_PUBLIC_*</code> values at build time. Set the variable in your staging, preview, and QA build settings, leave it unset in production, and rebuild after changing a value.</p>
+<p>Vite, Next.js, and Astro inline <code>VITE_*</code>, <code>NEXT_PUBLIC_*</code>, and <code>PUBLIC_*</code> values at build time: set the variable in your staging, preview, and QA build settings, leave it unset in production, and rebuild after changing a value. Nuxt, SvelteKit, Rails, Django, and Flask read it where the server runs: set it in each deployment&#39;s environment and restart.</p>
 <h2 id="3-check-that-it-works">3. Check that it works<a class="anchor" href="#3-check-that-it-works"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>Run <code>doctor</code> to check the component, backend connection, project, review address, and email configuration:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor</code></pre></div>
+<p>Run <code>doctor</code> to check Critiqs in the code, the backend connection, project, review address, and email configuration:</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs doctor</code></pre></div>
 <p>Each check reports whether it inspected configuration or observed live backend activity. Because <code>doctor</code> never sends an email, uploads a capture, or posts a comment, finish by testing the real flow:</p>
 <ol>
 <li>Start or restart your dev server and open the app in a browser.</li>
 <li>Click <strong>Sign in</strong> on the Critiqs toolbar and sign in with your email code.</li>
 <li>Press <code>C</code>, click an element on the page, and post a test comment.</li>
-<li>Commit your source code changes (not <code>.env.local</code>), set the project ID variable in your staging or preview build settings, and deploy.</li>
+<li>Commit your source code changes (not <code>.env.local</code> or <code>.env</code>), set the project ID variable in your staging or preview build settings or environment, and deploy.</li>
 <li>Record the deployed review address so notification emails link to it:</li>
 </ol>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init --review-url https://staging.example.com</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init --review-url https://staging.example.com</code></pre></div>
         </article>
         <nav class="pager" aria-label="Previous and next">
           <a class="pager-link prev" href="/docs/introduction"><span class="caption-4">Previous</span><span class="title-3">Introduction</span></a>
@@ -328,9 +403,9 @@ root.<span class="hljs-title function_">render</span>(
         <nav class="toc" aria-labelledby="toc-title">
           <p class="toc-title title-4" id="toc-title">On this page</p>
           <ul class="body-6">
-            <li class="toc-h2"><a href="#other-frameworks">Other frameworks</a></li>
             <li class="toc-h2"><a href="#1-install-the-package">1. Install the package</a></li>
             <li class="toc-h2"><a href="#2-run-setup">2. Run setup</a></li>
+            <li class="toc-h2"><a href="#what-init-changes-by-framework">What init changes, by framework</a></li>
             <li class="toc-h2"><a href="#vite-and-nextjs-setup">Vite and Next.js setup</a></li>
             <li class="toc-h3"><a href="#vite">Vite</a></li>
             <li class="toc-h3"><a href="#nextjs-app-router">Next.js App Router</a></li>

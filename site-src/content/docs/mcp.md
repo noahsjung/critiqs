@@ -5,13 +5,13 @@ section: Agents
 order: 1
 ---
 
-Critiqs ships a stdio Model Context Protocol (MCP) server inside `critiqs-react`. Run it with `npx critiqs-react mcp` so your coding agent can list open threads, inspect captures, read mockups, and post replies marked "via coding agent".
+Critiqs ships a stdio Model Context Protocol (MCP) server in its `critiqs` command, the same for every framework. Run it with `npx critiqs mcp` so your coding agent can list open threads, inspect captures, read mockups, and post replies marked "via coding agent".
 
 > **Note:** The MCP feedback tools work with Critiqs Cloud and team-owned Convex deployments. Node.js 20 or later is required.
 
 ## Add the MCP server to your client
 
-Critiqs uses the standard stdio MCP transport with command `npx` and arguments `["critiqs-react", "mcp"]`.
+Critiqs uses the standard stdio MCP transport with command `npx` and arguments `["critiqs", "mcp"]`.
 
 ### Claude Code
 
@@ -22,7 +22,7 @@ Add Critiqs to `.mcp.json` in your repository root:
   "mcpServers": {
     "critiqs": {
       "command": "npx",
-      "args": ["critiqs-react", "mcp"]
+      "args": ["critiqs", "mcp"]
     }
   }
 }
@@ -35,7 +35,7 @@ Add Critiqs to `.codex/config.toml` in your repository (or your user-level Codex
 ```toml
 [mcp_servers.critiqs]
 command = "npx"
-args = ["critiqs-react", "mcp"]
+args = ["critiqs", "mcp"]
 ```
 
 ### Cursor
@@ -47,7 +47,7 @@ Add Critiqs to `.cursor/mcp.json` in your repository (or your global Cursor MCP 
   "mcpServers": {
     "critiqs": {
       "command": "npx",
-      "args": ["critiqs-react", "mcp"]
+      "args": ["critiqs", "mcp"]
     }
   }
 }
@@ -62,7 +62,7 @@ Use the generic stdio configuration for any client that reads an MCP JSON file:
   "mcpServers": {
     "critiqs": {
       "command": "npx",
-      "args": ["critiqs-react", "mcp"]
+      "args": ["critiqs", "mcp"]
     }
   }
 }
@@ -76,7 +76,7 @@ VS Code and GitHub Copilot read `.vscode/mcp.json` in the repository, with the s
     "critiqs": {
       "type": "stdio",
       "command": "npx",
-      "args": ["critiqs-react", "mcp"]
+      "args": ["critiqs", "mcp"]
     }
   }
 }
@@ -84,7 +84,7 @@ VS Code and GitHub Copilot read `.vscode/mcp.json` in the repository, with the s
 
 Windsurf reads `~/.codeium/windsurf/mcp_config.json`, with the same `mcpServers` block as above.
 
-> **Note:** If you deploy to your team's own Convex backend through MCP (`target: "own-convex"`), inject `CONVEX_DEPLOY_KEY` into the MCP server's process environment from a secret store or your shell environment instead of writing a literal key into a repository config file. Never paste API keys or deploy keys into chat or tool arguments. Alternatively, run `npx critiqs-react init --own-convex` in a terminal and enter the key at its hidden prompt.
+> **Note:** If you deploy to your team's own Convex backend through MCP (`target: "own-convex"`), inject `CONVEX_DEPLOY_KEY` into the MCP server's process environment from a secret store or your shell environment instead of writing a literal key into a repository config file. Never paste API keys or deploy keys into chat or tool arguments. Alternatively, run `npx critiqs init --own-convex` in a terminal and enter the key at its hidden prompt.
 
 ## Sign in once on your computer
 
@@ -93,7 +93,7 @@ Reading feedback and replying require a saved sign-in on the computer running th
 1. Run the sign-in command in a terminal:
 
    ```sh
-   npx critiqs-react sign-in
+   npx critiqs sign-in
    ```
 
    If you use a team-owned Convex deployment instead of Critiqs Cloud, pass `--backend https://<deployment>.convex.cloud`.
@@ -107,13 +107,13 @@ Your session is stored in `sign-in.v2.json`, readable only by your user account:
 - Windows: `%APPDATA%\critiqs\sign-in.v2.json`
 - Custom folder: set `CRITIQS_CONFIG_DIR`
 
-Earlier versions of `critiqs-react` used `sign-in.json` in the same folder. The first time a newer version runs, it moves that file's Critiqs Cloud sign-in over and leaves `sign-in.json` signed out. Signing out of Critiqs Cloud signs out both.
+Earlier versions of Critiqs used `sign-in.json` in the same folder. The first time a newer version runs, it moves that file's Critiqs Cloud sign-in over and leaves `sign-in.json` signed out. Signing out of Critiqs Cloud signs out both.
 
-The sign-in lasts until you run `npx critiqs-react sign-out` (or call `critiqs_sign_out`), 30 days without use, or 90 days total.
+The sign-in lasts until you run `npx critiqs sign-out` (or call `critiqs_sign_out`), 30 days without use, or 90 days total.
 
 ## MCP tools reference
 
-All 13 tools below are served by `npx critiqs-react mcp`. Pass `backend` only when your project runs on a deployment other than Critiqs Cloud.
+All 13 tools below are served by `npx critiqs mcp`. Pass `backend` only when your project runs on a deployment other than Critiqs Cloud.
 
 ### Reading feedback and mockups
 
@@ -145,14 +145,14 @@ All 13 tools below are served by `npx critiqs-react mcp`. Pass `backend` only wh
 | --- | --- | --- |
 | `critiqs_setup_start` | `dir`, `target` (`"cloud"`, `"own-convex"`, or backend URL), `name`, `reviewUrl`, `signIn`, `entry`, `mount`, `newProject`, `envFile` | Plans component placement, deploys to your own Convex if requested, and returns the sign-in URL (and setup code for remote approval). |
 | `critiqs_setup_finish` | `waitSeconds` (1 to 50, default 45) | Waits for sign-in, creates or reuses the project, writes the component and ID, and returns structured `stages` and `env` matching `critiqs init --json`. |
-| `critiqs_write_project_id` | `projectId` (required), `dir`, `dryRun`, `entry`, `mount`, `envFile` | Connects `<Critiqs />` to an existing project without signing in. |
+| `critiqs_write_project_id` | `projectId` (required), `dir`, `dryRun`, `entry`, `mount`, `envFile` | Connects the app's Critiqs to an existing project without signing in. |
 | `critiqs_doctor` | `dir`, `envFile`, `backend` | Runs all setup checks and returns structured results matching `critiqs doctor --json`. |
 
 ## Typical agent workflow
 
 1. **List open feedback.** Ask your agent to call `critiqs_comments` with your project ID (defaults to `status: "open"`). Filter by `tag`, `screen`, `author`, or `since` to focus on one area.
 2. **Inspect a thread.** Have the agent call `critiqs_thread` for full discussion details and `critiqs_screenshot` to see the exact element outlined on screen.
-3. **Locate and fix the code.** The agent uses `context.target.purposeId` (your element's `data-critiqs-id`), `context.screen`, `context.viewState`, and the capture to find the component, make the edit, and run tests. For visual proposals in Mockup mode, it calls `critiqs_mockups` and `critiqs_mockup` and implements the edits in your real React components rather than copying frozen HTML.
+3. **Locate and fix the code.** The agent uses `context.target.purposeId` (your element's `data-critiqs-id`), `context.screen`, `context.viewState`, and the capture to find the component, make the edit, and run tests. For visual proposals in Mockup mode, it calls `critiqs_mockups` and `critiqs_mockup` and implements the edits in your real components and templates rather than copying frozen HTML.
 4. **Reply in the thread.** Once the fix is verified, the agent calls `critiqs_reply` with a short summary of what changed, the build or commit in `revision`, and optional `mention` recipients. Critiqs labels the reply "via coding agent".
 5. **Resolve after review.** Leave the thread open so a reviewer can confirm the change on the next staging or preview build and resolve it.
 

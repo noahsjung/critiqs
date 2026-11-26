@@ -5,7 +5,7 @@ section: Get started
 order: 1
 ---
 
-Critiqs is a React component (`<Critiqs />` from `critiqs-react`) that you add to your staging, preview, or QA builds. Product managers, designers, QA testers, and clients open your build in a browser, click any element on the page, and leave comments in threads.
+Critiqs is a toolbar and sidebar that you add to your staging, preview, or QA builds, with a package for React and Next.js (`critiqs-react`), Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask, and a script tag for any other site. Product managers, designers, QA testers, and clients open your build in a browser, click any element on the page, and leave comments in threads.
 
 Every comment keeps a capture of the screen, the page address, the element it points to, and any tab or view state your app reports. Developers and coding agents get the full context without chasing screenshots in chat.
 
@@ -14,12 +14,12 @@ Every comment keeps a capture of the screen, the page address, the element it po
 Critiqs fits teams where non-engineers and engineers review builds together before release.
 
 - **Reviewers:** Product managers, designers, QA testers, stakeholders, and clients. They open the build link in a browser, sign in with a one-time email code, and comment without installing a browser extension or cloning a repository.
-- **Developers and coding agents:** Engineers read threads directly on the build or export selected threads as Markdown or JSON. Coding agents connect through the Critiqs MCP server (`npx critiqs-react mcp`) to read threads, inspect captures and mockups, and post replies marked "via coding agent".
+- **Developers and coding agents:** Engineers read threads directly on the build or export selected threads as Markdown or JSON. Coding agents connect through the Critiqs MCP server (`npx critiqs mcp`) to read threads, inspect captures and mockups, and post replies marked "via coding agent".
 - **Project owners:** Developers who add `<Critiqs />` to the app, manage the project ID and review address, and configure tags, tag groups, and AI settings.
 
 ## What Critiqs adds to your app
 
-When `<Critiqs />` is active on a build, it mounts inside its own shadow root above your app. Its styles, keyboard shortcuts, and React tree stay isolated from your code.
+When Critiqs is active on a build, it mounts inside its own shadow root above your app. Its styles, keyboard shortcuts, and UI stay isolated from your code.
 
 The floating toolbar at the bottom of the screen gives reviewers three modes:
 
@@ -45,5 +45,5 @@ AI is optional. Commenting, threads, mentions, tags, filters, basic search, and 
 
 ## Next steps
 
-- Follow [Install Critiqs](/docs/install) to add `<Critiqs />` to your React app.
+- Follow [Install Critiqs](/docs/install) to add Critiqs to your app with `npx critiqs init`.
 - Read [Projects and project IDs](/docs/projects) to share one feedback list across staging, preview, and QA builds.

@@ -53,7 +53,7 @@ With `alwaysApply: false`, Cursor's agent reads the rule when a request matches 
 ## Verify the setup
 
 1. Configure the [Critiqs MCP server](/docs/mcp) in your agent client.
-2. Sign your computer in once with `npx critiqs-react sign-in` (or let the agent call `critiqs_sign_in`).
+2. Sign your computer in once with `npx critiqs sign-in` (or let the agent call `critiqs_sign_in`).
 3. Start a new session in your agent and ask it to check open Critiqs comments or mockups for your app.
 
 ## Update the skill

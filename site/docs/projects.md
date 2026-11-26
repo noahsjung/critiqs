@@ -18,11 +18,11 @@ A developer working locally can also use the same project ID in `.env.local` to 
 | Separate review track | A different project ID | Keeps its own separate thread list |
 | Production for customers | Variable left unset (with `requireProjectId`) | No Critiqs UI or network requests |
 
-> **Note:** Critiqs never identifies a project by its URL. The `projectId` prop determines which project a build connects to. Opening a preview link with the same project ID never changes the project's review address.
+> **Note:** Critiqs never identifies a project by its URL. The project ID setting determines which project a build connects to. Opening a preview link with the same project ID never changes the project's review address.
 
 ### Build-time versus runtime configuration
 
-Vite and Next.js replace `VITE_*` and `NEXT_PUBLIC_*` environment variables when the app builds. Changing a variable in your hosting provider requires a new build.
+Vite, Next.js, and Astro replace `VITE_*`, `NEXT_PUBLIC_*`, and `PUBLIC_*` environment variables when the app builds, so changing one in your hosting provider requires a new build. Nuxt, SvelteKit, Rails, Django, and Flask read the variable where the server runs, so a restart applies a change.
 
 Critiqs does not check `NODE_ENV`, so a production-mode build deployed to staging still shows Critiqs as long as the project ID variable is set. If your team builds one bundle and promotes the same files across staging and production, read the project ID from your own runtime configuration and pass it to `projectId`, keeping `requireProjectId`.
 
@@ -34,23 +34,23 @@ To connect another checkout or developer machine to an existing project without 
 2. Run `init` with that project ID:
 
 ```sh
-npx critiqs-react init <projectId>
+npx critiqs init <projectId>
 ```
 
-When `<Critiqs />` reads an environment variable, `init <projectId>` writes the ID to `.env.local` without requiring sign-in.
+When Critiqs reads an environment variable, `init <projectId>` writes the ID for your computer without requiring sign-in: to `.env.local` or `.env`, or for Rails and Django, which load no `.env` file by default, as a development-only default (see [Install Critiqs](/docs/install#what-init-changes-by-framework)).
 
 ## One project per app in a monorepo
 
 In an npm, pnpm, Yarn, or Bun workspace, give each app its own Critiqs project. Run `init` once per app with `--dir`:
 
 ```sh
-npx critiqs-react init --dir apps/web
-npx critiqs-react init --dir apps/admin
+npx critiqs init --dir apps/web
+npx critiqs init --dir apps/admin
 ```
 
 Init gives each workspace app its own environment variable name based on the app name, such as `VITE_CRITIQS_PROJECT_ID_WEB` and `NEXT_PUBLIC_CRITIQS_PROJECT_ID_ADMIN`. That prevents a shared workspace `.env` file or a single CI job from pointing multiple apps at the same project.
 
-If you run `npx critiqs-react init` at the workspace root, it lists the detected apps and prints the `--dir` command for each one without editing files. If a Vite app uses a custom `envDir` that `init` cannot resolve statically, pass `--project-env-file <path>` to both `init` and `doctor`.
+If you run `npx critiqs init` at the workspace root, it lists the detected apps and prints the `--dir` command for each one without editing files. If a Vite app uses a custom `envDir` that `init` cannot resolve statically, pass `--project-env-file <path>` to both `init` and `doctor`.
 
 ## Set the review address
 
@@ -59,7 +59,7 @@ Every project has one **Review address** that mention and reply emails link to. 
 Organization admins and the person who created the project (while they remain a member of the organization) can set or change the review address. Set it from the command line, including any base path:
 
 ```sh
-npx critiqs-react init --review-url https://staging.example.com/app/
+npx critiqs init --review-url https://staging.example.com/app/
 ```
 
 You can also set or update it in the app: open the **Project** panel in **Browse mode**, click **Project setup**, and click **Add the address** or **Change** under **Review address**. Changes apply to emails sent from that point forward.
