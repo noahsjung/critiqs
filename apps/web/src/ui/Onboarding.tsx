@@ -25,7 +25,7 @@ import {
 } from "../flow.ts";
 import { Select } from "../shared.ts";
 import { AboutYou } from "./AboutYou.tsx";
-import { Heading, Progress } from "./parts.tsx";
+import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
 import { Preview } from "./Preview.tsx";
 import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
 
@@ -469,12 +469,14 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
   const flow = state.flow;
   const done = () => dispatch({ type: "setup-done", flow });
   const others = otherWays(state.who, check);
+  const host = project.reviewUrl === null ? null : shownHost(project.reviewUrl);
   return (
     <>
       <div ref={panels} className="panels">
         {state.who === "me" && (
           <div className="panel">
             <InstallPanel project={project} onDone={done} />
+            <ProjectConnection projectId={project.id} host={host} />
           </div>
         )}
         {sendOpened && (
@@ -503,6 +505,11 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
       </div>
     </>
   );
+}
+
+/** Whether Critiqs has loaded with the new project yet, live. */
+function ProjectConnection({ projectId, host }: { projectId: string; host: string | null }) {
+  return <ConnectionStatus setup={useBackend().useProjectSetup(projectId)} host={host} />;
 }
 
 function BackGlyph() {

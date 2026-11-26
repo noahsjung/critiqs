@@ -55,6 +55,10 @@ export interface ProjectRecord {
   onboarding?: ProjectOnboarding;
   /** Who can review it; absent means `anyone`. */
   reviewAccess?: ReviewAccess;
+  /** When Critiqs first loaded on a page with this project's ID (`reportConnected`); absent until then. */
+  connectedAt?: number;
+  /** That page's origin, as its browser sent it. */
+  connectedOrigin?: string;
 }
 
 /**
@@ -562,7 +566,7 @@ export type AiSettingsChanges = Partial<Pick<AiSettingsRecord, "enabled" | "mode
 export type PersonalAiSettingsChanges = Partial<Pick<PersonalAiSettingsRecord, "enabled" | "mode" | "epoch" | "updatedAt">> & {
   [K in ConnectionField]?: PersonalAiSettingsRecord[K] | null;
 };
-export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess" | "tags">>;
+export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess" | "tags" | "connectedAt" | "connectedOrigin">>;
 export type DeliveryChanges = Partial<
   Pick<DeliveryRecord, "status" | "attempts" | "dueAt" | "claimToken" | "leaseUntil" | "message" | "payload" | "finishedAt" | "reason">
 >;

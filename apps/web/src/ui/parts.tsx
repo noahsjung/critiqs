@@ -1,8 +1,9 @@
-import { backendSetting, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
+import { backendSetting, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAuth } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
+import type { QueryState } from "../shared.ts";
 
 // Pieces every page of the website's app is built from. The look follows
 // the landing page (site/styles.css): Geist, near-black buttons, one blue.
@@ -225,6 +226,36 @@ export function Account() {
       <button type="button" className="quiet" onClick={() => void auth.signOut()}>
         {copy.signIn.signOut}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Whether Critiqs has loaded with the project's ID yet, live: waiting, then
+ * Connected with where and when. Nothing on a backend that doesn't record
+ * it (no `connected` in its setup), so it never waits forever.
+ */
+export function ConnectionStatus({ setup, host, waitingNote }: { setup: QueryState<ProjectSetup>; host: string | null; waitingNote?: string }) {
+  if (setup.status !== "ready" || setup.data.connected === undefined) return null;
+  const connected = setup.data.connected;
+  if (connected === null) {
+    return (
+      <div className="connection waiting" role="status">
+        <span className="pulse" aria-hidden="true" />
+        <span className="stacked tight">
+          <span>{copy.connection.waiting(host)}</span>
+          {waitingNote !== undefined && <span className="note">{waitingNote}</span>}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="connection connected" role="status">
+      <CheckIcon />
+      <span className="stacked tight">
+        <span>{copy.connection.connected(connected.origin)}</span>
+        <span className="note">{copy.connection.when(connected.at)}</span>
+      </span>
     </div>
   );
 }

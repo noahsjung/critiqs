@@ -79,6 +79,7 @@ test("a setup email goes out from a scheduled action as the inviter via Critiqs,
     address: "https://acme.example/",
     stack: null,
     installCommands: [`npx critiqs init ${projectId}`],
+    connected: null,
   });
   expect(await dana.query(api.onboarding.projectSetup, { projectId })).toMatchObject({ stack: { id: "next", label: "Next.js", installable: true } });
   await expect(t.query(api.onboarding.projectSetup, { projectId })).rejects.toThrow("Sign in");
@@ -133,4 +134,18 @@ test("without email set up, or with an invalid website address, nothing is reser
   expect(await dana.query(api.onboarding.developerSends, { projectId })).toEqual([]);
   process.env.CRITIQS_WEB_URL = "https://staging.critiqs.example/";
   expect(await refusal()).toBeUndefined();
+});
+
+test("the component's report that it loaded marks the project connected, from the page's origin, and answers the same for anything", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Acme", reviewUrl: "https://acme.example" });
+  const report = (body: string, origin?: string) => t.fetch("/critiqs/connected", { method: "POST", body, headers: origin === undefined ? {} : { Origin: origin } });
+  // From the extension's panel, with no origin, or for no project: nothing changes, and every answer is the same.
+  for (const response of [await report(projectId, "chrome-extension://pfdpnmmiemejphfghkalofichdcoandg"), await report(projectId), await report("nothing", "https://acme.example"), await report("")]) {
+    expect([response.status, response.headers.get("Access-Control-Allow-Origin")]).toEqual([204, "*"]);
+  }
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
+  expect((await report(projectId, "https://acme.example")).status).toBe(204);
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toEqual({ at: expect.any(Number), origin: "https://acme.example" });
 });

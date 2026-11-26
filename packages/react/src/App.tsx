@@ -17,6 +17,7 @@ import {
   type TargetLocation,
 } from "@critiqs/core";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { reportConnected } from "./connected.ts";
 import type { Deployment } from "./deployment.ts";
 import type { CritiqsProps } from "./host.ts";
 import { errorMessage, useTransport } from "./transport.ts";
@@ -380,6 +381,12 @@ function PanelApp({
     // A failure is retried the next time this reviewer opens the project.
     transport.recordProjectOpened(projectId).catch(() => recordedOpens.delete(key));
   }, [signedIn, recordsOpens, projectReady, projectId, reviewerId, deployment.backendUrl, transport]);
+
+  // Loading with a project tells the backend, so onboarding on the Critiqs website can say Connected, before anyone signs in.
+  const reportsConnections = deployment.connections === true;
+  useEffect(() => {
+    if (reportsConnections && projectId !== null) reportConnected(deployment.siteUrl, projectId);
+  }, [reportsConnections, projectId, deployment.siteUrl]);
 
   const signOut = useCallback(() => {
     revealController.current?.abort();

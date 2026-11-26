@@ -632,6 +632,35 @@ export interface ProjectSetup {
   stack: StackInfo | null;
   /** `installCommands` for the stack. Newer clients work them out from `stack` instead, so older backends' answers show today's commands. */
   installCommands: readonly string[] | null;
+  /**
+   * Whether Critiqs has loaded on a page with this project's ID: when it
+   * first did, and that page's origin (only for the people the saved stack
+   * is shown to). Null until then; absent from older backends, which don't
+   * record it.
+   */
+  connected?: ProjectConnection | null;
+}
+
+/** When Critiqs first loaded with a project's ID, and on which origin, if the reader may see it. */
+export interface ProjectConnection {
+  at: number;
+  origin: string | null;
+}
+
+/**
+ * The origin a browser reported for a page that loaded Critiqs, as a project
+ * records it: an `http:` or `https:` origin and nothing else, such as
+ * `https://acme-proto.vercel.app`; null for anything else, including the
+ * extension's own pages and requests that name no origin.
+ */
+export function connectionOrigin(value: string | null | undefined): string | null {
+  if (typeof value !== "string" || value.length > 300) return null;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.origin === value ? url.origin : null;
+  } catch {
+    return null;
+  }
 }
 
 /** What a setup link shows the developer it was sent to: the project's setup, and who asked. */

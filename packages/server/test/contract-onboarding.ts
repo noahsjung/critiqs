@@ -13,7 +13,7 @@ import {
   reserveDeveloperSends,
 } from "../src/developer-setup.ts";
 import { utcDay } from "../src/limits.ts";
-import { saveAboutYou } from "../src/onboarding.ts";
+import { reportConnected, saveAboutYou } from "../src/onboarding.ts";
 import * as ops from "../src/operations.ts";
 import * as organizations from "../src/organizations.ts";
 import { MailError, type MailMessage } from "../src/signin.ts";
@@ -473,6 +473,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       address: "https://acme-proto.vercel.app/",
       stack: { id: "next", label: "Next.js", installable: true },
       installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`],
+      connected: null,
       inviterName: "Dana",
     });
     expect(await shown(sam, sendIds[1]!)).toMatchObject({ stack: { id: "nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
@@ -501,6 +502,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       address: "https://acme-proto.vercel.app/",
       stack: { id: "next", label: "Next.js", installable: true },
       installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`],
+      connected: null,
     });
     expect(await shown(dana, nuxt)).toMatchObject({ projectName: "Nuxt app", stack: { id: "nuxt", label: "Nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
     expect(await shown(dana, unknown)).toMatchObject({ address: null, stack: null, installCommands: [`npx critiqs init ${unknown}`] });
@@ -511,6 +513,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       address: "https://acme-proto.vercel.app/",
       stack: null,
       installCommands: [`npx critiqs init ${projectId}`],
+      connected: null,
     });
     expect(await shown(lee, nuxt)).toMatchObject({ stack: null, installCommands: [`npx critiqs init ${nuxt}`] });
     await expect(shown(null, projectId)).rejects.toThrow("Sign in");
@@ -520,6 +523,28 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
     expect(await shown(dana, projectId)).toMatchObject({ projectId, stack: { id: "next" } });
     await expect(shown(lee, projectId)).rejects.toThrow("limited to members of its organization");
+  });
+
+  test(`${name}: Critiqs loading with a project's ID marks it connected once, with the page's origin, which only its owners and the developer see`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const { reserved } = await send(backend, projectId, ["dev@corp.com"]);
+    const report = (origin: string | null, id = projectId, at = 1_000) => backend.run((store) => reportConnected(store, { projectId: id, origin }, at));
+    const setup = (who: Identity) => backend.run((store) => getProjectSetup(store, who, { projectId }));
+    // Reports that aren't from a web page, or name no project, change nothing and answer the same.
+    for (const origin of [null, "chrome-extension://pfdpnmmiemejphfghkalofichdcoandg", "null", "https://acme-proto.vercel.app/path", "file://", "javascript:alert(1)"]) await report(origin);
+    await report("https://acme-proto.vercel.app", "not-a-project");
+    await report("https://acme-proto.vercel.app", "p_00000000000000000000000000000000");
+    expect((await setup(dana)).connected).toBeNull();
+    // The first page to load it is kept; later ones, from anywhere, change nothing.
+    await report("http://localhost:5173", projectId, 2_000);
+    await report("https://acme-proto.vercel.app", projectId, 3_000);
+    expect((await setup(dana)).connected).toEqual({ at: 2_000, origin: "http://localhost:5173" });
+    expect(await backend.run((store) => store.projects.get(projectId))).toMatchObject({ connectedAt: 2_000, connectedOrigin: "http://localhost:5173" });
+    // The developer it was sent to sees where; anyone else signed in sees only that it connected.
+    const developer = { ...reviewer("Dev"), email: "dev@corp.com" };
+    expect((await backend.run((store) => getDeveloperSetup(store, developer, { sendId: reserved[0]!.sendId }))).connected).toEqual({ at: 2_000, origin: "http://localhost:5173" });
+    expect((await setup(reviewer("Lee"))).connected).toEqual({ at: 2_000, origin: null });
   });
 
   test(`${name}: a setup link opens only for the exact address it was sent to, ignoring case and spaces, not another +tag of the same inbox`, async () => {

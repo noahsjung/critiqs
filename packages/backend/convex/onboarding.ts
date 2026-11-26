@@ -10,6 +10,7 @@ import {
   recordDeveloperEmail as record,
   REPORT_PATH,
   reportToken,
+  reportConnected as reportConnectedOp,
   reportUnwantedEmail as report,
   reserveDeveloperSends,
   resendMailer,
@@ -31,6 +32,16 @@ import { convexStore, identityOf, run } from "./lib/store";
 export const claimAddressCheck = internalMutation({
   args: {},
   handler: async (ctx) => run(async () => claimAddressCheckOp(convexStore(ctx), await identityOf(ctx), Date.now())),
+});
+
+/**
+ * Records that Critiqs loaded with a project's ID, the first time only, for
+ * onboarding's Connected. Called by the `/critiqs/connected` route with the
+ * origin the browser sent; anything but an http or https origin changes nothing.
+ */
+export const reportConnected = internalMutation({
+  args: { projectId: v.string(), origin: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => await reportConnectedOp(convexStore(ctx), args, Date.now()),
 });
 
 /** Saves the signed-in person's "About you" answers. Unknown values are dropped; a skipped answer changes nothing. */

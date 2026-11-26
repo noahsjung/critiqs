@@ -45,7 +45,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -549,6 +549,11 @@ export const MIGRATIONS: Migration[] = [
   CREATE INDEX projects_by_creator_organization ON projects (created_by, organization_id, seq);
   `,
   shortenLongProjectNames,
+  // When Critiqs first loaded with each project's ID, and on which origin, for onboarding's Connected.
+  `
+  ALTER TABLE projects ADD COLUMN connected_at INTEGER;
+  ALTER TABLE projects ADD COLUMN connected_origin TEXT;
+  `,
 ];
 
 /**
@@ -947,6 +952,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     ...(row.organization_id === null ? {} : { organizationId: row.organization_id }),
     ...(row.onboarding === null ? {} : { onboarding: JSON.parse(row.onboarding) as ProjectOnboarding }),
     reviewAccess: row.review_access === "organization" ? "organization" : "anyone",
+    ...(row.connected_at === null ? {} : { connectedAt: row.connected_at }),
+    ...(row.connected_origin === null ? {} : { connectedOrigin: row.connected_origin }),
   });
   const thread = (row: ThreadRow): ThreadRecord => ({
     _id: row.id,
@@ -1360,6 +1367,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           organization_id: changes.organizationId,
           review_access: changes.reviewAccess,
           tags: changes.tags === undefined ? undefined : JSON.stringify(changes.tags),
+          connected_at: changes.connectedAt,
+          connected_origin: changes.connectedOrigin,
         }),
       listByCreator: async (userId, request) =>
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),
@@ -2119,6 +2128,8 @@ interface ProjectRow {
   organization_id: string | null;
   onboarding: string | null;
   review_access: string;
+  connected_at: number | null;
+  connected_origin: string | null;
 }
 interface ProjectAddressRow {
   seq: number;

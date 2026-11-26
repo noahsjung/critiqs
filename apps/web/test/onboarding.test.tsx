@@ -126,6 +126,20 @@ describe("the second screen: who adds Critiqs", () => {
     expect([...page.querySelectorAll(".other-ways button")].map((each) => each.textContent)).toEqual(["Review it with the extension instead", "I'll add it myself"]);
   });
 
+  test("I will: the setup screen waits for Critiqs to load, then says Connected, live", async () => {
+    const setup = { projectId: PROJECT_ID, projectName: "acme-proto", address: "https://acme-proto.vercel.app/", stack: null, installCommands: null };
+    const backend = fakeBackend({ projectSetupState: { status: "ready", data: { ...setup, connected: null } } });
+    const page = await render(<Flow from={atWho()} />, { backend });
+    await click(button(page, I_WILL));
+    await settle();
+    expect(page.querySelector(".connection")?.textContent).toBe("Waiting for Critiqs to load on acme-proto.vercel.app…");
+    const live = fakeBackend({ projectSetupState: { status: "ready", data: { ...setup, connected: { at: Date.UTC(2026, 10, 25), origin: "https://acme-proto.vercel.app" } } } });
+    // The same screen, with the project's setup as it arrives.
+    await rerender(<Flow from={atWho()} />, { backend: live });
+    expect(title(page)).toBe("Add Critiqs to your prototype");
+    expect(page.querySelector(".connection.connected")?.textContent).toStartWith("Connected. Critiqs loaded on acme-proto.vercel.app.");
+  });
+
   test("the extension's way without address edits, or when adding fails, says to add the site to the project in the extension", async () => {
     for (const backend of [fakeBackend(), fakeBackend({ addressEdits: true, addProjectAddress: async () => Promise.reject(new Error("forbidden")) })]) {
       const page = await render(<Flow from={atWho()} />, { backend });

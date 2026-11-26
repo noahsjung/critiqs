@@ -959,6 +959,21 @@ server with outbound traffic limited to the public internet, or turn the check
 off with `createCritiqsHandler({ addressCheck: false })`, which `/critiqs/config`
 reports as `addressCheck: false`. Critiqs Cloud keeps the check on.
 
+**Built: Connected.** Onboarding on the Critiqs website says when Critiqs
+first loads on the prototype. The component, on the prototype's own `http:`
+or `https:` page, posts the project ID as plain text to
+`/critiqs/connected` (no preflight), once per browser, before anyone signs
+in. The backend keeps only the first report, as `connectedAt` and the origin
+the browser sent (`connectedOrigin`), and answers every report the same, so it
+reveals no project. A report from anything but a web page, such as the
+extension's side panel, changes nothing. Anyone who knows a project's ID can
+send one, so it sets nothing but that one time and origin. Setup pages return
+it as `connected`, with the origin only for the project's owners and the
+developer a setup email went to. `/critiqs/config` reports `connections`; the
+component reports only where it does. The website shows it live on the setup
+screen and the setup page; nothing is emailed, since no notification rule
+covers it.
+
 **Proposed, built in the pilot:** Critiqs renders in its own React root inside a
 shadow root, so its events, contexts, and styles stay separate from the host
 app's. In Comment mode pointer and keyboard events are stopped before the

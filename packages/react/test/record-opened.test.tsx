@@ -136,3 +136,27 @@ test("a recording that failed is tried again the next time the project opens", a
   await render(working, using);
   expect(recorded(working)).toEqual([{ projectId: "project" }]);
 });
+
+test("loading with a project tells a backend that records connections, before anyone signs in; others are never asked", async () => {
+  const original = globalThis.fetch;
+  const asked: [string, unknown][] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    asked.push([String(input), init?.body]);
+    return new Response(null, { status: 204 });
+  }) as typeof fetch;
+  try {
+    const older = deployment(true);
+    await render(backend(), older, { signedIn: false });
+    expect(asked).toEqual([]);
+    await act(async () => root?.unmount());
+    root = null;
+    host?.remove();
+    host = null;
+    const using = { ...deployment(true), connections: true };
+    await render(backend(), using, { signedIn: false });
+    await render(backend(), using, { signedIn: false });
+    expect(asked).toEqual([[`${using.siteUrl}/critiqs/connected`, "project"]]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

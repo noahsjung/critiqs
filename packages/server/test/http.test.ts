@@ -105,8 +105,24 @@ test("reports itself as a server in the host app, current with the component", a
     addressEdits: true,
     createKeys: true,
     presetTags: true,
+    connections: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
+});
+
+test("the component's report that it loaded marks the project connected once, from the page's origin", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const projectId = (await dana.api("createProject", { name: "Pilot" })).body.value;
+  const report = (body: string, origin?: string) =>
+    handler.fetch(new Request(`${SITE}/critiqs/critiqs/connected`, { method: "POST", body, headers: origin === undefined ? {} : { Origin: origin } }));
+  for (const response of [await report(projectId), await report(projectId, "chrome-extension://abc"), await report("p_00000000000000000000000000000000", SITE)]) {
+    expect([response.status, response.headers.get("Access-Control-Allow-Origin")]).toEqual([204, "*"]);
+  }
+  expect((await dana.api("projectSetup", { projectId })).body.value.connected).toBeNull();
+  expect((await report(projectId, SITE)).status).toBe(204);
+  expect((await report(projectId, "https://elsewhere.example")).status).toBe(204);
+  expect((await dana.api("projectSetup", { projectId })).body.value.connected).toEqual({ at: expect.any(Number), origin: SITE });
 });
 
 test("serves address lists, recording opened projects, and the project lookup, without telling other tabs anything changed", async () => {
@@ -1110,6 +1126,7 @@ test("a project's owner emails its setup steps; the developer opens the setup li
     address: "https://acme.example/",
     stack: null,
     installCommands: [`npx critiqs init ${projectId}`],
+    connected: null,
   });
   expect((await dana.api("projectSetup", { projectId })).body.value).toMatchObject({ stack: { id: "react", label: "React (Vite)", installable: true } });
   expect((await personBrowser(handler, "nobody").api("projectSetup", { projectId })).body.error?.code).toBe("unauthenticated");

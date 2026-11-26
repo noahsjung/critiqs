@@ -1,4 +1,4 @@
-import { parseOnboardingAnswers } from "@critiqs/core";
+import { connectionOrigin, parseOnboardingAnswers } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { countWithinAll } from "./limits.ts";
 import { requireUser } from "./operations.ts";
@@ -47,4 +47,24 @@ export async function saveAboutYou(store: Store, identity: Identity | null, args
     ...(teamSize === undefined || teamSize === user.teamSize ? {} : { teamSize }),
   };
   if (Object.keys(changes).length > 0) await store.users.patch(user._id, changes);
+}
+
+/**
+ * Records that Critiqs loaded on a page with this project's ID, for
+ * onboarding's Connected: the first time only, with the page's origin as its
+ * browser sent it. The installed component reports it on its own, before
+ * anyone signs in, so it takes no identity and answers the same whether or
+ * not the project exists. A report from a page that isn't `http:` or
+ * `https:`, such as the browser extension's panel, or that names no origin,
+ * changes nothing: the extension is not an install. Since anyone who knows a
+ * project's ID could report it, it only ever sets the one time and origin,
+ * which only the project's owners and its setup page see.
+ */
+export async function reportConnected(store: Store, args: { projectId: string; origin: string | null }, now: number): Promise<void> {
+  const origin = connectionOrigin(args.origin);
+  const id = store.normalizeId("projects", args.projectId);
+  if (origin === null || id === null) return;
+  const project = await store.projects.get(id);
+  if (project === null || project.connectedAt !== undefined) return;
+  await store.projects.patch(project._id, { connectedAt: now, connectedOrigin: origin });
 }

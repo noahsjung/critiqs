@@ -140,6 +140,13 @@ export const copy = {
     },
   },
 
+  connection: {
+    waiting: (host: string | null) => `Waiting for Critiqs to load on ${host ?? "your prototype"}…`,
+    connected: (origin: string | null) => (origin === null ? "Connected. Critiqs loaded on the prototype." : `Connected. Critiqs loaded on ${origin.replace(/^https?:\/\//, "")}.`),
+    when: (at: number) => `First loaded ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}.`,
+    setupWaiting: "Once it's added, this page says Connected when Critiqs loads on the prototype.",
+  },
+
   ways: {
     /** The other ways in, under the one chosen. */
     switchTo: { me: "I'll add it myself", developer: "Someone else will add it", extension: "Review it with the extension instead" },

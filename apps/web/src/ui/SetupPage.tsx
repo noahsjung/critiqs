@@ -2,7 +2,7 @@ import { installCommands, PROJECT_ID_PATTERN } from "@critiqs/core";
 import { type Backend, type SetupInfo, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import type { QueryState } from "../shared.ts";
-import { BackendStep, Command, Heading, ScriptTagStep, SignInButton } from "./parts.tsx";
+import { BackendStep, Command, ConnectionStatus, Heading, ScriptTagStep, SignInButton } from "./parts.tsx";
 
 /**
  * The developer's setup page at /setup/<id>: after sign-in, the project, its
@@ -89,6 +89,7 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
           {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" stack={setup.stack?.id ?? null} />}
         </div>
       )}
+      <ConnectionStatus setup={state} host={setup.address === null ? null : setup.address.replace(/^https?:\/\//, "").replace(/\/$/, "")} waitingNote={copy.connection.setupWaiting} />
       <p className="note">{copy.setup.noApproval}</p>
     </>
   );

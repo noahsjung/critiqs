@@ -126,6 +126,9 @@ export default defineSchema({
     onboarding: v.optional(projectOnboardingValidator),
     /** Who can review it: anyone who signs in, or only members of its organization. Absent means anyone. */
     reviewAccess: v.optional(v.union(v.literal("anyone"), v.literal("organization"))),
+    /** When Critiqs first loaded on a page with this project's ID, and that page's origin (`projects:reportConnected`). */
+    connectedAt: v.optional(v.number()),
+    connectedOrigin: v.optional(v.string()),
   })
     .index("by_creator", ["createdBy"])
     .index("by_creator_organization", ["createdBy", "organizationId"])

@@ -539,7 +539,11 @@ export async function getProjectSetup(store: Store, identity: Identity | null, a
   return setupOf(project, (await projectAccess(store, project, user?._id ?? null)) === "manage");
 }
 
-/** A project's setup, with its saved stack when `showStack`, or as if its stack were unknown. */
+/**
+ * A project's setup, with its saved stack and the origin Critiqs connected on
+ * when `showStack`; otherwise as if its stack were unknown, and with when it
+ * connected but not where.
+ */
 function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
   const stack = (showStack && STACKS.find((candidate) => candidate.id === project.onboarding?.stack)) || null;
   return {
@@ -548,6 +552,7 @@ function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
     address: project.reviewUrl ?? null,
     stack,
     installCommands: installCommands(project._id, stack?.id ?? null),
+    connected: project.connectedAt === undefined ? null : { at: project.connectedAt, origin: showStack ? (project.connectedOrigin ?? null) : null },
   };
 }
 

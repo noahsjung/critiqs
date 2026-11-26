@@ -77,7 +77,7 @@ import {
   setupUrl,
   webBase,
 } from "../developer-setup.ts";
-import { claimAddressCheck, saveAboutYou } from "../onboarding.ts";
+import { claimAddressCheck, reportConnected, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
   addProjectAddress,
@@ -1131,6 +1131,18 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
   }
 
   /**
+   * The component reporting that it loaded with a project's ID, for
+   * onboarding's Connected: the body is the project ID, and the origin is the
+   * one the browser sent. Always the same empty answer, so it says nothing
+   * about which projects exist.
+   */
+  async function connected(request: Request): Promise<Response> {
+    const projectId = (await request.text().catch(() => "")).trim().slice(0, 100);
+    if (projectId !== "") await store.transaction((s) => reportConnected(s, { projectId, origin: request.headers.get("origin") }, Date.now()));
+    return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+  }
+
+  /**
    * What `critiqs doctor` checks, as on Convex: sign-in, email, whether
    * mention emails go out, and a project. Reveals no feedback, and nothing
    * about a project limited to its organization except to its members.
@@ -1198,6 +1210,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // projects whose lists a person may change (`manageableProjects`).
       // `createKeys`: `idempotencyKey` on `createProject`, so a retried create returns the same project.
       // `presetTags`: a project's owner changes its preset tags (`setPresetTags`).
+      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), and setup
+      // pages say when it first did (`connected` on `projectSetup` and `developerSetup`).
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1218,8 +1232,10 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         addressEdits: true,
         createKeys: true,
         presetTags: true,
+        connections: true,
       });
     }
+    if (path === "/critiqs/connected" && request.method === "POST") return await connected(request);
     if (path === "/critiqs/health" && get) return await health(request);
     if (path === "/me" && get) return await me(request);
     if (path === "/changes" && get) return json({ version });
