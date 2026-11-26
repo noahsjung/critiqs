@@ -94,8 +94,14 @@ export interface PanelSignIn {
   checkCode(attempt: string, code: string): Promise<PanelCodeResult>;
   /** A new reviewer's display name, after their code matched. */
   chooseName(attempt: string, name: string): Promise<PanelSignedIn>;
-  /** New tokens for the session. Throws `signed-out` once it has ended. */
-  refresh(refreshToken: string): Promise<PanelTokens>;
+  /**
+   * New tokens for the session. Throws `signed-out` once it has ended.
+   * `nextRefreshToken` is the replacement the panel chose and saved before
+   * asking (32 random bytes, base64url): if the answer is lost, sending the
+   * same pair again repeats the renewal. Services from before that ignore it
+   * and choose one; the answer's `refreshToken` is always the one to keep.
+   */
+  refresh(refreshToken: string, nextRefreshToken?: string): Promise<PanelTokens>;
   /** Changes the reviewer's display name everywhere; the next `refresh` carries it. */
   setDisplayName(refreshToken: string, name: string): Promise<void>;
   /** Ends the session; resolves to whether the service found it. */
@@ -189,9 +195,11 @@ export function panelSignIn(
       return signedIn(await answer(await post("/auth/panel/name", { attempt, name })));
     },
 
-    async refresh(refreshToken) {
-      const response = await post("/auth/refresh", { refreshToken });
+    async refresh(refreshToken, nextRefreshToken) {
+      const response = await post("/auth/refresh", nextRefreshToken === undefined ? { refreshToken } : { refreshToken, nextRefreshToken });
       if (response.status === 401) throw failure("signed-out");
+      // Such as a replacement already in use; the session itself is unchanged.
+      if (response.status === 400) throw failure("invalid-request", "This request is incomplete.");
       if (!response.ok) throw failure("unexpected");
       const body = await response.json().catch(() => null);
       if (!isObject(body)) throw failure("unexpected");

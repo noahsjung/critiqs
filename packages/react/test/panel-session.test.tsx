@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { Reviewer, TokenSession } from "../src/session.ts";
@@ -13,10 +13,14 @@ import { pageState, scriptedPage } from "./scripted-page.tsx";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const givenToConvex: unknown[] = [];
+const clientOptions: unknown[] = [];
 const convexReact = await import("convex/react");
 mock.module("convex/react", () => ({
   ...convexReact,
   ConvexReactClient: class {
+    constructor(_url: string, options?: unknown) {
+      clientOptions.push(options);
+    }
     close() {}
   },
 }));
@@ -32,6 +36,8 @@ const { PageLink } = await import("../src/page-layer/link.ts");
 const realFetch = globalThis.fetch;
 let root: Root | null = null;
 let host: HTMLElement | null = null;
+// Sign-ins other test files left on this origin, when files share a process.
+beforeEach(() => localStorage.clear());
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
@@ -71,6 +77,8 @@ test("a panel's own sign-in is the one Convex asks for its token, and the review
   for (let tries = 0; tries < 50 && givenToConvex.length === 0; tries++) await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   // Convex gets its token from the panel's own session, not from Critiqs's sign-in popup.
   expect(givenToConvex).toEqual([session]);
+  // And reuses a saved token that is still good, so opening the panel doesn't renew the sign-in.
+  expect(clientOptions).toEqual([expect.objectContaining({ initialAuthTokenReuse: true })]);
   // Signed in through the panel's own session: no sign-in is offered.
   expect(shadow.textContent).not.toContain("Sign in");
   // Nothing of the popup's session was stored on this origin.

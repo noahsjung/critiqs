@@ -16,6 +16,15 @@ import type { ChromeApi, StorageArea } from "./chrome.ts";
  * computer's clock does. Whichever part of the extension next finds such a
  * session clears it and ends it on the service, and keeps trying to end it
  * until the service has.
+ *
+ * A renewal's answer can be lost after the service has made the switch: the
+ * side panel closes, Chrome stops the worker, or the network drops. So the
+ * replacement refresh token is chosen here and saved before the renewal is
+ * sent, and whichever part of the extension renews next sends the same pair
+ * again; the service repeats a renewal sent that way. The lock makes the
+ * parts take turns: it is per extension, so the side panel and the worker
+ * share it, and Chrome releases it when the part holding it closes. Content
+ * scripts never renew; they ask the worker.
  */
 
 export interface StoredSession extends PanelTokens {
@@ -24,6 +33,12 @@ export interface StoredSession extends PanelTokens {
   reviewer: { id: string; name: string; email: string };
   /** The sign-out mark the session was signed in under; a sign-out replaces the mark. */
   mark?: string;
+  /**
+   * The refresh token chosen to replace `refreshToken`, saved before the
+   * renewal is sent. While it is here, the service may already have switched
+   * to it, so every renewal sends this same pair until one is answered.
+   */
+  nextRefreshToken?: string;
 }
 
 /** Renew this long before the access token expires. */
@@ -47,6 +62,7 @@ export class ExtensionSession implements TokenSession {
   #snapshot: { reviewer: Reviewer | null } = { reviewer: null };
   #renewing: Promise<string | null> | null = null;
   #cleaning: Promise<void> | null = null;
+  #cleanAgain = false;
   /** Resolves once the stored session has been read. */
   readonly ready: Promise<void>;
 
@@ -83,14 +99,25 @@ export class ExtensionSession implements TokenSession {
     return this.#snapshot.reviewer;
   }
 
-  /** Keeps a session the panel's sign-in just started, under the current sign-out mark. */
+  /**
+   * Keeps a session the panel's sign-in just started, under the current
+   * sign-out mark. A session it replaces, such as one signed out whose
+   * clean-up hasn't run yet, is listed to end on the service first.
+   */
   async signedIn(session: PanelSignedIn): Promise<void> {
     const { accessToken, refreshToken, expiresAt, sessionEndsAt, reviewer } = session;
     await this.#locked(async () => {
-      const mark = await this.#mark();
-      await this.storage.set({ [this.#key]: { accessToken, refreshToken, expiresAt, sessionEndsAt, reviewer, ...(mark === undefined ? {} : { mark }) } });
+      const items = await this.storage.get([this.#key, this.#markKey, this.#endingKey]);
+      const mark = items[this.#markKey];
+      const kept = { [this.#key]: { accessToken, refreshToken, expiresAt, sessionEndsAt, reviewer, ...(typeof mark === "string" ? { mark } : {}) } };
+      const replaced = parseStored(items[this.#key]);
+      const listed = tokensIn(items[this.#endingKey]);
+      if (replaced !== null && replaced.refreshToken !== refreshToken) for (const token of tokensOf(replaced)) if (!listed.includes(token)) listed.push(token);
+      // One write: the replaced session is listed to end only if the new one is kept.
+      await this.storage.set(listed.length === 0 ? kept : { ...kept, [this.#endingKey]: listed });
     });
     await this.#reload();
+    void this.#cleanUp();
   }
 
   /** The interface asks for sign-in, such as on entering Comment mode signed out: the panel shows its own. */
@@ -110,16 +137,35 @@ export class ExtensionSession implements TokenSession {
     await this.#cleanUp();
   }
 
-  /** Changes the display name everywhere, then renews so the token carries it. Resolves to whether it does. */
+  /**
+   * Changes the display name everywhere, then renews so the token carries it.
+   * Resolves to whether it does. Under the lock, so a renewal can't replace
+   * the token while the service checks it.
+   */
   async setDisplayName(name: string): Promise<boolean> {
-    const stored = await this.#read();
-    if (stored === null) throw new Error("Sign in to change your name.");
-    try {
-      await this.client.setDisplayName(stored.refreshToken, name);
-    } catch (error) {
-      if (error instanceof PanelSignInError && error.code === "signed-out") await this.#locked(() => this.#endIfCurrent(stored));
-      throw error;
-    }
+    // The reviewer this panel showed when the name was saved: a sign-in elsewhere since mustn't get the name.
+    const asked = this.#snapshot.reviewer?.id;
+    const sameReviewer = (session: StoredSession | null) => session !== null && session.reviewer.id === asked;
+    await this.#locked(async () => {
+      let stored = await this.#read();
+      if (stored === null) throw new Error("Sign in to change your name.");
+      if (!sameReviewer(stored)) throw new Error("You signed out, so your name wasn't changed.");
+      // A renewal whose answer was lost may have replaced this token; finish it first.
+      if (stored.nextRefreshToken !== undefined) {
+        await this.#renew(stored.refreshToken);
+        stored = await this.#read();
+        if (stored === null) throw new Error("Sign in to change your name.");
+        if (!sameReviewer(stored)) throw new Error("You signed out, so your name wasn't changed.");
+        // Still pending: the service couldn't be reached or didn't answer.
+        if (stored.nextRefreshToken !== undefined) throw new Error("Your name couldn't be changed. Check your connection and try again.");
+      }
+      try {
+        await this.client.setDisplayName(stored.refreshToken, name);
+      } catch (error) {
+        if (error instanceof PanelSignInError && error.code === "signed-out") await this.#endIfCurrent(stored);
+        throw error;
+      }
+    });
     await this.fetchAccessToken({ forceRefreshToken: true });
     return this.#snapshot.reviewer?.name === name.trim();
   }
@@ -141,19 +187,34 @@ export class ExtensionSession implements TokenSession {
     const current = await this.#read();
     if (current === null) return null;
     if (current.refreshToken !== seen) return current.accessToken;
+    // Saved before it is sent, so whichever part renews next can finish this renewal if its answer is lost.
+    const nextRefreshToken = current.nextRefreshToken ?? randomRefreshToken();
+    if (current.nextRefreshToken === undefined) await this.storage.set({ [this.#key]: { ...current, nextRefreshToken } });
     let tokens: PanelTokens;
     try {
-      tokens = await this.client.refresh(current.refreshToken);
+      tokens = await this.client.refresh(current.refreshToken, nextRefreshToken);
     } catch (error) {
       if (error instanceof PanelSignInError && error.code === "signed-out") {
         await this.#endIfCurrent(current);
         return null;
       }
-      // Offline or a passing failure: keep the session; Convex asks again.
+      // Refused while this token is still the session's (the service repeats a renewal it already made):
+      // the replacement can't be used, so the next renewal chooses another.
+      if (error instanceof PanelSignInError && error.code === "invalid-request") {
+        const latest = parseStored((await this.storage.get(this.#key))[this.#key]);
+        if (latest?.refreshToken === current.refreshToken && latest.nextRefreshToken === nextRefreshToken) {
+          const { nextRefreshToken: _dropped, ...kept } = latest;
+          await this.storage.set({ [this.#key]: kept });
+        }
+      }
+      // Offline, no answer, or a passing failure: keep the session and the pair. The next request
+      // for a token sends the pair again, such as the panel opening or the worker reading pins.
       return null;
     }
     // Kept under the mark it was signed in under: a sign-out while the service answered still ends it.
-    const renewed: StoredSession = { ...current, ...tokens, reviewer: { ...current.reviewer, name: nameIn(tokens.accessToken) ?? current.reviewer.name } };
+    // The token the service sent, which an older service chooses itself.
+    const { nextRefreshToken: _sent, ...kept } = current;
+    const renewed: StoredSession = { ...kept, ...tokens, reviewer: { ...current.reviewer, name: nameIn(tokens.accessToken) ?? current.reviewer.name } };
     await this.storage.set({ [this.#key]: renewed });
     const latest = await this.#read();
     this.#show(latest);
@@ -173,20 +234,33 @@ export class ExtensionSession implements TokenSession {
    * keeping any the service couldn't be reached for.
    */
   #cleanUp(): Promise<void> {
-    // One at a time here; a later read starts another if something changed meanwhile.
-    this.#cleaning ??= this.#cleanUpNow().finally(() => {
+    // One at a time here. Asked again while one runs, such as by a second
+    // sign-out, it runs once more afterwards, since the first may have read
+    // storage before the change.
+    if (this.#cleaning !== null) {
+      this.#cleanAgain = true;
+      return this.#cleaning;
+    }
+    this.#cleaning = (async () => {
+      // A token the service couldn't be reached for waits for the next clean-up, not this one's next pass.
+      const tried = new Set<string>();
+      do {
+        this.#cleanAgain = false;
+        await this.#cleanUpNow(tried);
+      } while (this.#cleanAgain);
+    })().finally(() => {
       this.#cleaning = null;
     });
     return this.#cleaning;
   }
 
-  async #cleanUpNow(): Promise<void> {
+  async #cleanUpNow(tried: Set<string>): Promise<void> {
     const ending = await this.#locked(async () => {
       const items = await this.storage.get([this.#key, this.#markKey, this.#endingKey]);
       const session = parseStored(items[this.#key]);
       const listed = tokensIn(items[this.#endingKey]);
       if (session !== null && !current(session, items[this.#markKey])) {
-        if (!listed.includes(session.refreshToken)) listed.push(session.refreshToken);
+        for (const token of tokensOf(session)) if (!listed.includes(token)) listed.push(token);
         // Listed first: if this stops between the two writes, the next reader finds both and carries on.
         await this.storage.set({ [this.#endingKey]: listed });
         await this.storage.remove(this.#key);
@@ -194,7 +268,8 @@ export class ExtensionSession implements TokenSession {
       return listed;
     });
     await Promise.all(
-      ending.filter((token) => !this.#ending.has(token)).map(async (token) => {
+      ending.filter((token) => !this.#ending.has(token) && !tried.has(token)).map(async (token) => {
+        tried.add(token);
         this.#ending.add(token);
         try {
           await this.client.signOut(token);
@@ -213,10 +288,6 @@ export class ExtensionSession implements TokenSession {
     );
   }
 
-  async #mark(): Promise<string | undefined> {
-    const mark = (await this.storage.get(this.#markKey))[this.#markKey];
-    return typeof mark === "string" ? mark : undefined;
-  }
 
   #locked<T>(work: () => Promise<T>): Promise<T> {
     return this.locks === null ? work() : this.locks.request(this.#key, work);
@@ -255,12 +326,35 @@ function current(session: StoredSession, mark: unknown): boolean {
 /** A stored session, or null for anything else (an older shape, or tampering). */
 function parseStored(value: unknown): StoredSession | null {
   if (typeof value !== "object" || value === null) return null;
-  const { accessToken, refreshToken, expiresAt, sessionEndsAt, reviewer, mark } = value as Record<string, unknown>;
+  const { accessToken, refreshToken, expiresAt, sessionEndsAt, reviewer, mark, nextRefreshToken } = value as Record<string, unknown>;
   if (typeof accessToken !== "string" || typeof refreshToken !== "string" || typeof expiresAt !== "number" || typeof sessionEndsAt !== "number") return null;
   if (typeof reviewer !== "object" || reviewer === null) return null;
   const { id, name, email } = reviewer as Record<string, unknown>;
   if (typeof id !== "string" || typeof name !== "string" || typeof email !== "string") return null;
-  return { accessToken, refreshToken, expiresAt, sessionEndsAt, reviewer: { id, name, email }, ...(typeof mark === "string" ? { mark } : {}) };
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt,
+    sessionEndsAt,
+    reviewer: { id, name, email },
+    ...(typeof mark === "string" ? { mark } : {}),
+    // Only a replacement the service would accept; anything else is chosen again.
+    ...(typeof nextRefreshToken === "string" && CHOSEN_REFRESH_TOKEN.test(nextRefreshToken) && nextRefreshToken !== refreshToken ? { nextRefreshToken } : {}),
+  };
+}
+
+/** A refresh token a client chooses, as the sign-in service accepts it. */
+const CHOSEN_REFRESH_TOKEN = /^[A-Za-z0-9_-]{43,128}$/;
+
+/** A session's refresh tokens: after a renewal whose answer was lost, the service holds whichever it switched to. */
+function tokensOf(session: StoredSession): string[] {
+  return session.nextRefreshToken === undefined ? [session.refreshToken] : [session.refreshToken, session.nextRefreshToken];
+}
+
+/** 32 random bytes, base64url: the form the sign-in service accepts for a refresh token a client chooses. */
+function randomRefreshToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function tokensIn(value: unknown): string[] {

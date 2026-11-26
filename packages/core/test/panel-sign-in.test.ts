@@ -95,6 +95,18 @@ test("no answer, a hidden answer, or a malformed one is reported, never treated 
   }
 });
 
+test("refresh sends the replacement the panel chose, so a lost answer can be repeated", async () => {
+  const chosen = "A".repeat(43);
+  const { client, requests } = service(Response.json({ accessToken: "x.y.z", refreshToken: chosen, expiresAt: 5_000 }));
+  expect(await client.refresh("refresh-1", chosen)).toEqual({ accessToken: "x.y.z", refreshToken: chosen, expiresAt: 5_000 });
+  expect(requests[0]!.body).toEqual({ refreshToken: "refresh-1", nextRefreshToken: chosen });
+});
+
+test("refresh reports a request the service refused, such as a replacement already in use", async () => {
+  const { client } = service(new Response("Bad request", { status: 400 }));
+  expect((await rejection(client.refresh("refresh-1", "A".repeat(43)))).code).toBe("invalid-request");
+});
+
 test("refresh returns new tokens, and reports a session that ended", async () => {
   const { client, requests } = service(Response.json({ accessToken: "x.y.z", refreshToken: "refresh-2", expiresAt: 5_000 }), new Response("Signed out", { status: 401 }));
   expect(await client.refresh("refresh-1")).toEqual({ accessToken: "x.y.z", refreshToken: "refresh-2", expiresAt: 5_000 });
