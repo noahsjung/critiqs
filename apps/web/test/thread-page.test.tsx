@@ -190,6 +190,20 @@ describe("the thread page", () => {
     expect(text(same)).toContain("The comment was left on a shared build, which only its review link opens.");
   });
 
+  test("a comment on a shared build in a project that also has a live address opens the build, never the live site", async () => {
+    const BUILD_REVIEW = "https://critiqs.example/r/bbbbbbbbbbbbbbbbbbbbbbbbbb#/pricing";
+    const onBuild = { ...THREAD, prototype: { pageUrl: "https://bkkkkkkkkkkkkkkkkkkkk.build.invalid/pricing", screen: "/pricing" } };
+    const shared = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(onBuild), useThreadReviewLink: () => ({ status: "ready", data: BUILD_REVIEW }) }) });
+    const opens = [...shared.querySelectorAll("a")].filter((anchor) => anchor.textContent === "Open in prototype" || anchor.textContent === "Open in review link").map((anchor) => [anchor.textContent, anchor.getAttribute("href")]);
+    expect(opens).toEqual([["Open in prototype", BUILD_REVIEW]]);
+    expect(text(shared)).toContain("Opens the prototype in a review link, with nothing installed.");
+    // Someone the build's link isn't for, or a build no longer shared: nothing opens, and the page says why, not the live address.
+    const closed = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(onBuild) }) });
+    expect([...closed.querySelectorAll("a")].some((anchor) => anchor.textContent === "Open in prototype")).toBe(false);
+    expect(text(closed)).toContain("The comment was left on a shared build, which only its review link opens.");
+    expect(text(closed)).not.toContain("Opens ");
+  });
+
   test("Open in prototype goes only to a web address", () => {
     expect(prototypeLink("https://acme.example/app/", "http://localhost:5173/a?b=1#c", "t1")).toBe("https://acme.example/a?b=1&critiqs=t1#c");
     expect(prototypeLink("javascript:alert(1)", "http://localhost/", "t1")).toBeNull();
