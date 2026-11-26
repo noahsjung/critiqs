@@ -59,6 +59,20 @@ test("keeps what people typed and chose in forms", async () => {
   expect(copy.documentElement.outerHTML).not.toContain("hunter2");
 });
 
+test("leaves out hidden form values and anti-forgery tokens, which the page never shows", async () => {
+  document.head.innerHTML = `<meta name="csrf-param" content="authenticity_token"><meta name="csrf-token" content="rails-secret-token"><meta name="description" content="Kept">`;
+  document.body.innerHTML = `
+    <form><input type="hidden" name="authenticity_token" value="form-secret-token"><input id="ticket" type="hidden" name="csrfmiddlewaretoken"><input id="shown" value="Visible"></form>`;
+  (document.getElementById("ticket") as HTMLInputElement).value = "set-by-script-secret";
+
+  const copy = await frozen();
+  const markup = copy.documentElement.outerHTML;
+  expect(["rails-secret-token", "form-secret-token", "set-by-script-secret"].filter((secret) => markup.includes(secret))).toEqual([]);
+  expect(copy.querySelectorAll('input[type="hidden"]').length).toBe(2);
+  expect((copy.getElementById("shown") as HTMLInputElement).value).toBe("Visible");
+  expect(copy.querySelector('meta[name="description"]')?.getAttribute("content")).toBe("Kept");
+});
+
 test("numbers the body and every element in it in document order", async () => {
   document.body.innerHTML = `<header><h1>Title</h1></header><main><p>One</p><p>Two</p></main>`;
 

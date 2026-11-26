@@ -30,7 +30,8 @@ const COVER_LAYOUT = [
 
 /**
  * Freezes the page into a self-contained HTML document: the page's elements
- * without Critiqs, scripts, or event attributes; masked elements covered;
+ * without Critiqs, scripts, event attributes, hidden form values, or
+ * anti-forgery tokens; masked elements covered;
  * form values, canvases, open shadow roots, and scroll positions kept; and the
  * page's stylesheets as CSS text, so the copy reflows at other widths as the
  * page would. Every element of the body is numbered with `data-critiqs-node`.
@@ -49,6 +50,8 @@ export async function freezePage(options: { document?: Document } = {}): Promise
   const head = html.querySelector("head") ?? html.insertBefore(inert.createElement("head"), html.firstChild);
   for (const sheet of source.adoptedStyleSheets ?? []) head.append(styleElement(inert, sheets.text(sheet), sheet.media.mediaText));
   for (const base of Array.from(head.querySelectorAll("base"))) base.remove();
+  // A page's anti-forgery token (Rails's and Laravel's csrf-token) shows nothing and stays out of the copy.
+  for (const meta of Array.from(html.querySelectorAll("meta[name]"))) if (/csrf|xsrf/i.test(meta.getAttribute("name") ?? "")) meta.remove();
   const base = inert.createElement("base");
   base.setAttribute("href", source.baseURI);
   head.prepend(base);
@@ -159,6 +162,8 @@ function keepState(original: Element, copy: Element, context: Context): void {
       const input = original as HTMLInputElement;
       if (input.type === "checkbox" || input.type === "radio") toggle(copy, "checked", input.checked);
       else if (input.type === "password") copy.setAttribute("value", input.value === "" ? "" : "••••••••");
+      // Never shown, and often a form's anti-forgery token or an ID: left out of the copy.
+      else if (input.type === "hidden") copy.setAttribute("value", "");
       else if (input.type !== "file") copy.setAttribute("value", input.value);
       break;
     }
