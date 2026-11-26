@@ -59,14 +59,15 @@ const MAX_TAG_SUGGESTIONS = 8;
 type Suggestion = { kind: "person"; person: ParticipantInfo } | { kind: "tag"; tag: TagInfo };
 
 /**
- * A text box where typing `@` suggests people who have commented in the
- * project, and typing `#` suggests the project's tags, most recently used
+ * A text box where typing `@` suggests the people the reviewer may mention
+ * in `threadId` (without one, in a new thread of the project), and typing `#` suggests the project's tags, most recently used
  * first. Choosing one inserts `@Name` (recording the mention) or `#tag`.
  * Hashtags show as pills inside the text box; the text stays plain, and the
  * server reads hashtags from it when it is posted.
  */
 export function MentionInput({
   projectId,
+  threadId = null,
   value,
   onChange,
   onKeyDown,
@@ -76,6 +77,8 @@ export function MentionInput({
   ...rest
 }: {
   projectId: string;
+  /** The thread being replied in or edited; null for a new thread. */
+  threadId?: string | null;
   value: MentionText;
   onChange: (value: MentionText) => void;
   placeholder?: string;
@@ -97,7 +100,7 @@ export function MentionInput({
   const active = hashtag !== null && (mention === null || hashtag.start > mention.start) ? { ...hashtag, kind: "tag" as const } : mention === null ? null : { ...mention, kind: "person" as const };
   const open = active !== null && dismissed !== active.start;
   const transport = useTransport();
-  const suggestions = transport.useParticipants(open && active.kind === "person" ? projectId : null, active?.kind === "person" ? active.query : "");
+  const suggestions = transport.useParticipants(open && active.kind === "person" ? projectId : null, active?.kind === "person" ? active.query : "", threadId);
   const tagState = transport.useTags(open && active.kind === "tag" ? projectId : null);
   const options: Suggestion[] = !open
     ? []

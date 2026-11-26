@@ -80,6 +80,26 @@ test("someone else's change shows on the next check", async () => {
   await act(async () => root.unmount());
 });
 
+function Suggestions({ transport, threadId }: { transport: CritiqsTransport; threadId: string | null }) {
+  transport.useParticipants("p1", "", threadId);
+  return null;
+}
+
+test("mention suggestions name the thread being replied in, only to a backend that takes it", async () => {
+  for (const threadMentions of [true, false]) {
+    const server = fakeServer();
+    const session = new CookieSession(deployment.backendUrl, "email", server.fetchFn);
+    const transport = httpTransport({ ...deployment, threadMentions }, session, server.fetchFn);
+    const root = createRoot(document.createElement("div"));
+    await act(async () => root.render(<><Suggestions transport={transport} threadId="t1" /><Suggestions transport={transport} threadId={null} /></>));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const asked = server.calls.filter((call) => call.url.endsWith("/api/participants")).map((call) => JSON.parse(String(call.init?.body)));
+    expect(asked).toContainEqual({ projectId: "p1", query: "" });
+    expect(asked.some((args) => args.threadId === "t1")).toBe(threadMentions);
+    await act(async () => root.unmount());
+  }
+});
+
 test("with the app's own sign-in, Critiqs's sign-in explains where to sign in", async () => {
   const session = new CookieSession(deployment.backendUrl, "host", fakeServer().fetchFn);
   await expect(session.signIn()).rejects.toThrow("Sign in to this app to comment.");

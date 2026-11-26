@@ -33,6 +33,7 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     presetTags: false,
     connections: false,
     threadMadeWith: false,
+    threadMentions: false,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -96,6 +97,7 @@ test("a server in the host app answers at its path, with its own sign-in", async
     presetTags: false,
     connections: false,
     threadMadeWith: false,
+    threadMentions: false,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });
@@ -147,12 +149,12 @@ test("records opened projects only where the backend reports address lists", asy
   expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).addressLists).toBe(false);
 });
 
-test("reads single-address edits, keyed creates, preset tag edits, connections, and how threads were left only where the backend reports them", async () => {
+test("reads single-address edits, keyed creates, preset tag edits, connections, and how threads were left, and thread mentions only where the backend reports them", async () => {
   const config = (value: unknown) =>
     (async () =>
-      Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, addressNotes: value, createKeys: value, presetTags: value, connections: value, threadMadeWith: value })) as unknown as typeof fetch;
-  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, addressNotes: true, createKeys: true, presetTags: true, connections: true, threadMadeWith: true });
-  const off = { addressEdits: false, addressNotes: false, createKeys: false, presetTags: false, connections: false, threadMadeWith: false };
+      Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, addressNotes: value, createKeys: value, presetTags: value, connections: value, threadMadeWith: value, threadMentions: value })) as unknown as typeof fetch;
+  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, addressNotes: true, createKeys: true, presetTags: true, connections: true, threadMadeWith: true, threadMentions: true });
+  const off = { addressEdits: false, addressNotes: false, createKeys: false, presetTags: false, connections: false, threadMadeWith: false, threadMentions: false };
   expect(await resolveDeployment("https://team.convex.cloud", config(undefined))).toMatchObject(off);
   expect(await resolveDeployment("https://team.convex.cloud", config("yes"))).toMatchObject(off);
 });

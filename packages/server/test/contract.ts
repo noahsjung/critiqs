@@ -3019,9 +3019,12 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     await backend.run((store) =>
       notify.completeDeliveries(store, [...sent.skipped.map(({ deliveryId, reason }) => ({ deliveryId, claimToken: "worker", result: "skipped" as const, reason })), ...sent.sends.map(({ deliveryId }) => ({ deliveryId, claimToken: "worker", result: "sent" as const }))], now),
     );
-    // Later replies and mentions owe Lee nothing.
+    // Later replies owe Lee nothing, and Lee can't be mentioned: the suggestions above and the check agree.
     const leeId = await idOf(backend, lee);
-    await backend.run((store) => ops.reply(store, dana, { threadId, body: "@Lee more", revision: null, mentions: [mention(leeId, "Lee")] }));
+    expect(await outcome(backend.run((store) => ops.reply(store, dana, { threadId, body: "@Lee more", revision: null, mentions: [mention(leeId, "Lee")] })))).toBe(
+      "invalid: You can only mention people who can still review this project.",
+    );
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "More", revision: null }));
     expect((await owed(backend)).filter((delivery) => delivery.recipientId === leeId)).toEqual([]);
   });
 
@@ -3303,6 +3306,103 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect((await openPage(backend, dana, key)).project.connectedAt).toBeNull();
     await backend.run((store) => reportConnected(store, { projectId, origin: "https://proto.example" }, 5_000));
     expect((await openPage(backend, dana, key)).project.connectedAt).toBe(5_000);
+  });
+
+  /** A write that is undone: whether the backend accepted it, without keeping it. */
+  async function accepts(backend: ContractBackend, work: (store: Store) => Promise<unknown>): Promise<boolean> {
+    const undo = "undo: accepted, not kept";
+    try {
+      await backend.run(async (store) => {
+        await work(store);
+        throw new Error(undo);
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === "invalid") return false;
+      if ((error as Error).message.includes(undo)) return true;
+      throw error;
+    }
+    throw new Error("A write meant to be undone was kept.");
+  }
+
+  /**
+   * For each person and each place they write (the given threads, or a new
+   * thread), the `@` list offers exactly the people a mention is accepted for.
+   */
+  async function expectListMatchesAcceptance(backend: ContractBackend, projectId: string, people: Identity[], threads: string[]) {
+    const ids = new Map<string, string>();
+    for (const person of people) ids.set(person.name!, await idOf(backend, person));
+    for (const author of people) {
+      for (const threadId of [...threads, null]) {
+        const offered = await backend.run((store) => ops.listParticipants(store, author, { projectId, query: "", ...(threadId === null ? {} : { threadId }) }));
+        for (const target of people) {
+          if (target === author) continue;
+          const mentions = [mention(ids.get(target.name!)!, target.name!)];
+          const body = `@${target.name}`;
+          const accepted = await accepts(backend, (store) =>
+            threadId === null
+              ? ops.createThread(store, author, { projectId, anchor, body, tags: [], capture: failed, mentions })
+              : ops.reply(store, author, { threadId, body, revision: null, mentions }),
+          );
+          const where = threadId === null ? "a new thread" : `thread ${threads.indexOf(threadId)}`;
+          expect(`${author.name} → ${target.name} in ${where}: ${accepted ? "accepted" : "refused"}`).toBe(
+            `${author.name} → ${target.name} in ${where}: ${offered.some((person) => person.name === target.name) ? "accepted" : "refused"}`,
+          );
+        }
+      }
+    }
+  }
+
+  test(`${name}: two people outside the team in one thread are offered each other, and the @ list offers exactly whom a mention is accepted for`, async () => {
+    const backend = fresh();
+    const [riley, mo, sam] = [reviewer("Riley"), reviewer("Mo"), reviewer("Sam")];
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Open prototype", reviewUrl: "https://proto.example" }));
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: "riley@example.com", role: "member" }, Date.now()));
+    await backend.run((store) => ops.syncReviewer(store, riley));
+    // Lee and Mo are outside the team, in Lee's thread; Sam, also outside, commented elsewhere; Riley is on the team.
+    const leesThread = await backend.run((store) => ops.createThread(store, lee, { projectId, anchor, body: "Lee's thread", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, mo, { threadId: leesThread, body: "Mo here", revision: null }));
+    const samsThread = await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Elsewhere", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, riley, { threadId: leesThread, body: "Riley here", revision: null }));
+    await backend.run((store) => ops.reply(store, dana, { threadId: samsThread, body: "Dana here", revision: null }));
+    const offered = async (who: Identity, threadId?: string) =>
+      (await backend.run((store) => ops.listParticipants(store, who, { projectId, query: "", ...(threadId === undefined ? {} : { threadId }) }))).map((person) => person.name).sort();
+    expect(await offered(lee, leesThread)).toEqual(["Dana", "Mo", "Riley"]);
+    expect(await offered(mo, leesThread)).toEqual(["Dana", "Lee", "Riley"]);
+    // Sam is in another thread: not offered to Lee or Mo here, and not mentionable by them.
+    const moId = await idOf(backend, mo);
+    const samId = await idOf(backend, sam);
+    const leeId = await idOf(backend, lee);
+    expect(await outcome(backend.run((store) => ops.reply(store, mo, { threadId: leesThread, body: "@Lee", revision: null, mentions: [mention(leeId, "Lee")] })))).toBe("allowed");
+    expect(await outcome(backend.run((store) => ops.reply(store, lee, { threadId: leesThread, body: "@Mo", revision: null, mentions: [mention(moId, "Mo")] })))).toBe("allowed");
+    expect(await outcome(backend.run((store) => ops.reply(store, lee, { threadId: leesThread, body: "@Sam", revision: null, mentions: [mention(samId, "Sam")] })))).toBe(
+      "invalid: You can only mention people in this thread, or in the project's team.",
+    );
+    // A new thread has no one else in it yet: the team only. The team is offered everyone.
+    expect(await offered(lee)).toEqual(["Dana", "Riley"]);
+    expect(await offered(riley, leesThread)).toEqual(["Dana", "Lee", "Mo", "Sam"]);
+    // A thread from another project is refused.
+    const otherProject = await backend.run((store) => ops.createProject(store, dana, { name: "Other" }));
+    const otherThread = await backend.run((store) => ops.createThread(store, dana, { projectId: otherProject, anchor, body: "Other", tags: [], capture: failed }));
+    expect(await outcome(offered(lee, otherThread))).toBe("not-found: This thread does not exist.");
+    await expectListMatchesAcceptance(backend, projectId, [dana, riley, lee, mo, sam], [leesThread, samsThread]);
+  });
+
+  test(`${name}: in a project from before organizations its creator is the team; others are offered the creator and their thread's people`, async () => {
+    const backend = fresh();
+    const [mo, sam] = [reviewer("Mo"), reviewer("Sam")];
+    const { projectId } = await storedBeforeOrganizations(backend, dana);
+    const leesThread = await backend.run((store) => ops.createThread(store, lee, { projectId, anchor, body: "Lee's thread", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, mo, { threadId: leesThread, body: "Mo here", revision: null }));
+    const samsThread = await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Elsewhere", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, dana, { threadId: samsThread, body: "Dana here", revision: null }));
+    const offered = async (who: Identity, threadId?: string) =>
+      (await backend.run((store) => ops.listParticipants(store, who, { projectId, query: "", ...(threadId === undefined ? {} : { threadId }) }))).map((person) => person.name).sort();
+    expect(await offered(dana, leesThread)).toEqual(["Lee", "Mo", "Sam"]);
+    expect(await offered(lee, leesThread)).toEqual(["Dana", "Mo"]);
+    expect(await offered(mo, leesThread)).toEqual(["Dana", "Lee"]);
+    expect(await offered(sam)).toEqual(["Dana"]);
+    await expectListMatchesAcceptance(backend, projectId, [dana, lee, mo, sam], [leesThread, samsThread]);
   });
 
   test(`${name}: a thread records whether it was left with the extension, and its page says so; older threads say nothing`, async () => {

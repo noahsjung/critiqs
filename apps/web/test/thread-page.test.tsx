@@ -479,6 +479,16 @@ describe("@ suggestions on the thread page", () => {
     ]);
   });
 
+  test("two people outside the team in one thread are each offered the other", () => {
+    const mo = { name: "Mo Diaz", imageUrl: null };
+    const asSeenBy = (me: string) => [
+      message("m1", lee, "Lee's thread", 3 * HOUR, { authorId: "u_lee", isMine: me === "u_lee" }),
+      message("m2", mo, "Mo here", 2 * HOUR, { authorId: "u_mo", isMine: me === "u_mo" }),
+    ];
+    expect(threadPeople(asSeenBy("u_lee")).map((person) => person.name)).toEqual(["Mo Diaz"]);
+    expect(threadPeople(asSeenBy("u_mo")).map((person) => person.name)).toEqual(["Lee Ortiz"]);
+  });
+
   test("typing @ suggests only people in the thread; choosing one mentions them in the reply", async () => {
     const backend = fakeBackend({ threadPageState: ready(PEOPLE_THREAD) });
     const page = await render(<ThreadPage pageKey={KEY} />, { backend });

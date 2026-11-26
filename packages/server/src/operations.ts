@@ -371,14 +371,21 @@ function creditsAsAiRequests(usage: ProjectUsage): ProjectUsage {
   return { ...usage, rows };
 }
 
-/** Mention suggestions: people who have commented in the project, by name. */
+/**
+ * Mention suggestions, by name: whom the person may mention in the thread
+ * they reply in (`threadId`), or, without one, in a new thread of the project.
+ */
 export async function listParticipants(
   store: Store,
   identity: Identity | null,
-  args: { projectId: string; query: string },
+  args: { projectId: string; query: string; threadId?: string },
 ): Promise<ParticipantInfo[]> {
   const { user } = await currentReviewer(store, identity);
-  return await participantsMatching(store, user, await requireProject(store, user, args.projectId), args.query);
+  const project = await requireProject(store, user, args.projectId);
+  if (args.threadId === undefined) return await participantsMatching(store, user, project, null, args.query);
+  const { thread } = await requireThread(store, user, args.threadId);
+  if (thread.projectId !== project._id) fail("not-found", "This thread does not exist.");
+  return await participantsMatching(store, user, project, thread, args.query);
 }
 
 /** Everyone else in the project with exactly this name, and whether every participant was searched. Never yourself, as in suggestions. */

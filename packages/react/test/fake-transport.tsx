@@ -59,7 +59,8 @@ export interface FakeBackend {
   removeThread?: (threadId: string) => Promise<void>;
   /** A thread's page key, for Share on a backend with thread pages; without it, the call is refused as on an older backend. */
   threadPageKey?: (threadId: string) => Promise<string>;
-  participants?: ParticipantInfo[];
+  /** Mention suggestions; as a function, by the thread they are asked for (null: a new thread). */
+  participants?: ParticipantInfo[] | ((threadId: string | null) => ParticipantInfo[]);
   /** The project's address list, for its owners. */
   addresses?: string[];
   /** The list's addresses that match no site now, with what to do. */
@@ -134,10 +135,14 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     removeMember: (args) => organizationChange("removeMember", args).then(() => undefined),
     useThreads: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.threads)),
     useThread: (threadId) => ready(backend.threadDetails?.[threadId] ?? backend.thread),
-    useParticipants: (projectId, query) =>
+    useParticipants: (projectId, query, threadId = null) =>
       projectId === null
         ? { status: "loading" }
-        : ready((backend.participants ?? []).filter((person) => person.name.toLowerCase().includes(query.toLowerCase()))),
+        : ready(
+            (typeof backend.participants === "function" ? backend.participants(threadId) : (backend.participants ?? [])).filter((person) =>
+              person.name.toLowerCase().includes(query.toLowerCase()),
+            ),
+          ),
     useNotificationSettings: () => ready(backend.notificationSettings ?? { mentionEmails: true, projectMuted: false }),
     useUsage: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.usage ?? null)),
     setNotificationSettings: async (args) => void backend.calls?.push({ name: "setNotificationSettings", args }),

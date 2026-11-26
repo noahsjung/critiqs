@@ -600,6 +600,23 @@ test("a reply still sending is neither lost nor repeated when the thread is reop
   expect(replyButton().disabled).toBe(false);
 });
 
+test("the reply box asks whom to suggest for its own thread, so people in the thread are offered", async () => {
+  // Like a backend asked by someone outside the project's team: the team, plus the people in the thread asked about.
+  backend.participants = (threadId) => [{ _id: "u-riley", name: "Riley", imageUrl: null }, ...(threadId === detail._id ? [{ _id: "u-mo", name: "Mo", imageUrl: null }] : [])];
+  try {
+    prototypePage();
+    const shadow = await mount({ sidebarOpen: false });
+    await act(async () => shadow.querySelector<HTMLButtonElement>(".pin")!.click());
+    await frames();
+    await type(commentField(threadWindow(shadow)!, "Reply")!, "Thanks @");
+    await frames();
+    const options = [...shadow.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+    expect(options).toEqual(["RIRiley", "MOMo"]);
+  } finally {
+    backend.participants = undefined;
+  }
+});
+
 test("a reply the backend refuses, such as for too many hashtags, keeps its draft and says why", async () => {
   const reason = "A message can use up to 30 different hashtags; this one uses 31.";
   backend.reply = () => Promise.reject(Object.assign(new Error(reason), { data: { code: "invalid", message: reason } }));

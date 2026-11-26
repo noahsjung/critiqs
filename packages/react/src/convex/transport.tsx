@@ -3,7 +3,7 @@ import type { Page, ReactionRow, ThreadDetail, ThreadDetailPage } from "@critiqs
 import { ConvexProviderWithAuth, type ConvexReactClient, useConvexAuth, usePaginatedQuery } from "convex/react";
 import { ConvexError, type GenericId as Id } from "convex/values";
 import { type ReactNode, useCallback, useSyncExternalStore } from "react";
-import { creditsArg, type Deployment, madeWithArg } from "../deployment.ts";
+import { creditsArg, type Deployment, madeWithArg, mentionThreadArg } from "../deployment.ts";
 import { uploadCapture, uploadFile } from "../capture-upload.ts";
 import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
@@ -90,8 +90,13 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
     removeMember: (args) => change(mutation(api.organizations.removeMember, args)),
     useThreads: (projectId) =>
       flatten(useAllPages(api.threads.list, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> })),
-    useParticipants: (projectId, query) =>
-      useQueryState(api.projects.participants, projectId === null ? "skip" : { projectId: projectId as Id<"projects">, query }),
+    useParticipants: (projectId, query, threadId = null) => {
+      const thread = mentionThreadArg(deployment, threadId);
+      return useQueryState(
+        api.projects.participants,
+        projectId === null ? "skip" : { projectId: projectId as Id<"projects">, query, ...(thread.threadId === undefined ? {} : { threadId: thread.threadId as Id<"threads"> }) },
+      );
+    },
     useNotificationSettings: (projectId) =>
       useQueryState(api.notifications.settings, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),
     useUsage: (projectId) => {

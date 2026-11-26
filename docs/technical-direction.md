@@ -477,12 +477,17 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   usual, and `@` suggests only the people in the thread (who wrote in it or
   were mentioned in it), whom the page already shows, never everyone in the
   project. Whom someone may mention follows their standing in the project,
-  not where they write from: the project's team (its organization) mentions
-  anyone in the project; someone outside it mentions only the team and people
-  already in the thread, from the thread page, the panel, or an agent alike,
-  and the panel suggests them the team only. In a new thread they mention the
-  team only. Threads from before people in threads were recorded keep the
-  project-wide rule. The browser tab's title names
+  not where they write from: the project's team (its organization; for a
+  project from before organizations, its creator) mentions anyone in the
+  project who can still review it; someone outside it mentions only the team
+  and people already in the thread, from the thread page, the panel, or an
+  agent alike. In a new thread they mention the team only. Threads from
+  before people in threads were recorded keep the project-wide rule. One
+  rule (`mentionRule`) decides both what a sent message may mention and what
+  the panel's `@` suggests: the panel asks `participants` for the thread
+  being replied in or edited (`threadId`, to backends reporting
+  `threadMentions`), so two people outside the team in one thread are offered
+  each other. The browser tab's title names
   no project, since browsers keep titles in history.
 - **Open in prototype.** It opens the page the thread was left on at the
   project's review address (`buildLink`: the review address's origin, the

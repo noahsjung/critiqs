@@ -134,7 +134,7 @@ export const ARGUMENTS: Record<string, Check> = {
   thread: object({ threadId: string }),
   threadPage: object({ key: string }),
   threadPageKey: object({ threadId: string }),
-  participants: object({ projectId: string, query: string }),
+  participants: object({ projectId: string, query: string, "threadId?": string }),
   participantsNamed: object({ projectId: string, name: string }),
   notificationSettings: object({ projectId: string }),
   usage: object({ projectId: string, "day?": string, "aiCredits?": boolean }),
