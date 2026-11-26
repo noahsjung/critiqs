@@ -919,7 +919,10 @@ test("with Linear and GitHub connected, the Tickets tab lists each tracker's tem
     { projectId: "project", tracker: "linear" },
     { projectId: "project", tracker: "github" },
   ]);
-  expect([...settings.querySelectorAll("h4.ds-group-label")].map((label) => label.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  // Each tracker is a titled section; its repositories and teams are groups inside it.
+  expect([...settings.querySelectorAll("section h4.ds-section-title")].map((label) => label.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  expect([...settings.querySelectorAll('section[aria-label="GitHub Issues"] .ds-group-label')].map((label) => label.textContent)).toEqual(["acme/web"]);
+  expect([...settings.querySelectorAll('section[aria-label="Linear"] .ds-group-label')].map((label) => label.textContent)).toEqual(["Engineering"]);
   expect(settings.querySelector('[role="group"][aria-label="GitHub Issues templates"]')!.textContent).toContain("in their repository");
   await click(switchFor(settings, "Bug form"));
   expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({
@@ -1022,4 +1025,70 @@ test("with all three trackers connected, switching the tracker never asks one tr
   const asked = calls(data, "ticketDraftOptions") as { tracker: TrackerId; destinationId: string }[];
   expect(asked.map((call) => call.tracker)).toEqual(["linear", "github", "jira"]);
   for (const call of asked) expect(call.destinationId).toBe(own[call.tracker]);
+});
+
+// ---------------------------------------------------------------------------
+// The project's default destination
+
+const DEFAULTS: TicketsConfig = { ...OFFERED, drafting: true, ticketStatus: true, defaultDestinations: true };
+
+test("an owner chooses each connected tracker's default destination in the Tickets tab, or none, among their own destinations", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB], destinations: async (tracker) => (tracker === "github" ? [{ id: "acme/web", name: "acme/web", key: null }] : [{ id: "team-des", name: "Design", key: "DES" }, { id: "team-eng", name: "Engineering", key: "ENG" }]) } });
+  const shadow = await mount(data, { ...DEFAULTS, trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "oauth" }] }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  // One titled section per tracker, each with its own default.
+  expect([...settings.querySelectorAll("section h4.ds-section-title")].map((title) => title.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  const linear = settings.querySelector('section[aria-label="Linear"]')!;
+  expect(rowSelect(linear, "Default team")!.textContent).toContain("None");
+  expect(rowSelect(settings.querySelector('section[aria-label="GitHub Issues"]')!, "Default repository")).not.toBeNull();
+  await chooseOption(shadow, rowSelect(linear, "Default team"), "Engineering");
+  expect(calls(data, "setTicketDefaultDestination")).toEqual([{ projectId: "project", tracker: "linear", destinationId: "team-eng" }]);
+  expect(shadow.textContent).toContain("New Linear tickets go to Engineering by default");
+  expect(rowSelect(linear, "Default team")!.textContent).toContain("Engineering");
+  await chooseOption(shadow, rowSelect(linear, "Default team"), "None");
+  expect(calls(data, "setTicketDefaultDestination").at(-1)).toEqual({ projectId: "project", tracker: "linear", destinationId: null });
+  expect(shadow.textContent).toContain("New Linear tickets have no default team");
+});
+
+test("a default another owner chose that this owner can't see stays listed by its saved name", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], settings: { project: { resolveWhenDone: false, defaults: [{ tracker: "linear", destinationId: "team-ops", name: "Operations" }] } } } });
+  const shadow = await mount(data, DEFAULTS, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  const linear = settings.querySelector('section[aria-label="Linear"]')!;
+  expect(rowSelect(linear, "Default team")!.textContent).toContain("Operations");
+});
+
+test("without default destinations on the backend, the Tickets tab has no default rows", async () => {
+  const shadow = await mount(backend(), { ...OFFERED, drafting: true, ticketStatus: true }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect(rowSelect(settings, "Default team")).toBeNull();
+});
+
+test("Create ticket starts at the project's default destination, unless the person chose another for this project before", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], draft: async () => ({ title: "Department is wrong", body: "Text\n", createdFromCritiqs: true, resumeSubmissionId: null, projectDestinationId: "team-eng" }) } });
+  let shadow = await mount(data, DEFAULTS);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  let create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Team")!.textContent).toContain("Engineering");
+  // Only the project's default is asked about: the first team never is.
+  expect(calls(data, "ticketDraftOptions")).toEqual([{ threadId: "thread", tracker: "linear", destinationId: "team-eng" }]);
+  await chooseOption(shadow, rowSelect(create, "Team"), "Design");
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  // The person's own choice wins from then on.
+  shadow = await mount(data, DEFAULTS);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Team")!.textContent).toContain("Design");
+});
+
+test("a project default the person can't create tickets in falls back to their first destination", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], draft: async () => ({ title: "T", body: "Text\n", createdFromCritiqs: true, resumeSubmissionId: null, projectDestinationId: "team-secret" }) } });
+  const shadow = await mount(data, DEFAULTS);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  expect(rowSelect(dialog(shadow, "Create ticket")!, "Team")!.textContent).toContain("Design");
 });

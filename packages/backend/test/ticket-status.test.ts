@@ -228,10 +228,10 @@ test("opening a thread checks only its own links: another thread's link to the s
 
 test("Resolve when done: only the owner turns it on; then a webhook that finishes every ticket resolves the thread, and reopening the ticket doesn't reopen it", async () => {
   const { t, dana, lee, sam, projectId, threadId } = await project();
-  expect(await dana.query(api.ticketStatus.settings, { projectId })).toEqual({ resolveWhenDone: false });
+  expect(await dana.query(api.ticketStatus.settings, { projectId })).toEqual({ resolveWhenDone: false, defaults: [] });
   await expect(lee.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true })).rejects.toThrow("Only the person who set up this project can change its ticket settings.");
   await expect(lee.query(api.ticketStatus.settings, { projectId })).rejects.toThrow("Only the person who set up this project");
-  expect(await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true })).toEqual({ resolveWhenDone: true });
+  expect(await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true })).toEqual({ resolveWhenDone: true, defaults: [] });
 
   const sentAt = Date.now();
   expect((await deliver(t, await done(sentAt, sentAt - 1_000))).status).toBe(200);

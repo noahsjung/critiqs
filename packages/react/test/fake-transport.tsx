@@ -431,7 +431,18 @@ function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknow
     setResolveWhenDone: async (projectId, on) => {
       record("setResolveWhenDone", { projectId, on });
       await trackers.setResolveWhenDone?.(projectId, on);
-      trackers.settings = { ...trackers.settings, [projectId]: { resolveWhenDone: on } };
+      trackers.settings = { ...trackers.settings, [projectId]: { ...trackers.settings?.[projectId], resolveWhenDone: on } };
+    },
+    setTicketDefaultDestination: async (projectId, tracker, destinationId) => {
+      record("setTicketDefaultDestination", { projectId, tracker, destinationId });
+      const before = trackers.settings?.[projectId] ?? { resolveWhenDone: false };
+      const listed = (await trackers.destinations?.(tracker)) ?? [
+        { id: "team-des", name: "Design", key: "DES" },
+        { id: "team-eng", name: "Engineering", key: "ENG" },
+      ];
+      const name = listed.find((destination) => destination.id === destinationId)?.name ?? destinationId ?? "";
+      const defaults = [...(before.defaults ?? []).filter((entry) => entry.tracker !== tracker), ...(destinationId === null ? [] : [{ tracker, destinationId, name }])];
+      trackers.settings = { ...trackers.settings, [projectId]: { ...before, defaults } };
     },
   };
 }

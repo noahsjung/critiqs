@@ -182,6 +182,8 @@ export interface DraftContext {
   link: WebAddress | null;
   createdFromCritiqs: boolean;
   resumeSubmissionId: string | null;
+  /** Where the project's owners send new tickets in this tracker by default; null for none. */
+  projectDestinationId: string | null;
 }
 
 /**
@@ -198,6 +200,7 @@ export async function prepareTicketDraft(store: Store, identity: Identity | null
     link: await ticketThreadLink(store, project, thread, args.website ?? null, now),
     createdFromCritiqs: account.attribution,
     resumeSubmissionId: unfinished?.creationId ?? null,
+    projectDestinationId: (await tickets.settings.find(project._id))?.defaults.find((entry) => entry.tracker === args.tracker)?.destinationId ?? null,
   };
 }
 

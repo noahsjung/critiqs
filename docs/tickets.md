@@ -24,8 +24,8 @@ fine-grained token, creating and linking issues, repository templates and
 issue forms, labels from tags, status from GitHub's webhooks and the check
 when a thread opens, and **Resolve when done** (see
 [GitHub Issues](#github-issues)); and the same for Jira Cloud, through
-Atlassian sign-in or a pasted API token (see [Jira Cloud](#jira-cloud)). Not
-built yet: a project's default destination.
+Atlassian sign-in or a pasted API token (see [Jira Cloud](#jira-cloud)). Also
+built, for all three: a project's default destination in each tracker.
 
 ## Outcomes
 
@@ -180,8 +180,8 @@ above. **Built for Linear:** the menu items, Create ticket with its team
 (remembered per person and project), title, text filled without AI, and
 **Created from Critiqs**; and Link ticket with search and the optional
 comment; the Template choice, **Draft with Critiqs AI**, and labels suggested
-from the thread's tags, each removable. The project's default destination is
-not built.
+from the thread's tags, each removable. **Built for all three:** the project's
+default destination.
 
 The thread window's **⋯** menu offers **Create ticket…** and **Link ticket…**.
 Each shows the trackers the person has connected; with none, it offers to
@@ -189,8 +189,14 @@ connect one.
 
 **Create ticket** opens a draft:
 
-- **Destination:** the team, repository, or project, defaulting to the project's
-  choice and then to the person's last one.
+- **Destination:** the team, repository, or project. The dialog starts with the
+  person's own last choice in that project and tracker, when they have one;
+  otherwise with the project's default destination for the tracker, when its
+  owners chose one the person can create tickets in; otherwise with the first
+  in the person's list. Owners choose each tracker's default in the project's
+  settings (Tags and AI, then Tickets), among the destinations their own
+  account in that tracker lists, or None; Critiqs saves the tracker's name for
+  it, and every reviewer's draft says which it is.
 - **Template:** when templates are turned on, the template to fill;
   otherwise Critiqs's standard format.
 - **Title and text:** drafted by Critiqs AI from the thread, or filled directly

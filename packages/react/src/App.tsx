@@ -1455,7 +1455,11 @@ function PanelApp({
           notify={notify}
           modelLists={deployment.modelLists === true}
           presetTags={deployment.presetTags === true}
-          tickets={{ templates: trackersOffered?.drafting === true && transport.tickets !== undefined, resolveWhenDone: trackersOffered?.ticketStatus === true }}
+          tickets={{
+              templates: trackersOffered?.drafting === true && transport.tickets !== undefined,
+              resolveWhenDone: trackersOffered?.ticketStatus === true,
+              defaults: trackersOffered?.defaultDestinations === true && transport.tickets?.setTicketDefaultDestination !== undefined,
+            }}
         />
       )}
       {billing !== null && openBilling !== null && transport.billing !== undefined && (

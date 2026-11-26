@@ -1,4 +1,4 @@
-import type { TicketDestination, TicketDraft, TicketDraftOptions, TicketLinkView, TicketSearchResult, TicketTemplateSettings, TrackerTemplateGroup } from "@critiqs/core";
+import type { TicketDestination, TicketDraft, TicketDraftOptions, TicketLinkView, TicketSearchResult, TicketSettingsView, TicketTemplateSettings, TrackerTemplateGroup } from "@critiqs/core";
 import {
   addTicketLinkBack,
   claimTicketCreation,
@@ -19,9 +19,11 @@ import {
   requireTemplateOwner as requireTemplateOwnerOf,
   requireTicketCreator,
   requireTrackerAccount,
+  saveTicketDefaultDestination,
   saveTicketLinkBack,
   saveTicketTemplateSettings,
   searchTickets,
+  setTicketDefaultDestination,
   ticketDraft,
   ticketDraftOptions,
   unlinkTicket,
@@ -128,6 +130,32 @@ export const trackerTemplates = action({
         args,
       ),
     ),
+});
+
+/**
+ * Sets where the project's new tickets go by default in a tracker, or none
+ * (null); owners only, choosing among the destinations their own account there
+ * can create tickets in.
+ */
+export const setDefaultDestination = action({
+  args: { projectId: v.id("projects"), tracker: trackerValidator, destinationId: v.union(v.string(), v.null()) },
+  handler: async (ctx, args): Promise<TicketSettingsView> =>
+    run(() =>
+      setTicketDefaultDestination(
+        {
+          requirePerson: () => ctx.runMutation(internal.tickets.requireOwnerAccount, { projectId: args.projectId, tracker: args.tracker }),
+          token: (person) => trackerToken(ctx, person, args.tracker),
+          save: (destination) => ctx.runMutation(internal.tickets.saveDefaultDestination, { projectId: args.projectId, tracker: args.tracker, destination }),
+        },
+        ticketsDeployment(),
+        args,
+      ),
+    ),
+});
+
+export const saveDefaultDestination = internalMutation({
+  args: { projectId: v.id("projects"), tracker: trackerValidator, destination: v.union(v.object({ destinationId: v.string(), name: v.string() }), v.null()) },
+  handler: async (ctx, args) => run(async () => saveTicketDefaultDestination(convexStore(ctx), await identityOf(ctx), args, Date.now())),
 });
 
 /** Creates a ticket from a thread in the signed-in person's tracker, as them, and links it to the thread. */

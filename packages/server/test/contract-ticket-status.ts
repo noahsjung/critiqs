@@ -501,16 +501,16 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
   test(`${name}: Resolve when done is off by default and only the project's owner sees or changes it`, async () => {
     const backend = fresh();
     const { projectId } = await setup(backend);
-    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: false });
+    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: false, defaults: [] });
     expect((await refusal(backend.run((store) => setResolveWhenDone(store, lee, { projectId, on: true }, 1))))).toMatchObject({
       code: "forbidden",
       message: "Only the person who set up this project can change its ticket settings.",
     });
     expect((await refusal(backend.run((store) => ticketSettings(store, lee, { projectId })))).code).toBe("forbidden");
-    expect(await backend.run((store) => setResolveWhenDone(store, dana, { projectId, on: true }, 1))).toEqual({ resolveWhenDone: true });
-    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: true });
-    expect(await backend.run((store) => setResolveWhenDone(store, dana, { projectId, on: false }, 2))).toEqual({ resolveWhenDone: false });
-    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: false });
+    expect(await backend.run((store) => setResolveWhenDone(store, dana, { projectId, on: true }, 1))).toEqual({ resolveWhenDone: true, defaults: [] });
+    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: true, defaults: [] });
+    expect(await backend.run((store) => setResolveWhenDone(store, dana, { projectId, on: false }, 2))).toEqual({ resolveWhenDone: false, defaults: [] });
+    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: false, defaults: [] });
   });
 
   test(`${name}: saving the project's templates keeps Resolve when done, and changing Resolve when done keeps its templates, whichever is saved first`, async () => {
@@ -526,20 +526,20 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     const { projectId } = await setup(backend);
     await backend.run((store) => saveTicketTemplateSettings(store, dana, { projectId, on: true, templates: [bug] }, 1));
     await backend.run((store) => setResolveWhenDone(store, dana, { projectId, on: true }, 2));
-    expect(await both(projectId)).toEqual({ templates: { on: true, templates: [bug] }, resolve: { resolveWhenDone: true } });
+    expect(await both(projectId)).toEqual({ templates: { on: true, templates: [bug] }, resolve: { resolveWhenDone: true, defaults: [] } });
     await backend.run((store) => saveTicketTemplateSettings(store, dana, { projectId, on: false, templates: [bug, copy] }, 3));
-    expect(await both(projectId)).toEqual({ templates: { on: false, templates: [bug, copy] }, resolve: { resolveWhenDone: true } });
+    expect(await both(projectId)).toEqual({ templates: { on: false, templates: [bug, copy] }, resolve: { resolveWhenDone: true, defaults: [] } });
     await backend.run((store) => setResolveWhenDone(store, dana, { projectId, on: false }, 4));
-    expect(await both(projectId)).toEqual({ templates: { on: false, templates: [bug, copy] }, resolve: { resolveWhenDone: false } });
+    expect(await both(projectId)).toEqual({ templates: { on: false, templates: [bug, copy] }, resolve: { resolveWhenDone: false, defaults: [] } });
 
     // Resolve when done saved first, on a project with no ticket settings yet, then templates.
     const other = await backend.run((store) => ops.createProject(store, dana, { name: "Checkout prototype" }));
     await backend.run((store) => setResolveWhenDone(store, dana, { projectId: other, on: true }, 5));
-    expect(await both(other)).toEqual({ templates: { on: false, templates: [] }, resolve: { resolveWhenDone: true } });
+    expect(await both(other)).toEqual({ templates: { on: false, templates: [] }, resolve: { resolveWhenDone: true, defaults: [] } });
     await backend.run((store) => saveTicketTemplateSettings(store, dana, { projectId: other, on: true, templates: [copy] }, 6));
-    expect(await both(other)).toEqual({ templates: { on: true, templates: [copy] }, resolve: { resolveWhenDone: true } });
+    expect(await both(other)).toEqual({ templates: { on: true, templates: [copy] }, resolve: { resolveWhenDone: true, defaults: [] } });
     // Each project keeps its own.
-    expect(await both(projectId)).toEqual({ templates: { on: false, templates: [bug, copy] }, resolve: { resolveWhenDone: false } });
+    expect(await both(projectId)).toEqual({ templates: { on: false, templates: [bug, copy] }, resolve: { resolveWhenDone: false, defaults: [] } });
   });
 
   test(`${name}: with Resolve when done on, a thread resolves when its last open ticket is done or canceled, recorded as resolved by its tickets`, async () => {

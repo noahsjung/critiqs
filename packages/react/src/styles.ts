@@ -384,6 +384,9 @@ button.hashtag { cursor: pointer; }
 .ds-steps i { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
 .ds-steps i.on { background: var(--accent); }
 .ds-group-label { margin: 0 0 var(--space-1); font-size: var(--text-s); font-weight: 600; color: var(--muted); }
+.ds-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.ds-section + .ds-section, .ds-group + .ds-section, .note + .ds-section, .ds-page + .ds-section { padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.ds-section-title { margin: 0; font-size: var(--text-m); font-weight: 600; color: var(--text); }
 .ds-person { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ds-person .stacked { gap: 0; min-width: 0; }
 .ds-person .ellipsis, .ds-row .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

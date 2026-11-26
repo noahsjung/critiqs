@@ -52,6 +52,7 @@ Defined on `:host` in `styles.ts`. Use the token, never the raw value.
 | `Switch` | On or off, at once. |
 | `Meter` | Part of a limit used, with its amount as `valueText`. Where extra past the limit is allowed, `ceiling` is the most allowed: amber past the limit, red only at the ceiling. `valueText` puts its state in words, as `usageText` writes it: "limit reached", what is left before the cap, "near cap" (amber text), or "cap reached" (red). |
 | `.ds-group-label` | A short name above a group of rows that lists things, such as an organization's Members. |
+| `.ds-section`, `.ds-section-title` | A titled part of a settings page that holds its own groups, such as each tracker in the Tickets tab with its teams under it: the title at body size, in the text color, and a divider above each section after the first, so the groups inside read as part of it. |
 | `.ds-person` | A person in a row: their picture, name, and a quiet second line such as their address. |
 | `StepDots` | Where a multi-step flow is (inside `DialogHeader`). |
 | `SidebarResizer`, `useSidebarWidth` | The right-hand sidebar's left edge, dragged (or moved with arrow keys) to resize every panel between 300 and 720 px; the width is remembered in the browser, and pins, the thread window, and mockup copies stay clear of it. |

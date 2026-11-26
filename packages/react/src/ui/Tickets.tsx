@@ -241,6 +241,8 @@ export function CreateTicketDialog({
   const [loadedDestinations, setDestinations] = useState<{ tracker: TrackerId; loaded: Loaded<TicketDestination[]> }>({ tracker, loaded: { status: "loading" } });
   const destinations: Loaded<TicketDestination[]> = loadedDestinations.tracker === tracker ? loadedDestinations.loaded : { status: "loading" };
   const [remembered, remember] = useStoredState<string | null>(`critiqs:ticket-destination:${projectId}:${personId}:${tracker}`, null);
+  /** Where the project's owners send this tracker's tickets by default, as the draft said; undefined until it loads for the tracker. */
+  const [projectDefault, setProjectDefault] = useState<{ tracker: TrackerId; id: string | null } | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [attribution, setAttribution] = useState(accounts[0]!.attribution);
@@ -321,7 +323,7 @@ export function CreateTicketDialog({
    * another tracker or team: until it loads, Create waits, and if it can't
    * load, the dialog says why and offers Try again.
    */
-  function replaceDraft(after?: (draft: TicketDraft) => void) {
+  function replaceDraft(after?: (draft: TicketDraft) => void, failed?: () => void) {
     setStale(true);
     fill(
       "plain",
@@ -331,6 +333,7 @@ export function CreateTicketDialog({
         setResuming(draft.resumeSubmissionId !== null);
         after?.(draft);
       },
+      failed,
     );
   }
 
@@ -339,7 +342,14 @@ export function CreateTicketDialog({
     setTemplateId(STANDARD);
     setChoosing(null);
     setAiNote(null);
-    replaceDraft((draft) => setAttribution(draft.createdFromCritiqs));
+    replaceDraft(
+      (draft) => {
+        setAttribution(draft.createdFromCritiqs);
+        setProjectDefault({ tracker, id: draft.projectDestinationId ?? null });
+      },
+      // Without the draft, the list starts at its first destination.
+      () => setProjectDefault({ tracker, id: null }),
+    );
     return () => {
       latestDraft.current++;
     };
@@ -348,7 +358,10 @@ export function CreateTicketDialog({
   }, [tickets, threadId, tracker]);
 
   const options = destinations.status === "ready" ? destinations.data : [];
-  const destination = options.find((option) => option.id === remembered) ?? options[0] ?? null;
+  // The person's own last choice here, else the project's default (known once the draft loads), else the first.
+  const known = projectDefault?.tracker === tracker ? projectDefault.id : undefined;
+  const mine = options.find((option) => option.id === remembered);
+  const destination = mine ?? (known === undefined ? null : (options.find((option) => option.id === known) ?? options[0] ?? null));
   const destinationId = destination?.id ?? null;
 
   // The destination's templates and suggested labels; a template from another destination no longer applies.
