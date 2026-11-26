@@ -4,17 +4,26 @@ import type { ReviewLinkSummary, ReviewOpen } from "../src/backend.ts";
 import { type ReviewHost, ReviewHostContext, ReviewPage } from "../src/ui/ReviewPage.tsx";
 import { ReviewLinksPage } from "../src/ui/ReviewLinks.tsx";
 import { ShareBuildPanel } from "../src/ui/Ways.tsx";
-import { fakeAuth, fakeBackend, render, settle, text } from "./render.tsx";
+import { act } from "react";
+import { fakeAuth, fakeBackend, reload, render, settle, text } from "./render.tsx";
 
 // Shared builds on the website: the review page for one, the address its
 // comments keep (AT-30), and where owners find the command and their builds.
 
-Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", { configurable: true, get: () => ({ postMessage() {} }) });
+// One window per frame, so a message can come from the frame the page knows.
+const frameWindows = new WeakMap<HTMLIFrameElement, { postMessage(): void }>();
+Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
+  configurable: true,
+  get(this: HTMLIFrameElement) {
+    if (!frameWindows.has(this)) frameWindows.set(this, { postMessage() {} });
+    return frameWindows.get(this);
+  },
+});
 
 const KEY = "e3wpz767dgupur6kns2ox725mg";
 const FRAME = `http://v-${"abcdefghijklmnopqrstuvwxyz"}.review.localhost:5960`;
 const BUILD = `https://b${"k".repeat(20)}.build.invalid`;
-const EXPIRES = Date.UTC(2026, 11, 2, 12);
+const EXPIRES = Date.UTC(2099, 11, 2, 12);
 const opened: ReviewOpen = {
   kind: "ready",
   entry: { origin: FRAME, path: "/", leaseId: "lease-1", renewalSecret: "renewal-secret", expiresAt: Date.now() + 600_000, renewEveryMs: 300_000 },
@@ -33,7 +42,9 @@ function fakeHost() {
       return { ready: Promise.resolve(), update: () => undefined, destroy: () => undefined };
     },
     signInClient: undefined,
-    extensionUrl: null,
+    extensionUrl: "https://extension.example/critiqs",
+    // The headers the website's host sends a review page, for these frames' domain.
+    framePolicy: async () => "frame-ancestors 'none'; frame-src http://*.review.localhost:5960",
   };
   return { host, mounted };
 }
@@ -76,6 +87,47 @@ const BUILD_LINK: ReviewLinkSummary = {
   usageToday: { requests: 3, bytes: 100 },
   build: { buildId: "build-1", fileCount: 12, bytes: 300 * 1024, expiresAt: EXPIRES },
 };
+
+describe("what a shared build's review page says", () => {
+  const tell = async (container: HTMLElement, message: Record<string, unknown>) => {
+    const frame = container.querySelector("iframe")!;
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { data: { tag: "critiqs:review-frame", v: 1, ...message }, origin: FRAME, source: frame.contentWindow })));
+  };
+  // Each open replaces the page before it, so only one review page listens at a time.
+  const open = async (source: ReviewOpen = opened) => {
+    const { host } = fakeHost();
+    const container = await reload(page(host), { backend: fakeBackend({ openReviewLink: async () => source }), auth: fakeAuth(null) });
+    await settle();
+    await settle();
+    await settle();
+    return container;
+  };
+  test("never points to the extension, which can't open a shared build", async () => {
+    for (const message of [{ kind: "unsupported", feature: "form" }, { kind: "unsupported", feature: "password" }, { kind: "unsupported", feature: "load" }]) {
+      const container = await open();
+      await tell(container, message);
+      // The notice itself still shows.
+      expect([message.feature, text(container).includes("review link") || text(container).includes("forms")]).toEqual([message.feature, true]);
+      // Booleans only: a failing expect that holds an element prints its whole object graph (gigabytes).
+      expect([message.feature, text(container).includes("extension"), container.querySelector('a[href="https://extension.example/critiqs"]') === null]).toEqual([message.feature, false, true]);
+    }
+  });
+  test("ends the session at the build's end date, without waiting for a renewal, and says it ended", async () => {
+    const container = await open({ ...opened, source: { kind: "share", origin: BUILD, expiresAt: Date.now() + 80 } } as ReviewOpen);
+    expect(container.querySelector("iframe") !== null).toBe(true);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(text(container)).toContain("This shared build has ended");
+    expect(container.querySelector("iframe") === null).toBe(true);
+  });
+  test("a build that ran out says it ended, and when, instead of 'removed'", async () => {
+    const { host } = fakeHost();
+    const container = await render(page(host), { backend: fakeBackend({ openReviewLink: async () => ({ kind: "expired", expiredAt: Date.UTC(2026, 11, 2, 12) }) as ReviewOpen }), auth: fakeAuth(null) });
+    await settle();
+    expect(text(container)).toContain("This shared build has ended");
+    expect(text(container)).toContain("Dec 2, 2026");
+    expect(text(container)).not.toContain("removed");
+  });
+});
 
 describe("owners' review links page", () => {
   test("with shared builds only, owners see their builds and the command to share one, without a live link form", async () => {

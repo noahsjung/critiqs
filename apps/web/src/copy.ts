@@ -358,6 +358,9 @@ export const copy = {
     unwalled:
       "This review page was served without the security header that keeps the prototype's frame on Critiqs's review service, so it shows no frame. The website's operator needs to send it (a Content-Security-Policy frame-src naming the review service's addresses).",
     limited: "Too many people opened it in the last hour. Try again in a few minutes.",
+    expiredTitle: "This shared build has ended",
+    expired: (expiredAt: number) =>
+      `It was shared until ${new Date(expiredAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}. Ask whoever shared it to share the build again.`,
     endedTitle: "This review session ended",
     ended: "The link was removed, its access changed, or the session ran out. Open the link again to keep reviewing.",
     openAgain: "Open again",

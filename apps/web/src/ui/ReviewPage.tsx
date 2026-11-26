@@ -112,6 +112,8 @@ type Opening =
   | { status: "limited" }
   | { status: "failed"; message: string }
   | { status: "ended" }
+  /** A shared build that ran out, said only to someone it was open to. */
+  | { status: "expired"; expiredAt: number }
   | { status: "ready"; ready: ReviewReady };
 
 export function ReviewPage({ linkKey }: { linkKey: string }) {
@@ -158,7 +160,15 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
     backend.openReviewLink(linkKey).then(
       (opened) => {
         if (cancelled) return;
-        setOpening(opened.kind === "ready" ? (leaseOrigin(opened.entry.origin) === null ? { status: "unavailable" } : { status: "ready", ready: opened }) : { status: opened.kind });
+        setOpening(
+          opened.kind === "ready"
+            ? leaseOrigin(opened.entry.origin) === null
+              ? { status: "unavailable" }
+              : { status: "ready", ready: opened }
+            : opened.kind === "expired"
+              ? { status: "expired", expiredAt: opened.expiredAt }
+              : { status: opened.kind },
+        );
       },
       (error) => !cancelled && setOpening({ status: "failed", message: failureMessage(error, copy.review.failed) }),
     );
@@ -203,6 +213,7 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
           ready={opening.ready}
           askToSignIn={askToSignIn}
           onEnded={() => setOpening({ status: "ended" })}
+          onExpired={(expiredAt) => setOpening({ status: "expired", expiredAt })}
           onSignedOut={() => {
             setOpening({ status: "opening" });
             setAttempt((value) => value + 1);
@@ -232,6 +243,7 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
           </Message>
         )}
         {opening.status === "unavailable" && <Message title={copy.review.unavailableTitle} line={copy.review.unavailable} />}
+        {opening.status === "expired" && <Message title={copy.review.expiredTitle} line={copy.review.expired(opening.expiredAt)} />}
         {opening.status === "pending" && <Message title={copy.review.pendingTitle} line={copy.review.pending} />}
         {opening.status === "limited" && (
           <Message title={copy.review.limitedTitle} line={copy.review.limited}>
@@ -299,12 +311,15 @@ function ReviewCanvas({
   ready,
   askToSignIn,
   onEnded,
+  onExpired,
   onSignedOut,
 }: {
   linkKey: string;
   ready: ReviewReady;
   askToSignIn: (lead: string) => Promise<boolean>;
   onEnded: () => void;
+  /** A shared build reached its end date while open. */
+  onExpired: (expiredAt: number) => void;
   onSignedOut: () => void;
 }) {
   const backend = useBackend();
@@ -361,6 +376,21 @@ function ReviewCanvas({
   useEffect(() => {
     if (leaseEnded) onEnded();
   }, [leaseEnded, onEnded]);
+
+  // A shared build ends at its end date, which the page knows: said then, not at the next renewal.
+  const sharedUntil = source.kind === "share" ? source.expiresAt : null;
+  useEffect(() => {
+    if (sharedUntil === null) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const left = sharedUntil - Date.now();
+      if (left <= 0) return onExpired(sharedUntil);
+      // A timer can wait about 24 days at most; a build can be shared for 30.
+      timer = setTimeout(arm, Math.min(left, 2 ** 31 - 1));
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, [sharedUntil, onExpired]);
 
   // Keep the lease while the page is open; when it can't be kept, the frame has stopped serving anyway.
   useEffect(() => {
@@ -501,7 +531,9 @@ function ReviewCanvas({
   // What a notice is: a sign-in or form the extension handles (its banner, dismissed for good), part of the
   // page not loading (its own quiet strip, dismissed for this page), files held back for a moment (a quiet
   // line: waiting helps), or anything else (one line, as a problem).
-  const extensionNotice = notice !== null && ((notice.kind === "left" && notice.signIn) || (notice.kind === "failed" && notice.reason === "needs-sign-in") || (notice.kind === "unsupported" && (notice.feature === "form" || notice.feature === "password")));
+  // A shared build has no address the extension could open: its notices never point there.
+  const isBuild = source.kind === "share";
+  const extensionNotice = !isBuild && notice !== null && ((notice.kind === "left" && notice.signIn) || (notice.kind === "failed" && notice.reason === "needs-sign-in") || (notice.kind === "unsupported" && (notice.feature === "form" || notice.feature === "password")));
   const partialNotice = notice?.kind === "unsupported" && notice.feature === "load";
   const heldNotice = notice?.kind === "unsupported" && notice.feature === "limit";
   const showBanner = (extensionNotice && !bannerDismissed) || (partialNotice && !partialDismissed);
@@ -514,7 +546,7 @@ function ReviewCanvas({
           ? copy.review.left(notice.url)
           : copy.review.unsupportedForm;
   // Part of the page didn't load: one quiet line with the extension as the way to see it all.
-  const bannerLine = partialNotice ? copy.review.partialBanner : copy.review.extension;
+  const bannerLine = partialNotice ? (isBuild ? copy.review.partial : copy.review.partialBanner) : copy.review.extension;
   const widthLabel = (value: FrameWidth) => copy.review.widths[String(value)] ?? copy.review.customWidth(value as number);
 
   const source_ = (
@@ -612,7 +644,7 @@ function ReviewCanvas({
       {showBanner && (
         <p className="review-strip extension" role="status">
           {bannerLine}{" "}
-          {host.extensionUrl !== null && (
+          {host.extensionUrl !== null && !isBuild && (
             <a href={host.extensionUrl} target="_blank" rel="noreferrer noopener">{copy.review.getExtension}</a>
           )}
           <button

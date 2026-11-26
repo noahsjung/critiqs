@@ -11,9 +11,9 @@
  * backend checks every one of them again. A test keeps the two in step.
  */
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { connect } from "./agent.mjs";
+import { connect, NotSignedInError } from "./agent.mjs";
 import { CLOUD_BACKEND_URL, listMyProjects, projectInCode, SetupError } from "./setup.mjs";
 
 export const BUILD_LIMITS = {
@@ -30,6 +30,9 @@ export const BUILD_LIMITS = {
 
 /** Extensions a build may hold; everything else (source maps, scripts for a server or shell, keys) is refused. */
 export const BUILD_EXTENSIONS = ["html", "htm", "css", "js", "mjs", "json", "webmanifest", "txt", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "woff", "woff2", "ttf", "otf", "wasm", "mp4", "webm", "mp3"];
+
+/** Files only an app's source folder has; a build's output never does. */
+const SOURCE_MARKS = ["package.json", "node_modules", "bun.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
 
 /** Files operating systems leave in folders, skipped rather than refused: nothing would ever ask for them. */
 const SYSTEM_JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
@@ -51,6 +54,7 @@ export function buildPathProblem(path) {
     if (segment === "" || segment === "." || segment === "..") return "isn't a plain path inside the folder";
     if (segment.startsWith(".")) return "is hidden (its name or a folder's starts with a dot)";
   }
+  if (path.split("/")[0] === "__critiqs") return "is in __critiqs/, a folder review links keep for themselves, so it could never be served";
   const extension = extensionOf(path);
   if (extension === "map") return "is a source map, which would publish the app's source";
   if (extension === null || !BUILD_EXTENSIONS.includes(extension)) return "isn't a file type a static build serves";
@@ -99,6 +103,9 @@ export function readBuild(folder) {
     throw new SetupError(`There is no folder at ${folder}. Build the prototype first, then share its output folder, such as dist/.`);
   }
   if (!stat.isDirectory()) throw new SetupError(`${folder} isn't a folder. Share the build's output folder, such as dist/.`);
+  // An app's own folder, not what its build writes: say so before naming its first odd file.
+  const source = SOURCE_MARKS.find((name) => existsSync(join(root, name)));
+  if (source !== undefined) throw new SetupError(`${folder} looks like the app's source (it has ${source}), not its build output. Build the prototype first, then share the folder the build writes, such as dist/.`);
   const files = [];
   const skipped = [];
   const walk = (dir) => {
@@ -140,7 +147,8 @@ function size(bytes) {
   return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-const day = (time) => new Date(time).toISOString().slice(0, 10);
+/** A date as the review page shows it: in this computer's time zone and words, such as "Dec 2, 2026". */
+export const day = (time) => new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 /** Runs `work` over `items`, at most `limit` at a time. */
 async function eachLimited(items, limit, work) {
@@ -208,6 +216,10 @@ export async function shareFolder(options, { cwd = process.cwd(), env = process.
   });
   if (begun.uploads.length > 0) log(`Uploaded ${sent} ${sent === 1 ? "file" : "files"}.`);
   const published = await session.mutate("reviewBuilds:publish", { buildId: begun.buildId });
+  // The same files, already shared: the link and its end date stay as they were.
+  if (begun.ready) {
+    log(`These files are already shared, so this is the same link${options.expires === null ? "" : `, still until ${day(published.expiresAt)}: --expires applies only to a new share. To change it, delete this one (npx critiqs share delete ${published.buildId}) and share again`}.`);
+  }
   return { buildId: published.buildId, url: published.url, expiresAt: published.expiresAt, files: build.files.length, bytes: build.bytes, spa, projectId };
 }
 
@@ -300,6 +312,13 @@ export function parseShare(argv) {
 }
 
 /** Runs `critiqs share …`; resolves to the exit code: 0 done, 1 not done, 2 usage error. */
+/** A sign-in message written for agents and people, for a person at a terminal: only the command. */
+export function terminalSignIn(message) {
+  return message
+    .replace(/call the critiqs_sign_in tool with backend "[^"]*", or run/g, "run")
+    .replace(/ with the critiqs_sign_in tool, or run `npx critiqs sign-in`\./g, ": run `npx critiqs sign-in`.");
+}
+
 export async function runShare(argv, { cwd = process.cwd(), print = console.log, env = process.env, fetchFn = fetch } = {}) {
   const options = parseShare(argv);
   if ("error" in options) {
@@ -335,6 +354,8 @@ export async function runShare(argv, { cwd = process.cwd(), print = console.log,
     return 0;
   } catch (error) {
     if (!(error instanceof SetupError)) throw error;
+    // Said to a person at a terminal: the sign-in command, not an agent's tool.
+    if (error instanceof NotSignedInError) error.message = terminalSignIn(error.message);
     if (options.json) print(JSON.stringify({ ok: false, error: error.message }, null, 2));
     else print(error.message);
     return 1;

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { join } from "node:path";
 import { BUILD_LIMITS as SERVER_LIMITS, BUILD_TYPES, buildPathProblem as serverPathProblem, checkBuildManifest } from "@critiqs/server/review-builds";
 import { runCli } from "../bin/cli.mjs";
-import { BUILD_EXTENSIONS, BUILD_LIMITS, buildPathProblem, looksLikeSpa, manifestProblem, parseShare, readBuild, shareTarget } from "../bin/share.mjs";
+import { BUILD_EXTENSIONS, BUILD_LIMITS, buildPathProblem, day, looksLikeSpa, manifestProblem, parseShare, readBuild, shareTarget } from "../bin/share.mjs";
 
 // `critiqs share`: the folder rules (AT-27, the command line's half; the
 // backend's half is packages/backend/test/review-builds.test.ts), that they
@@ -140,7 +140,7 @@ interface Stand {
 }
 
 /** A backend that offers shared builds and asks for `wanted(sha256s)` of the files; the projects are `projects`. */
-function standIn(options: { builds?: boolean; projects?: { _id: string; name: string }[]; wanted?: (shas: string[]) => string[]; uploadTo?: string } = {}): Stand {
+function standIn(options: { builds?: boolean; projects?: { _id: string; name: string }[]; wanted?: (shas: string[]) => string[]; uploadTo?: string; ready?: boolean } = {}): Stand {
   const calls: Stand["calls"] = [];
   const uploads: Stand["uploads"] = [];
   const fetchFn = (async (input: string, init: RequestInit = {}) => {
@@ -159,6 +159,7 @@ function standIn(options: { builds?: boolean; projects?: { _id: string; name: st
         case "reviewBuilds:begin": {
           const shas = (args.files as { sha256: string }[]).map((file) => file.sha256);
           const wanted = options.wanted?.(shas) ?? [...new Set(shas)];
+          if (options.ready === true) return { buildId: "b1", ready: true, fileCount: shas.length, bytes: 1, uploads: [] };
           return { buildId: "b1", ready: false, fileCount: shas.length, bytes: 1, uploads: wanted.map((sha256) => ({ sha256, size: 1, url: `${options.uploadTo ?? BACKEND}/review-build/upload?buildId=b1&sha256=${sha256}&grant=g` })) };
         }
         case "reviewBuilds:publish":
@@ -188,7 +189,7 @@ test("critiqs share uploads each file the backend asks for once, to its upload r
   const { code, out } = await cli(["share", dist, "--backend", BACKEND], stand);
   expect(code).toBe(0);
   expect(out).toContain("Review link: https://critiqs.example/r/abcdefghijklmnopqrstuvwxyz");
-  expect(out).toContain("until 2026-12-02");
+  expect(out).toContain(`until ${day(Date.UTC(2026, 11, 2))}`);
   expect(out).toContain("npx critiqs share delete b1");
   const begin = stand.calls.find((call) => call.path === "reviewBuilds:begin")!;
   expect(begin.args).toMatchObject({ projectId: "p1", spa: true, expiresInDays: 7 });
@@ -226,6 +227,8 @@ test("share says what to do when it can't: no builds on the backend, several pro
   expect(none.code).toBe(1);
   const signedOut = await cli(["share", dist, "--backend", BACKEND, "--project", "p1"], standIn(), { CRITIQS_CONFIG_DIR: scratch() });
   expect(signedOut.out).toContain("npx critiqs sign-in --backend 'https://team.example'");
+  // A person at a terminal is told the command, not an agent's tool.
+  expect(signedOut.out).not.toContain("critiqs_sign_in");
   const leaky = folderWith({ ...SITE, "assets/app.js.map": "{}" });
   const stand = standIn();
   const refused = await cli(["share", leaky, "--backend", BACKEND, "--project", "p1"], stand);
@@ -236,9 +239,36 @@ test("share says what to do when it can't: no builds on the backend, several pro
 test("share list and share delete", async () => {
   const stand = standIn();
   const listed = await cli(["share", "list", "--backend", BACKEND, "--project", "p1"], stand);
-  expect(listed.out).toBe("b1  https://critiqs.example/r/abcdefghijklmnopqrstuvwxyz  3 files, 2.0 KB, until 2026-12-02, by Dana");
+  expect(listed.out).toBe(`b1  https://critiqs.example/r/abcdefghijklmnopqrstuvwxyz  3 files, 2.0 KB, until ${day(Date.UTC(2026, 11, 2))}, by Dana`);
   const removed = await cli(["share", "delete", "https://critiqs.example/r/abcdefghijklmnopqrstuvwxyz", "--backend", BACKEND], stand);
   expect(removed.code).toBe(0);
   expect(stand.calls.at(-1)).toEqual({ path: "reviewBuilds:remove", args: { key: "abcdefghijklmnopqrstuvwxyz" } });
   expect((await cli(["share", "--help"], stand)).out).toContain("critiqs share <folder>");
+});
+
+test("a folder that is the app's source, not its build, is named as such before any of its files", async () => {
+  for (const mark of ["package.json", "bun.lock", "node_modules"]) {
+    const app = folderWith({ ...SITE, [mark === "node_modules" ? "node_modules/x/index.js" : mark]: "{}" });
+    const stand = standIn();
+    const { code, out } = await cli(["share", app, "--backend", BACKEND, "--project", "p1"], stand);
+    expect([mark, code, out]).toEqual([mark, 1, `${app} looks like the app's source (it has ${mark}), not its build output. Build the prototype first, then share the folder the build writes, such as dist/.`]);
+    expect(stand.calls).toEqual([]);
+  }
+});
+
+test("sharing the same files again says it is the same link, and that --expires didn't change its end date", async () => {
+  const dist = folderWith(SITE);
+  const again = await cli(["share", dist, "--backend", BACKEND, "--project", "p1", "--expires", "3"], standIn({ ready: true }));
+  expect(again.code).toBe(0);
+  expect(again.out).toContain(`These files are already shared, so this is the same link, still until ${day(Date.UTC(2026, 11, 2))}: --expires applies only to a new share.`);
+  const plain = await cli(["share", dist, "--backend", BACKEND, "--project", "p1"], standIn({ ready: true }));
+  expect(plain.out).toContain("These files are already shared, so this is the same link.");
+  expect(plain.out).not.toContain("--expires");
+});
+
+test("a file in __critiqs/, the folder review links keep for themselves, is refused before anything is sent", async () => {
+  const stand = standIn();
+  const { code, out } = await cli(["share", folderWith({ ...SITE, "__critiqs/app.js": "x" }), "--backend", BACKEND, "--project", "p1"], stand);
+  expect([code, out]).toEqual([1, '"__critiqs/app.js" is in __critiqs/, a folder review links keep for themselves, so it could never be served. Remove it from the folder, or share only the build\'s output.']);
+  expect(stand.calls).toEqual([]);
 });
