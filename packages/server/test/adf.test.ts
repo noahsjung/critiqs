@@ -124,3 +124,11 @@ test("text escaped for ticket Markdown reaches Jira as exactly that text, in eac
     expect({ value, text: adfText(doc(markdownText(value))).replace(/\u2060/g, "") }).toEqual({ value, text: `${written}\n` });
   }
 });
+
+test("a name that starts with an escape is bold in Jira, as Critiqs writes an author's name, whole and as written", () => {
+  for (const name of ["\\Dana", "\\*Dana", "\\", "*", "\\\\x", "\\_a_"]) {
+    const [block] = doc(`**${markdownText(name)}**, 2026-10-09T00:00:00.000Z:`).content;
+    const bold = block?.type === "paragraph" ? block.content?.[0] : undefined;
+    expect({ name, bold }).toEqual({ name, bold: { type: "text", text: name, marks: [{ type: "strong" }] } });
+  }
+});

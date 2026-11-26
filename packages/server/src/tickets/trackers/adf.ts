@@ -486,7 +486,8 @@ function parseInline(text: string, marks: AdfMark[]): AdfInline[] {
 
 /** Where emphasis opened at `from` with `delimiter` closes on the same text: after text, not inside code; -1 when it doesn't. */
 function findCloser(text: string, from: number, delimiter: string): number {
-  for (let index = from + 1; index < text.length; index++) {
+  // From the emphasis's first character, so an escape there is read whole; a closer needs a character of text before it.
+  for (let index = from; index < text.length; index++) {
     const char = text[index];
     if (char === "\\") {
       index++;
@@ -498,7 +499,7 @@ function findCloser(text: string, from: number, delimiter: string): number {
       if (end !== -1) index = end + run.length - 1;
       continue;
     }
-    if (text.startsWith(delimiter, index) && !/\s/.test(text[index - 1]!)) {
+    if (index > from && text.startsWith(delimiter, index) && !/\s/.test(text[index - 1]!)) {
       // `*` inside `**` isn't a closer for `*`.
       if (delimiter.length === 1 && text[index + 1] === delimiter) {
         index++;
