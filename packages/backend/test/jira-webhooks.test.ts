@@ -227,7 +227,7 @@ test("disconnecting Jira removes the person's webhooks at Jira too", async () =>
   await lee.action(api.tickets.link, { threadId, tracker: "jira", externalId: `${jira.site.cloudId}/${issue.id}`, comment: false });
   await t.finishAllScheduledFunctions(() => undefined);
   expect(jira.webhooks).toHaveLength(1);
-  await lee.mutation(api.trackers.disconnect, { tracker: "jira" });
+  await lee.action(api.trackers.disconnect, { tracker: "jira" });
   await t.finishAllScheduledFunctions(() => undefined);
   expect(jira.webhooks).toEqual([]);
   expect(await t.run((ctx) => ctx.db.query("trackerWebhooks").collect())).toEqual([]);
