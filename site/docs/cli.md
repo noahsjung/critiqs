@@ -2,7 +2,7 @@
 
 > Reference for every critiqs CLI command, flag, environment variable, and exit code.
 
-The `critiqs` package includes the `critiqs` command line tool, the same for every framework, for setting up projects, checking configuration, signing your computer in for coding agents, and running the [MCP server](/docs/mcp).
+The `critiqs` package includes the `critiqs` command line tool, the same for every framework, for setting up projects, checking configuration, signing your computer in for coding agents, sharing a build for review, and running the [MCP server](/docs/mcp).
 
 Run it with your package manager (Node.js 20 or later required):
 
@@ -125,6 +125,27 @@ npx critiqs sign-out [--backend <url>]
 | Flag | Description |
 | --- | --- |
 | `--backend <url>` | Sign out from a backend other than Critiqs Cloud. |
+
+### `critiqs share`
+
+Uploads a built prototype (the output folder, such as `dist/`, never the source) and prints a review link that people open in their browser with nothing installed. Only the project's owners can share, from a computer signed in with `critiqs sign-in`. Source maps, hidden files and anything that isn't a static web file are refused.
+
+```sh
+npx critiqs share <folder> [--project <id>] [--expires <days>]
+npx critiqs share list
+npx critiqs share delete <id|link>
+```
+
+| Flag | Description |
+| --- | --- |
+| `--project <id>` | The project to share for. By default, the one the app's code names, or your only project. |
+| `--dir <path>` | The app whose code names the project (default: the current folder). |
+| `--backend <url>` | A Critiqs backend other than Critiqs Cloud. |
+| `--spa`, `--no-spa` | Serve `index.html` for addresses without a file extension. On by default when `index.html` is the build's only page. |
+| `--expires <days>` | How long the link lasts: 1 to 30 days (default 7). |
+| `--json` | Print the result as JSON. |
+
+`share list` shows the project's shared builds and their links; `share delete` stops one at once and removes its files. Whoever opens the link can read every file in the folder. Review links are offered only where the backend serves them.
 
 ### `critiqs mcp`
 
