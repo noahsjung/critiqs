@@ -41,8 +41,14 @@ export interface MarkdownBlocks {
   openBlockEnd: string | null;
 }
 
-/** What ends each of CommonMark's first five kinds of HTML block, which a blank line doesn't (index 0 unused). */
-const HTML_ENDS = ["", "</pre>", "-->", "?>", ">", "]]>"];
+/**
+ * What ends each of CommonMark's first five kinds of HTML block, which a
+ * blank line doesn't (index 0 unused). The first kind ends with the closing
+ * tag of the element it opened (`</script>` for `<script>`): CommonMark
+ * would end it at any of the four, but HTML reads a script, style, or
+ * textarea as text until its own.
+ */
+const HTML_ENDS = ["", "", "-->", "?>", ">", "]]>"];
 
 type Kind = "document" | "quote" | "list" | "item" | "paragraph" | "fence" | "indented" | "html" | "heading" | "break";
 
@@ -65,6 +71,8 @@ interface Block {
   list?: ListData;
   fence?: MarkdownFence & { offset: number };
   htmlType?: number;
+  /** The tag a `<script>`, `<pre>`, `<style>`, or `<textarea>` block opened with, lower-case. */
+  htmlTag?: string;
 }
 
 const CODE_INDENT = 4;
@@ -257,7 +265,9 @@ class BlockParser {
         const interrupts = type < 7 || (container.kind !== "paragraph" && !(!this.allClosed && !this.blank && this.tip.kind === "paragraph"));
         if (HTML_OPEN[type]!.test(rest) && interrupts) {
           this.closeUnmatched();
-          this.addChild("html").htmlType = type;
+          const block = this.addChild("html");
+          block.htmlType = type;
+          if (type === 1) block.htmlTag = /^<([A-Za-z]+)/.exec(rest)![1]!.toLowerCase();
           return "leaf";
         }
       }
@@ -420,6 +430,7 @@ export function markdownBlocks(text: string): MarkdownBlocks {
   const last = parser.document.last;
   const openFence = last !== null && last.open && last.kind === "fence" ? { char: last.fence!.char, length: last.fence!.length } : null;
   const htmlType = last !== null && last.open && last.kind === "html" ? (last.htmlType ?? 0) : 0;
-  const openBlockEnd = openFence !== null ? openFence.char.repeat(openFence.length) : htmlType >= 1 && htmlType <= 5 ? HTML_ENDS[htmlType]! : null;
+  const htmlEnd = htmlType === 1 ? `</${last!.htmlTag ?? "pre"}>` : HTML_ENDS[htmlType]!;
+  const openBlockEnd = openFence !== null ? openFence.char.repeat(openFence.length) : htmlType >= 1 && htmlType <= 5 ? htmlEnd : null;
   return { headings: parser.headings, openFence, openBlockEnd };
 }

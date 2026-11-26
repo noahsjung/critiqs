@@ -24,3 +24,14 @@ test("the block a text leaves open at the top level is reported with the line th
   expect(end("> ```\n> code")).toBeNull();
   expect(end("plain")).toBeNull();
 });
+
+test("an open script, style, or textarea block is ended by its own closing tag, which HTML also ends it with", () => {
+  // CommonMark ends all four kinds at any of their closing tags, but a browser's HTML reads a script, style, or
+  // textarea's content as text until its own: closing one with `</pre>` would leave what follows inside it.
+  const end = (text: string) => markdownBlocks(text).openBlockEnd;
+  expect(end("<script>\nvar x = 1;")).toBe("</script>");
+  expect(end("<STYLE type=\"text/css\">\nbody { color: red }")).toBe("</style>");
+  expect(end("<textarea>\nleft open")).toBe("</textarea>");
+  expect(end("<pre>\ntext")).toBe("</pre>");
+  expect(end("<script>\nx\n</script>")).toBeNull();
+});
