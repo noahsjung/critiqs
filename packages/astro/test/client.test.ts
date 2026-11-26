@@ -171,7 +171,7 @@ test("Critiqs stays mounted, once, across a client-side navigation, and reports 
   await settle();
   expect(carried).toBe(true);
   expect(document.querySelector("h1")?.textContent).toBe("Setup");
-  expect(hosts()).toEqual([before!]);
+  expect(hosts().map((host) => host === before)).toEqual([true]);
   expect(before!.parentElement).toBe(document.body);
   // The same interface, not a new one: its state lives on.
   expect(toolbar()).toBe(shown);
@@ -182,7 +182,7 @@ test("Critiqs stays mounted, once, across a client-side navigation, and reports 
 test("a site's own swap that skips persisted elements still keeps Critiqs, once", async () => {
   const [before] = hosts();
   await clientNavigate("/", "Home", (next, old) => old.replaceWith(next));
-  expect(hosts()).toEqual([before!]);
+  expect(hosts().map((host) => host === before)).toEqual([true]);
   expect(document.querySelector("template")).toBeNull();
   expect(lastPushed()).toEqual({ screen: "/", viewState: {} });
 });

@@ -744,7 +744,7 @@ test("replacement motion is settled before the current target is scrolled", asyn
   await act(async () => finishNew());
   await frames();
   expect(premature).toBe(0);
-  expect(scrolled).toEqual([newButton!]);
+  expect(scrolled.map((element) => element === newButton)).toEqual([true]);
 });
 
 test("a panel asked to open a comment, as the extension's is after a pin's click, opens it like a link, without touching the page's address", async () => {

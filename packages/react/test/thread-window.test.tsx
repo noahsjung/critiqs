@@ -572,7 +572,7 @@ test("opening the same thread from its other pin moves focus into the window aga
   });
   await frames();
   expect(shadow.activeElement).toBe(threadWindow(shadow));
-  expect(pins().filter((pin) => pin.getAttribute("aria-expanded") === "true")).toEqual([second]);
+  expect(pins().filter((pin) => pin.getAttribute("aria-expanded") === "true").map((pin) => pin === second)).toEqual([true]);
 });
 
 test("a reply still sending is neither lost nor repeated when the thread is reopened", async () => {
