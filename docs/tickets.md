@@ -393,7 +393,10 @@ Critiqs keeps each linked ticket's status and when it last changed:
   adds "· last known"; hovering says when it was last read and why. It says
   so from the moment the person disconnects or loses access, before anything
   checks: whether a status is current is decided in one place, as Critiqs
-  reads it, for every place that shows it. A webhook still updates the
+  reads it, for every place that shows it (the thread window, the comment
+  list's rows, the thread page, coding agents). A pin's mark names no status
+  word, as before: the page layer takes only a ticket's tracker, key, and
+  status. A webhook still updates the
   status, which stays marked while Critiqs can't check it as that person. A
   check that finds the ticket hidden marks it too; a webhook or a later check
   that works clears that, and a check refused after a webhook saved a newer

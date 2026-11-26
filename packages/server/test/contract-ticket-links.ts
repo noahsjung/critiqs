@@ -262,7 +262,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     // Everyone in the project sees it on the thread, list row included.
     expect((await shown(backend, sam, threadId))?.map((ticket) => [ticket.key, ticket.canUnlink])).toEqual([["ENG-1", false]]);
     const listed = await backend.run(async (store) => (await ops.listThreads(store, sam, { projectId: stored.projectId }, page)).page[0]!.tickets);
-    expect(listed).toEqual([{ tracker: "linear", key: "ENG-1", status: { label: "Triage", category: "open" } }]);
+    expect(listed).toEqual([{ tracker: "linear", key: "ENG-1", status: { label: "Triage", category: "open" }, lastKnown: false }]);
   });
 
   test(`${name}: with attribution off the ticket has no Critiqs text, and the capture is uploaded into it`, async () => {

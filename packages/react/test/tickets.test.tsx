@@ -883,3 +883,10 @@ test("with drafting and ticket status, one Tickets tab shows the templates first
   expect(switchFor(panelOnly, "Use the team's ticket templates")).toBeNull();
   expect(switchFor(panelOnly, "Resolve threads when their tickets are done")).not.toBeNull();
 });
+
+test("a list row marks a ticket's status last known as its chip does; the page layer's pin gets only the fields it takes", async () => {
+  const shadow = await mount(backend({ threads: [summary([{ ...badge, lastKnown: true }])] }), OFFERED, { sidebarOpen: true });
+  expect(shadow.querySelector(".entry .ticket-badge")?.textContent).toBe("ENG-1 · In Progress · last known");
+  // The pin is still drawn: the page layer refuses ticket fields it doesn't know, which would drop every pin.
+  expect(shadow.querySelector(".pin .pin-ticket")).not.toBeNull();
+});

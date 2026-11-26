@@ -240,6 +240,12 @@ export interface TicketBadge {
   tracker: TrackerId;
   key: string;
   status: TicketStatus | null;
+  /**
+   * Whether `status` is only the last one Critiqs knew (as
+   * `TicketLinkView.statusStale`). Absent from backends before it, and never
+   * sent to the page layer, whose pins take only the fields above.
+   */
+  lastKnown?: boolean;
 }
 
 /** A person's connected tracker account, as Your trackers shows it. Never carries tokens. */

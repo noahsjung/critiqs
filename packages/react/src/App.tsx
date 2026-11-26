@@ -15,6 +15,7 @@ import {
   type SidebarFilters,
   type Target,
   type TargetLocation,
+  type TicketBadge,
 } from "@critiqs/core";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { reportConnected } from "./connected.ts";
@@ -149,6 +150,11 @@ interface AppProps {
  * run here and the host's `getContext` and `restoreContext` go to the page
  * layer.
  */
+/** A thread's tickets as the page layer's pins take them: exactly these fields, which it checks, so nothing else is sent. */
+function pinTickets(tickets: ThreadSummary["tickets"]): TicketBadge[] {
+  return (tickets ?? []).map(({ tracker, key, status }) => ({ tracker, key, status }));
+}
+
 export function App({ page, ...args }: AppProps) {
   const own = useInDocumentPage(page === undefined ? args.host : null, args.props);
   const link = page ?? own;
@@ -986,7 +992,7 @@ function PanelApp({
         // The open thread keeps its pin, such as a resolved thread opened from a link or search.
         const open = summary._id === selected?.threadId;
         if (filters.status !== "all" && summary.status !== filters.status && !open) return [];
-        return [{ threadId: summary._id, authorName: summary.preview?.authorName ?? "Unknown", unread: summary.unread, resolved: summary.status === "resolved", tickets: summary.tickets ?? [] }];
+        return [{ threadId: summary._id, authorName: summary.preview?.authorName ?? "Unknown", unread: summary.unread, resolved: summary.status === "resolved", tickets: pinTickets(summary.tickets) }];
       }),
     [pageSummaries, filters.status, selected?.threadId],
   );

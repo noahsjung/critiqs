@@ -541,12 +541,18 @@ export async function listThreads(
   const { user } = await currentReviewer(store, identity);
   const project = await requireProject(store, user, args.projectId);
   const result = await store.threads.listVisible(project._id, boundedPage(request));
-  const page = await Promise.all(result.page.map((thread) => threadSummary(store, user, thread)));
+  const lastKnown = lastKnownStatus(store);
+  const page = await Promise.all(result.page.map((thread) => threadSummary(store, user, thread, lastKnown)));
   return { page, isDone: result.isDone, continueCursor: result.continueCursor };
 }
 
 /** A thread as lists show it, with the reviewer's own unread state; `user` is null before their first change. */
-export async function threadSummary(store: Store, user: UserRecord | null, thread: ThreadRecord): Promise<ThreadSummary> {
+export async function threadSummary(
+  store: Store,
+  user: UserRecord | null,
+  thread: ThreadRecord,
+  lastKnown: (link: TicketLinkRecord) => Promise<boolean> = lastKnownStatus(store),
+): Promise<ThreadSummary> {
   const first = await store.messages.first(thread._id);
   const readState = user === null ? null : await store.readStates.find(user._id, thread._id);
   const author = first === null ? null : await store.users.get(first.authorId);
@@ -565,7 +571,11 @@ export async function threadSummary(store: Store, user: UserRecord | null, threa
     ...(thread.mockup === undefined ? {} : { mockup: thread.mockup }),
     ...(store.tickets === undefined
       ? {}
-      : { tickets: (await linkedTickets(store.tickets, thread._id)).map((link) => ({ tracker: link.tracker, key: link.key, status: link.status ?? null })) }),
+      : {
+          tickets: await Promise.all(
+            (await linkedTickets(store.tickets, thread._id)).map(async (link) => ({ tracker: link.tracker, key: link.key, status: link.status ?? null, lastKnown: await lastKnown(link) })),
+          ),
+        }),
   };
 }
 

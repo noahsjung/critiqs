@@ -316,8 +316,9 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
     expect(await listed()).toEqual({
       [threadId]: [
-        { tracker: "linear", key: "ENG-1", status: { label: "In Progress", category: "started" } },
-        { tracker: "jira", key: "ENG-2", status: null },
+        // Neither linker is connected as the account they linked with: last known, as in the thread.
+        { tracker: "linear", key: "ENG-1", status: { label: "In Progress", category: "started" }, lastKnown: true },
+        { tracker: "jira", key: "ENG-2", status: null, lastKnown: true },
       ],
       [otherThreadId]: [],
     });

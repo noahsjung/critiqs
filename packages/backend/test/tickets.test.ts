@@ -115,7 +115,7 @@ test("a reviewer connects Linear, picks a team, edits the draft, and creates the
   expect(linear.issues.filter((entry) => entry.identifier !== "ENG-9")).toHaveLength(1);
 
   // Sam has no Linear, but sees the ticket's key and status on the list row and in the thread.
-  expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "linear", key: "ENG-10", status: { label: "Triage", category: "open" } }]);
+  expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "linear", key: "ENG-10", status: { label: "Triage", category: "open" }, lastKnown: false }]);
   expect((await getThread(sam, { threadId })).tickets).toEqual([expect.objectContaining({ key: "ENG-10", url: "https://linear.app/acme/issue/eng-10", canUnlink: false })]);
   await expect(sam.mutation(api.tickets.unlink, { linkId: view._id })).rejects.toThrow("Only the person who linked this ticket or the project's owner can unlink it.");
   await expect(sam.action(api.tickets.search, { tracker: "linear", query: "ENG-10" })).rejects.toThrow("Connect Linear");

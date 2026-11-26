@@ -442,6 +442,9 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
 
     await backend.run((store) => disconnectTracker(store, lee, { tracker: "linear" }));
     expect((await shown(backend, sam, threadId))[0]).toMatchObject({ status: STARTED, statusStale: true });
+    // The thread list's row says so too.
+    const listed = await backend.run((store) => ops.listThreads(store, sam, { projectId }, page));
+    expect(listed.page.find((thread) => thread._id === threadId)?.tickets).toEqual([{ tracker: "linear", key: "ENG-1", status: STARTED, lastKnown: true }]);
     await connect(backend, lee, "u-other-account");
     expect((await shown(backend, sam, threadId))[0]?.statusStale).toBe(true);
     // Back on the account they linked it with, and nothing found it hidden: current again.

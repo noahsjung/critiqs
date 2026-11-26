@@ -32,8 +32,8 @@ export const trackerLabel = (tracker: TrackerId) => TRACKERS.find((entry) => ent
 const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project" };
 
 /** A ticket's key and status as people read it, such as `ENG-123 · In Progress`. */
-export function ticketText(ticket: { key: string; status: TicketStatus | null }): string {
-  return ticket.status === null ? ticket.key : `${ticket.key} · ${ticket.status.label}`;
+export function ticketText(ticket: { key: string; status: TicketStatus | null; lastKnown?: boolean }): string {
+  return ticket.status === null ? ticket.key : `${ticket.key} · ${ticket.status.label}${ticket.lastKnown === true ? " · last known" : ""}`;
 }
 
 /** Where tickets can be created: the backend offers tickets and the transport has them. */
