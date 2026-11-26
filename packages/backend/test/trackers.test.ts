@@ -400,6 +400,32 @@ test("when Linear turns the revocation down, disconnecting says Critiqs couldn't
   expect(tries()).toBe(4);
 });
 
+test("a disconnect that dies after removing the account still has its retry scheduled, from the same step; one that ends the sign-in leaves none", async () => {
+  withSignIn();
+  const f = people();
+  const pendingRetries = async () =>
+    (await f.t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.state.kind === "pending" && job.name.includes("endAccount")))).map((job) => ({
+      delay: Math.round((job.scheduledTime - job._creationTime) / 60_000),
+      attempt: (job.args[0] as { attempt: number }).attempt,
+    }));
+  let { state, cookie } = await openSignIn(f);
+  tokenReplies.push({ body: { access_token: "access-1", expires_in: 86_399, refresh_token: "refresh-1" } });
+  await callback(f, { code: "code-1", state }, cookie);
+  // The action's first step removes the account; it dies before it can try Linear.
+  await f.dana.mutation(internal.trackers.removeAccount, { tracker: "linear" });
+  expect(await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
+  expect(await pendingRetries()).toEqual([{ delay: 1, attempt: 1 }]);
+  await f.t.run(async (ctx) => {
+    for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+  });
+  // A whole disconnect that ends the sign-in at Linear leaves no retry.
+  ({ state, cookie } = await openSignIn(f));
+  tokenReplies.push({ body: { access_token: "access-2", expires_in: 86_399, refresh_token: "refresh-2" } });
+  await callback(f, { code: "code-2", state }, cookie);
+  expect(await f.dana.action(api.trackers.disconnect, { tracker: "linear" })).toBe("ended");
+  expect(await pendingRetries()).toEqual([]);
+});
+
 test("a sign-in window still open when the person disconnects connects nothing, and the tokens it got are revoked", async () => {
   withSignIn();
   const f = people();

@@ -5,6 +5,7 @@ import {
   dropTrackerSignIn,
   openTrackerSignIn,
   connectTrackerWithToken,
+  type DisconnectedAccount,
   disconnectTracker,
   endTrackerAccount,
   finishTokenRefresh,
@@ -18,6 +19,7 @@ import {
 } from "@critiqs/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, mutation, query } from "./_generated/server";
 import { storedTokenValidator, trackerValidator } from "./lib/validators";
 import { convexStore, identityOf, run } from "./lib/store";
@@ -61,24 +63,34 @@ const END_RETRY_MS = [60_000, 10 * 60_000, 60 * 60_000];
  * cancels their sign-ins to it under way; then ends its sign-in at the
  * tracker where it can, and says whether it did (`TrackerDisconnected`), so
  * the person knows when the tracker couldn't be told. A sign-in that couldn't
- * be ended is tried again in the background for about an hour.
+ * be ended is tried again in the background for about an hour: the retry is
+ * scheduled in the step that removes the account, so a disconnect that stops
+ * before it reaches the tracker is still tried again, and cancelled once the
+ * first try works.
  */
 export const disconnect = action({
   args: { tracker: trackerValidator },
   handler: async (ctx, args): Promise<TrackerDisconnected> =>
     run(async () => {
-      const ended = await ctx.runMutation(internal.trackers.removeAccount, args);
-      if (ended === null) return "none";
+      const removed = await ctx.runMutation(internal.trackers.removeAccount, args);
+      if (removed === null) return "none";
       // Still sealed until here: only an action decrypts them, to end them at the tracker.
-      const outcome = await endTrackerAccount(ticketsDeployment(), ended);
-      if (outcome === "failed") await ctx.scheduler.runAfter(END_RETRY_MS[0]!, internal.trackers.endAccount, { account: ended, attempt: 1 });
+      const outcome = await endTrackerAccount(ticketsDeployment(), removed.account);
+      if (outcome !== "failed") await ctx.scheduler.cancel(removed.retry);
       return outcome;
     }),
 });
 
+/** Removes the person's account (`disconnectTracker`) and, in the same transaction, schedules the first retry of ending it at the tracker. */
 export const removeAccount = internalMutation({
   args: { tracker: trackerValidator },
-  handler: async (ctx, args) => run(async () => disconnectTracker(convexStore(ctx), await identityOf(ctx), args)),
+  handler: async (ctx, args): Promise<{ account: DisconnectedAccount; retry: Id<"_scheduled_functions"> } | null> =>
+    run(async () => {
+      const account = await disconnectTracker(convexStore(ctx), await identityOf(ctx), args);
+      if (account === null) return null;
+      const retry = await ctx.scheduler.runAfter(END_RETRY_MS[0]!, internal.trackers.endAccount, { account, attempt: 1 });
+      return { account, retry };
+    }),
 });
 
 /** Tries again to end a disconnected account's sign-in at its tracker (`endTrackerAccount`), as `disconnect` couldn't. */
