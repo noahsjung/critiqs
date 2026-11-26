@@ -1,24 +1,23 @@
 import {
-  AVAILABLE_WAYS,
   type DeveloperInvite,
   type DeveloperSendResult,
   type DeveloperSendSummary,
   developerMessage,
   installCommands,
-  type OnboardingAnswers,
+  MAX_DEVELOPER_INVITES_PER_PROJECT,
   type ProjectInfo,
-  recommend,
   STACKS,
-  type StackInfo,
-  type Way,
 } from "@critiqs/core";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { failureMessage, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
-import { type CreatedProject, developerErrors, emailAddress, filledDevelopers } from "../flow.ts";
+import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
 import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { BackendStep, Commands, CopyButton } from "./parts.tsx";
+import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand } from "./parts.tsx";
+
+// The two ways to add Critiqs to the prototype: run one command, or send the
+// steps to a developer.
 
 /** The setup page a copied message links to: this site's, by project ID, which shows the install steps to anyone signed in. */
 export function projectSetupUrl(projectId: string, origin = window.location.origin): string {
@@ -26,61 +25,37 @@ export function projectSetupUrl(projectId: string, origin = window.location.orig
 }
 
 /**
- * The recommended way in for the project as created, then the other ways
- * Critiqs offers today. `someoneElse` is an engineer saying, after all, that
- * someone else changes the code.
+ * "I will": one command, one Copy, and what happens next. A stack Critiqs
+ * can't be installed in yet says so in place of the command. `onDone` runs
+ * once the command or the agent's instructions are copied.
  */
-export function Recommendation({
-  project,
-  developers,
-  onDevelopers,
-  email,
-}: {
-  project: CreatedProject;
-  developers: readonly string[];
-  onDevelopers: (fields: string[]) => void;
-  email: string | null;
-}) {
-  const [someoneElse, setSomeoneElse] = useState(false);
-  const answers: OnboardingAnswers = someoneElse ? { ...project.answers, codeAccess: "teammate" } : project.answers;
-  const { primary, others, reason } = recommend(answers, project.check, AVAILABLE_WAYS);
+export function InstallPanel({ project, onDone }: { project: CreatedProject; onDone?: () => void }) {
+  const { componentBackend } = useBackend();
   const stack = STACKS.find((candidate) => candidate.id === project.stack) ?? null;
-  /** A way's card; the recommended one says why in place of its own line of help. */
-  const card = (way: Way, reason: string | null): ReactNode => {
-    switch (way) {
-      case "install":
-        return <InstallCard key={way} projectId={project.id} stack={stack} reason={reason} />;
-      case "send-to-developer":
-        return <SendCard key={way} project={project} developers={developers} onDevelopers={onDevelopers} email={email} reason={reason} />;
-      // Ways that haven't shipped have no card; `AVAILABLE_WAYS` leaves them out.
-      default:
-        return null;
-    }
-  };
+  const commands = installCommands(project.id);
+  const command = oneCommand(commands);
+  const host = project.reviewUrl === null ? null : shownHost(project.reviewUrl);
+  if (stack !== null && !stack.installable) {
+    return (
+      <>
+        <Heading title={copy.install.title} />
+        <p className="caution">{copy.install.notInstallable(stack.label)}</p>
+      </>
+    );
+  }
   return (
     <>
-      <p className="lead">{copy.recommendation.lead}</p>
-      <section className="recommended" aria-labelledby="recommended-badge">
-        <p className="badge" id="recommended-badge">
-          {copy.recommendation.badge}
-        </p>
-        {card(primary, copy.recommendation.reasons[reason])}
-      </section>
-      {reason === "can-change-code" && !someoneElse && (
-        <div>
-          <button type="button" className="link-btn" onClick={() => setSomeoneElse(true)}>
-            {copy.recommendation.someoneElse}
-          </button>
-        </div>
-      )}
-      {others.length > 0 && (
-        <section className="other-ways" aria-labelledby="other-ways">
-          <h2 className="ds-group-label" id="other-ways">
-            {copy.recommendation.others}
-          </h2>
-          {others.map((way) => card(way, null))}
-        </section>
-      )}
+      <Heading title={copy.install.title} lead={copy.install.lead} />
+      <Command
+        commands={commands}
+        onCopied={onDone}
+        after={
+          <CopyButton text={copy.install.agentPrompt(command, stack?.label ?? null, componentBackend)} label={copy.install.agent} copiedLabel={copy.install.agentCopied} className="quiet" onCopied={onDone} />
+        }
+      />
+      {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" />}
+      <p className="then">{copy.install.then(host)}</p>
+      {stack === null && <p className="note">{copy.install.unknownStack}</p>}
     </>
   );
 }
@@ -96,31 +71,6 @@ function withBackendStep(message: string, stack: CreatedProject["stack"], backen
   const parts = message.split("\n\n");
   parts.splice(parts.length - 1, 0, `${copy.install.customBackend("our")}\n${copy.install.backendProperty(backend)}`);
   return parts.join("\n\n");
-}
-
-/** Installing in the app: the commands for an installable or unknown stack, or why it can't be installed yet. */
-export function InstallCard({ projectId, stack, reason }: { projectId: string; stack: StackInfo | null; reason: string | null }) {
-  const { componentBackend } = useBackend();
-  const commands = installCommands(projectId);
-  return (
-    <div className="way" aria-label={copy.install.title} role="group">
-      <h2 className={reason === null ? "way-title" : "way-title large"}>{copy.install.title}</h2>
-      {reason !== null && <p className="reason">{reason}</p>}
-      {stack !== null && !stack.installable ? (
-        <p className="caution">{copy.stack.notInstallable(stack.label)}</p>
-      ) : (
-        <>
-          <p className="note">{stack === null ? copy.install.unknownStack : copy.install.commandsLabel}</p>
-          <Commands commands={commands} />
-          {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" />}
-          <div className="row between wrap agent">
-            <span className="note">{copy.install.agentLabel}</span>
-            <CopyButton text={copy.install.agentPrompt(commands, stack?.label ?? null, componentBackend)} label={copy.install.copyPrompt} copiedLabel={copy.install.promptCopied} />
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 /** A line about one developer's setup email. `copy`: offer Copy message beside it, since Critiqs won't email them; `send-again`: its email failed, so Send again emails them now. */
@@ -178,6 +128,11 @@ export function inviteLine(email: string, invite: DeveloperInvite, organization:
   }
 }
 
+/** Answers to Send, with the newest answer for each address replacing the one before it. */
+function withResults(current: readonly DeveloperSendResult[], answered: readonly DeveloperSendResult[]): DeveloperSendResult[] {
+  return [...answered, ...current.filter((earlier) => !answered.some((result) => result.email === earlier.email))];
+}
+
 /** An address as the server keeps a send's: trimmed and lowercase. */
 function exactAddress(address: string): string {
   return emailAddress(address) ?? address.trim().toLowerCase();
@@ -193,46 +148,46 @@ export function recordFor<T extends { email: string }>(records: readonly T[], ad
   return records.find((record) => record.email === email);
 }
 
-/** Sending the setup steps to developers: copy a message, or have Critiqs email each address. */
-export function SendCard({
+/** "My developer will": email the steps to up to three developers, or copy a message. */
+export function SendPanel({
   project,
   developers,
   onDevelopers,
   email,
-  reason,
+  onDone,
 }: {
   project: CreatedProject;
   developers: readonly string[];
   onDevelopers: (fields: string[]) => void;
   email: string | null;
-  reason: string | null;
+  onDone?: () => void;
 }) {
   const backend = useBackend();
   const sends = backend.useDeveloperSends(project.id);
   const info = backend.useProject(project.id);
   return (
-    <SendCardView
+    <SendPanelView
       project={project}
       organization={info.status === "ready" ? { status: "ready", data: info.data.organization ?? null } : info}
       developers={developers}
       onDevelopers={onDevelopers}
       email={email}
-      reason={reason}
       sends={sends}
       send={(emails) => backend.sendDeveloperSetup(project.id, emails)}
+      onDone={onDone}
     />
   );
 }
 
-export function SendCardView({
+export function SendPanelView({
   project,
   organization,
   developers,
   onDevelopers,
   email,
-  reason,
   sends,
   send,
+  onDone,
 }: {
   project: CreatedProject;
   /**
@@ -244,10 +199,9 @@ export function SendCardView({
   developers: readonly string[];
   onDevelopers: (fields: string[]) => void;
   email: string | null;
-  /** Why it's recommended; null when it's one of the other ways. */
-  reason: string | null;
   sends: QueryState<DeveloperSendSummary[]>;
   send: (emails: string[]) => Promise<DeveloperSendResult[]>;
+  onDone?: () => void;
 }) {
   const { componentBackend } = useBackend();
   const [results, setResults] = useState<readonly DeveloperSendResult[]>([]);
@@ -259,10 +213,13 @@ export function SendCardView({
   const errors = developerErrors(fields, email);
   const summaries = sends.status === "ready" ? sends.data : [];
   const filled = filledDevelopers(fields);
-  // Send emails each address that has no email yet, or whose email failed.
+  const [adding, setAdding] = useState(false);
+  // Send emails each address that has no email yet, or whose email failed. The project's record wins; until it arrives, the answer to Send.
   const unsent = filled.filter((address) => {
     const status = recordFor(summaries, address)?.status;
-    return status !== "sent" && status !== "uncertain";
+    if (status !== undefined) return status === "failed";
+    const answer = recordFor(results, address)?.status;
+    return answer !== "sent" && answer !== "already-sent";
   });
 
   const run = async (emails: string[]) => {
@@ -270,8 +227,11 @@ export function SendCardView({
     setFailure(null);
     try {
       const answered = await send(emails);
-      // The newest answer for each address replaces the one before it.
-      setResults((current) => [...answered, ...current.filter((earlier) => !answered.some((result) => result.email === earlier.email))]);
+      setResults((current) => withResults(current, answered));
+      if (answered.some((result) => result.status === "sent")) {
+        setAdding(false);
+        onDone?.();
+      }
     } catch (error) {
       setFailure(failureMessage(error, copy.send.failedRequest));
     } finally {
@@ -279,21 +239,21 @@ export function SendCardView({
     }
   };
   const sendAll = () => {
+    // Enter in a field submits too, so the button's own conditions hold here: nothing while sending or before the organization loads, and only unsent addresses.
+    if (sending || !known) return;
+    if (filled.length === 0) {
+      setShowErrors(true);
+      return;
+    }
     if (errors.some((error) => error !== null)) {
       setShowErrors(true);
       setRefused((count) => count + 1);
       return;
     }
-    void run(unsent);
+    if (unsent.length > 0) void run(unsent);
   };
   const message = withBackendStep(
-    developerMessage({
-      projectName: project.name,
-      address: project.reviewUrl,
-      stack: project.stack,
-      projectId: project.id,
-      setupUrl: projectSetupUrl(project.id),
-    }),
+    developerMessage({ projectName: project.name, address: project.reviewUrl, stack: project.stack, projectId: project.id, setupUrl: projectSetupUrl(project.id) }),
     project.stack,
     componentBackend,
   );
@@ -309,49 +269,89 @@ export function SendCardView({
     const invite = result?.status === "sent" ? inviteLine(address, result.invite, org?.name ?? copy.send.invite.theOrganization) : null;
     return line === null ? [] : [{ address, line, invite }];
   });
+  // Every address typed has its email: the form gives way to what was sent.
+  const allSent = !adding && lines.length > 0 && unsent.length === 0 && lines.every(({ line }) => line.tone === "success");
+
+  const deliveries = lines.length > 0 && (
+    <ul className="deliveries" aria-live="polite">
+      {lines.map(({ address, line, invite }) => (
+        <li key={address} className={line.tone}>
+          <span className="delivery-text">
+            <span className="delivery-main">
+              {line.tone === "success" && <CheckIcon />}
+              {line.text}
+            </span>
+            {invite !== null && <span className="note">{invite}</span>}
+          </span>
+          {line.action === "copy" && (
+            <CopyButton text={message} label={copy.send.copyMessageShort} copiedLabel={copy.send.messageCopied} name={copy.send.copyMessageFor(address)} className="btn small" onCopied={onDone} />
+          )}
+          {line.action === "send-again" && (
+            <button type="button" className="btn small" disabled={sending || !known} aria-label={copy.send.sendAgainTo(address)} onClick={() => void run([address])}>
+              {copy.send.sendAgain}
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+
+  if (allSent) {
+    return (
+      <>
+        <Heading title={copy.send.sentTitle(lines.length)} lead={copy.send.sentNext} />
+        {deliveries}
+        {fields.length < MAX_DEVELOPER_INVITES_PER_PROJECT && (
+          <div>
+            <button
+              type="button"
+              className="quiet"
+              onClick={() => {
+                setAdding(true);
+                onDevelopers([...fields, ""]);
+              }}
+            >
+              {copy.send.sendAnother}
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
-    <div className="way" aria-label={copy.send.title} role="group">
-      <h2 className={reason === null ? "way-title" : "way-title large"}>{copy.send.title}</h2>
-      {reason === null ? <p className="note">{copy.send.lead}</p> : <p className="reason">{reason}</p>}
-      <DeveloperEmails fields={fields} onChange={onDevelopers} errors={showErrors ? errors : null} refused={refused} />
-      {admin !== null && <p className="note invite-note">{copy.send.invite.before(admin.name)}</p>}
-      {lines.length > 0 && (
-        <ul className="deliveries" aria-live="polite">
-          {lines.map(({ address, line, invite }) => (
-            <li key={address} className={line.tone}>
-              <span className="delivery-text">
-                <span>{line.text}</span>
-                {invite !== null && <span className="note invite-outcome">{invite}</span>}
-              </span>
-              {line.action === "copy" && <CopyButton text={message} label={copy.send.copyMessage} copiedLabel={copy.send.messageCopied} name={copy.send.copyMessageFor(address)} />}
-              {line.action === "send-again" && (
-                <button type="button" className="btn small" disabled={sending || !known} aria-label={copy.send.sendAgainTo(address)} onClick={() => void run([address])}>
-                  {copy.send.sendAgain}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {failure !== null && (
-        <div className="request-failure">
-          <p className="error" role="alert">
-            {failure}
-          </p>
-          <CopyButton text={message} label={copy.send.copyMessageInstead} copiedLabel={copy.send.messageCopied} />
-        </div>
-      )}
-      {organization.status === "error" && <p className="error">{copy.send.organizationFailed}</p>}
-      {filled.length === 0 && <p className="note">{copy.send.noAddresses}</p>}
-      <div className="ds-actions">
-        <CopyButton text={message} label={copy.send.copyMessage} copiedLabel={copy.send.messageCopied} className="btn" />
-        {unsent.length > 0 && (
-          <button type="button" className={reason === null ? "btn" : "btn primary"} disabled={sending || !known} onClick={sendAll}>
-            {sending ? copy.send.sending : unsent.length === 1 ? copy.send.sendOne : copy.send.sendMany}
-          </button>
+    <>
+      <Heading title={copy.send.title} lead={copy.send.lead} />
+      <form
+        className="stacked"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          sendAll();
+        }}
+      >
+        <DeveloperEmails fields={fields} onChange={onDevelopers} errors={showErrors ? errors : null} refused={refused} />
+        {showErrors && filled.length === 0 && <p className="error">{copy.send.noAddresses}</p>}
+        {admin !== null && <p className="note">{copy.send.invite.before(admin.name)}</p>}
+        {deliveries}
+        {failure !== null && (
+          <div className="request-failure">
+            <p className="error" role="alert">
+              {failure}
+            </p>
+            <CopyButton text={message} label={copy.send.copyMessageInstead} copiedLabel={copy.send.messageCopied} className="btn small" onCopied={onDone} />
+          </div>
         )}
-      </div>
-    </div>
+        {organization.status === "error" && <p className="error">{copy.send.organizationFailed}</p>}
+        <div className="actions">
+          {(unsent.length > 0 || filled.length === 0) && (
+            <button type="submit" className="btn primary large" disabled={sending || !known}>
+              {sending ? copy.send.sending : unsent.length > 1 ? copy.send.sendMany : copy.send.sendOne}
+            </button>
+          )}
+          <CopyButton text={message} label={copy.send.copyMessage} copiedLabel={copy.send.messageCopied} className="quiet" onCopied={onDone} />
+        </div>
+      </form>
+    </>
   );
 }

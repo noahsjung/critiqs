@@ -6,6 +6,8 @@ import { clearFlowOnSignOut, sessionStore } from "./flow.ts";
 import { routeOf } from "./route.ts";
 import { type Deployment, HOSTED_BACKEND_URL, resolveDeployment, Session } from "./shared.ts";
 import { Onboarding } from "./ui/Onboarding.tsx";
+import { Account } from "./ui/parts.tsx";
+import { Logo } from "./ui/Preview.tsx";
 import { SetupPage } from "./ui/SetupPage.tsx";
 
 /** Critiqs Cloud's Convex deployment, or the one `VITE_CRITIQS_BACKEND` names. */
@@ -27,20 +29,38 @@ export function App() {
     );
   }, []);
 
+  const header = (account: boolean) => (
+    <header className="topbar">
+      <a className="brand" href="https://critiqs.app/">
+        <Logo />
+        {copy.appName}
+      </a>
+      {account && <Account />}
+    </header>
+  );
+  if (deployment.status !== "ready") {
+    return (
+      <div className="app">
+        {header(false)}
+        <main className="page">
+          {deployment.status === "loading" && <p className="note">{copy.loading}</p>}
+          {deployment.status === "error" && (
+            <>
+              <h1>{copy.deployment.title}</h1>
+              <p className="error">{deployment.message}</p>
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
   return (
-    <main className="page">
-      <p className="brand">{copy.appName}</p>
-      {deployment.status === "loading" && <p className="note">{copy.loading}</p>}
-      {deployment.status === "error" && (
-        <>
-          <h1>{copy.deployment.title}</h1>
-          <p className="error">{deployment.message}</p>
-        </>
-      )}
-      {deployment.status === "ready" && (
-        <Connected deployment={deployment.deployment}>{route.page === "setup" ? <SetupPage id={route.id} /> : <Onboarding />}</Connected>
-      )}
-    </main>
+    <Connected deployment={deployment.deployment}>
+      <div className="app">
+        {header(true)}
+        <main className={route.page === "setup" ? "page narrow" : "page"}>{route.page === "setup" ? <SetupPage id={route.id} /> : <Onboarding />}</main>
+      </div>
+    </Connected>
   );
 }
 

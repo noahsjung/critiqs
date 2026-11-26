@@ -2,7 +2,7 @@ import { PROJECT_ID_PATTERN } from "@critiqs/core";
 import { type Backend, type SetupInfo, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import type { QueryState } from "../shared.ts";
-import { BackendStep, Commands, PageHeader, SignInButton } from "./parts.tsx";
+import { BackendStep, Command, Heading, SignInButton } from "./parts.tsx";
 
 /**
  * The developer's setup page at /setup/<id>: after sign-in, the project, its
@@ -14,8 +14,7 @@ export function SetupPage({ id }: { id: string }) {
   if (auth.reviewer === null || !auth.ready) {
     return (
       <>
-        <PageHeader title={copy.signIn.title} />
-        <p className="lead">{copy.setup.signInLead}</p>
+        <Heading title={copy.signIn.title} lead={copy.setup.signInLead} />
         <SignInButton />
       </>
     );
@@ -49,10 +48,9 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
   if (state.status === "error") {
     return (
       <>
-        <PageHeader title={copy.setup.notFoundTitle} />
-        <p className="lead">{state.code === "not-found" || state.code === "forbidden" ? copy.setup.notFound : state.message}</p>
+        <Heading title={copy.setup.notFoundTitle} lead={state.code === "not-found" || state.code === "forbidden" ? copy.setup.notFound : state.message} />
         <p className="note">{copy.signIn.signedInAs(email)}</p>
-        <div>
+        <div className="actions">
           <button type="button" className="btn" onClick={onSignOut}>
             {copy.setup.signOut}
           </button>
@@ -68,22 +66,21 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
   ];
   return (
     <>
-      <PageHeader title={copy.setup.title(setup.projectName)} />
-      <p className="lead">{setup.inviterName === null ? copy.setup.askedNoName : copy.setup.asked(setup.inviterName)}</p>
+      <Heading title={copy.setup.title(setup.projectName)} lead={setup.inviterName === null ? copy.setup.askedNoName : copy.setup.asked(setup.inviterName)} />
       <dl className="facts">
         {facts.map(([label, value]) => (
-          <div key={label} className="ds-row">
+          <div key={label} className="fact">
             <dt>{label}</dt>
             <dd>{value}</dd>
           </div>
         ))}
       </dl>
       {setup.installCommands === null ? (
-        <p className="caution">{copy.stack.notInstallable(setup.stack?.label ?? "")}</p>
+        <p className="caution">{copy.install.notInstallable(setup.stack?.label ?? "")}</p>
       ) : (
         <div className="stacked">
-          <p className="note">{setup.stack === null ? copy.install.unknownStack : copy.setup.commandsLabel}</p>
-          <Commands commands={setup.installCommands} />
+          <p className="note">{setup.stack === null ? `${copy.setup.commandLabel} ${copy.install.unknownStack}` : copy.setup.commandLabel}</p>
+          <Command commands={setup.installCommands} />
           {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" />}
         </div>
       )}

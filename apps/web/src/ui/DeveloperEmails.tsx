@@ -5,24 +5,21 @@ import { copy } from "../copy.ts";
 /**
  * Up to three developers' email addresses, added and removed one at a time.
  * `errors` has one entry per field (see `developerErrors`); null hides them.
- * Each time `refused` goes up, after the person tried to go on with an
- * invalid address, focus moves to the first field with an error, so a screen
- * reader reads its label and the error it describes.
+ * Each time `refused` goes up, after the person tried to send to an invalid
+ * address, focus moves to the first field with an error, so a screen reader
+ * reads its label and the error it describes.
  */
 export function DeveloperEmails({
   fields,
   onChange,
   errors,
   refused = 0,
-  note,
 }: {
   fields: readonly string[];
   onChange: (fields: string[]) => void;
   errors: readonly (string | null)[] | null;
   refused?: number;
-  note?: string;
 }) {
-  const groupId = useId();
   const fieldId = useId();
   const list = useRef<HTMLDivElement>(null);
   // A field added or removed by a button moves focus to the last field, since the button may be gone.
@@ -38,12 +35,8 @@ export function DeveloperEmails({
   }, [refused]);
   const update = (index: number, value: string) => onChange(fields.map((field, at) => (at === index ? value : field)));
   return (
-    <div className="ds-group developers" role="group" aria-labelledby={groupId}>
-      <p className="ds-group-label" id={groupId}>
-        {copy.developers.group}
-      </p>
-      {note !== undefined && <p className="note">{note}</p>}
-      <div ref={list} className="developer-fields">
+    <div className="developers">
+      <div ref={list} className="stacked">
         {fields.map((field, index) => {
           const error = errors?.[index] ?? null;
           const id = `${fieldId}-${index}`;
@@ -52,10 +45,10 @@ export function DeveloperEmails({
               <label className="visually-hidden" htmlFor={id}>
                 {copy.developers.field(index + 1)}
               </label>
-              <div className="row">
+              <div className="field-row">
                 <input
                   id={id}
-                  className="field"
+                  className="field large"
                   type="email"
                   inputMode="email"
                   autoComplete="off"
@@ -69,7 +62,7 @@ export function DeveloperEmails({
                 {fields.length > 1 && (
                   <button
                     type="button"
-                    className="btn ghost"
+                    className="quiet"
                     aria-label={copy.developers.remove(field)}
                     onClick={() => {
                       focusLast.current = true;
@@ -89,11 +82,11 @@ export function DeveloperEmails({
           );
         })}
       </div>
-      {fields.length < MAX_DEVELOPER_INVITES_PER_PROJECT ? (
+      {fields.length < MAX_DEVELOPER_INVITES_PER_PROJECT && (
         <div>
           <button
             type="button"
-            className="link-btn"
+            className="quiet add"
             onClick={() => {
               focusLast.current = true;
               onChange([...fields, ""]);
@@ -102,8 +95,6 @@ export function DeveloperEmails({
             {copy.developers.add}
           </button>
         </div>
-      ) : (
-        <p className="note">{copy.developers.atLimit(MAX_DEVELOPER_INVITES_PER_PROJECT)}</p>
       )}
     </div>
   );

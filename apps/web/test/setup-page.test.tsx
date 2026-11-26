@@ -31,28 +31,28 @@ describe("the setup page", () => {
     expect(text(page)).toBe("Loading…");
   });
 
-  test("a send: who asked, the project, the address as text, and the commands to copy", async () => {
+  test("a send: who asked, the project, the address as text, and the command to copy", async () => {
     const clipboard = fakeClipboard();
     const page = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />);
     expect(page.querySelector("h1")?.textContent).toBe("Add Critiqs to Acme prototype");
     expect(text(page)).toContain("Alex Kim asked you to add Critiqs so your team can comment right on the prototype.");
-    expect([...page.querySelectorAll(".facts .ds-row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent])).toEqual([
+    expect([...page.querySelectorAll(".facts .fact")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent])).toEqual([
       ["Project", "Acme prototype"],
-      ["Prototype address", "https://acme-proto.vercel.app/"],
+      ["Prototype", "https://acme-proto.vercel.app/"],
       ["Built with", "Next.js"],
     ]);
     // The address is never a link.
     expect(page.querySelector("a")).toBeNull();
-    expect(text(page)).toContain("Run these in the prototype's folder. They already have the project ID.");
-    await click(button(page, "Copy command: npm install critiqs-react"));
-    expect(clipboard.text).toBe("npm install critiqs-react");
+    expect(text(page)).toContain("Run this in the prototype's folder. It already has the project ID.");
+    await click(button(page, "Copy command"));
+    expect(clipboard.text).toBe(`npm install critiqs-react && npx critiqs-react init ${PROJECT_ID}`);
   });
 
   test("a project on a backend other than Critiqs Cloud: a step that gives <Critiqs /> its backend", async () => {
     const backend = fakeBackend({ componentBackend: "https://team-backend.convex.cloud" });
     const page = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />, { backend });
     expect(text(page)).toContain("This project is on your team's own Critiqs backend, not Critiqs Cloud. Then add this property to the <Critiqs /> component that init adds, so it connects there:");
-    expect([...page.querySelectorAll("code")].map((code) => code.textContent)).toEqual([...SETUP.installCommands!, 'backend="https://team-backend.convex.cloud"']);
+    expect([...page.querySelectorAll("code")].map((code) => code.textContent)).toEqual([SETUP.installCommands!.join(" &&\n"), 'backend="https://team-backend.convex.cloud"']);
     // No commands, no step.
     const none = await render(<SetupView state={{ status: "ready", data: { ...SETUP, installCommands: null } }} email="dev@acme.com" onSignOut={noop} />, { backend });
     expect(text(none)).not.toContain("backend");
@@ -61,16 +61,16 @@ describe("the setup page", () => {
   test("a project with no saved stack: no one named, the stack not confirmed, and the commands for React apps", async () => {
     const page = await render(<SetupView state={{ status: "ready", data: { ...SETUP, stack: null, inviterName: null, address: null } }} email="dev@acme.com" onSignOut={noop} />);
     expect(text(page)).toContain("Your team asked you to add Critiqs so they can comment right on the prototype.");
-    expect(text(page)).toContain("Prototype addressNot given");
+    expect(text(page)).toContain("PrototypeNot given");
     expect(text(page)).toContain("Built withNot confirmed");
-    expect(text(page)).toContain("If your prototype is a React app built with Vite or Next.js, run these in its folder.");
-    expect(page.querySelectorAll("code")).toHaveLength(2);
+    expect(text(page)).toContain("Works with React apps built with Vite or Next.js.");
+    expect(page.querySelectorAll("code")).toHaveLength(1);
   });
 
   test("a stack Critiqs can't install in yet: says so, with no commands", async () => {
     const vue = STACKS.find((stack) => stack.id === "vue")!;
     const page = await render(<SetupView state={{ status: "ready", data: { ...SETUP, stack: vue, installCommands: null } }} email="dev@acme.com" onSignOut={noop} />);
-    expect(text(page)).toContain("Critiqs installs in React apps built with Vite or Next.js today. Vue support is coming.");
+    expect(text(page)).toContain("Critiqs works with React apps built with Vite or Next.js today. Vue support is coming soon.");
     expect(page.querySelectorAll("code")).toHaveLength(0);
   });
 
@@ -102,14 +102,14 @@ describe("the setup page", () => {
     });
     expect(page.querySelector("h1")?.textContent).toBe("Add Critiqs to Nuxt shop");
     expect(text(page)).toContain("Built withNuxt");
-    expect(text(page)).toContain("Critiqs installs in React apps built with Vite or Next.js today. Nuxt support is coming.");
+    expect(text(page)).toContain("Critiqs works with React apps built with Vite or Next.js today. Nuxt support is coming soon.");
     expect(page.querySelectorAll("code")).toHaveLength(0);
     const next = await render(<SetupPage id={PROJECT_ID} />, {
       backend: fakeBackend({ sendSetup: notFound, projectSetupState: { status: "ready", data: { projectId: PROJECT_ID, projectName: "Acme", address: null, stack: SETUP.stack, installCommands: SETUP.installCommands } } }),
     });
     expect(text(next)).toContain("Built withNext.js");
-    expect(text(next)).toContain("Run these in the prototype's folder. They already have the project ID.");
-    expect([...next.querySelectorAll("code")].map((code) => code.textContent)).toEqual([...SETUP.installCommands!]);
+    expect(text(next)).toContain("Run this in the prototype's folder. It already has the project ID.");
+    expect([...next.querySelectorAll("code")].map((code) => code.textContent)).toEqual([SETUP.installCommands!.join(" &&\n")]);
     // A project ID that names no project looks the same as a send that doesn't exist.
     const missing = await render(<SetupPage id={PROJECT_ID} />, { backend: fakeBackend({ sendSetup: notFound, projectSetupState: { status: "error", code: "not-found", message: "This project does not exist." } }) });
     expect(text(missing)).toContain("This setup link doesn't exist, or it was sent to another address.");
