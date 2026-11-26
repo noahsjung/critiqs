@@ -21,7 +21,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, mutation, query } from "./_generated/server";
-import { storedTokenValidator, trackerValidator } from "./lib/validators";
+import { storedTokenValidator, tokenUseValidator, trackerValidator } from "./lib/validators";
 import { convexStore, identityOf, run } from "./lib/store";
 import { siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
 import { hashSecret, randomSecret } from "./lib/tokens";
@@ -186,9 +186,10 @@ export const saveSignedIn = internalMutation({
   handler: async (ctx, args) => run(async () => saveSignedInAccount(convexStore(ctx), args, Date.now())),
 });
 
+/** Reads a person's token for a tracker, only as `use` allows, checked here before it is read (`claimTokenRefresh`). */
 export const claimRefresh = internalMutation({
-  args: { userId: v.string(), tracker: trackerValidator, accountId: v.string(), leaseId: v.string() },
-  handler: async (ctx, args) => await claimTokenRefresh(convexStore(ctx), args, Date.now()),
+  args: { userId: v.string(), tracker: trackerValidator, accountId: v.string(), leaseId: v.string(), use: tokenUseValidator },
+  handler: async (ctx, args) => await claimTokenRefresh(convexStore(ctx), args, Date.now(), await identityOf(ctx)),
 });
 
 export const finishRefresh = internalMutation({
@@ -206,6 +207,6 @@ export const finishRefresh = internalMutation({
  * has expired (`trackerToken`), as a function for tests; actions call `trackerToken` directly.
  */
 export const accessToken = internalAction({
-  args: { userId: v.string(), accountId: v.string(), tracker: trackerValidator },
-  handler: async (ctx, args): Promise<TrackerToken> => run(() => trackerToken(ctx, args, args.tracker)),
+  args: { userId: v.string(), accountId: v.string(), tracker: trackerValidator, use: tokenUseValidator },
+  handler: async (ctx, args): Promise<TrackerToken> => run(() => trackerToken(ctx, args, args.tracker, args.use)),
 });

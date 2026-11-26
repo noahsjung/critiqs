@@ -1,5 +1,5 @@
 import type { ExportPageLoader, TrackerId } from "@critiqs/core";
-import { type TicketsDeployment, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken } from "@critiqs/server";
+import { type TicketsDeployment, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken } from "@critiqs/server";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -20,14 +20,17 @@ export function siteUrl(): string {
 /**
  * A person's working token for a tracker, refreshed first when their sign-in's
  * has expired, one refresh at a time; only while they are still connected as
- * the tracker account `accountId`. For actions that call the tracker as that
- * person, after they have checked who is asking and which account they use.
+ * the tracker account `accountId`, and only as `use` says: in that person's
+ * own request (`person`, the default), for a job in projects they may still
+ * review (`job`), or to remove what Critiqs registered with it (`cleanup`).
+ * The step that reads the token checks `use` first, so every caller, a
+ * scheduled job above all, checks before it holds the token.
  */
-export async function trackerToken(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId): Promise<TrackerToken> {
+export async function trackerToken(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse = { by: "person" }): Promise<TrackerToken> {
   const { userId, accountId } = person;
   return await trackerAccessToken(
     {
-      claim: (leaseId) => ctx.runMutation(internal.trackers.claimRefresh, { userId, tracker, accountId, leaseId }),
+      claim: (leaseId) => ctx.runMutation(internal.trackers.claimRefresh, { userId, tracker, accountId, leaseId, use }),
       finish: (leaseId, tokens) => ctx.runMutation(internal.trackers.finishRefresh, { userId, tracker, leaseId, tokens }),
       sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
       now: () => Date.now(),

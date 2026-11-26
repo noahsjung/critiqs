@@ -3,7 +3,7 @@ import type { TicketStatus } from "@critiqs/core";
 import { encryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
 import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
-import { claimTokenRefresh, disconnectTracker, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, trackerAccessToken } from "../src/tickets/accounts.ts";
+import { claimTokenRefresh, disconnectTracker, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, type TokenUse, trackerAccessToken } from "../src/tickets/accounts.ts";
 import { getTicketTemplateSettings, saveTicketTemplateSettings } from "../src/tickets/drafts.ts";
 import { claimTicketLink, finishTicketLink, linkTicket, releaseTicketHold } from "../src/tickets/links.ts";
 import {
@@ -90,12 +90,13 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     return { projectId, threadId, linear };
   }
 
+  /** A person's Linear token, read as Convex reads it: as `who` in their own request, or for a job acting in `use`'s projects. */
   const tokens =
-    (backend: ContractBackend) =>
-    ({ userId: id, accountId }: { userId: string; accountId: string }) =>
+    (backend: ContractBackend, who: Identity | null = null) =>
+    ({ userId: id, accountId }: { userId: string; accountId: string }, use: TokenUse = { by: "person" }) =>
       trackerAccessToken(
         {
-          claim: (leaseId) => backend.run((store) => claimTokenRefresh(store, { userId: id, tracker: "linear", accountId, leaseId }, 1_000)),
+          claim: (leaseId) => backend.run((store) => claimTokenRefresh(store, { userId: id, tracker: "linear", accountId, leaseId, use }, 1_000, who)),
           finish: (leaseId, refreshed) => backend.run((store) => finishTokenRefresh(store, { userId: id, tracker: "linear", leaseId, tokens: refreshed }, 1_000)),
           sleep: async () => undefined,
           now: () => 1_000,
@@ -114,7 +115,7 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     return await linkTicket(
       {
         claim: (holder) => backend.run((store) => claimTicketLink(store, who, { ...args, holder }, 6_000)),
-        token: tokens(backend),
+        token: (person) => tokens(backend, who)(person),
         finish: async ({ linkId, holder }, ticket) => {
           await paused();
           return await backend.run((store) => finishTicketLink(store, who, { linkId, holder, threadId, ticket }, 6_000));
@@ -142,9 +143,9 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     checkTicketStatus(
       {
         prepare: () => backend.run((store) => prepareStatusCheck(store, { linkId }, now)),
-        token: async (person) => {
+        token: async (person, _tracker, use) => {
           await waiting();
-          return await tokens(backend)(person);
+          return await tokens(backend)(person, use);
         },
         save: (reading) => backend.run((store) => applyCheckedStatus(store, { linkId, reading }, now)),
         stale: (startedAt) => backend.run((store) => markStatusStale(store, { linkId, startedAt })),
@@ -332,6 +333,46 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     expect(linear.tokens).toEqual(["lin_api_lee"]);
     expect((await shown(backend, sam, threadId))[0]).toMatchObject({ status: DONE, statusCheckedAt: 100_000, statusStale: false });
     expect((await backend.run((store) => tickets(store).links.get(view._id)))?.statusAsOf).toBe(Date.parse("2026-11-25T10:00:00.000Z"));
+  });
+
+  test(`${name}: a job reads a person's token only while they may review every project it acts for, checked in the step that reads it`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    await connect(backend, lee);
+    const leeId = await userId(backend, lee);
+    const person = { userId: leeId, accountId: `u-${leeId}` };
+    expect((await tokens(backend)(person, { by: "job", projects: [projectId] })).value).toBe("lin_api_lee");
+    // The project now takes reviews only from its organization, which Lee isn't in: no job uses his token for it.
+    await backend.run((store) => store.projects.patch(projectId, { reviewAccess: "organization" }));
+    expect((await refusal(tokens(backend)(person, { by: "job", projects: [projectId] }))).code).toBe("forbidden");
+    // A job names what it acts for: none, or a project that doesn't exist, isn't enough.
+    expect((await refusal(tokens(backend)(person, { by: "job", projects: [] }))).code).toBe("forbidden");
+    // In a person's own request, only that person's token.
+    expect((await tokens(backend, lee)(person)).value).toBe("lin_api_lee");
+    expect((await refusal(tokens(backend, sam)(person))).code).toBe("forbidden");
+    expect((await refusal(tokens(backend, null)(person))).code).toBe("forbidden");
+    // Removing what Critiqs registered at the tracker reads nothing there, so it needs no project.
+    expect((await tokens(backend)(person, { by: "cleanup" })).value).toBe("lin_api_lee");
+  });
+
+  test(`${name}: a check of an issue moved to another team keeps it linked under its new key and address, and keeps the old ones out`, async () => {
+    const backend = fresh();
+    const { threadId, linear } = await setup(backend);
+    await connect(backend, lee);
+    const view = await link(backend, lee, linear, threadId, "issue-1");
+    // Moved to Ops in Linear: same issue, new key and page.
+    linear.issues[0]!.identifier = "OPS-4";
+    linear.issues[0]!.title = "One, moved";
+    linear.issues[0]!.state = { name: "Done", type: "completed" };
+    linear.issues[0]!.updatedAt = "2026-11-25T10:00:00.000Z";
+    expect(await check(backend, linear, view._id)).toBe("updated");
+    expect(await backend.run((store) => tickets(store).links.get(view._id))).toMatchObject({ key: "OPS-4", url: "https://linear.app/acme/issue/ops-4", title: "One, moved", status: DONE });
+    // An answer whose page isn't Linear's for its key changes only the status, never where the link points.
+    linear.issues[0]!.state = { name: "In Progress", type: "started" };
+    linear.issues[0]!.updatedAt = "2026-11-25T11:00:00.000Z";
+    linear.pageOf = () => "https://evil.example/acme/issue/ops-4";
+    expect(await check(backend, linear, view._id)).toBe("updated");
+    expect(await backend.run((store) => tickets(store).links.get(view._id))).toMatchObject({ key: "OPS-4", url: "https://linear.app/acme/issue/ops-4", status: STARTED });
   });
 
   test(`${name}: a ticket created before links recorded their account is checked with the account its creator submitted it with`, async () => {

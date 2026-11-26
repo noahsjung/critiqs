@@ -3,7 +3,7 @@ import { CritiqsError, fail } from "../errors.ts";
 import { currentReviewer, MAX_THREAD_TICKET_ROWS, requireProject, requireThread, requireUser } from "../operations.ts";
 import { canReview, projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketLinkChanges, TicketLinkRecord } from "../store.ts";
-import { type TicketsDeployment, ticketStore, trackerAdapter } from "./accounts.ts";
+import { type TicketsDeployment, ticketStore, type TokenUse, trackerAdapter } from "./accounts.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
 import { checkedStatus, type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken, trackerId } from "./trackers/index.ts";
 
@@ -126,7 +126,13 @@ export async function applyTicketStatus(store: Store, update: TicketStatusUpdate
 export async function applyCheckedStatus(store: Store, args: { linkId: string; reading: TicketStatusReading }, now: number): Promise<{ updated: number; resolved: string[] }> {
   const link = await ticketStore(store).links.get(args.linkId);
   const reading: StatusReading = { source: "check", asOf: args.reading.asOf ?? now, status: args.reading.status, deleted: false };
-  return await saveStatus(store, link === null || link.state !== "linked" ? [] : [link], reading, now);
+  const linked = link === null || link.state !== "linked" ? null : link;
+  // The ticket moved, or was renamed, at the tracker: the same ticket by its permanent ID, so the link follows it.
+  const place = args.reading.place;
+  if (linked !== null && place !== undefined && (place.key !== linked.key || place.url !== linked.url || place.title !== linked.title || (place.site !== undefined && place.site !== (linked.site ?? null)))) {
+    await ticketStore(store).links.patch(linked._id, { key: place.key, url: place.url, title: place.title, ...(place.site === undefined ? {} : { site: place.site }) });
+  }
+  return await saveStatus(store, linked === null ? [] : [linked], reading, now);
 }
 
 async function saveStatus(store: Store, links: TicketLinkRecord[], reading: StatusReading, now: number): Promise<{ updated: number; resolved: string[] }> {
@@ -222,6 +228,8 @@ export type StatusCheck =
   | {
       status: "check";
       person: { userId: string; accountId: string };
+      /** The project the link is in: the linker's token is read only while they may review it. */
+      projectId: string;
       tracker: TrackerId;
       ticket: { tracker: TrackerId; externalId: string; key: string; url: string; title: string; site: string | null };
       /** When the check began: a refusal marks the status stale only if nothing was saved since. */
@@ -257,7 +265,7 @@ export async function prepareStatusCheck(store: Store, args: { linkId: string },
     return { status: "stale" };
   }
   const { tracker, externalId, key, url, title } = link;
-  return { status: "check", person: { userId: link.linkedBy, accountId }, tracker, ticket: { tracker, externalId, key, url, title, site: link.site ?? null }, startedAt: now };
+  return { status: "check", person: { userId: link.linkedBy, accountId }, projectId: link.projectId, tracker, ticket: { tracker, externalId, key, url, title, site: link.site ?? null }, startedAt: now };
 }
 
 /**
@@ -276,8 +284,8 @@ export async function markStatusStale(store: Store, args: { linkId: string; star
 /** The steps of checking a link's status; each store step is its own transaction. */
 export interface StatusCheckSteps {
   prepare(): Promise<StatusCheck>;
-  /** The linker's token, only while they are connected as the account they linked the ticket with. */
-  token(person: { userId: string; accountId: string }, tracker: TrackerId): Promise<TrackerToken>;
+  /** The linker's token, only while they are connected as the account they linked the ticket with, and may review `use`'s project. */
+  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse): Promise<TrackerToken>;
   /** Saves the status read on the checked link only. */
   save(reading: TicketStatusReading): Promise<unknown>;
   /** Marks the status stale, unless a reading was saved after `startedAt`. */
@@ -287,7 +295,7 @@ export interface StatusCheckSteps {
 /** Whether a failure means the linker can't check the ticket any more, rather than a passing problem such as Linear being unreachable. */
 const linkerCannot = (error: unknown) =>
   (error instanceof TrackerRefusal && (error.code === "invalid" || error.code === "forbidden")) ||
-  (error instanceof CritiqsError && !(error instanceof TrackerRefusal) && (error.code === "not-found" || error.code === "invalid"));
+  (error instanceof CritiqsError && !(error instanceof TrackerRefusal) && (error.code === "not-found" || error.code === "invalid" || error.code === "forbidden"));
 
 /**
  * Checks one linked ticket's status in its tracker with the token of the
@@ -301,7 +309,8 @@ export async function checkTicketStatus(steps: StatusCheckSteps, deployment: Tic
   const check = await steps.prepare();
   if (check.status !== "check") return check.status === "stale" ? "stale" : "skipped";
   try {
-    const token = await steps.token(check.person, check.tracker);
+    // Checked again where the token is read: the linker may still review the project.
+    const token = await steps.token(check.person, check.tracker, { by: "job", projects: [check.projectId] });
     await steps.save(await trackerAdapter(check.tracker, deployment, fetchFn).status(token, check.ticket));
     return "updated";
   } catch (error) {

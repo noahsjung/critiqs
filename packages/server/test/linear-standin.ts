@@ -62,6 +62,8 @@ export interface LinearStandIn {
    * timeout after Linear created the issue would look).
    */
   intercept: ((operation: string, variables: Record<string, unknown>, token: string) => Promise<Response | "after" | undefined> | Response | "after" | undefined) | null;
+  /** The page an issue's answers name; Linear's own, `https://linear.app/acme/issue/<key>`, unless a test names another. */
+  pageOf: ((issue: StandInIssue) => string) | null;
 }
 
 const TEAMS = [
@@ -123,13 +125,14 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
     operations: [],
     tokens: [],
     intercept: null,
+    pageOf: null,
   };
 
   const view = (issue: StandInIssue) => ({
     id: issue.id,
     identifier: issue.identifier,
     title: issue.title,
-    url: `https://linear.app/acme/issue/${issue.identifier.toLowerCase()}`,
+    url: standIn.pageOf?.(issue) ?? `https://linear.app/acme/issue/${issue.identifier.toLowerCase()}`,
     state: issue.state,
     updatedAt: issue.updatedAt ?? STAND_IN_UPDATED_AT,
     team: { organization: { id: "org-1" } },
@@ -148,7 +151,11 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
           issues: {
             nodes: listed()
               .filter((issue) => issue.id === variables.id)
-              .map((issue) => ({ id: issue.id, state: issue.state, updatedAt: issue.updatedAt ?? STAND_IN_UPDATED_AT })),
+              .map((issue) => {
+                // The fields the status query asks for: with where the issue is now, its key and page change when it moves to another team.
+                const { id, identifier, title, url, state, updatedAt } = view(issue);
+                return { id, identifier, title, url, state, updatedAt };
+              }),
           },
         };
       case "CritiqsIssue":

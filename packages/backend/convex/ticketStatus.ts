@@ -14,9 +14,14 @@ import { ticketStatusValidator, trackerValidator } from "./lib/validators";
 // (trackerHttp.ts), saved through `apply` on every link to the ticket.
 // Resolve when done, a project setting, resolves threads as statuses arrive.
 
-const statusReading = v.object({ status: ticketStatusValidator, asOf: v.union(v.number(), v.null()) });
+const statusFields = { status: ticketStatusValidator, asOf: v.union(v.number(), v.null()) };
+/** What a check read: the status, and where the ticket is now, which the link follows when the ticket moved. */
+const statusReading = v.object({
+  ...statusFields,
+  place: v.optional(v.object({ key: v.string(), url: v.string(), title: v.string(), site: v.optional(v.union(v.string(), v.null())) })),
+});
 const statusUpdate = v.object({
-  ...statusReading.fields,
+  ...statusFields,
   tracker: trackerValidator,
   externalId: v.string(),
   site: v.union(v.string(), v.null()),
@@ -45,7 +50,7 @@ export const check = internalAction({
     await checkTicketStatus(
       {
         prepare: (): Promise<StatusCheck> => ctx.runMutation(internal.ticketStatus.prepare, args),
-        token: (person, tracker) => trackerToken(ctx, person, tracker),
+        token: (person, tracker, use) => trackerToken(ctx, person, tracker, use),
         save: (reading): Promise<unknown> => ctx.runMutation(internal.ticketStatus.saveCheck, { ...args, reading }),
         stale: async (startedAt) => void (await ctx.runMutation(internal.ticketStatus.stale, { ...args, startedAt })),
       },

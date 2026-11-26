@@ -376,7 +376,16 @@ Critiqs keeps each linked ticket's status and when it last changed:
   the ticket with the token of the person who linked it, for the tracker
   account they linked it with, never anyone else's, and saves what it read on
   that link only: another thread's link to the same ticket keeps its own
-  status. The check also catches a change whose webhook was missed.
+  status. The check also catches a change whose webhook was missed. It reads
+  the ticket by its permanent ID, so an issue moved to another team is the
+  same ticket: the link takes its new key, page, and title, as long as the
+  page is Linear's for that key, and the old key is never used again.
+- **Whose token, and when.** Any background job that uses a person's stored
+  token (the check above, and later webhook upkeep) names the projects it
+  works in, and the step that reads the token checks first, in the same
+  transaction, that the person may still review every one of them; a job
+  that only removes what Critiqs registered at the tracker names none. In a
+  person's own request, only that person's token is read.
 - **Last known.** When that person has disconnected, connected another
   account, can no longer see the ticket, or may no longer review the project
   (such as when they leave its organization), the status stays, Critiqs stops

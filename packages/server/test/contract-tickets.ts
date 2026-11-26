@@ -24,6 +24,7 @@ import {
   SIGN_IN_MINUTES,
   startTrackerSignIn,
   type TicketsDeployment,
+  type TokenUse,
   ticketsConfig,
   ticketsDeploymentFromEnv,
   trackerAccessToken,
@@ -45,6 +46,9 @@ function tickets(store: Store) {
  * Tickets' storage, and how threads show their linked tickets, the same on
  * every backend that offers tickets. Each test starts with a fresh, empty backend.
  */
+/** For tests of the refresh lease: what a token may be read for (`TokenUse`) has its own test. */
+const LEASE_ONLY: TokenUse = { by: "cleanup" };
+
 export function defineTicketContract(name: string, fresh: () => ContractBackend) {
   const dana = reviewer("Dana");
   const lee = reviewer("Lee");
@@ -691,7 +695,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const linear = linearStub([{ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3_600 }]);
     let leases = 0;
     const steps = (fetchFn = linear.fetchFn) => ({
-      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId }, clock)),
+      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId, use: LEASE_ONLY }, clock)),
       finish: (leaseId: string, tokens: Parameters<typeof finishTokenRefresh>[1]["tokens"]) =>
         backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId, tokens }, clock)),
       sleep: async (ms: number) => void (clock += ms),
@@ -717,8 +721,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
     // While another refresh holds the lease, a second caller waits for it instead of spending the refresh token again.
     clock = stored.expiresAt!;
-    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId: "other" }, clock))).toMatchObject({ status: "claimed" });
-    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId: "mine" }, clock))).toEqual({ status: "busy" });
+    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId: "other", use: LEASE_ONLY }, clock))).toMatchObject({ status: "claimed" });
+    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId: "mine", use: LEASE_ONLY }, clock))).toEqual({ status: "busy" });
     // The other finishes; the waiting caller then gets its fresh token without refreshing.
     const fresher = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: clock + 3_600_000 });
     expect(await backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId: "other", tokens: fresher }, clock))).toEqual({ status: "saved" });
@@ -750,7 +754,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       }) as unknown as typeof fetch);
     const steps = {
       claim: async (leaseId: string) => {
-        const claim = await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId }, state.clock));
+        const claim = await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId, use: LEASE_ONLY }, state.clock));
         return options.claim ? options.claim(claim) : claim;
       },
       finish: (leaseId: string, tokens: Parameters<typeof finishTokenRefresh>[1]["tokens"]) =>
@@ -794,7 +798,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       during: async () => {
         taken.state.clock += REFRESH_LEASE_MS;
         const at = taken.state.clock;
-        expect(await refreshed.run((store) => claimTokenRefresh(store, { userId: refreshedId, tracker: "linear", accountId: "user-1", leaseId: "other" }, at))).toMatchObject({ status: "claimed" });
+        expect(await refreshed.run((store) => claimTokenRefresh(store, { userId: refreshedId, tracker: "linear", accountId: "user-1", leaseId: "other", use: LEASE_ONLY }, at))).toMatchObject({ status: "claimed" });
         const tokens = await sealSignIn(withSignIn, "linear", refreshedId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: at + 3_600_000 });
         await refreshed.run((store) => finishTokenRefresh(store, { userId: refreshedId, tracker: "linear", leaseId: "other", tokens }, at));
       },
@@ -808,7 +812,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const holding = await dueAccount(busy, {
       during: async () => {
         holding.state.clock += REFRESH_LEASE_MS;
-        await busy.run((store) => claimTokenRefresh(store, { userId: busyId, tracker: "linear", accountId: "user-1", leaseId: "other" }, holding.state.clock));
+        await busy.run((store) => claimTokenRefresh(store, { userId: busyId, tracker: "linear", accountId: "user-1", leaseId: "other", use: LEASE_ONLY }, holding.state.clock));
       },
     });
     busyId = holding.danaId;
@@ -864,7 +868,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     await connect(backend, dana, "lin_api_first");
     const checked = (await backend.run((store) => tickets(store).accounts.find(danaId, "linear")))!.accountId;
     const steps = {
-      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId: checked, leaseId }, 10)),
+      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId: checked, leaseId, use: LEASE_ONLY }, 10)),
       finish: (leaseId: string, tokens: null) => backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId, tokens }, 10)),
       sleep: async () => {},
       now: () => 10,
@@ -874,7 +878,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     // Dana connects another Linear account with the same Critiqs account.
     const other = await sealSignIn(withSignIn, "linear", danaId, { accountId: "another-linear-account", accountName: "Dana Other", email: null, site: null }, { access: "other-access", refresh: null, expiresAt: null });
     await backend.run((store) => saveTrackerAccount(store, danaId, other, 2_000));
-    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId: checked, leaseId: "lease" }, 10))).toEqual({ status: "changed" });
+    expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId: checked, leaseId: "lease", use: LEASE_ONLY }, 10))).toEqual({ status: "changed" });
     const refused = await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked }));
     expect([refused.code, refused.message]).toEqual(["unavailable", "Your Linear connection changed. Try again."]);
   });
@@ -886,7 +890,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1));
     let accountId = "user-1";
     const steps = {
-      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId }, 10)),
+      claim: (leaseId: string) => backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId, use: LEASE_ONLY }, 10)),
       finish: (leaseId: string, tokens: null) => backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId, tokens }, 10)),
       sleep: async () => {},
       now: () => 10,

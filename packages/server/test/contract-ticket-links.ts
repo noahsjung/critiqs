@@ -3,7 +3,7 @@ import type { NewTicket, TicketLinkInput, TrackerId } from "@critiqs/core";
 import { encryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
 import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
-import { claimTokenRefresh, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, trackerAccessToken } from "../src/tickets/accounts.ts";
+import { claimTokenRefresh, finishTokenRefresh, saveTrackerAccount, type TicketsDeployment, type TokenUse, trackerAccessToken } from "../src/tickets/accounts.ts";
 import {
   addTicketLinkBack,
   claimTicketCreation,
@@ -56,6 +56,9 @@ async function refusal(promise: Promise<unknown>): Promise<CritiqsError> {
  * offers tickets, against a stand-in for Linear. Each tracker call runs between
  * store steps, as Convex's actions run them.
  */
+/** For tests that read tokens around other steps: what a token may be read for (`TokenUse`) has its own test. */
+const LEASE_ONLY: TokenUse = { by: "cleanup" };
+
 export function defineTicketLinkContract(name: string, fresh: () => ContractBackend) {
   const dana = reviewer("Dana");
   const lee = reviewer("Lee");
@@ -109,7 +112,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     ({ userId: id, accountId }: { userId: string; accountId: string }) =>
       trackerAccessToken(
         {
-          claim: (leaseId) => backend.run((store) => claimTokenRefresh(store, { userId: id, tracker: "linear", accountId, leaseId }, 1_000)),
+          claim: (leaseId) => backend.run((store) => claimTokenRefresh(store, { userId: id, tracker: "linear", accountId, leaseId, use: LEASE_ONLY }, 1_000)),
           finish: (leaseId, refreshed) => backend.run((store) => finishTokenRefresh(store, { userId: id, tracker: "linear", leaseId, tokens: refreshed }, 1_000)),
           sleep: async () => undefined,
           now: () => 1_000,

@@ -47,7 +47,8 @@ const TEAMS = "query CritiqsTeams { teams(first: 250) { nodes { id name key } } 
 // archived since it was created or linked is still that ticket.
 const ISSUE_BY_ID = `query CritiqsIssue($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { ${ISSUE} } } }`;
 const ISSUE_BY_KEY = `query CritiqsIssueByKey($team: String!, $number: Float!) { issues(filter: { team: { key: { eqIgnoreCase: $team } }, number: { eq: $number } }, first: 1) { nodes { ${ISSUE} } } }`;
-const ISSUE_STATUS = "query CritiqsIssueStatus($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { id state { name type } updatedAt } } }";
+// With where it is now: an issue moved to another team keeps its ID and gets a new key and page.
+const ISSUE_STATUS = "query CritiqsIssueStatus($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { id identifier title url state { name type } updatedAt } } }";
 const SEARCH = `query CritiqsSearch($term: String!, $teamId: String) { searchIssues(term: $term, teamId: $teamId, first: 10) { nodes { ${ISSUE} } } }`;
 const CREATE = `mutation CritiqsCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { ${ISSUE} } } }`;
 // Linear keeps one attachment per issue and address: creating it again updates
@@ -145,7 +146,8 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       if (nodes === null) throw unexpected("no issues");
       const issue = nodes.find((node) => isRecord(node) && node.id === ticket.externalId);
       if (!isRecord(issue)) fail("not-found", "Linear can't find this issue, or you can't see it.");
-      return { externalId: String(issue.id), status: parseStatus(issue.state), asOf: timeOf(issue.updatedAt) };
+      const place = text(issue.identifier) && text(issue.url) && typeof issue.title === "string" ? { key: issue.identifier, url: issue.url, title: issue.title } : undefined;
+      return { externalId: String(issue.id), status: parseStatus(issue.state), asOf: timeOf(issue.updatedAt), ...(place === undefined ? {} : { place }) };
     },
     uploadImage: async (token, image) => uploadImage(to, token, image),
     templates: async (token, destinationId) =>

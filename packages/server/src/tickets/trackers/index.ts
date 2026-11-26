@@ -228,6 +228,21 @@ function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: str
 }
 
 /**
+ * Where a ticket Critiqs holds is now, as its tracker read it by its ID: kept
+ * only when its key is one Critiqs can keep, and its page is the tracker's for
+ * that key, in the site it is in now (`place`); null otherwise, so the link
+ * stays where it was.
+ */
+function checkedPlace(now: TicketPlaceNow, held: HeldTicket, place: TicketPlace, token: TrackerToken): TicketPlaceNow | null {
+  const key = trackerText(now.key, TRACKER_LIMITS.key);
+  const site = now.site === undefined ? held.site : now.site === null ? null : trackerId(now.site);
+  if (key === "" || (now.site != null && site === null) || webAddress(now.url) === null) return null;
+  const url = place({ key, site, url: now.url }, token);
+  if (url === null) return null;
+  return { key, url, title: trackerText(now.title, TRACKER_LIMITS.title), ...(now.site === undefined ? {} : { site }) };
+}
+
+/**
  * A ticket Critiqs holds, before anything is written to it: its address must
  * still be the tracker's page for its key in its site, so a write goes to the
  * ticket Critiqs linked, worked out from what Critiqs holds, never to an
@@ -296,7 +311,9 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
       const answer = await status(token, ticket);
       // Another ticket's status is never saved as this one's.
       if (answer.externalId !== ticket.externalId) throw unreadable("another ticket");
-      return { status: checkedStatus(answer.status), asOf: answer.asOf };
+      // Where it is now, if it moved: kept only where the tracker's rule for its pages says.
+      const now = answer.place === undefined ? null : checkedPlace(answer.place, ticket, place, token);
+      return { status: checkedStatus(answer.status), asOf: answer.asOf, ...(now === null ? {} : { place: now }) };
     },
   };
   if (uploadImage) checked.uploadImage = async (token, image) => webAddress(await uploadImage(token, image)) ?? Promise.reject(unreadable("upload address"));
@@ -368,6 +385,23 @@ export interface TicketStatusReading {
   status: TicketStatus;
   /** The tracker's time the status was current as of (the ticket's last update there); null when it doesn't say. */
   asOf: number | null;
+  /**
+   * Where the ticket is now, read with it by its permanent ID: its key, its
+   * page, its title, and, where the tracker has one per place, the site it is
+   * in now. A ticket moved to another team, project, or repository keeps its
+   * ID and gets these new, and the link follows it. Absent where the tracker
+   * didn't say, or said a page that isn't the tracker's for that key.
+   */
+  place?: TicketPlaceNow;
+}
+
+/** Where a ticket is now, as its tracker read it by its permanent ID (`TicketStatusReading.place`). */
+export interface TicketPlaceNow {
+  key: string;
+  url: string;
+  title: string;
+  /** The site it is in now, where moving it changes that (a GitHub repository); absent where it can't change. */
+  site?: string | null;
 }
 
 /** A ticket's new status from a tracker's webhook, for every thread that links it. */

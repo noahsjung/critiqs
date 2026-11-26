@@ -3,6 +3,7 @@ import { decryptToken, encryptToken, trackerTokenBinding, validEncryptionKey } f
 import { CritiqsError, fail } from "../errors.ts";
 import { normalizeEmail } from "../signin.ts";
 import { currentReviewer, requireUser } from "../operations.ts";
+import { canReview } from "../organizations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
 import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken } from "./trackers/index.ts";
 import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
@@ -463,15 +464,51 @@ export type RefreshClaim =
   /** This caller holds the lease until `until`, and refreshes the connection made at `connectedAt` with this token. */
   | { status: "claimed"; refresh: StoredToken; until: number; connectedAt: number }
   /** The access token expired and there's no refresh token. */
-  | { status: "ended" };
+  | { status: "ended" }
+  /** The token may not be used as asked (`TokenUse`): not the person's own request, or a job for a project they may no longer review. */
+  | { status: "forbidden" };
+
+/**
+ * What a person's stored token is read for. It is checked in the same step
+ * that reads the token (`claimTokenRefresh`), before the token is decrypted
+ * or refreshed, so no caller can use it first and check afterwards:
+ *
+ * - `person`: the signed-in person, in their own request; they must be the
+ *   token's person.
+ * - `job`: work in the background on their behalf in these projects, such as
+ *   a status check or a webhook following their linked tickets; they must
+ *   still be allowed to review every one, and there must be at least one.
+ * - `cleanup`: removing at the tracker only what Critiqs registered there
+ *   with the token, such as a webhook, which reads nothing of any project.
+ */
+export type TokenUse = { by: "person" } | { by: "job"; projects: string[] } | { by: "cleanup" };
+
+/** Whether a token may be used as `use` says, for the person `userId`. */
+async function mayUseToken(store: Store, userId: string, use: TokenUse, identity: Identity | null): Promise<boolean> {
+  if (use.by === "cleanup") return true;
+  if (use.by === "person") return identity !== null && (await store.users.byToken(identity.tokenIdentifier))?._id === userId;
+  if (use.projects.length === 0) return false;
+  for (const projectId of new Set(use.projects)) {
+    const project = await store.projects.get(projectId);
+    if (project === null || !(await canReview(store, project, userId))) return false;
+  }
+  return true;
+}
 
 /**
  * Reads a person's account for a tracker, only when it is still the tracker
- * account `accountId` (the tracker's ID for it) that the caller checked, and,
- * when its access token is due, takes the refresh lease under `leaseId`. One
- * transaction.
+ * account `accountId` (the tracker's ID for it) that the caller checked and
+ * the token may be used as `use` says (`identity` is who is asking, for a
+ * person's own request), and, when its access token is due, takes the
+ * refresh lease under `leaseId`. One transaction.
  */
-export async function claimTokenRefresh(store: Store, args: { userId: string; tracker: TrackerId; accountId: string; leaseId: string }, now: number): Promise<RefreshClaim> {
+export async function claimTokenRefresh(
+  store: Store,
+  args: { userId: string; tracker: TrackerId; accountId: string; leaseId: string; use: TokenUse },
+  now: number,
+  identity: Identity | null = null,
+): Promise<RefreshClaim> {
+  if (!(await mayUseToken(store, args.userId, args.use, identity))) return { status: "forbidden" };
   const accounts = ticketStore(store).accounts;
   const account = await accounts.find(args.userId, args.tracker);
   if (account === null) return { status: "missing" };
@@ -559,6 +596,8 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
   for (let waited = 0; ; waited += BUSY_WAIT_MS) {
     const claim = await steps.claim(leaseId);
     switch (claim.status) {
+      case "forbidden":
+        fail("forbidden", `Critiqs doesn't use your ${label} connection for this: you may no longer review its project.`);
       case "missing":
         fail("not-found", `Connect ${label} in Your trackers first.`);
       case "changed":

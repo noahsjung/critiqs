@@ -465,10 +465,10 @@ test("an expired sign-in token is refreshed with Linear before use, and the rota
   const [connected] = await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect());
   const accountId = connected!.accountId;
   tokenReplies.push({ body: { access_token: "access-2", expires_in: 86_399, refresh_token: "refresh-2" } });
-  expect(await f.t.action(internal.trackers.accessToken, { userId: danaId, accountId, tracker: "linear" })).toEqual({ method: "oauth", value: "access-2" });
+  expect(await f.dana.action(internal.trackers.accessToken, { userId: danaId, accountId, tracker: "linear", use: { by: "person" } })).toEqual({ method: "oauth", value: "access-2" });
   expect(sent.filter((request) => request.path === "/oauth/token").at(-1)!.form).toMatchObject({ grant_type: "refresh_token", refresh_token: "refresh-1" });
   // Fresh now: used as it is.
-  expect(await f.t.action(internal.trackers.accessToken, { userId: danaId, accountId, tracker: "linear" })).toEqual({ method: "oauth", value: "access-2" });
+  expect(await f.dana.action(internal.trackers.accessToken, { userId: danaId, accountId, tracker: "linear", use: { by: "person" } })).toEqual({ method: "oauth", value: "access-2" });
   expect(sent.filter((request) => request.path === "/oauth/token")).toHaveLength(2);
   const [row] = await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect());
   expect(await decryptToken(KEY, trackerTokenBinding("linear", danaId), row!.refresh!)).toBe("refresh-2");

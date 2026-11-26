@@ -205,3 +205,10 @@ type StoredTracker = Infer<typeof trackerValidator>;
 export const trackerTypesMatch: [StoredTracker, TrackerId] extends [TrackerId, StoredTracker] ? true : never = true;
 type StoredTicketStatus = Infer<typeof ticketStatusValidator>;
 export const ticketStatusTypesMatch: [StoredTicketStatus, TicketStatus] extends [TicketStatus, StoredTicketStatus] ? true : never = true;
+
+/** What a person's stored tracker token is read for (`TokenUse`): their own request, a job in projects they may review, or removing what Critiqs registered. */
+export const tokenUseValidator = v.union(
+  v.object({ by: v.literal("person") }),
+  v.object({ by: v.literal("job"), projects: v.array(v.string()) }),
+  v.object({ by: v.literal("cleanup") }),
+);
