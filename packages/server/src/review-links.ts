@@ -244,6 +244,8 @@ export function parseLiveAddress(input: string, refusedHosts: readonly string[])
   if (isLocalAddress(url) || !host.includes(".") || (literal && !isPublicAddress(host))) {
     fail("invalid", "This address is on a computer or private network. Share a build or use the browser extension instead.");
   }
+  // `.invalid` never resolves (RFC 6761); shared builds' addresses use it, and none is a live site.
+  if (isHostWithin(host, "invalid")) fail("invalid", "This address can't be reached on the internet. Use your prototype's public https:// address.");
   for (const refused of refusedHosts) {
     const name = canonicalHost(refused);
     if (name !== null && isHostWithin(host, name)) fail("invalid", SELF);

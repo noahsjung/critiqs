@@ -83,13 +83,14 @@ describe("N10 and note 2: one caller going away doesn't fail the others", () => 
         }),
     });
     const first = new AbortController();
-    const a = directory.resolve(LABEL, first.signal);
+    const a = directory.resolve(LABEL, first.signal).then(() => "answered", () => "no answer");
     const b = directory.resolve(LABEL, new AbortController().signal);
     await Bun.sleep(5);
     first.abort();
     await Bun.sleep(5);
     release();
-    expect(await a).toBeNull();
+    // The caller that went away gets no answer (never "serves nothing"); the other gets the lease.
+    expect(await a).toBe("no answer");
     expect((await b)?.leaseId).toBe("s1");
   });
 });

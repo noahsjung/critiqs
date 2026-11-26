@@ -12,14 +12,19 @@ import {
 // where its traffic is reported. The proxy depends only on `ReviewDirectory`;
 // `convexDirectory` is the implementation backed by a Convex deployment's
 // `/internal/review/v1/*` routes, authenticated with the shared proxy secret.
-// Answers are reused for at most five seconds and never past the lease's end;
-// a backend that fails or answers anything unexpected means "serve nothing".
+// Answers are reused for at most five seconds and never past the lease's end.
+// A backend that can't be reached, fails, or answers anything unexpected
+// serves nothing either, but is said apart, as an error, from a host the
+// backend says serves nothing: the proxy then tells its viewer it can't check
+// the link right now, and never counts it against them.
 
 export interface ReviewDirectory {
   /**
    * What a frame host's label (`v-<…>`) stands for now, or null for any host
-   * that serves nothing: unknown, expired, revoked, paused, blocked, denied, or
-   * the backend unreachable. The caller passes only the label, lowercased.
+   * the backend says serves nothing: unknown, expired, revoked, paused,
+   * blocked, denied. Rejects, without an answer, when the backend couldn't be
+   * asked (unreachable, an error, an answer it can't read, or the caller went
+   * away). The caller passes only the label, lowercased.
    */
   resolve(label: string, signal?: AbortSignal): Promise<ReviewResolution | null>;
   /** Reports traffic per link; returns the links now paused, whose hosts serve nothing until the next day. */
@@ -60,6 +65,7 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
   const cache = new Map<string, { value: ReviewResolution; until: number }>();
   const misses = new Map<string, number>();
   const pending = new Map<string, Promise<ReviewResolution | null>>();
+  const couldNotAsk = () => new Error("The backend couldn't be asked about this frame host.");
 
   const post = async (path: string, body: unknown, signal?: AbortSignal): Promise<Response | null> => {
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -89,15 +95,15 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
   const ask = async (label: string): Promise<ReviewResolution | null> => {
     const asked = now();
     const response = await post("/internal/review/v1/resolve", { hostHash: await frameHostHash(label) });
-    if (response === null) return null;
+    if (response === null) throw couldNotAsk();
     if (response.status === 404) {
       // A host that serves nothing stays that way for a moment; a new lease always gets a new host.
       remember(label, null, asked + RESOLUTION_CACHE_MS);
       return null;
     }
-    if (!response.ok) return null;
+    if (!response.ok) throw couldNotAsk();
     const resolution = parseReviewResolution(await response.json().catch(() => null));
-    if (resolution === null) return null;
+    if (resolution === null) throw couldNotAsk();
     remember(label, resolution, Math.min(resolution.cacheUntil, resolution.expiresAt, asked + RESOLUTION_CACHE_MS));
     return resolution;
   };
@@ -118,12 +124,12 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
         pending.set(label, answer);
       }
       if (signal === undefined) return await answer;
-      // A caller that goes away stops waiting; the lookup goes on for the others.
-      if (signal.aborted) return null;
-      return await new Promise<ReviewResolution | null>((resolve) => {
-        const stop = () => resolve(null);
+      // A caller that goes away stops waiting, without an answer; the lookup goes on for the others.
+      if (signal.aborted) throw couldNotAsk();
+      return await new Promise<ReviewResolution | null>((resolve, reject) => {
+        const stop = () => reject(couldNotAsk());
         signal.addEventListener("abort", stop, { once: true });
-        void answer.then(resolve, () => resolve(null)).finally(() => signal.removeEventListener("abort", stop));
+        void answer.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
       });
     },
 

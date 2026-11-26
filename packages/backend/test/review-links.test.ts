@@ -673,3 +673,46 @@ test("N7: an owner replaces a link's key by removing the link and creating it ag
   expect(await resolve(f.t, opened.label)).toEqual(NOT_FOUND);
   expect((await lease(f.anonymous, second.key)).kind).toBe("ready");
 });
+
+// ---------------------------------------------------------------------------
+// Round 3
+
+test("someone signed in whom the deployment has never seen gets the owners-only sentence from list and copy, not a server error", async () => {
+  const f = await fixture();
+  const { linkId } = await f.link();
+  // Olive has never opened the website: no user record yet, and a query can't write one.
+  const olive = f.t.withIdentity(reviewer("Olive"));
+  expect(await outcome(olive.query(api.reviewLinks.list, { projectId: f.projectId }))).toBe(OWNERS_ONLY);
+  expect(await outcome(olive.query(api.reviewLinks.copy, { linkId }))).toBe(OWNERS_ONLY);
+  // And nothing was written for her.
+  expect(await f.t.run(async (ctx) => (await ctx.db.query("users").collect()).some((user) => user.name === "Olive"))).toBe(false);
+});
+
+test("an owner whose sign-in carries a new name still lists and copies links: a query never writes", async () => {
+  const f = await fixture();
+  const { linkId } = await f.link();
+  const renamed = f.t.withIdentity({ ...reviewer("Dana"), name: "Dana Renamed" });
+  expect((await renamed.query(api.reviewLinks.list, { projectId: f.projectId })).map((link) => link.linkId)).toEqual([linkId]);
+  expect((await renamed.query(api.reviewLinks.copy, { linkId })).url).toContain("/r/");
+});
+
+test("a .invalid name is never a live address: it can't be reached, and shared builds use it", async () => {
+  const f = await fixture();
+  for (const address of ["https://k3jx7q2m4n5p6r7s8t9u.build.invalid/", "https://anything.invalid/", "https://ANYTHING.INVALID./x"]) {
+    expect([address, await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address }))]).toEqual([
+      address,
+      "This address can't be reached on the internet. Use your prototype's public https:// address.",
+    ]);
+  }
+});
+
+test("a frame host is judged at the time the proxy asks, which the HTTP action passes in, so no cached answer outlives the lease", async () => {
+  const f = await fixture();
+  const { key } = await f.link();
+  const opened = await lease(f.anonymous, key);
+  const hostHash = await frameHostHash(opened.label);
+  const now = Date.now();
+  expect(await f.t.query(internal.reviewLinks.resolveHost, { hostHash, now })).not.toBeNull();
+  // The same question asked after the lease's end: nothing, with nothing in the database changed.
+  expect(await f.t.query(internal.reviewLinks.resolveHost, { hostHash, now: now + REVIEW_LEASE_MAX_MS + 1 })).toBeNull();
+});

@@ -107,25 +107,38 @@ test("an answer is never reused past the lease's end", async () => {
   expect(await f.directory.resolve(f.label)).toBeNull();
 });
 
-test("the directory fails closed: an unreachable or broken backend, or a wrong secret, serves nothing", async () => {
+test("the directory fails closed: an unreachable or broken backend, or a wrong secret, serves nothing; one it couldn't ask says so", async () => {
   const f = await opened();
   const failures: [string, (path: string, init: RequestInit) => Promise<Response>][] = [
     ["unreachable", async () => Promise.reject(new TypeError("fetch failed"))],
     ["server error", async () => new Response("oops", { status: 500 })],
+    ["overloaded", async () => new Response("slow down", { status: 429 })],
     ["not JSON", async () => new Response("<html>", { status: 200 })],
     ["the wrong shape", async () => Response.json({ v: 1, kind: "site", linkId: "x", leaseId: "y", origin: "https://app.acme.com/path", assetOrigins: [], expiresAt: 1, cacheUntil: 1 })],
     ["a cache longer than the lease", async () => Response.json({ v: 1, kind: "site", linkId: "x", leaseId: "y", origin: "https://app.acme.com", assetOrigins: [], expiresAt: 1, cacheUntil: 2 })],
   ];
   for (const [name, backend] of failures) {
     f.failWith(backend);
-    expect([name, await f.directory.resolve(f.label)]).toEqual([name, null]);
+    // Never an answer: the proxy serves nothing, and doesn't take it for a host that serves nothing.
+    expect([name, await f.directory.resolve(f.label).then(() => "answered", () => "couldn't ask")]).toEqual([name, "couldn't ask"]);
   }
   // Failures aren't remembered: once the backend answers, the host serves again.
   f.restore();
   expect(await f.directory.resolve(f.label)).not.toBeNull();
 
+  // A wrong secret gets the routes' one answer for everything they won't serve (they reveal nothing, not even that they exist): nothing.
   const wrong = await opened({ secret: "not-the-secret-0123456789abcdefghijkl" });
   expect(await wrong.directory.resolve(wrong.label)).toBeNull();
+});
+
+test("only the backend saying a host serves nothing is a null answer", async () => {
+  const f = await opened();
+  expect(await f.directory.resolve(`v-${"a".repeat(26)}`)).toBeNull();
+  // A caller that goes away isn't told the host serves nothing either.
+  const gone = new AbortController();
+  const asked = f.directory.resolve(f.label, gone.signal).then(() => "answered", () => "couldn't ask");
+  gone.abort();
+  expect(await asked).toBe("couldn't ask");
 });
 
 test("labels that can't be a frame host are refused without asking the backend", async () => {

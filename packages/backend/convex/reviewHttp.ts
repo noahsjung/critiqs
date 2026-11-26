@@ -34,7 +34,7 @@ async function proxyBody(request: Request): Promise<unknown> {
 export const resolve = httpAction(async (ctx, request) => {
   const body = (await proxyBody(request)) as { hostHash?: unknown } | null;
   if (body === null || typeof body !== "object" || typeof body.hostHash !== "string" || !HOST_HASH.test(body.hostHash)) return notFound();
-  const resolution = await ctx.runQuery(internal.reviewLinks.resolveHost, { hostHash: body.hostHash });
+  const resolution = await ctx.runQuery(internal.reviewLinks.resolveHost, { hostHash: body.hostHash, now: Date.now() });
   if (resolution === null) return notFound();
   return Response.json(resolution, { headers: { "Cache-Control": "no-store" } });
 });

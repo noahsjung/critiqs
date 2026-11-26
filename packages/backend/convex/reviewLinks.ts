@@ -238,9 +238,15 @@ const OFF = "Review links aren't set up on this deployment.";
 const REQUEST_KEY = /^[A-Za-z0-9_-]{8,100}$/;
 const REQUEST_KEY_MS = 24 * 60 * 60_000;
 
-/** The signed-in owner and the project they manage; refuses everyone else. */
+/**
+ * The signed-in owner and the project they manage; refuses everyone else.
+ * Reads only, so a query can use it: an owner always has a user record, and
+ * someone the deployment has never seen gets the same refusal as any
+ * non-owner.
+ */
 async function managed(ctx: QueryCtx, store: Store, projectId: string) {
-  const user = await operations.requireUser(store, await identityOf(ctx));
+  const { user } = await operations.currentReviewer(store, await identityOf(ctx));
+  if (user === null) fail("forbidden", OWNERS_ONLY);
   const project = await operations.requireProject(store, user, projectId);
   if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", OWNERS_ONLY);
   return { user, project: project as unknown as Doc<"projects"> };
@@ -248,7 +254,7 @@ async function managed(ctx: QueryCtx, store: Store, projectId: string) {
 
 async function managedLink(ctx: QueryCtx, store: Store, linkId: string) {
   // Signed in first, so someone signed out learns nothing about which IDs exist.
-  await operations.requireUser(store, await identityOf(ctx));
+  await operations.currentReviewer(store, await identityOf(ctx));
   const id = ctx.db.normalizeId("reviewLinks", linkId);
   const link = id === null ? null : await ctx.db.get(id);
   if (link === null) fail("not-found", "This review link does not exist.");
@@ -576,8 +582,11 @@ export const recordOpened = mutation({
 
 /** What a frame host stands for now, or null for anything that must serve nothing. */
 export const resolveHost = internalQuery({
-  args: { hostHash: v.string() },
-  handler: async (ctx, { hostHash }): Promise<ReviewResolution | null> => {
+  // `now` is the time the proxy asked, passed in by the HTTP action: a query
+  // judged by its own clock could be answered from Convex's cache after the
+  // lease or link ended, as long as nothing it read changed.
+  args: { hostHash: v.string(), now: v.number() },
+  handler: async (ctx, { hostHash, now }): Promise<ReviewResolution | null> => {
     if (!HOST_HASH.test(hostHash)) return null;
     const host = await ctx.db
       .query("reviewFrameHosts")
@@ -585,7 +594,6 @@ export const resolveHost = internalQuery({
       .unique();
     if (host === null) return null;
     const lease = await ctx.db.get(host.leaseId);
-    const now = Date.now();
     if (lease === null || !live(lease, now)) return null;
     const link = await ctx.db.get(lease.linkId);
     if (link === null || link._id !== host.linkId) return null;
