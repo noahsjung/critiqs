@@ -451,3 +451,24 @@ test("with Jira sign-in, Connect Jira asks for the site first, then opens Atlass
   expect(posted[0]).toMatchObject({ action: "https://backend.convex.site/trackers/jira/start", fields: { state: "s1", binding: "secret-1" } });
   expect(dialog.querySelector('[role="status"]')?.textContent).toBe("Finish connecting in the Jira window.");
 });
+
+test("disconnecting a Jira sign-in, which Atlassian offers no way to end, says it lasts until it expires or is removed there, not that a token still works", async () => {
+  const offered: TicketsConfig = { trackers: [{ id: "jira", signIn: "oauth" }] };
+  const signedIn: TrackerAccountView = { tracker: "jira", method: "oauth", accountName: "Dana Smith", site: "acme.atlassian.net", connectedAt: 1, attribution: true };
+  const data = backend({ trackers: { accounts: [signedIn], disconnected: "kept" } });
+  const node = <YourTrackersDialog offered={offered} onClose={() => undefined} notify={() => undefined} />;
+  const dialog = await render(node, data);
+  await click(button(dialog, "Disconnect"));
+  await click([...dialog.querySelectorAll<HTMLButtonElement>("button.danger")].find((each) => each.textContent === "Disconnect"));
+  await rerender(node, data);
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe(
+    "Critiqs removed its webhooks from Jira, but Atlassian offers no way for Critiqs to end its sign-in: it works until it expires, or until you remove Critiqs from your Atlassian account's connected apps.",
+  );
+  // A pasted Jira token is named as Jira names it.
+  const pasted = backend({ trackers: { accounts: [{ ...signedIn, method: "token" }] } });
+  const again = await render(node, pasted);
+  await click(button(again, "Disconnect"));
+  await click([...again.querySelectorAll<HTMLButtonElement>("button.danger")].find((each) => each.textContent === "Disconnect"));
+  await rerender(node, pasted);
+  expect(again.querySelector('[role="status"]')?.textContent).toBe("Critiqs no longer has your Jira API token, but the token still works in Jira until you delete it there.");
+});

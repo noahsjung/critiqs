@@ -52,9 +52,22 @@ const label = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === trac
 /** The service a tracker's accounts belong to, where it differs from the tracker's name: GitHub Issues' are GitHub accounts. */
 const TRACKER_ACCOUNT: Partial<Record<TrackerId, string>> = { github: "GitHub" };
 
-function leftAtTracker(tracker: TrackerId, outcome: TrackerDisconnected): { text: string; alert: boolean } | null {
+function leftAtTracker(tracker: TrackerId, method: "oauth" | "token", outcome: TrackerDisconnected): { text: string; alert: boolean } | null {
   const name = label(tracker);
-  if (outcome === "kept") return { text: `Critiqs no longer has your ${name} API key, but the key still works in ${name} until you delete it there.`, alert: false };
+  if (outcome === "kept" && method === "oauth") {
+    // Only Jira's sign-in is kept: Atlassian documents no call that ends one.
+    return {
+      text: `Critiqs removed its webhooks from ${name}, but Atlassian offers no way for Critiqs to end its sign-in: it works until it expires, or until you remove Critiqs from your Atlassian account's connected apps.`,
+      alert: false,
+    };
+  }
+  if (outcome === "kept") {
+    // As the tracker names it: an API key, a personal access token, an API token.
+    const field = tokenKind(tracker).field;
+    const kind = /^[A-Z][a-z]/.test(field) ? field[0]!.toLowerCase() + field.slice(1) : field;
+    const noun = field.split(" ").at(-1)!;
+    return { text: `Critiqs no longer has your ${name} ${kind}, but the ${noun} still works in ${name} until you delete it there.`, alert: false };
+  }
   if (outcome === "shared") {
     return {
       text: `${name} is disconnected here. Another Critiqs account is still connected to the same ${TRACKER_ACCOUNT[tracker] ?? name} account, which shares Critiqs's access at ${TRACKER_ACCOUNT[tracker] ?? name}, so that access stays until it disconnects too, or you remove Critiqs in ${TRACKER_ACCOUNT[tracker] ?? name}'s settings.`,
@@ -307,7 +320,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                       }).then((ok) => {
                         if (!ok) return;
                         setConfirming(null);
-                        setLeft(leftAtTracker(id, outcome));
+                        setLeft(leftAtTracker(id, account.method, outcome));
                         notify(`${label(id)} disconnected`);
                         // The rows that held focus are gone; the dialog keeps it.
                         mainRef.current?.closest<HTMLElement>('[role="dialog"]')?.focus();
