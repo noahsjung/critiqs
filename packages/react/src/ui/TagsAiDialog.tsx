@@ -158,7 +158,10 @@ function GroupsTab({ projectId, notify, presetTags }: { projectId: string; notif
 }
 
 /**
- * The project's preset tags, in order: the tags `#` suggests first. Every
+ * The project's preset tags, in order: after the tags reviewers used most
+ * recently, `#` suggests the unused ones in this order. Rename, move, and
+ * remove act on a preset by its key, so a list changed elsewhere meanwhile
+ * never moves the change onto another preset. Every
  * change sends the whole list with the list it changed, so a change someone
  * else made meanwhile is refused rather than undone.
  */
@@ -166,11 +169,14 @@ function PresetTags({ projectId, notify }: { projectId: string; notify: (message
   const transport = useTransport();
   const project = transport.useProject(projectId);
   const [adding, setAdding] = useState("");
-  const [renaming, setRenaming] = useState<{ index: number; label: string } | null>(null);
+  /** The preset being renamed, by its key, so the form stays on it while the list changes elsewhere. */
+  const [renaming, setRenaming] = useState<{ key: string; label: string } | null>(null);
   const [saving, setSaving] = useState(false);
   if (project.status === "loading") return <p className="note">Loading preset tags…</p>;
   if (project.status === "error") return <p className="error">{project.message}</p>;
   const presets = project.data.tags;
+  /** A preset's place in the list now, by its key; -1 once it was renamed or removed elsewhere. */
+  const placeOf = (key: string) => presets.findIndex((label) => tagKey(label) === key);
   /** Checks a new or renamed preset here first, with the backend's rules, so the owner can fix it before sending. */
   const problem = (label: string, except: number | null): string | null => {
     const cleaned = cleanPresetTag(label);
@@ -192,7 +198,9 @@ function PresetTags({ projectId, notify }: { projectId: string; notify: (message
       })
       .finally(() => setSaving(false));
   };
-  const move = (index: number, by: -1 | 1) => {
+  const move = (key: string, by: -1 | 1) => {
+    const index = placeOf(key);
+    if (index === -1 || index + by < 0 || index + by >= presets.length) return;
     const next = [...presets];
     [next[index], next[index + by]] = [next[index + by]!, next[index]!];
     void save(next, `Moved “${presets[index]}” ${by < 0 ? "up" : "down"}`);
@@ -208,22 +216,24 @@ function PresetTags({ projectId, notify }: { projectId: string; notify: (message
     <section className="settings" aria-label="Preset tags">
       <div className="menu-label">Preset tags</div>
       <p className="note">
-        Typing # suggests these first, in this order. Renaming or removing one leaves the threads that already have it as
-        they are; their tag stays in filters, and a group can gather it with the new one.
+        Typing # suggests the tags reviewers used most recently, then these presets that no one has used yet, in this order.
+        Renaming or removing one leaves the threads that already have it as they are; their tag stays in filters, and a group
+        can gather it with the new one.
       </p>
       {presets.length === 0 ? (
         <p className="note">No preset tags. Typing # suggests only tags reviewers have used.</p>
       ) : (
         <ol className="tag-list preset-list">
           {presets.map((label, index) =>
-            renaming?.index === index ? (
+            renaming?.key === tagKey(label) ? (
               <li key={label}>
                 <form
                   className="row"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    if (problem(renaming.label, index) !== null) return;
-                    const next = presets.map((other, i) => (i === index ? renaming.label : other));
+                    const place = placeOf(renaming.key);
+                    if (place === -1 || problem(renaming.label, place) !== null) return;
+                    const next = presets.map((other, i) => (i === place ? renaming.label : other));
                     void save(next, `Renamed “${label}” to “${cleanPresetTag(renaming.label)}”`).then((ok) => ok && setRenaming(null));
                   }}
                 >
@@ -231,10 +241,9 @@ function PresetTags({ projectId, notify }: { projectId: string; notify: (message
                     className="field"
                     aria-label={`New name for ${label}`}
                     value={renaming.label}
-                    maxLength={50}
                     autoFocus
                     aria-invalid={problem(renaming.label, index) !== null}
-                    onChange={(event) => setRenaming({ index, label: event.target.value })}
+                    onChange={(event) => setRenaming({ key: renaming.key, label: event.target.value })}
                   />
                   <button type="submit" className="btn small" disabled={saving || problem(renaming.label, index) !== null}>
                     Save
@@ -253,9 +262,9 @@ function PresetTags({ projectId, notify }: { projectId: string; notify: (message
                   disabled={saving}
                   first={index === 0}
                   last={index === presets.length - 1}
-                  onMove={(by) => move(index, by)}
-                  onRename={() => setRenaming({ index, label })}
-                  onRemove={() => void save(presets.filter((_, i) => i !== index), `Preset “${label}” removed; threads keep it`)}
+                  onMove={(by) => move(tagKey(label), by)}
+                  onRename={() => setRenaming({ key: tagKey(label), label })}
+                  onRemove={() => void save(presets.filter((other) => tagKey(other) !== tagKey(label)), `Preset “${label}” removed; threads keep it`)}
                 />
               </li>
             ),
@@ -268,7 +277,6 @@ function PresetTags({ projectId, notify }: { projectId: string; notify: (message
           aria-label="New preset tag"
           placeholder={full ? `Up to ${MAX_PRESET_TAGS} preset tags` : "New preset, such as Accessibility"}
           value={adding}
-          maxLength={50}
           disabled={full}
           aria-invalid={addProblem !== null}
           onChange={(event) => setAdding(event.target.value)}

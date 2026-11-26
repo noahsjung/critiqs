@@ -366,7 +366,8 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     const { projectId, threadId } = await setup(backend, "Unclear label #wording");
     const project = () => backend.run((store) => ops.getProject(store, dana, { projectId }));
     const presets = async () => (await project()).tags;
-    const set = (tags: string[], previous?: string[], who: Identity = dana) => backend.run((store) => ops.setPresetTags(store, who, { projectId, tags, previous }));
+    const set = async (tags: string[], previous?: string[], who: Identity = dana) =>
+      backend.run(async (store) => ops.setPresetTags(store, who, { projectId, tags, previous: previous ?? (await ops.getProject(store, dana, { projectId })).tags }));
     expect(await presets()).toEqual(["Bug", "UX copy change", "Design change request", "User feedback"]);
     // Unused presets are suggested in the owner's order.
     expect((await tagsOf(backend, projectId, lee)).tags.filter((tag) => tag.lastUsedAt === null).map((tag) => tag.label)).toEqual(["UX copy change", "Design change request", "User feedback"]);
@@ -395,10 +396,21 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     expect((await tagsOf(backend, projectId)).tags.some((tag) => tag.preset)).toBe(false);
   });
 
+  test(`${name}: a preset change must name the list it changed, so a caller can't overwrite a change made meanwhile by leaving it out`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    const before = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).tags;
+    await expect(backend.run((store) => ops.setPresetTags(store, dana, { projectId, tags: ["Overwritten"] } as Parameters<typeof ops.setPresetTags>[2]))).rejects.toThrow(
+      "Send the preset tags you changed",
+    );
+    expect((await backend.run((store) => ops.getProject(store, dana, { projectId }))).tags).toEqual(before);
+  });
+
   test(`${name}: preset tags follow the tag rules, and a change made meanwhile isn't overwritten`, async () => {
     const backend = fresh();
     const { projectId } = await setup(backend);
-    const set = (tags: string[], previous?: string[]) => backend.run((store) => ops.setPresetTags(store, dana, { projectId, tags, previous }));
+    const set = async (tags: string[], previous?: string[]) =>
+      backend.run(async (store) => ops.setPresetTags(store, dana, { projectId, tags, previous: previous ?? (await ops.getProject(store, dana, { projectId })).tags }));
     await expect(set([""])).rejects.toThrow("can't be a preset tag");
     await expect(set(["x".repeat(51)])).rejects.toThrow("1 to 50 characters");
     await expect(set(["x".repeat(50)])).resolves.toEqual(["x".repeat(50)]);

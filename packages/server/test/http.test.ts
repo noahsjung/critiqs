@@ -224,8 +224,10 @@ test("the self-hosted server changes a project's preset tags for its owner only,
   expect((await dana.api("project", { projectId })).body.value.tags[0]).toBe("Defect");
   expect(await dana.api("setPresetTags", { projectId, tags: [3] })).toMatchObject({ status: 400, body: { error: { code: "invalid" } } });
   expect(await dana.api("setPresetTags", { projectId, tags: ["Ok"], extra: true })).toMatchObject({ status: 400, body: { error: { code: "invalid" } } });
+  // The list being changed is required, so no caller overwrites a change made meanwhile by leaving it out.
+  expect(await dana.api("setPresetTags", { projectId, tags: ["Ok"] })).toMatchObject({ status: 400, body: { error: { code: "invalid" } } });
   const lee = await signIn(handler, sent, "lee@example.com", "Lee");
-  expect(await lee.api("setPresetTags", { projectId, tags: ["Mine"] })).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
+  expect(await lee.api("setPresetTags", { projectId, tags: ["Mine"], previous: ["Defect", ...previous.slice(1)] })).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
   expect((await dana.api("project", { projectId })).body.value.tags[0]).toBe("Defect");
 });
 

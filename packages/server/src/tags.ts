@@ -368,10 +368,12 @@ export async function setTagGroups(
 export async function setPresetTags(
   store: Store,
   identity: Identity | null,
-  args: { projectId: string; tags: string[]; previous?: string[] },
+  args: { projectId: string; tags: string[]; previous: string[] },
 ): Promise<string[]> {
   const { project } = await requireOrganizer(store, identity, args.projectId);
-  if (args.previous !== undefined && (args.previous.length !== project.tags.length || args.previous.some((tag, i) => tag !== project.tags[i]))) {
+  // Required, so no caller overwrites a change made meanwhile by leaving it out.
+  if (!Array.isArray(args.previous)) fail("invalid", "Send the preset tags you changed as `previous`.");
+  if (args.previous.length !== project.tags.length || args.previous.some((tag, i) => tag !== project.tags[i])) {
     fail("invalid", "The preset tags changed while you were editing them. Look at them again and redo your change.");
   }
   if (args.tags.length > MAX_PRESET_TAGS) fail("invalid", `A project can have up to ${MAX_PRESET_TAGS} preset tags.`);

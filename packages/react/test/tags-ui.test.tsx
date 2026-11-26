@@ -538,3 +538,52 @@ test("restoring a caret outside a wrapped pill reveals its text edge without mov
     editor.remove();
   }
 });
+
+test("rename, move, and remove act on the preset chosen, even when the list changed while the form or menu was open", async () => {
+  const calls: { name: string; args: unknown }[] = [];
+  const backend: FakeBackend = {
+    project: { _id: "project", name: "Pilot", tags: ["Bug", "Design change request", "Defect"], createdAt: 1, reviewUrl: null, isOwner: true },
+    threads: undefined,
+    tags,
+    calls,
+  };
+  const draw = () => render(<TagsAiDialog projectId="project" initialTab="groups" onClose={() => undefined} notify={() => undefined} presetTags />, backend);
+  let host = await draw();
+  const menuItem = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>(".menu button")).find((entry) => entry.textContent === text);
+  const open = async (label: string) => act(async () => host.querySelector<HTMLButtonElement>(`button[aria-label="Change preset ${label}"]`)!.click());
+  // Another session of the owner changes the list; this one redraws live.
+  const elsewhere = async (next: string[]) => {
+    backend.project = { ...backend.project!, tags: next };
+    host = await draw();
+  };
+
+  // Rename is chosen on "Design change request", then "Defect" moves above it.
+  await open("Design change request");
+  await act(async () => menuItem("Rename")!.click());
+  await elsewhere(["Bug", "Defect", "Design change request"]);
+  const field = host.querySelector<HTMLInputElement>(".preset-list input.field")!;
+  expect(field.getAttribute("aria-label")).toBe("New name for Design change request");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "Renamed first");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => buttonIn(host, "Save").click());
+  await settled();
+  expect(calls.at(-1)).toEqual({ name: "setPresetTags", args: { projectId: "project", tags: ["Bug", "Defect", "Renamed first"], previous: ["Bug", "Defect", "Design change request"] } });
+  host = await draw();
+
+  // Remove is chosen on "Defect", then "Bug" is removed elsewhere: "Defect" is still the one removed.
+  await open("Defect");
+  await elsewhere(["Defect", "Renamed first"]);
+  await act(async () => menuItem("Remove preset")!.click());
+  await settled();
+  expect(calls.at(-1)).toEqual({ name: "setPresetTags", args: { projectId: "project", tags: ["Renamed first"], previous: ["Defect", "Renamed first"] } });
+  host = await draw();
+
+  // A rename whose preset was removed elsewhere closes rather than renaming another.
+  await elsewhere(["Renamed first", "Other"]);
+  await open("Other");
+  await act(async () => menuItem("Rename")!.click());
+  await elsewhere(["Renamed first"]);
+  expect(host.querySelector(".preset-list input.field")).toBeNull();
+});

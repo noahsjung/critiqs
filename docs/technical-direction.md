@@ -1465,8 +1465,10 @@ The plan, status, and checks are in [tags, tag groups, and AI](tags-and-ai.md).
   (`ProjectInfo.tags`). Only its owner changes them, in Tags and AI, then Tags:
   adding, renaming, reordering, and removing send the whole ordered list
   (`tags:setPresets` on Convex, `setPresetTags` on the self-hosted server) with
-  the list the owner edited, and a list that changed meanwhile is refused
-  rather than overwritten. A preset follows the explicit-tag rules and must
+  the list the owner edited (`previous`, required), and a list that changed
+  meanwhile is refused rather than overwritten. The panel acts on a preset by
+  its key, so a rename, move, or removal started before the list changed in
+  another window still applies to the preset chosen. A preset follows the explicit-tag rules and must
   also be writable as a hashtag, since `#` suggestions insert it as one: 1 to
   50 characters, starting with a letter, with letters, numbers, spaces, `-`,
   and `_`; no two share a key; up to 50, as many as one thread can carry.

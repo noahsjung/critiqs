@@ -43,7 +43,7 @@ export const setTagGroups = mutation({
 
 /** Sets the project's preset tags, in order; threads keep the tags they carry. See `setPresetTags`. */
 export const setPresets = mutation({
-  args: { projectId: v.id("projects"), tags: v.array(v.string()), previous: v.optional(v.array(v.string())) },
+  args: { projectId: v.id("projects"), tags: v.array(v.string()), previous: v.array(v.string()) },
   handler: async (ctx, args) => run(async () => operations.setPresetTags(convexStore(ctx), await identityOf(ctx), args)),
 });
 

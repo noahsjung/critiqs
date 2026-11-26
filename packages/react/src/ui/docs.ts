@@ -107,7 +107,7 @@ export const DOCS: DocTopic[] = [
     steps: [
       "Type # in a comment to pick one of the project's tags or write a new one.",
       "The person who created the project manages its tags: Tags and AI in the comments list's header, then Tags.",
-      "Preset tags are the ones # suggests first, in their order. Add preset adds one; Change… moves, renames, or removes one. Threads that already have a renamed or removed preset keep it.",
+      "Typing # suggests the tags reviewers used most recently, then the preset tags no one has used yet, in their order. Add preset adds one; Change… moves, renames, or removes one. Threads that already have a renamed or removed preset keep it.",
       "Create group adds one. Change… renames, merges, or deletes a group; deleting keeps its tags. Groups… on a tag chooses its groups.",
       "With Critiqs AI, new tags are grouped automatically, never overriding a person's choice.",
     ],
