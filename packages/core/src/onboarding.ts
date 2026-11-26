@@ -633,10 +633,13 @@ export interface DeveloperSendSummary {
   /**
    * When the steps can be sent to this address again, 24 hours after the
    * email went out; null when they can't: a failed email is sent again at
-   * once instead, and an address that was sent them again twice gets no
-   * more. Absent from backends that can't send them again.
+   * once instead, an address that was sent them again twice gets no more,
+   * and an inbox that reported Critiqs's email gets nothing. Absent from
+   * backends that can't send them again.
    */
   resendAt?: number | null;
+  /** True when the address's inbox reported Critiqs's email as unwanted, so nothing more is sent to it; absent otherwise. */
+  suppressed?: boolean;
 }
 
 /** What a project's setup page shows: the project, its address, its saved stack, and how to install Critiqs in it. */

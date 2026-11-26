@@ -1005,8 +1005,11 @@ It doesn't count against the project's three developers, and never invites
 again. Too soon or past the resends refuses that address as a `limit`
 (`wait`, `resends`). A failed email is still sent again at once and uses no
 resend. `developerSends` says when each address can be sent them again
-(`resendAt`, null when it can't), and `/critiqs/config` reports
-`developerResends`. The website shows Send again on the setup page and in
+(`resendAt`, null when it can't, and for an inbox that reported Critiqs's
+email, which `suppressed` marks), and `/critiqs/config` reports
+`developerResends`. An email that sends the steps again says it is a
+reminder in its subject and first line; when one fails, its replacement is
+still that resend. The website shows Send again on the setup page and in
 onboarding once that time comes, and says when before then.
 Every email is claimed in the store before it goes to the mail service: an
 attempt still waiting for its answer holds the email

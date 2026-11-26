@@ -357,6 +357,58 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: day + HOUR + 24 * HOUR });
   });
 
+  test(`${name}: a resend the mail service refuses uses no resend of its own: its replacement is that resend, and two still reach the developer`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const DAY = 24 * HOUR;
+    const resend = (now: number) => backend.run((store) => reserveDeveloperSends(store, dana, { projectId, emails: ["sam@acme.com"], resend: true }, now));
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    await deliver(backend, first.reserved, "ok", day);
+    // The first resend is refused: failed, so Send again sends a replacement at once, under the next key.
+    await deliver(backend, (await resend(day + DAY)).reserved, "refused", day + DAY);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "failed" });
+    const replacement = await resend(day + DAY + HOUR);
+    expect(replacement.results[0]).toMatchObject({ status: "sent" });
+    await deliver(backend, replacement.reserved, "ok", day + DAY + HOUR);
+    // One resend reached Sam; the second still can, 24 hours after it.
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: day + 2 * DAY + HOUR });
+    const second = await resend(day + 2 * DAY + HOUR);
+    expect(second.results[0]).toMatchObject({ status: "sent" });
+    const { asked } = await deliver(backend, second.reserved, "ok", day + 2 * DAY + HOUR);
+    expect(asked).toHaveLength(1);
+    expect((await resend(day + 10 * DAY)).results[0]).toMatchObject({ status: "limit", limit: "resends" });
+  });
+
+  test(`${name}: an address whose inbox reported Critiqs's email is never offered Send again, and says so`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com", "kim@acme.com"]);
+    await deliver(backend, [first.reserved[0]!], "ok", day);
+    await deliver(backend, [first.reserved[1]!], "refused", day);
+    for (const each of first.reserved) await backend.run((store) => reportUnwantedEmail(store, { sendId: each.sendId }, day + HOUR));
+    expect((await listed(backend, projectId)).map((each) => [each.email, each.status, each.resendAt, each.suppressed])).toEqual([
+      ["sam@acme.com", "sent", null, true],
+      ["kim@acme.com", "failed", null, true],
+    ]);
+  });
+
+  test(`${name}: an email that sends the steps again says it is a reminder; a replacement for a failed first email doesn't`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com", "kim@acme.com"]);
+    const firstEmails = await deliver(backend, [first.reserved[0]!], "ok", day);
+    await deliver(backend, [first.reserved[1]!], "refused", day);
+    const replaced = await send(backend, projectId, ["kim@acme.com"], day + HOUR);
+    const replacement = await deliver(backend, replaced.reserved, "ok", day + HOUR);
+    const again = await backend.run((store) => reserveDeveloperSends(store, dana, { projectId, emails: ["sam@acme.com"], resend: true }, day + 25 * HOUR));
+    const reminder = await deliver(backend, again.reserved, "ok", day + 25 * HOUR);
+    expect(firstEmails.asked[0]!.subject).toBe("Dana asked you to add Critiqs to Acme prototype");
+    expect(replacement.asked[0]!.subject).toBe("Dana asked you to add Critiqs to Acme prototype");
+    expect(reminder.asked[0]!.subject).toBe("Reminder: Dana asked you to add Critiqs to Acme prototype");
+    expect(reminder.asked[0]!.text).toStartWith("A reminder: Dana (dana@example.com) sent you these steps before.");
+    expect(reminder.asked[0]!.html).toContain("<p>A reminder: Dana (dana@<span></span>example.<span></span>com) sent you these steps before.</p>");
+  });
+
   test(`${name}: an unknown result counts, and sending again retries it under the same key and the same email`, async () => {
     const backend = fresh();
     const projectId = await create(backend);

@@ -410,6 +410,8 @@ export async function prepareDeveloperEmail(
     setupUrl: args.setupUrl,
     reportUrl: args.reportUrl,
     joining,
+    // An email sent again, or its replacement after a failure, is a reminder; a replacement for a failed first email isn't.
+    reminder: (send.resends ?? 0) > 0,
     idempotencyKey: args.idempotencyKey,
   });
   const stored: StoredMail = message;
@@ -486,6 +488,8 @@ export function developerSetupMessage(parts: {
   reportUrl: string;
   /** The organization the developer joins when they sign in, or null. */
   joining: string | null;
+  /** The steps sent again: the email says it is a reminder. */
+  reminder?: boolean;
   idempotencyKey: string;
 }): MailMessage & { fromName: string; replyTo: string } {
   const inviter = shorten(parts.inviterName) || "Someone";
@@ -509,7 +513,9 @@ export function developerSetupMessage(parts: {
   const closing = (show: (text: string) => string) =>
     `You don't need anyone's approval.${joining === null ? "" : ` Sign in to Critiqs with ${show(parts.to)} to join ${show(joining)}.`} Reply to this email to reach ${show(inviter)}.`;
   const preheader = "How to add Critiqs to the prototype, so your team can comment on it.";
+  const remind = (who: string, email: string) => `A reminder: ${who} (${email}) sent you these steps before.`;
   const text = [
+    ...(parts.reminder === true ? [remind(inviter, parts.inviterEmail)] : []),
     intro(inviter, parts.inviterEmail),
     facts.map(([label, value]) => `${label}: ${value}`).join("\n"),
     `${how}\n\n${commands === null ? `${SCRIPT_TAG_GUIDE}\nProject ID: ${parts.projectId}` : commands.join("\n")}`,
@@ -519,7 +525,8 @@ export function developerSetupMessage(parts: {
   ].join("\n\n");
   const html = `<!doctype html><html><body style="font:15px/1.5 system-ui,sans-serif;color:#1a1a1a">
 <div style="display:none;max-height:0;overflow:hidden">${escapeHtml(preheader)}</div>
-<p>${intro(inert(inviter), inert(parts.inviterEmail))}</p>
+${parts.reminder === true ? `<p>${remind(inert(inviter), inert(parts.inviterEmail))}</p>
+` : ""}<p>${intro(inert(inviter), inert(parts.inviterEmail))}</p>
 <p>${facts.map(([label, value]) => `${escapeHtml(label)}: <strong>${inert(value)}</strong>`).join("<br>")}</p>
 <p>${escapeHtml(how)}</p>
 ${commands === null ? `<p><a href="${escapeHtml(SCRIPT_TAG_GUIDE)}">How to add the script tag</a><br>Project ID: <code>${escapeHtml(parts.projectId)}</code></p>` : `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${commands.map(escapeHtml).join("\n")}</pre>`}
@@ -529,7 +536,7 @@ ${commands === null ? `<p><a href="${escapeHtml(SCRIPT_TAG_GUIDE)}">How to add t
 </body></html>`;
   return {
     to: parts.to,
-    subject: `${inviter} asked you to add Critiqs to ${project}`,
+    subject: `${parts.reminder === true ? "Reminder: " : ""}${inviter} asked you to add Critiqs to ${project}`,
     text,
     html,
     fromName: `${inviter} via Critiqs`,
@@ -553,13 +560,20 @@ export async function listDeveloperSends(store: Store, identity: Identity | null
   const project = await requireProject(store, user, args.projectId);
   if ((await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("forbidden", "Only the people who manage this project can see who it sent setup steps to.");
   const sends = await store.developerSends.forProject(project._id, MAX_DEVELOPER_INVITES_PER_PROJECT);
-  return sends.map((send) => ({
-    sendId: send._id,
-    email: send.email,
-    status: sendStatus(send.attempts),
-    lastSentAt: sentAt(send),
-    resendAt: resendAt(send),
-  }));
+  const summaries: DeveloperSendSummary[] = [];
+  for (const send of sends) {
+    // An inbox that reported Critiqs's email gets nothing more, so it is never offered Send again.
+    const suppressed = await store.emailSuppressions.has(inboxOf(send.email));
+    summaries.push({
+      sendId: send._id,
+      email: send.email,
+      status: sendStatus(send.attempts),
+      lastSentAt: sentAt(send),
+      resendAt: suppressed ? null : resendAt(send),
+      ...(suppressed ? { suppressed: true } : {}),
+    });
+  }
+  return summaries;
 }
 
 const NO_SETUP = "This setup link doesn't exist, or it was sent to another address.";

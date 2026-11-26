@@ -112,6 +112,8 @@ export function deliveryLine(email: string, summary: DeveloperSendSummary | unde
       return { text: copy.send.invalid(email, result.message), tone: "error", action: null };
     case "sent":
     case undefined:
+      // Its inbox reported Critiqs's email: nothing more goes to it, so neither Send again is offered.
+      if (summary?.suppressed === true) return { text: copy.send.suppressed(email), tone: "error", action: "copy" };
       if (summary?.status === "failed") return { text: copy.send.failed(email), tone: "error", action: "send-again" };
       // An email whose answer never came counts as sent, as the server counts it.
       return result === undefined && summary === undefined ? null : { text: copy.send.sent(email), tone: "success", action: resendDue ? "resend" : null };
@@ -238,8 +240,8 @@ export function SendPanelView({
   const [adding, setAdding] = useState(false);
   // Send emails each address that has no email yet, or whose email failed. The project's record wins; until it arrives, the answer to Send.
   const unsent = filled.filter((address) => {
-    const status = recordFor(summaries, address)?.status;
-    if (status !== undefined) return status === "failed";
+    const record = recordFor(summaries, address);
+    if (record !== undefined) return record.status === "failed" && record.suppressed !== true;
     const answer = recordFor(results, address)?.status;
     return answer !== "sent" && answer !== "already-sent";
   });

@@ -292,6 +292,13 @@ describe("My developer will: the email", () => {
     expect(clipboard.text).toContain("Can you add Critiqs to Acme prototype");
   });
 
+  test("an address whose inbox reported Critiqs's email is never offered Send again, whether its email failed or went out", () => {
+    for (const status of ["failed", "sent"] as const) {
+      const summary = { sendId: "s1", email: "kim@acme.com", status, lastSentAt: 1, resendAt: null, suppressed: true };
+      expect(deliveryLine("kim@acme.com", summary, undefined, false)).toEqual({ text: "kim@acme.com turned off emails from Critiqs. Copy the message instead.", tone: "error", action: "copy" });
+    }
+  });
+
   test("an address the server can't use says so", () => {
     expect(deliveryLine("x@acme", undefined, { email: "x@acme", status: "invalid", message: "Enter a valid email address." })).toEqual({ text: "x@acme: Enter a valid email address.", tone: "error", action: null });
   });
