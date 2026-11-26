@@ -20,7 +20,7 @@ import {
 } from "../src/ai/connection.ts";
 import { listModels, MODEL_LISTS_PER_MINUTE } from "../src/ai/model-lists.ts";
 import { applyGrouping, claimGrouping, failGrouping, groupOnce, type GroupingSteps, MAX_GROUPING_ATTEMPTS } from "../src/ai/grouping.ts";
-import { type CreditSteps, HOLD_MS, reserveCredits, settleCredits } from "../src/ai/credits.ts";
+import { type CreditSteps, HOLD_MS, reserveCredits, settleCredits, worstCaseCredits } from "../src/ai/credits.ts";
 import { AiError, type ModelUsage, type StructuredModel, type StructuredRequest } from "../src/ai/model.ts";
 import { testRequest } from "../src/ai/prompts.ts";
 import { createStructuredModel } from "../src/ai/providers.ts";
@@ -766,7 +766,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     // Saved as own provider: a managed draft is still counted, and refused once the allowance is used.
     await saveSettings(backend, projectId, {}, dana, managed);
     expect(await testConnection(steps(), managedDraft)).toMatchObject({ ok: true });
-    await expect(testConnection(steps(), managedDraft)).rejects.toThrow("allowance is used up");
+    await expect(testConnection(steps(), managedDraft)).rejects.toThrow("no Critiqs AI credits left");
     expect(prompts).toHaveLength(1);
     // The own provider, saved or draft, isn't blocked by the used-up allowance.
     expect(await testConnection(steps())).toMatchObject({ ok: true });
@@ -774,7 +774,7 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     // Saved as managed: an own-provider draft runs; the saved managed connection is refused.
     await saveSettings(backend, projectId, { mode: "managed" }, dana, managed);
     expect(await testConnection(steps(), ownDraft)).toMatchObject({ ok: true });
-    await expect(testConnection(steps())).rejects.toThrow("allowance is used up");
+    await expect(testConnection(steps())).rejects.toThrow("no Critiqs AI credits left");
     expect(prompts).toHaveLength(4);
   });
 
@@ -816,14 +816,30 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     await backend.run((store) => settleCredits(store, null, { payer: "project", ownerId: projectId, credits: 30 }, Date.now()));
     expect(await search(backend, dana, projectId, "label", searcher.model, undefined, priced)).toMatchObject({
       mode: "basic",
-      notice: "AI unavailable: basic search. The project's AI allowance is used up for now.",
+      notice: "AI unavailable: basic search. This project's organization doesn't have enough Critiqs AI credits left for this request.",
     });
     expect(searcher.prompts).toHaveLength(2);
     expect(await testConnection(testSteps(backend, dana, projectId, priced, ok.model))).toMatchObject({ ok: true });
     expect(await used()).toBe(40);
-    await expect(testConnection(testSteps(backend, dana, projectId, priced, ok.model))).rejects.toThrow("allowance is used up");
+    await expect(testConnection(testSteps(backend, dana, projectId, priced, ok.model))).rejects.toThrow("no Critiqs AI credits left");
     expect(ok.prompts).toHaveLength(2);
     expect(await used()).toBe(40);
+  });
+
+  test(`${name}: a priced connection test holds its own worst case, not 1 credit, so it can't start past what's left`, async () => {
+    // At $15 and $75 per million, the test's most (its bytes and framing in, 50 tokens out) costs 3 credits; a real answer costs less.
+    const pricey: AiDeployment = { ...deployment, managed: { ...priced.managed!, models: [{ ...priced.managed!.models[0]!, price: { input: 15, output: 75 } }] } };
+    expect(worstCaseCredits({ credits: 0, price: { input: 15, output: 75 } }, testRequest())).toBe(3);
+    for (const [left, starts] of [[2, false], [3, true]] as const) {
+      const backend = fresh().withPlans({ free: { name: "free", label: "Free", limits: [{ metric: "aiCredits", period: "month", max: left }] } });
+      const { projectId } = await setup(backend);
+      await saveSettings(backend, projectId, { mode: "managed" }, dana, pricey);
+      const ok = fakeModel(() => ({ status: "ok" }), { inputTokens: 300, outputTokens: 40 });
+      const run = testConnection(testSteps(backend, dana, projectId, pricey, ok.model));
+      if (starts) expect(await run).toMatchObject({ ok: true });
+      else await expect(run).rejects.toThrow("enough Critiqs AI credits left for this request");
+      expect(ok.prompts).toHaveLength(starts ? 1 : 0);
+    }
   });
 
   function heldModel(answer: (request: StructuredRequest<unknown>) => unknown, usage?: ModelUsage) {
@@ -879,9 +895,9 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     const start = Date.now();
     await strandHold(backend, projectId, 1, start);
     const ok = fakeModel(() => ({ status: "ok" }));
-    await expect(testConnection(testSteps(backend, dana, projectId, managed, ok.model))).rejects.toThrow("allowance is used up");
+    await expect(testConnection(testSteps(backend, dana, projectId, managed, ok.model))).rejects.toThrow("no Critiqs AI credits left");
     setSystemTime(start + HOLD_MS - 1_000);
-    await expect(testConnection(testSteps(backend, dana, projectId, managed, ok.model))).rejects.toThrow("allowance is used up");
+    await expect(testConnection(testSteps(backend, dana, projectId, managed, ok.model))).rejects.toThrow("no Critiqs AI credits left");
     setSystemTime(start + HOLD_MS + 1_000);
     expect(await testConnection(testSteps(backend, dana, projectId, managed, ok.model))).toMatchObject({ ok: true });
     expect(ok.prompts).toHaveLength(1);
@@ -1118,11 +1134,11 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     const paused = (organizationId: string) => backend.run((store) => store.planAlerts.find(organizationId, "paused", month, "free"));
     // Strong costs 3 credits, more than Free's 1.
     const strongDraft = { ...ownSettings, projectId, mode: "managed" as const, managedModel: "strong" };
-    await expect(testConnection(testSteps(backend, dana, projectId, twoModels, model), strongDraft)).rejects.toThrow("allowance is used up");
+    await expect(testConnection(testSteps(backend, dana, projectId, twoModels, model), strongDraft)).rejects.toThrow("enough Critiqs AI credits left for this request");
     expect(await paused(await organizationOf(backend, projectId))).toMatchObject({ status: "pending", kind: "paused" });
     const leeOrganization = await homeOrganizationOn(backend, lee, "free");
     await savePersonal(backend, lee, { mode: "managed", managedModel: "strong" }, twoModels);
-    await expect(testConnection(personalTestSteps(backend, lee, twoModels, model))).rejects.toThrow("allowance is used up");
+    await expect(testConnection(personalTestSteps(backend, lee, twoModels, model))).rejects.toThrow("enough Critiqs AI credits left for this request");
     expect(await paused(leeOrganization)).toMatchObject({ status: "pending", kind: "paused" });
     expect(prompts).toEqual([]);
   });

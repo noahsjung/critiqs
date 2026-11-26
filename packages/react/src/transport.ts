@@ -57,6 +57,18 @@ export interface PagedList<T> {
 }
 
 /**
+ * What an invite did. `email`, for a new invite: `sent` once the mail service
+ * accepted it, `not-sent` when none went out (no email on the deployment, an
+ * email limit, or a failed send), so the person joins by signing in, and
+ * `pending` when it is sent afterwards, as on Convex. Absent from older
+ * backends, which say nothing about it.
+ */
+export interface InviteAnswer {
+  status: "invited" | "member" | "pending";
+  email?: "sent" | "not-sent" | "pending";
+}
+
+/**
  * How the interface reaches a Critiqs backend. The interface uses only these
  * operations and Critiqs's own types, so it works the same whether the backend
  * is Convex (live updates) or a server in the host app (checked periodically).
@@ -80,7 +92,7 @@ export interface CritiqsTransport {
   useOrganization(organizationId: string | null): QueryState<OrganizationDetails>;
   renameOrganization(organizationId: string, name: string): Promise<void>;
   /** Invites someone by email; `projectId`, the project the admin is in, links the email to its prototype. */
-  inviteMember(args: { organizationId: string; email: string; role: OrganizationRole; projectId?: string }): Promise<{ status: "invited" | "member" | "pending" }>;
+  inviteMember(args: { organizationId: string; email: string; role: OrganizationRole; projectId?: string }): Promise<InviteAnswer>;
   revokeInvite(inviteId: string): Promise<void>;
   setMemberRole(args: { organizationId: string; userId: string; role: OrganizationRole }): Promise<void>;
   /** Removes someone from an organization, or, given the reviewer's own ID, leaves it. */

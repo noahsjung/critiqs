@@ -100,9 +100,24 @@ async function owePlanAlerts(store: Store, quota: Coverage & { projectId: string
   if (kind !== null) await owePlanAlert(store, { organizationId, kind, month: utcDay(now).slice(0, 7), plan, limit: month, projectId, now });
 }
 
-function refusal(payer: CreditCharge["payer"], plan: OrganizationPlan | null): string {
-  if (payer === "project") return "The project's AI allowance is used up for now.";
-  return includesPersonalAi(plan) ? "Your Critiqs AI allowance is used up for now." : NO_PERSONAL_AI;
+/** Why a request was refused: its payer has no credits left, or fewer than the request could cost (`short`). */
+function refusal(payer: CreditCharge["payer"], plan: OrganizationPlan | null, short: boolean): string {
+  if (payer === "person" && !includesPersonalAi(plan)) return NO_PERSONAL_AI;
+  if (payer === "project") {
+    return short ? "This project's organization doesn't have enough Critiqs AI credits left for this request." : "This project's organization has no Critiqs AI credits left for now.";
+  }
+  return short ? "You don't have enough Critiqs AI credits left for this request." : "You have no Critiqs AI credits left for now.";
+}
+
+/** Whether `amount` more credits fit in what the payer may still spend. */
+async function fits(store: Store, quota: Coverage & { projectId: string | null }, amount: number, now: number): Promise<boolean> {
+  try {
+    await requireRoom(store, { ...quota, metric: "aiCredits", now, amount });
+    return true;
+  } catch (error) {
+    if (error instanceof CritiqsError && error.code === "limit") return false;
+    throw error;
+  }
 }
 
 /** Holds a request's credits, or says why it can't start. `hold` is null when nothing needs holding: an own key, or no plans. */
@@ -120,12 +135,10 @@ export async function reserveCredits(store: Store, payer: Pick<ChosenConnection,
   const quota = await creditsQuota(store, payer.payer, payer.ownerId);
   if (quota.plan === null) return { ok: true, hold: null };
   const scope = `aiCredits:${quota.accountId}`;
-  try {
-    await requireRoom(store, { ...quota, metric: "aiCredits", now, amount: (await store.creditHolds.held(scope, now)) + credits });
-  } catch (error) {
-    if (!(error instanceof CritiqsError && error.code === "limit")) throw error;
+  const held = await store.creditHolds.held(scope, now);
+  if (!(await fits(store, quota, held + credits, now))) {
     await owePlanAlerts(store, quota, await usedThisMonth(store, quota.accountId, now), credits, false, now);
-    return { ok: false, reason: refusal(payer.payer, quota.plan) };
+    return { ok: false, reason: refusal(payer.payer, quota.plan, await fits(store, quota, held + 1, now)) };
   }
   return { ok: true, hold: await store.creditHolds.insert({ scope, credits, expiresAt: now + HOLD_MS }, now) };
 }

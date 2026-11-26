@@ -308,6 +308,7 @@ function AiTab({ projectId, notify, modelLists }: { projectId: string; notify: (
   const transport = useTransport();
   const state = transport.useAiSettings(projectId);
   const usage = transport.useUsage(projectId);
+  const project = transport.useProject(projectId);
   // What a save returned, shown until the settings are read again.
   const [returned, setReturned] = useState<{ view: AiSettingsView; over: AiSettingsView } | null>(null);
   const [page, setPage] = useState<"main" | "key" | "models">("main");
@@ -511,7 +512,7 @@ function AiTab({ projectId, notify, modelLists }: { projectId: string; notify: (
             )}
           </div>
           )}
-          {onCritiqs && plans !== null && <PlanCredits plan={plans.plan} rows={credited} upgradeUrl={plans.upgradeUrl} whose="project" />}
+          {onCritiqs && plans !== null && <PlanCredits plan={plans.plan} rows={credited} upgradeUrl={plans.upgradeUrl} organizationId={project.status === "ready" ? project.data.organization?.id : undefined} whose="project" />}
           {(!own || leave !== null) && (
             <div ref={switchRow} className="ds-group">
               <hr className="ds-divider" />

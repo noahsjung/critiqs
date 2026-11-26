@@ -1,6 +1,7 @@
 import type { OrganizationDetails, OrganizationMember, OrganizationRole } from "@critiqs/core";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { errorMessage, useTransport } from "../transport.ts";
+import { Fragment, type ReactNode, type RefObject, useContext, useEffect, useRef, useState } from "react";
+import { errorMessage, type InviteAnswer, useTransport } from "../transport.ts";
+import { OpenBillingContext, UpgradeButton } from "./BillingDialog.tsx";
 import { Avatar, Dialog } from "./common.tsx";
 import { DialogHeader, NavRow, Select, SettingRow, usePageFocus } from "./ds.tsx";
 
@@ -11,6 +12,22 @@ const ROLES: { value: OrganizationRole; label: string }[] = [
   { value: "admin", label: "Admin" },
 ];
 const roleLabel = (role: OrganizationRole) => (role === "admin" ? "Admin" : "Member");
+
+/** What an admin did on the Organization page, so each shows its own failure beside it. */
+type Action = "name" | "invite" | "role" | "remove" | "leave" | "withdraw";
+
+/**
+ * The toast after an invite: sent only once the mail service accepted the
+ * email; joining by signing in when none went out; and just invited while
+ * delivery is still to come or unknown.
+ */
+function inviteToast(address: string, result: InviteAnswer): string {
+  if (result.status === "member") return `${address} is already a member`;
+  if (result.status === "pending") return `${address} is already invited`;
+  if (result.email === "sent") return `Invite sent to ${address}`;
+  if (result.email === "not-sent") return `${address} is invited and joins by signing in to Critiqs with that address`;
+  return `Invited ${address}`;
+}
 
 /**
  * The reviewer's organization: its name, members and their roles, and, for
@@ -40,7 +57,17 @@ export function OrganizationDialog({
   const organizationId = list.find((organization) => organization.id === chosen)?.id ?? (several ? null : (list[0]?.id ?? null));
   const details = transport.useOrganization(organizationId);
   const shown: Page = organizationId === null ? { kind: "list" } : opened?.organizationId === organizationId ? opened.page : { kind: "organization" };
+  // Counts the pages the reviewer moved between, here and in OrganizationPages, and the dialog closing:
+  // an action that ends after either reports nothing and moves nowhere.
+  const visit = useRef(0);
+  useEffect(
+    () => () => {
+      visit.current++;
+    },
+    [],
+  );
   const backToList = () => {
+    visit.current++;
     setChosen(null);
     setOpened(null);
   };
@@ -61,7 +88,10 @@ export function OrganizationDialog({
               key={organization.id}
               label={organization.name}
               value={roleLabel(organization.role)}
-              onClick={() => setChosen(organization.id)}
+              onClick={() => {
+                visit.current++;
+                setChosen(organization.id);
+              }}
             />
           ))}
         </div>
@@ -96,6 +126,7 @@ export function OrganizationDialog({
           page={shown}
           setPage={(page) => setOpened({ organizationId: details.data.id, page })}
           onBackToList={several ? backToList : undefined}
+          visit={visit}
           onLeft={() => {
             notify(`You left ${details.data.name}`);
             if (several) backToList();
@@ -115,6 +146,7 @@ function OrganizationPages({
   page,
   setPage,
   onBackToList,
+  visit,
   onLeft,
   projectId,
   onClose,
@@ -124,6 +156,8 @@ function OrganizationPages({
   page: Page;
   setPage: (page: Page) => void;
   onBackToList: (() => void) | undefined;
+  /** The dialog's count of page changes, which moving between these pages adds to. */
+  visit: RefObject<number>;
   onLeft: () => void;
   projectId: string | null;
   onClose: () => void;
@@ -132,53 +166,71 @@ function OrganizationPages({
   const transport = useTransport();
   const admin = organization.role === "admin";
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The last action's failure, shown beside that action and what it acted on; starting another clears it.
+  const [error, setError] = useState<{ action: Action; target: string; message: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const openBilling = useContext(OpenBillingContext);
   const go = (next: Page) => {
+    visit.current++;
     setError(null);
     setConfirming(false);
     setPage(next);
   };
-  const attempt = async (work: () => Promise<void>): Promise<boolean> => {
-    if (busy) return false;
+  const confirm = () => {
+    setError(null);
+    setConfirming(true);
+  };
+  /**
+   * Runs one action at a time on `target` (the page, member, or invite it
+   * acts on). Only while the reviewer is still on the page that started it,
+   * with the dialog open, does it report: `done` with the result once it
+   * succeeded, or the failure beside the target.
+   */
+  const attempt = <T,>(action: Action, target: string, work: () => Promise<T>, done: (result: T) => void) => {
+    if (busy) return;
+    const started = visit.current;
     setBusy(true);
     setError(null);
-    try {
-      await work();
-      return true;
-    } catch (failure) {
-      setError(errorMessage(failure));
-      return false;
-    } finally {
-      setBusy(false);
-    }
+    work().then(
+      (result) => {
+        setBusy(false);
+        if (visit.current === started) done(result);
+      },
+      (failure: unknown) => {
+        setBusy(false);
+        if (visit.current === started) setError({ action, target, message: errorMessage(failure) });
+      },
+    );
   };
-  const errorLine = error !== null && (
-    <p className="error" role="alert">
-      {error}
-    </p>
-  );
+  const errorLine = (target: string, ...actions: Action[]) =>
+    error !== null &&
+    error.target === target &&
+    actions.includes(error.action) && (
+      <p className="error" role="alert">
+        {error.message}
+      </p>
+    );
   const you = organization.members.find((member) => member.you);
-  const leave = () =>
-    void attempt(async () => {
-      await transport.removeMember({ organizationId: organization.id, userId: you!.userId });
-      onLeft();
-    });
+  const leave = (target: string) => attempt("leave", target, () => transport.removeMember({ organizationId: organization.id, userId: you!.userId }), onLeft);
 
   if (page.kind === "name" && admin) {
     return (
       <NamePage
         current={organization.name}
         busy={busy}
-        error={errorLine}
+        error={errorLine("name", "name")}
         onBack={() => go({ kind: "organization" })}
         onClose={onClose}
         onSave={(name) =>
-          void attempt(() => transport.renameOrganization(organization.id, name)).then((ok) => {
-            if (!ok) return;
-            notify("Organization renamed");
-            go({ kind: "organization" });
-          })
+          attempt(
+            "name",
+            "name",
+            () => transport.renameOrganization(organization.id, name),
+            () => {
+              notify("Organization renamed");
+              go({ kind: "organization" });
+            },
+          )
         }
       />
     );
@@ -188,15 +240,19 @@ function OrganizationPages({
     return (
       <InvitePage
         busy={busy}
-        error={errorLine}
+        error={errorLine("invite", "invite")}
         onBack={() => go({ kind: "organization" })}
         onClose={onClose}
         onSend={(email, role) =>
-          void attempt(async () => {
-            const { status } = await transport.inviteMember({ organizationId: organization.id, email, role, ...(projectId === null ? {} : { projectId }) });
-            const address = email.trim();
-            notify(status === "invited" ? `Invite sent to ${address}` : status === "member" ? `${address} is already a member` : `${address} is already invited`);
-          }).then((ok) => ok && go({ kind: "organization" }))
+          attempt(
+            "invite",
+            "invite",
+            () => transport.inviteMember({ organizationId: organization.id, email, role, ...(projectId === null ? {} : { projectId }) }),
+            (result) => {
+              notify(inviteToast(email.trim(), result));
+              go({ kind: "organization" });
+            },
+          )
         }
       />
     );
@@ -204,11 +260,12 @@ function OrganizationPages({
 
   const member = page.kind === "member" ? organization.members.find((each) => each.userId === page.userId) : undefined;
   if (member !== undefined && admin) {
+    const target = `member:${member.userId}`;
     return (
       <div className="ds-page">
         <DialogHeader title={member.you ? `${member.name} (you)` : member.name} onBack={() => go({ kind: "organization" })} onClose={onClose} />
         {member.email !== null && <p className="note">{member.email}</p>}
-        {errorLine}
+        {errorLine(target, "role")}
         <div className="ds-group">
           <SettingRow label="Role">
             {(labelId) => (
@@ -218,8 +275,11 @@ function OrganizationPages({
                 labelledBy={labelId}
                 disabled={busy}
                 onChange={(role) =>
-                  void attempt(() => transport.setMemberRole({ organizationId: organization.id, userId: member.userId, role: role as OrganizationRole })).then(
-                    (ok) => ok && notify(`${member.you ? "You are" : `${member.name} is`} now ${role === "admin" ? "an admin" : "a member"}`),
+                  attempt(
+                    "role",
+                    target,
+                    () => transport.setMemberRole({ organizationId: organization.id, userId: member.userId, role: role as OrganizationRole }),
+                    () => notify(`${member.you ? "You are" : `${member.name} is`} now ${role === "admin" ? "an admin" : "a member"}`),
                   )
                 }
               />
@@ -237,17 +297,22 @@ function OrganizationPages({
               onKeep={() => setConfirming(false)}
               onAct={() =>
                 member.you
-                  ? leave()
-                  : void attempt(() => transport.removeMember({ organizationId: organization.id, userId: member.userId })).then((ok) => {
-                      if (!ok) return;
-                      notify(`${member.name} was removed`);
-                      go({ kind: "organization" });
-                    })
+                  ? leave(target)
+                  : attempt(
+                      "remove",
+                      target,
+                      () => transport.removeMember({ organizationId: organization.id, userId: member.userId }),
+                      () => {
+                        notify(`${member.name} was removed`);
+                        go({ kind: "organization" });
+                      },
+                    )
               }
             />
           ) : (
-            <NavRow label={member.you ? "Leave organization" : "Remove from organization"} onClick={() => setConfirming(true)} />
+            <NavRow label={member.you ? "Leave organization" : "Remove from organization"} onClick={confirm} />
           )}
+          {errorLine(target, "leave", "remove")}
         </div>
       </div>
     );
@@ -256,14 +321,25 @@ function OrganizationPages({
   return (
     <div className="ds-page">
       <DialogHeader title={organization.name} onBack={onBackToList} onClose={onClose} />
-      {errorLine}
       <div className="ds-group">
         {admin ? (
           <NavRow label="Name" value={organization.name} onClick={() => go({ kind: "name" })} />
         ) : (
           <SettingRow label="Name">{(labelId) => <span aria-labelledby={labelId}>{organization.name}</span>}</SettingRow>
         )}
-        {organization.plan !== null && <SettingRow label="Plan">{(labelId) => <span aria-labelledby={labelId}>{organization.plan}</span>}</SettingRow>}
+        {organization.plan !== null &&
+          (openBilling !== null ? (
+            <NavRow label="Plan" value={organization.plan} onClick={() => openBilling.open(organization.id)} />
+          ) : (
+            <SettingRow label="Plan">
+              {(labelId) => (
+                <span className="row" aria-labelledby={labelId}>
+                  {organization.plan}
+                  <UpgradeButton upgradeUrl={organization.upgradeUrl} className="btn small" />
+                </span>
+              )}
+            </SettingRow>
+          ))}
       </div>
       <div className="ds-group" role="group" aria-label="Members">
         <h4 className="ds-group-label">Members</h4>
@@ -283,23 +359,33 @@ function OrganizationPages({
         <div className="ds-group" role="group" aria-label="Invited">
           <h4 className="ds-group-label">Invited</h4>
           {organization.invites.map((invite) => (
-            <div key={invite._id} className="ds-row">
-              <span className="ds-row-label stacked">
-                <span className="ellipsis">{invite.email}</span>
-                <span className="note">
-                  {roleLabel(invite.role)} · invited by {invite.invitedBy}
+            <Fragment key={invite._id}>
+              <div className="ds-row">
+                <span className="ds-row-label stacked">
+                  <span className="ellipsis">{invite.email}</span>
+                  <span className="note">
+                    {roleLabel(invite.role)} · invited by {invite.invitedBy}
+                  </span>
                 </span>
-              </span>
-              <button
-                type="button"
-                className="btn small ghost"
-                disabled={busy}
-                aria-label={`Withdraw the invite to ${invite.email}`}
-                onClick={() => void attempt(() => transport.revokeInvite(invite._id)).then((ok) => ok && notify(`Invite to ${invite.email} withdrawn`))}
-              >
-                Withdraw
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="btn small ghost"
+                  disabled={busy}
+                  aria-label={`Withdraw the invite to ${invite.email}`}
+                  onClick={() =>
+                    attempt(
+                      "withdraw",
+                      `invite:${invite._id}`,
+                      () => transport.revokeInvite(invite._id),
+                      () => notify(`Invite to ${invite.email} withdrawn`),
+                    )
+                  }
+                >
+                  Withdraw
+                </button>
+              </div>
+              {errorLine(`invite:${invite._id}`, "withdraw")}
+            </Fragment>
           ))}
         </div>
       )}
@@ -307,10 +393,11 @@ function OrganizationPages({
         <div className="ds-group">
           <hr className="ds-divider" />
           {confirming ? (
-            <Confirm question={`Leave ${organization.name}?`} keep="Stay" act="Leave" busy={busy} onKeep={() => setConfirming(false)} onAct={leave} />
+            <Confirm question={`Leave ${organization.name}?`} keep="Stay" act="Leave" busy={busy} onKeep={() => setConfirming(false)} onAct={() => leave("organization")} />
           ) : (
-            <NavRow label="Leave organization" onClick={() => setConfirming(true)} />
+            <NavRow label="Leave organization" onClick={confirm} />
           )}
+          {errorLine("organization", "leave")}
         </div>
       )}
     </div>

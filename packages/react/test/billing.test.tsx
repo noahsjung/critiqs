@@ -135,7 +135,7 @@ const billingOf = (status: BillingStatus, usage: OrganizationUsage | null, more:
   ...more,
 });
 
-async function mount(data: FakeBackend, { billing = true, url = PAGE } = {}) {
+async function mount(data: FakeBackend, { billing = true, url = PAGE, organizationMembers = false } = {}) {
   setUrl(url);
   const payload = btoa(JSON.stringify({ sub: "dana", name: "Dana", email: "dana@example.com" }));
   localStorage.setItem(`critiqs:session:${SIGN_IN}`, JSON.stringify({ accessToken: `header.${payload}.signature`, refreshToken: "fixture", expiresAt: Date.now() + 900_000 }));
@@ -146,7 +146,7 @@ async function mount(data: FakeBackend, { billing = true, url = PAGE } = {}) {
   shadow.append(inner);
   root = createRoot(inner);
   const session = new Session(SIGN_IN, localStorage, async () => new Response(null, { status: 204 }));
-  const deployment = { backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null, personalAi: true, billing } as const;
+  const deployment = { backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null, personalAi: true, billing, organizationMembers } as const;
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={fakeTransport(data)}>
@@ -318,6 +318,108 @@ test("with billing, Upgrade in the project's AI settings closes them and opens P
   await click(button(shadow.querySelector('[role="dialog"][aria-label="Tags and AI"]')!, "Upgrade"));
   expect(shadow.querySelector('[role="dialog"][aria-label="Tags and AI"]')).toBeNull();
   expect(select(billingDialog(shadow)!, "Organization")?.textContent).toBe("Acme");
+});
+
+test("with billing, Upgrade shows only where there is a higher plan: not on Pro, in Your AI or the project's AI settings", async () => {
+  const proUsage: OrganizationUsage = { ...plusUsage, plan: "Pro" };
+  const data = backend(
+    { status: { acme: pro, home: pro }, usage: { acme: proUsage, home: proUsage } },
+    {
+      organizations: [home, acme],
+      personalAiSettings: personalAi,
+      personalAiUsage: { plan: "Pro", organizationId: "home", rows: [{ period: "month", used: 3, max: 10_000 }], upgradeUrl: "https://critiqs.example/upgrade" },
+      aiSettings: { ...personalAi, rule: "either", allowedModels: [], managedModel: "fast" },
+      usage: { plan: "Pro", rows: [{ metric: "aiCredits", period: "month", used: 3, max: 10_000 }] },
+    },
+  );
+  localStorage.setItem("critiqs:sidebar-open", "true");
+  const shadow = await mount(data);
+  await click(shadow.querySelector('button[aria-label="Signed in as Dana"]'));
+  await click(button(shadow, "Your AI…"));
+  const yourAi = shadow.querySelector('[aria-label="Your AI"]')!;
+  expect(yourAi.textContent).toContain("Pro plan");
+  expect(yourAi.textContent).not.toContain("Upgrade");
+  await click(button(yourAi, "Close"));
+  await click(shadow.querySelector('[aria-label="Comment mode"]'));
+  await click(shadow.querySelector('button[aria-label="Tags and AI settings"]'));
+  await click([...shadow.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === "AI"));
+  const settings = shadow.querySelector('[role="dialog"][aria-label="Tags and AI"]')!;
+  expect(settings.textContent).toContain("Pro plan");
+  expect(button(settings, "Upgrade")).toBeNull();
+});
+
+test("with billing, Upgrade waits for the plan of the organization it opens: not when that plan can't be read, and not on Pro", async () => {
+  const yourAi = async (data: FakeBackend) => {
+    const shadow = await mount(data);
+    await click(shadow.querySelector('button[aria-label="Signed in as Dana"]'));
+    await click(button(shadow, "Your AI…"));
+    const dialog = shadow.querySelector('[aria-label="Your AI"]')!;
+    expect(dialog.textContent).toContain("Free plan");
+    return { shadow, upgrade: button(dialog, "Upgrade") };
+  };
+  const unmount = async () => {
+    await act(async () => root!.unmount());
+    host!.remove();
+  };
+  const usage = (organizationId?: string) => ({ plan: "Free", ...(organizationId === undefined ? {} : { organizationId }), rows: [{ period: "month" as const, used: 3, max: 200 }] });
+  const two = (status: FakeBilling["status"]): FakeBilling => ({ status, usage: { acme: freeUsage, home: freeUsage } });
+  const people = { organizations: [home, acme], personalAiSettings: personalAi };
+
+  // Dana's home organization's plan can't be read; Acme's, the project's, would allow an upgrade.
+  let { upgrade } = await yourAi(backend(two({ home: "Plans couldn't be loaded.", acme: free }), { ...people, personalAiUsage: usage("home") }));
+  expect(upgrade).toBeNull();
+  await unmount();
+
+  // Without the organization's ID, Upgrade opens the project's organization: it shows by Acme's plan, not the home one's.
+  ({ upgrade } = await yourAi(backend(two({ home: free, acme: pro }), { ...people, personalAiUsage: usage() })));
+  expect(upgrade).toBeNull();
+  await unmount();
+  const { shadow, upgrade: shown } = await yourAi(backend(two({ home: pro, acme: free }), { ...people, personalAiUsage: usage() }));
+  await click(shown);
+  expect(select(billingDialog(shadow)!, "Organization")?.textContent).toBe("Acme");
+});
+
+test("with billing, Upgrade follows what Change plan offers: none while Pro is billed under a lower plan Critiqs set, one while Plus is set over Free", async () => {
+  const yourAi = async (status: BillingStatus) => {
+    const data = backend(
+      { status: { acme: status, home: status }, usage: { acme: plusUsage, home: plusUsage } },
+      { organizations: [home, acme], personalAiSettings: personalAi, personalAiUsage: { plan: "Plus", organizationId: "home", rows: [{ period: "month", used: 3, max: 2_000 }] } },
+    );
+    const shadow = await mount(data);
+    await click(shadow.querySelector('button[aria-label="Signed in as Dana"]'));
+    await click(button(shadow, "Your AI…"));
+    const dialog = shadow.querySelector('[aria-label="Your AI"]')!;
+    expect(dialog.textContent).toContain("Plus plan");
+    return { shadow, upgrade: button(dialog, "Upgrade") };
+  };
+  // Critiqs set Plus while a Pro subscription is billed: Change plan counts Pro as current and offers nothing higher.
+  const billedPro: BillingStatus = { ...pro, plan: "plus" };
+  const { upgrade } = await yourAi(billedPro);
+  expect(upgrade).toBeNull();
+  await act(async () => root!.unmount());
+  host!.remove();
+  const { page } = await renderDialog(backend(billingOf(billedPro, plusUsage)));
+  await click(navRow(page, "Change plan"));
+  expect(page.textContent).not.toContain("Upgrade to");
+  await act(async () => root!.unmount());
+  host!.remove();
+  // Critiqs set Plus with nothing billed: Change plan offers Pro, and so does Upgrade.
+  const { shadow, upgrade: shown } = await yourAi(plusSetByCritiqs);
+  await click(shown);
+  await click(navRow(billingDialog(shadow)!, "Change plan"));
+  expect(button(billingDialog(shadow)!, "Upgrade to Pro")).not.toBeNull();
+});
+
+test("the Organization page's plan closes it and opens Plan and billing on that organization", async () => {
+  const data = backend(billingOf(free, freeUsage), {
+    organizationDetails: { acme: { id: "acme", name: "Acme", role: "admin", plan: "Free", members: [], invites: [] } },
+  });
+  const shadow = await mount(data, { organizationMembers: true });
+  await click(shadow.querySelector('button[aria-label="Signed in as Dana"]'));
+  await click(button(shadow, "Organization…"));
+  await click(navRow(shadow.querySelector('[role="dialog"][aria-label="Organization"]')!, "Plan"));
+  expect(shadow.querySelector('[role="dialog"][aria-label="Organization"]')).toBeNull();
+  expect(heading(billingDialog(shadow)!)).toBe("Plan and billing");
 });
 
 test("a Free admin upgrades on Stripe Checkout, which returns to this page", async () => {
@@ -851,6 +953,112 @@ test("what each plan includes is what the backend's plan configuration says", as
   expect(page.querySelector(".billing-confirm")?.textContent).toBe(
     "One of Acme's 2 storage add-ons stays until the end of this billing period, then image storage goes down to 250 GB. You won't be charged for that one again.",
   );
+});
+
+test("removed extra storage says when each add-on ends, by its own period, and the image storage left then", async () => {
+  const FEB = Date.UTC(2027, 1, 1, 12);
+  const usage = (max: number): OrganizationUsage => ({
+    plan: "Pro",
+    rows: [
+      { metric: "aiCredits", period: "month", used: 40, max: 10_000 },
+      { metric: "captureBytes", period: "total", used: 130 * GB, max },
+    ],
+  });
+  // Pro renews Jan 1; the removed add-on was bought later in the month, so it lasts until Feb 1.
+  const data = backend(billingOf({ ...pro, endingStorageAddOns: [{ endsAt: FEB }] }, usage(200 * GB)));
+  const { page, redraw } = await renderDialog(data);
+  expect(rows(page)).toContain("Extra storage Off");
+  expect(rows(page)).toContain("Images stored 130.0 GB of 200.0 GB");
+  expect(page.textContent).toContain("Extra storage stays until Feb 1, 2027, then image storage goes down to 100 GB.");
+  // Two removed, ending on different days, with one still renewing.
+  data.billing!.status.acme = { ...pro, storageAddOns: 1, endingStorageAddOns: [{ endsAt: FEB }, { endsAt: RENEWS }] };
+  data.billing!.usage.acme = usage(400 * GB);
+  await redraw();
+  expect(page.textContent).toContain(
+    "100 GB of extra storage stays until Jan 1, 2027, then image storage goes down to 300 GB. 100 GB of extra storage stays until Feb 1, 2027, then image storage goes down to 200 GB.",
+  );
+  // An end Autumn hasn't reported yet.
+  data.billing!.status.acme = { ...pro, endingStorageAddOns: [{ endsAt: null }] };
+  data.billing!.usage.acme = usage(200 * GB);
+  await redraw();
+  expect(page.textContent).toContain("Extra storage stays until the end of its billing period, then image storage goes down to 100 GB.");
+  // Nothing ending: nothing to say, as from a backend that doesn't report it.
+  data.billing!.status.acme = { ...pro, storageAddOns: 1 };
+  await redraw();
+  expect(page.textContent).not.toContain("stays until");
+});
+
+test("storage an operator granted isn't taken for an ending add-on, and doesn't count once one ends", async () => {
+  // Pro's 100 GB, one paid add-on, and 200 GB more the operator granted.
+  const usage: OrganizationUsage = { plan: "Pro", rows: [{ metric: "captureBytes", period: "total", used: 130 * GB, max: 400 * GB }] };
+  const data = backend(billingOf({ ...pro, storageAddOns: 1 }, usage));
+  const { page, redraw } = await renderDialog(data);
+  expect(rows(page)).toContain("Images stored 130.0 GB of 400.0 GB");
+  expect(page.textContent).not.toContain("stays until");
+  // Once the paid add-on is removed, Autumn's count replaces the grant when it ends.
+  data.billing!.status.acme = { ...pro, endingStorageAddOns: [{ endsAt: RENEWS }] };
+  await redraw();
+  expect(page.textContent).toContain("Extra storage stays until Jan 1, 2027, then image storage goes down to 100 GB.");
+});
+
+test("with a move to a lower plan scheduled, ending storage says the image storage of the plan that follows", async () => {
+  const usage: OrganizationUsage = { plan: "Pro", rows: [{ metric: "captureBytes", period: "total", used: 3 * GB, max: 200 * GB }] };
+  const leaving = (scheduledPlan: BillingStatus["plan"]): BillingStatus => ({
+    ...pro,
+    subscription: { ...pro.subscription!, cancelAtPeriodEnd: scheduledPlan === "free", scheduledPlan },
+    endingStorageAddOns: [{ endsAt: RENEWS }],
+  });
+  const data = backend(billingOf(leaving("plus"), usage));
+  const { page, redraw } = await renderDialog(data);
+  expect(page.textContent).toContain("Extra storage stays until Jan 1, 2027, then image storage goes down to 10 GB.");
+  data.billing!.status.acme = leaving("free");
+  await redraw();
+  expect(page.textContent).toContain("Extra storage stays until Jan 1, 2027, then image storage goes down to 500 MB.");
+});
+
+test("ending storage says a lower amount only on the day it goes down, not on a later end after the plan already lowered it", async () => {
+  const usage: OrganizationUsage = { plan: "Pro", rows: [{ metric: "captureBytes", period: "total", used: 3 * GB, max: 200 * GB }] };
+  const JAN_2 = Date.UTC(2027, 0, 2, 12);
+  const DEC_15 = Date.UTC(2026, 11, 15, 12);
+  const toPlus = (endingStorageAddOns: { endsAt: number | null }[]): BillingStatus => ({
+    ...pro,
+    subscription: { ...pro.subscription!, scheduledPlan: "plus" },
+    endingStorageAddOns,
+  });
+  // Pro moves to Plus on Jan 1, which sets 10 GB then; the add-on ending Jan 2 lowers nothing.
+  const data = backend(billingOf(toPlus([{ endsAt: JAN_2 }]), usage));
+  const { page, redraw } = await renderDialog(data);
+  expect(page.textContent).toContain("Extra storage stays until Jan 2, 2027.");
+  expect(page.textContent).not.toContain("goes down");
+  // An add-on ending before the move lowers storage that day, to Pro with the other add-on; the one after the move still says no amount.
+  data.billing!.status.acme = toPlus([{ endsAt: DEC_15 }, { endsAt: JAN_2 }]);
+  await redraw();
+  expect(page.textContent).toContain(
+    "100 GB of extra storage stays until Dec 15, 2026, then image storage goes down to 200 GB. 100 GB of extra storage stays until Jan 2, 2027.",
+  );
+});
+
+test("ending storage says no amount when the order of the ends and the plan change isn't known yet", async () => {
+  const usage: OrganizationUsage = { plan: "Pro", rows: [{ metric: "captureBytes", period: "total", used: 3 * GB, max: 200 * GB }] };
+  const JAN_2 = Date.UTC(2027, 0, 2, 12);
+  // Plus is scheduled, but not when: it may start before or after the add-on ends.
+  const data = backend(
+    billingOf({ ...pro, subscription: { ...pro.subscription!, currentPeriodEnd: null, scheduledPlan: "plus" }, endingStorageAddOns: [{ endsAt: JAN_2 }] }, usage),
+  );
+  const { page, redraw } = await renderDialog(data);
+  expect(page.textContent).toContain("Extra storage stays until Jan 2, 2027.");
+  expect(page.textContent).not.toContain("goes down");
+  // One add-on's end isn't known: neither end can say what is left.
+  data.billing!.status.acme = { ...pro, endingStorageAddOns: [{ endsAt: JAN_2 }, { endsAt: null }] };
+  data.billing!.usage.acme = { ...usage, rows: [{ ...usage.rows[0]!, max: 300 * GB }] };
+  await redraw();
+  expect(page.textContent).toContain("100 GB of extra storage stays until Jan 2, 2027. 100 GB of extra storage stays until the end of its billing period.");
+  expect(page.textContent).not.toContain("goes down");
+  // Two add-ons whose ends aren't known may end on different days: no amount either.
+  data.billing!.status.acme = { ...pro, endingStorageAddOns: [{ endsAt: null }, { endsAt: null }] };
+  await redraw();
+  expect(page.textContent).toContain("stays until the end of its billing period.");
+  expect(page.textContent).not.toContain("goes down");
 });
 
 test("with several storage add-ons, the page counts the ones that renew, and Remove ends one", async () => {

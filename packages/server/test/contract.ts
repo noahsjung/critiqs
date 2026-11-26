@@ -2162,18 +2162,19 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     await join(backend, lee, organizationId, "member");
     // Free has no extra credits.
     await charge(backend, projectId, 10);
-    await expect(charge(backend, projectId, 1)).rejects.toThrow("allowance is used up");
+    await expect(charge(backend, projectId, 1)).rejects.toThrow("no Critiqs AI credits left");
 
     await assignTo(backend, organizationId, "plus");
     await charge(backend, projectId, 3);
-    await expect(charge(backend, projectId, 3)).rejects.toThrow("allowance is used up");
+    await expect(charge(backend, projectId, 3)).rejects.toThrow("enough Critiqs AI credits left for this request");
     await charge(backend, projectId, 2);
     expect(await creditsRow(backend, projectId)).toEqual({ metric: "aiCredits", period: "month", used: 15, max: 10, overage: { cap: 5 } });
-    await expect(charge(backend, projectId, 1)).rejects.toThrow("allowance is used up");
+    await expect(charge(backend, projectId, 1)).rejects.toThrow("no Critiqs AI credits left");
 
     const setCap = (who: Identity, cap: number | null) => backend.run((store) => organizations.setOverageCap(store, who, { organizationId, cap }));
-    await expect(setCap(lee, 100)).rejects.toThrow("Only an admin of the organization");
-    await expect(setCap(reviewer("Riley"), 100)).rejects.toThrow("Only an admin of the organization");
+    await expect(setCap(lee, 100)).rejects.toThrow("Only an organization's admins can change its name, members, or billing.");
+    // Someone outside the organization gets the same refusal, and code, as a member.
+    await expect(setCap(reviewer("Riley"), 100)).rejects.toMatchObject({ code: "forbidden", message: "Only an organization's admins can change its name, members, or billing." });
     await expect(setCap(dana, -1)).rejects.toThrow("whole number of credits");
     await expect(setCap(dana, 2.5)).rejects.toThrow("whole number of credits");
     await setCap(dana, 10);
@@ -2183,7 +2184,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     await charge(backend, projectId, 1_000);
     expect(await creditsRow(backend, projectId)).toMatchObject({ used: 1_020, overage: { cap: null } });
     await setCap(dana, 0);
-    await expect(charge(backend, projectId, 1)).rejects.toThrow("allowance is used up");
+    await expect(charge(backend, projectId, 1)).rejects.toThrow("no Critiqs AI credits left");
   });
 
   test(`${name}: admins put the cap back to the plan's default, and a change of plan puts it at the new plan's`, async () => {
@@ -2318,7 +2319,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(sent[0]!.html).toContain('<a href="https://proto.example/app">');
 
     await charge(backend, projectId, 2);
-    await expect(charge(backend, projectId, 1)).rejects.toThrow("allowance is used up");
+    await expect(charge(backend, projectId, 1)).rejects.toThrow("no Critiqs AI credits left");
     sent.length = 0;
     expect(await sendAlerts(backend, mailer, "three")).toBe(1);
     expect(sent.map((message) => message.subject)).toEqual(["Critiqs AI is paused for Dana's organization", "Critiqs AI is paused for Dana's organization"]);
@@ -2375,7 +2376,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     const sent: MailMessage[] = [];
     const mailer: Mailer = { send: async (message) => void sent.push(message) };
     await charge(backend, projectId, 4);
-    await expect(charge(backend, projectId, 8)).rejects.toThrow("allowance is used up");
+    await expect(charge(backend, projectId, 8)).rejects.toThrow("enough Critiqs AI credits left for this request");
     expect((await creditsRow(backend, projectId))!.used).toBe(4);
     expect(await sendAlerts(backend, mailer, "one")).toBe(1);
     expect(sent[0]!.text.split("\n\n").slice(0, 2)).toEqual([

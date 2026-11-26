@@ -12,6 +12,7 @@ import {
   planFor,
   usageDay,
   usageKey,
+  upgradeOf,
   usageSummary,
   utcDay,
 } from "./limits.ts";
@@ -230,11 +231,8 @@ export const MAX_OVERAGE_CAP = 100_000_000;
  * the plan's default. For the organization's admins.
  */
 export async function setOverageCap(store: Store, identity: Identity | null, args: { organizationId: string; cap: OverageCapChoice }): Promise<void> {
-  const user = await requireUser(store, identity);
-  const organization = await store.organizations.get(args.organizationId);
-  if (organization === null || (await store.memberships.find(organization._id, user._id))?.role !== "admin") {
-    fail("forbidden", "Only an admin of the organization can change its cap on extra credits.");
-  }
+  // Outsiders have always been refused with `forbidden` here, not told it isn't found.
+  const { organization } = await requireAdmin(store, identity, args.organizationId, "forbidden");
   if (typeof args.cap === "number" && !(Number.isInteger(args.cap) && args.cap >= 0 && args.cap <= MAX_OVERAGE_CAP)) {
     fail("invalid", `The cap must be a whole number of credits from 0 to ${MAX_OVERAGE_CAP.toLocaleString("en-US")}, none, or the plan's default.`);
   }
@@ -300,21 +298,32 @@ const MAX_ACCEPTED = 20;
 export const MAX_ORGANIZATION_NAME = 80;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
-const ONLY_ADMINS = "Only an organization's admins can change its name or members.";
+const ONLY_ADMINS = "Only an organization's admins can change its name, members, or billing.";
 const LAST_ADMIN = "An organization needs at least one admin. Make someone else an admin first.";
 
-async function requireMembership(store: Store, rawId: string, userId: string): Promise<{ organization: OrganizationRecord; membership: MembershipRecord }> {
+const NOT_IN_IT = "This organization doesn't exist, or you aren't in it.";
+
+async function findMembership(store: Store, rawId: string, userId: string): Promise<{ organization: OrganizationRecord; membership: MembershipRecord } | null> {
   const id = store.normalizeId("organizations", rawId);
   const organization = id === null ? null : await store.organizations.get(id);
   const membership = organization === null ? null : await store.memberships.find(organization._id, userId);
-  if (organization === null || membership === null) fail("not-found", "This organization doesn't exist, or you aren't in it.");
-  return { organization, membership };
+  return organization === null || membership === null ? null : { organization, membership };
 }
 
-async function requireAdmin(store: Store, identity: Identity | null, organizationId: string) {
+async function requireMembership(store: Store, rawId: string, userId: string): Promise<{ organization: OrganizationRecord; membership: MembershipRecord }> {
+  return (await findMembership(store, rawId, userId)) ?? fail("not-found", NOT_IN_IT);
+}
+
+/**
+ * The signed-in admin of the organization. People outside it are told it
+ * isn't found, or, with `outsiders: "forbidden"`, get the same refusal as its
+ * members, for calls that have always answered `forbidden`.
+ */
+async function requireAdmin(store: Store, identity: Identity | null, organizationId: string, outsiders: "not-found" | "forbidden" = "not-found") {
   const user = await requireUser(store, identity);
-  const found = await requireMembership(store, organizationId, user._id);
-  if (found.membership.role !== "admin") fail("forbidden", ONLY_ADMINS);
+  const found = await findMembership(store, organizationId, user._id);
+  if (found === null && outsiders === "not-found") fail("not-found", NOT_IN_IT);
+  if (found === null || found.membership.role !== "admin") fail("forbidden", ONLY_ADMINS);
   return { user, ...found };
 }
 
@@ -325,7 +334,7 @@ async function adminCount(store: Store, organizationId: string): Promise<number>
 /** An organization's name, members, and, for its admins, pending invites and members' addresses. Only its members see it. */
 export async function getOrganization(store: Store, identity: Identity | null, args: { organizationId: string }): Promise<OrganizationDetails> {
   const { user } = await currentReviewer(store, identity);
-  if (user === null) fail("not-found", "This organization doesn't exist, or you aren't in it.");
+  if (user === null) fail("not-found", NOT_IN_IT);
   const { organization, membership } = await requireMembership(store, args.organizationId, user._id);
   const admin = membership.role === "admin";
   const members: OrganizationMember[] = [];
@@ -350,7 +359,7 @@ export async function getOrganization(store: Store, identity: Identity | null, a
     }
   }
   const plan = await planFor(store, organization);
-  return { id: organization._id, name: organization.name, role: membership.role, plan: plan?.label ?? null, members, invites };
+  return { id: organization._id, name: organization.name, role: membership.role, plan: plan?.label ?? null, members, invites, ...(plan === null ? {} : upgradeOf(store)) };
 }
 
 export async function renameOrganization(store: Store, identity: Identity | null, args: { organizationId: string; name: string }): Promise<void> {

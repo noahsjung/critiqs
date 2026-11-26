@@ -341,10 +341,11 @@ test("SQLite: upgrading a version 10 database holds Critiqs AI credits against w
   const payer = { payer: "project" as const, ownerId: ids.project };
   const reserve = (credits: number) => store.transaction((s) => reserveCredits(s, payer, credits, Date.now()));
   // Plus allows 2,000 credits and 2,000 extra: 10 of them are left.
-  expect(await reserve(11)).toEqual({ ok: false, reason: "The project's AI allowance is used up for now." });
+  // More than is left says so; once held, nothing is left.
+  expect(await reserve(11)).toEqual({ ok: false, reason: "This project's organization doesn't have enough Critiqs AI credits left for this request." });
   const held = await reserve(10);
   expect(held).toEqual({ ok: true, hold: expect.stringMatching(/^v_/) });
-  expect((await reserve(1)).ok).toBe(false);
+  expect(await reserve(1)).toEqual({ ok: false, reason: "This project's organization has no Critiqs AI credits left for now." });
   await store.transaction((s) => settleCredits(s, held.ok ? held.hold : null, { ...payer, credits: 7 }, Date.now()));
   expect(await store.transaction((s) => s.usage.find(`aiCredits:${ids.organization}:${month}`))).toMatchObject({ count: 3997 });
   expect(driver.get<{ count: number }>("SELECT count(*) AS count FROM credit_holds")?.count).toBe(0);

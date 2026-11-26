@@ -29,7 +29,7 @@ import type {
 } from "@critiqs/core";
 import { type ReactNode, useState } from "react";
 import { loadExport } from "../src/export-pages.ts";
-import type { BillingTransport, CritiqsTransport, MockupReply, MockupTransport, PagedList, QueryState } from "../src/transport.ts";
+import type { BillingTransport, CritiqsTransport, InviteAnswer, MockupReply, MockupTransport, PagedList, QueryState } from "../src/transport.ts";
 import type { MockupListScope } from "@critiqs/core";
 
 /** Data a fake backend serves; `undefined` means still loading. Tests may change it between renders. */
@@ -109,7 +109,7 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
           ? ready(backend.organizationDetails?.[organizationId])
           : { status: "error", code: "not-found", message: "This organization doesn't exist, or you aren't in it." },
     renameOrganization: (organizationId, name) => organizationChange("renameOrganization", { organizationId, name }).then(() => undefined),
-    inviteMember: async (args) => ((await organizationChange("inviteMember", args)) ?? { status: "invited" }) as { status: "invited" | "member" | "pending" },
+    inviteMember: async (args) => ((await organizationChange("inviteMember", args)) ?? { status: "invited", email: "sent" }) as InviteAnswer,
     revokeInvite: (inviteId) => organizationChange("revokeInvite", { inviteId }).then(() => undefined),
     setMemberRole: (args) => organizationChange("setMemberRole", args).then(() => undefined),
     removeMember: (args) => organizationChange("removeMember", args).then(() => undefined),

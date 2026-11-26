@@ -86,6 +86,11 @@ export interface BillingState {
   storageUnits: number;
   /** The storage add-ons that renew, which people are shown and remove one at a time. */
   storageRenewing: number;
+  /**
+   * When each storage add-on that no longer renews ends, by its own period;
+   * null when Autumn hasn't said. Absent from states recorded before it.
+   */
+  storageEnding?: (number | null)[];
 }
 
 /**
@@ -109,6 +114,9 @@ export function billingStateOf(customer: AutumnCustomer): BillingState {
     scheduledPlan: current === null ? null : ((scheduled as BillingPlan | null) ?? (cancelAtPeriodEnd ? "free" : null)),
     storageUnits: storageAddOnsOf(customer).length,
     storageRenewing: renewingStorageOf(customer).length,
+    storageEnding: storageAddOnsOf(customer)
+      .filter((subscription) => subscription.canceledAt !== null)
+      .map((subscription) => subscription.currentPeriodEnd),
   };
 }
 
@@ -131,6 +139,7 @@ export function billingStatusOf(state: BillingState | null, plan: string, canMan
             scheduledPlan: state.scheduledPlan,
           },
     storageAddOns: state?.storageRenewing ?? 0,
+    endingStorageAddOns: (state?.storageEnding ?? []).map((endsAt) => ({ endsAt })),
     canManage,
     prices,
     plans,

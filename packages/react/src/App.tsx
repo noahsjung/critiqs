@@ -39,7 +39,7 @@ import { SearchBox, SearchResults, type SearchState } from "./ui/Search.tsx";
 import { TagsAiDialog } from "./ui/TagsAiDialog.tsx";
 import { OrganizationDialog } from "./ui/OrganizationDialog.tsx";
 import { YourAiDialog } from "./ui/YourAiDialog.tsx";
-import { type Awaiting, BillingDialog, OpenBillingContext, parseBillingReturn, removeBillingReturn } from "./ui/BillingDialog.tsx";
+import { type Awaiting, BillingDialog, type OpenBilling, OpenBillingContext, parseBillingReturn, removeBillingReturn } from "./ui/BillingDialog.tsx";
 import { FilterButton, groupMembers, ThreadList } from "./ui/ThreadList.tsx";
 import { type ReplyState, type RevealState, ThreadView } from "./ui/ThreadView.tsx";
 import { followOccurrence, ThreadWindow } from "./ui/ThreadWindow.tsx";
@@ -182,13 +182,17 @@ export function App({
   const openOrganization = signedIn && organizationMembers ? () => setOrganizationOpen(true) : null;
   const billingOffered = signedIn && deployment.billing === true && transport.billing !== undefined;
   const projectOrganizationId = projectQuery.status === "ready" ? (projectQuery.data.organization?.id ?? null) : null;
-  const openBilling = useMemo(
+  const openBilling = useMemo<OpenBilling | null>(
     () =>
       billingOffered
-        ? (organizationId?: string) => {
-            setYourAiOpen(false);
-            setTagsDialog(null);
-            setBilling({ organizationId: organizationId ?? projectOrganizationId, awaiting: null });
+        ? {
+            open: (organizationId?: string) => {
+              setYourAiOpen(false);
+              setTagsDialog(null);
+              setOrganizationOpen(false);
+              setBilling({ organizationId: organizationId ?? projectOrganizationId, awaiting: null });
+            },
+            organizationId: projectOrganizationId,
           }
         : null,
     [billingOffered, projectOrganizationId],
@@ -1131,7 +1135,7 @@ export function App({
         onRename={() => setRenaming(true)}
         onYourAi={openYourAi}
         onOrganization={openOrganization}
-        onBilling={openBilling}
+        onBilling={openBilling === null ? null : () => openBilling.open()}
         onNotifications={signedIn && projectQuery.status === "ready" ? () => setNotificationsOpen(true) : null}
         needsSetup={needsSetup}
         onSetup={() => {

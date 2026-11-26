@@ -203,7 +203,7 @@ test("a priced Critiqs AI model charges each answered request by the tokens the 
   expect(await dana.action(api.ai.testSettings, { projectId })).toMatchObject({ ok: true });
   expect(await used()).toMatchObject({ used: 212, max: 200 });
   const before = requests.length;
-  await expect(dana.action(api.ai.testSettings, { projectId })).rejects.toThrow("allowance is used up");
+  await expect(dana.action(api.ai.testSettings, { projectId })).rejects.toThrow("no Critiqs AI credits left");
   expect(requests).toHaveLength(before);
   expect(await used()).toMatchObject({ used: 212 });
 });
@@ -217,7 +217,7 @@ test("a connection test refused for want of credits still owes the organization'
   process.env.CRITIQS_PLANS = "enabled";
   const { t, dana, projectId } = await project();
   expect(await dana.action(api.ai.testSettings, { projectId })).toMatchObject({ ok: true });
-  await expect(dana.action(api.ai.testSettings, { projectId })).rejects.toThrow("allowance is used up");
+  await expect(dana.action(api.ai.testSettings, { projectId })).rejects.toThrow("enough Critiqs AI credits left for this request");
   expect(requests).toHaveLength(1);
   expect(await t.run((ctx) => ctx.db.query("planAlerts").collect())).toEqual([expect.objectContaining({ kind: "paused", plan: "free", planLabel: "Free", status: "pending" })]);
 });

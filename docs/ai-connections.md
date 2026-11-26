@@ -312,7 +312,8 @@ own key as a separate choice.
 - **Upgrade** links to `CRITIQS_UPGRADE_URL`, an https page the operator
   names, beside the plan's name. Usage answers carry it as `upgradeUrl`;
   other addresses are ignored. Where the deployment takes payment, Upgrade
-  opens **Plan and billing** instead.
+  opens **Plan and billing** instead, and shows only while there is a higher
+  plan to move to.
 - **Layout** follows the [design system](design-system.md): rows, no
   descriptions, one job per page.
   - **Your AI**: Model, the plan with Upgrade and the credits used, and **Use

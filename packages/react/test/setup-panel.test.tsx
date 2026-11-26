@@ -42,7 +42,7 @@ async function renderSetup(
   await act(async () =>
     root.render(
       <TransportContext.Provider value={transport}>
-        <OpenBillingContext.Provider value={billing}>
+        <OpenBillingContext.Provider value={billing === null ? null : { open: billing, organizationId: "acme" }}>
           <Setup
             backLabel="Back to comments"
             reviewer={{ id: "u_dana", name: "Dana", email: "dana@example.com", pictureUrl: null }}

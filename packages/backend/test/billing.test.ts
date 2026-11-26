@@ -130,6 +130,7 @@ test("an admin upgrades from Free through Stripe Checkout, and the signed webhoo
     plan: "plus",
     subscription: { plan: "plus", status: "active", currentPeriodEnd: expect.any(Number), cancelAtPeriodEnd: false, scheduledPlan: null },
     storageAddOns: 0,
+    endingStorageAddOns: [],
     canManage: true,
     prices: null,
     plans: expect.any(Object),
@@ -373,7 +374,7 @@ test("a plan an operator set shows as the organization's plan, with no subscript
   const { organizationId } = await organization(t);
   await t.mutation(internal.plans.assign, { organizationId, plan: "plus" });
 
-  expect(await t.withIdentity(dana).query(api.billing.status, { organizationId })).toEqual({ plan: "plus", subscription: null, storageAddOns: 0, canManage: true, prices: null, plans: expect.any(Object) });
+  expect(await t.withIdentity(dana).query(api.billing.status, { organizationId })).toEqual({ plan: "plus", subscription: null, storageAddOns: 0, endingStorageAddOns: [], canManage: true, prices: null, plans: expect.any(Object) });
   const { url } = await changePlan(t, organizationId, "pro");
   expect(url).toStartWith("https://checkout.stripe.com/c/pay/");
   expect((await organizationOf(t, organizationId))!.plan).toBe("plus");
@@ -553,19 +554,27 @@ test("two storage add-ons stack to 200 GB, and removing storage cancels one at a
   const t = setup();
   const { organizationId, addOn, storages, updatesOf, status, secondAddOn } = await proWithStorage(t, stub);
   await secondAddOn();
+  // Each add-on bills on its own period: the second was bought nine days later.
+  const [first, second] = stub.customer(organizationId)!.subscriptions.filter((s) => s.plan_id === "storage_100gb");
+  second!.current_period_end = first!.current_period_end! + 9 * 86_400_000;
+  await webhook(t, organizationId);
+  const ending = () => storages().filter((s) => s.canceled_at !== null).map((s) => ({ endsAt: s.current_period_end }));
+  expect(await status()).toMatchObject({ storageAddOns: 2, endingStorageAddOns: [] });
   // Storage is added one add-on at a time: one renews already.
   expect(await addOn(true)).toEqual({ url: null });
   expect(storages()).toHaveLength(2);
 
   await addOn(false);
   expect(storages().map((s) => s.canceled_at === null).sort()).toEqual([false, true]);
-  // The count shows what renews; the storage lasts until the period ends.
-  expect(await status()).toMatchObject({ storageAddOns: 1 });
+  // The count shows what renews; the storage lasts until that add-on's period ends, which the status says.
+  expect(ending()).toHaveLength(1);
+  expect(await status()).toMatchObject({ storageAddOns: 1, endingStorageAddOns: ending() });
   expect(await organizationOf(t, organizationId)).toMatchObject({ extraStorageUnits: 2 });
 
   await addOn(false);
   expect(storages().map((s) => s.canceled_at === null)).toEqual([false, false]);
   expect(await status()).toMatchObject({ storageAddOns: 0 });
+  expect(new Set((await status())!.endingStorageAddOns!.map((one) => one.endsAt))).toEqual(new Set([first!.current_period_end, second!.current_period_end]));
   const canceled = updatesOf("storage_100gb").map((body) => body.subscription_id);
   expect(new Set(canceled)).toEqual(new Set(storages().map((s) => s.id)));
   // Nothing more to remove.
