@@ -5,7 +5,7 @@
 //
 //   bun scripts/support-window.ts        prints the supported versions as JSON
 import { join } from "node:path";
-import { releasePackages, workingTree, type Registry, type ReleasePackage } from "./release.ts";
+import { releaseGroupMistakes, releasePackages, workingTree, type Registry, type ReleasePackage } from "./release.ts";
 
 /**
  * Months an older release line stays supported after the line that replaces
@@ -130,7 +130,15 @@ export async function releasedVersion(root: string, pkg: ReleasePackage): Promis
   return /^## (\d+\.\d+\.\d+)\s*$/m.exec(changelog)?.[1] ?? null;
 }
 
+/**
+ * Every package in the release group with its supported versions. Throws,
+ * naming the mistake, when the group itself is wrong: a name in it that
+ * matches no package would otherwise leave that package untested, and the
+ * check could pass having tested nothing.
+ */
 export async function supportedPackages(root: string, now = new Date(), fetcher: typeof fetch = fetch): Promise<PackageSupport[]> {
+  const mistakes = await releaseGroupMistakes(workingTree(root));
+  if (mistakes.length > 0) throw new Error(`The release group is wrong, so the check can't tell what to test:\n${mistakes.map((m) => `- ${m}`).join("\n")}`);
   const result: PackageSupport[] = [];
   for (const pkg of await releasePackages(workingTree(root))) {
     if (pkg.registry === null) continue;

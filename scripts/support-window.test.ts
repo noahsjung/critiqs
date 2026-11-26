@@ -1,5 +1,8 @@
 // The support window's rule and the registry answers it reads, without the network.
 import { describe, expect, test } from "bun:test";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type PackageSupport, publishedVersions, supportCheck, supportedPackages, supportedVersions, type Published } from "./support-window.ts";
 
 const at = (date: string) => new Date(`${date}T00:00:00Z`);
@@ -146,5 +149,58 @@ describe("supportCheck", () => {
 
   test("a supported version means there is something to test", () => {
     expect(supportCheck([pkg("critiqs-react", "0.3.0", [release("0.3.0", "2026-10-30")])])).toEqual({ problems: [], nothingToTest: null });
+  });
+});
+
+describe("the release group", () => {
+  const repo = new URL("../", import.meta.url).pathname;
+  /** This repository's package manifests and changelogs, with the release group in `.changeset/config.json` replaced. */
+  async function treeWithGroup(group: string[]): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "release-group-"));
+    await cp(join(repo, "package.json"), join(root, "package.json"));
+    for (const dir of await readdir(join(repo, "packages"))) {
+      for (const file of await readdir(join(repo, "packages", dir)).catch(() => [] as string[])) {
+        if (/^(package\.json|CHANGELOG\.md|pyproject\.toml|.*\.gemspec)$/.test(file)) await cp(join(repo, "packages", dir, file), join(root, "packages", dir, file));
+      }
+    }
+    await Bun.write(join(root, ".changeset/config.json"), JSON.stringify({ fixed: [group] }));
+    return root;
+  }
+  // Every registry answers that it knows nothing: the group, not the registries, must fail the check.
+  const unknown = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch;
+
+  test("a name in the group that matches no package fails the check and names it, instead of testing nothing", async () => {
+    for (const [group, named] of [
+      [["critiqs", "critiqs-*x"], '"critiqs-*x"'],
+      [["critiqs", "critiqs-*", "critiqs-reakt"], '"critiqs-reakt"'],
+    ] as const) {
+      const root = await treeWithGroup([...group]);
+      try {
+        const outcome = await supportedPackages(root, new Date(), unknown).then(() => "passed", (error: Error) => error.message);
+        expect(outcome).toContain(named);
+      } finally {
+        await rm(root, { recursive: true });
+      }
+    }
+  });
+
+  test("a published package left out of the group fails the check and names it", async () => {
+    const root = await treeWithGroup(["critiqs", "critiqs-vue", "critiqs-nuxt"]);
+    try {
+      const outcome = await supportedPackages(root, new Date(), unknown).then(() => "passed", (error: Error) => error.message);
+      expect(outcome).toContain("critiqs-react");
+      expect(outcome).not.toContain("critiqs-vue,");
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  test("this repository's group names every published package and nothing else", async () => {
+    const root = await treeWithGroup(["critiqs", "critiqs-*"]);
+    try {
+      expect((await supportedPackages(root, new Date(), unknown)).length).toBeGreaterThan(5);
+    } finally {
+      await rm(root, { recursive: true });
+    }
   });
 });

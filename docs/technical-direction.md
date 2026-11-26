@@ -2100,7 +2100,10 @@ needs it. The check knows what was released from each package's
 list a version recorded there (a 404, or only prereleases), it fails and
 says which, instead of passing with nothing to test. It passes with nothing
 to test only when the support window really leaves nothing: no package was
-released yet, or every released version was withdrawn. It drives that main
+released yet, or every released version was withdrawn. It also fails,
+naming the mistake, when the release group in `.changeset/config.json` lists
+a name that matches no package, or leaves out a package that would be
+published, since either would leave packages untested. It drives that main
 flow only, about eight of the backend calls 0.3.0 makes, not every call a
 supported version may make; the backend contract tests cover the rest of
 the interface, against today's clients. Today it checks `critiqs-react` 0.3.0; the other names on npm hold
