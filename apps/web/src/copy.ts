@@ -192,8 +192,6 @@ export const copy = {
   ways: {
     /** The other ways in, under the one chosen. */
     switchTo: { me: "I'll add it myself", developer: "Someone else will add it", extension: "Review it with the extension instead" },
-    title: "Or review without installing",
-    lead: "While Critiqs isn't installed, people can still review the prototype:",
     reviewLink: {
       title: "Review link",
       text: "Anyone the project's review access allows opens the prototype in their browser, with comments beside it.",

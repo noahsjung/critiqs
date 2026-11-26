@@ -4,7 +4,8 @@ import type { AllowCritiqsSetup, ReviewLinksCapability } from "../src/backend.ts
 import { headerRules, readHostConfig, rewriteFor } from "../../../site-src/host-rules.ts";
 import { routeOf } from "../src/route.ts";
 import { AllowCritiqsPage } from "../src/ui/AllowCritiqs.tsx";
-import { FreeWays } from "../src/ui/Onboarding.tsx";
+import { checkFor } from "../src/flow.ts";
+import { OtherWays } from "../src/ui/Onboarding.tsx";
 import { button, click, fakeAuth, fakeBackend, render, settle, text } from "./render.tsx";
 
 // Allow Critiqs on the website: its page, onboarding's ways to review
@@ -91,11 +92,13 @@ describe("the Allow Critiqs page", () => {
 });
 
 describe("onboarding's ways to review without installing", () => {
-  const ways = async (check: AddressCheck | null, reviewLinks: ReviewLinksCapability | null, who: "me" | "developer" = "developer", url: string | null = `${ORIGIN}/`, extra = {}) => {
+  // The ways under the chosen one on onboarding's setup screen, once the address check has answered `check`.
+  const ways = async (check: AddressCheck | null, reviewLinks: ReviewLinksCapability | null, who: "me" | "developer" | "extension" = "developer", url: string | null = `${ORIGIN}/`, extra = {}) => {
     const backend = fakeBackend({ reviewLinks, ...extra });
-    const page = await render(<FreeWays projectId="p1" who={who} url={url} reviewerId="r1" checkOf={async () => check} />, { backend, auth: fakeAuth() });
+    const page = await render(<OtherWays projectId="p1" who={who} url={url} check={checkFor(url, check)} checked onSwitch={() => {}} />, { backend, auth: fakeAuth() });
     await settle();
-    return { page, backend, offered: [...page.querySelectorAll(".way-card")].map((card) => card.getAttribute("data-way")) };
+    const list = () => [...page.querySelectorAll(".other-ways > *")].map((each) => each.getAttribute("data-way") ?? each.textContent);
+    return { page, backend, list, offered: [...page.querySelectorAll(".way-card")].map((card) => card.getAttribute("data-way")) };
   };
 
   test("a public prototype is offered a review link; one with no address, a shared build; none where the deployment has neither", async () => {
@@ -104,7 +107,7 @@ describe("onboarding's ways to review without installing", () => {
     expect(none.offered).toEqual(["share-build"]);
     expect(none.page.querySelector(".command")?.textContent).toBe("npx critiqs share dist/ --project p1");
     expect((await ways({ kind: "local" }, ALL)).offered).toEqual(["share-build"]);
-    expect((await ways({ kind: "public", stack: null }, null)).page.querySelector(".ways-free") === null).toBe(true);
+    expect((await ways({ kind: "public", stack: null }, null)).offered).toEqual([]);
     expect((await ways({ kind: "public", stack: null }, { ...ALL, live: false })).offered).toEqual([]);
   });
 
@@ -119,5 +122,19 @@ describe("onboarding's ways to review without installing", () => {
     await settle();
     expect([...page.querySelectorAll(".way-card")].map((card) => card.getAttribute("data-way"))).toEqual(["review-link"]);
     expect(backend.calls.filter((call) => call.name.endsWith("AllowCritiqs")).map((call) => call.name)).toEqual(["issueAllowCritiqs", "checkAllowCritiqs"]);
+  });
+
+  test("they share one list with the other ways, in recommend's order, the recommended way first; none in place before the check answers", async () => {
+    // Choosing to add it yourself on a public prototype: a review link first, then the extension, then a developer.
+    expect((await ways({ kind: "public", stack: null }, ALL, "me")).list()).toEqual(["review-link", "Review it with the extension instead", "Someone else will add it"]);
+    // On a deployment without review links, the list is the choices alone, as before.
+    expect((await ways({ kind: "public", stack: null }, null, "me")).list()).toEqual(["Review it with the extension instead", "Someone else will add it"]);
+    // Behind a sign-in, sharing a build sits after the extension, where recommend places it.
+    expect((await ways({ kind: "sign-in", via: "redirect", host: null, stack: null }, ALL, "developer")).list()).toEqual(["Review it with the extension instead", "share-build", "I'll add it myself"]);
+    // The extension chosen: the default order, installing first.
+    expect((await ways({ kind: "blocked" }, ALL, "extension")).list()).toEqual(["I'll add it myself", "Someone else will add it", "allow-critiqs"]);
+    const backend = fakeBackend({ reviewLinks: ALL });
+    const pending = await render(<OtherWays projectId="p1" who="me" url={`${ORIGIN}/`} check={checkFor(`${ORIGIN}/`, null)} checked={false} onSwitch={() => {}} />, { backend, auth: fakeAuth() });
+    expect(pending.querySelectorAll(".way-card").length).toBe(0);
   });
 });

@@ -1381,7 +1381,10 @@ in `@critiqs/core`, with `availableWays()` built from what the deployment's
 `/critiqs/config` reports: a review link where it serves live links, sharing a
 build where it serves shared builds (even before the prototype has an
 address), and Allow Critiqs where it serves both live links and Allow
-Critiqs. A thread page's **Open in prototype** also offers the project's
+Critiqs. They sit in the one list of ways under the chosen one, where
+`recommend()` places them: the ways with a screen of their own (installing,
+sending the steps to a developer, the extension) as choices to switch to, and
+these three as cards in place, once the address check has answered. A thread page's **Open in prototype** also offers the project's
 review link for the address the comment was left on
 (`reviewLinks:forThreadPage`), at that page's path.
 
