@@ -602,6 +602,23 @@ test("a ticket whose status Critiqs can no longer check reads as last known in c
   expect((await exported())?.[0]).toMatchObject({ key: "ENG-12", status: { label: "In Progress" }, lastKnown: true });
 });
 
+test("critiqs_thread gives a ticket's address only when it is a web address, so an agent never follows another kind", async () => {
+  const { t, tools } = local();
+  const ids = await feedback(t);
+  const agent = tools();
+  await signIn(t, agent);
+  await t.run(async (ctx) => {
+    const thread = (await ctx.db.get(ids.department as Id<"threads">))!;
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    const base = { projectId: thread.projectId, threadId: thread._id, linkedBy, linkedAt: 1, createdFromCritiqs: true, state: "linked" as const, tracker: "jira" as const, title: "T" };
+    for (const [index, url] of ["https://acme.atlassian.net/browse/WEB-1", "HTTP://acme.example/2", "javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "file:///etc/passwd", "//evil.example/x"].entries()) {
+      await ctx.db.insert("ticketLinks", { ...base, externalId: `c1:${index}`, key: `WEB-${index}`, url });
+    }
+  });
+  const answer = data(await agent.call("critiqs_thread", { thread: ids.department, backend: BACKEND }));
+  expect(answer.thread.tickets.map((ticket: { url: string | null }) => ticket.url)).toEqual(["https://acme.atlassian.net/browse/WEB-1", "HTTP://acme.example/2", null, null, null, null]);
+});
+
 test("the kept sign-in renews when its token runs out, once even for agents reading at the same time, and signing out ends it", async () => {
   const { t, config, tools, calls } = local();
   const ids = await feedback(t);

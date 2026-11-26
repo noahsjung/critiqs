@@ -583,3 +583,26 @@ test("a mention email marks a ticket's status last known when Critiqs can no lon
   expect(text).toContain("Ticket: GitHub Issues acme/web#9 · Open · last known https://github.com/acme/web/issues/9\n");
   expect(html).toContain(">Linear ENG-12 · In Progress · last known</a>");
 });
+
+test("a ticket line that is a link still escapes what the tracker sent: its key and status are text inside the link, never markup", async () => {
+  process.env.RESEND_API_KEY = "re_key";
+  process.env.CRITIQS_EMAIL_FROM = "Critiqs <mentions@example.com>";
+  process.env.CONVEX_SITE_URL = "https://backend.example.site";
+  const sent = resend();
+  const { t, projectId, threadId } = await mentionLee();
+  await t.run(async (ctx) => {
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    await ctx.db.insert("ticketLinks", { projectId, threadId, state: "linked", linkedBy, linkedAt: 1, createdFromCritiqs: true, tracker: "jira", externalId: "c1:100", key: 'WEB-3 <img src=x onerror="alert(1)">', url: "https://acme.atlassian.net/browse/WEB-3", title: "Odd", status: { label: "<b>Done</b> &copy;", category: "done" } });
+  });
+  const clock = spyOn(Date, "now").mockImplementation(() => realNow() + GATHER_MS + 60_000);
+  try {
+    await t.action(internal.notificationEmails.deliver, {});
+  } finally {
+    clock.mockRestore();
+  }
+  const { html } = sent[0].body;
+  const line = /Ticket: <a href="https:\/\/acme\.atlassian\.net\/browse\/WEB-3"[^>]*>(.*?)<\/a>/.exec(html);
+  expect(line?.[1]).toBe('Jira WEB-3 &lt;img src=x onerror="alert(1)"> · &lt;b>Done&lt;/b> &amp;copy; · last known');
+  expect(html).not.toContain("<img src=x");
+  expect(html).not.toContain("<b>Done");
+});
