@@ -1,0 +1,68 @@
+{
+  "name": "critiqs-angular",
+  "version": "0.3.0",
+  "description": "Critiqs for Angular apps: add provideCritiqs() to your app's providers to comment on a prototype, discuss feedback, and find its context.",
+  "license": "MIT",
+  "keywords": [
+    "angular",
+    "feedback",
+    "comments",
+    "review",
+    "prototype",
+    "design review"
+  ],
+  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/angular#readme",
+  "bugs": {
+    "url": "https://github.com/noahsjung/Critiqs/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --isolate",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "bun run build",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  },
+  "dependencies": {
+    "critiqs": "0.3.0"
+  },
+  "peerDependencies": {
+    "@angular/common": ">=20.0.0",
+    "@angular/core": ">=20.0.0",
+    "@angular/router": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@angular/common": "^22.3.0",
+    "@angular/compiler": "^22.3.0",
+    "@angular/core": "^22.3.0",
+    "@angular/platform-browser": "^22.3.0",
+    "@angular/router": "^22.3.0",
+    "@happy-dom/global-registrator": "^20.14.6",
+    "@types/bun": "^1.4.2",
+    "rxjs": "^7.8.2",
+    "zone.js": "^0.16.3"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noahsjung/Critiqs.git",
+    "directory": "packages/angular"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
