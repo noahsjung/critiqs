@@ -186,9 +186,15 @@ export default defineSchema({
    */
   reviewLinks: defineTable({
     projectId: v.id("projects"),
-    kind: v.literal("site"),
-    /** The prototype's exact origin; it must stay in the project's address list for the link to open. */
+    /** `site`: a live prototype at `origin`; `share`: a shared build (`buildId`), read from this deployment's storage. */
+    kind: v.union(v.literal("site"), v.literal("share")),
+    /**
+     * A live link's prototype origin, which must stay in the project's address
+     * list for the link to open; a shared build's `https://<publicId>.build.invalid`.
+     */
     origin: v.string(),
+    /** A shared build's link: the build it serves while the build is ready and not expired. */
+    buildId: v.optional(v.id("reviewBuilds")),
     /** Path and query the link opens at. */
     startPath: v.string(),
     /** Other exact origins from the address list its pages may read from, in slot order. */
@@ -229,6 +235,55 @@ export default defineSchema({
   })
     .index("by_link", ["linkId"])
     .index("by_expiry", ["expiresAt"]),
+
+  /**
+   * A static build someone who manages the project shared (`critiqs share
+   * <folder>`): uploaded into this deployment's storage, then served through
+   * a review link of kind `share` until it expires or is deleted.
+   */
+  reviewBuilds: defineTable({
+    projectId: v.id("projects"),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    /** `uploading` until published; `expired` and `deleted` serve nothing, and their files are removed. */
+    status: v.union(v.literal("uploading"), v.literal("ready"), v.literal("expired"), v.literal("deleted")),
+    /** Unknown paths without an extension are the app's index.html. */
+    spa: v.boolean(),
+    fileCount: v.number(),
+    bytes: v.number(),
+    /** Same files and setting, same digest: a repeated upload resumes this one. */
+    manifestDigest: v.string(),
+    /** Names the build in saved evidence: `https://<publicId>.build.invalid`. */
+    publicId: v.string(),
+    /** Hash of the upload grant the uploader holds; files are accepted only with it, each once. */
+    grantHash: v.string(),
+    /** Days it is served once published. */
+    days: v.number(),
+    /** When it stops being served; set when published. */
+    expiresAt: v.optional(v.number()),
+    linkId: v.optional(v.id("reviewLinks")),
+    endedAt: v.optional(v.number()),
+    /** When its stored files were all removed. */
+    purgedAt: v.optional(v.number()),
+  })
+    .index("by_project_status", ["projectId", "status"])
+    .index("by_creator_digest", ["createdBy", "manifestDigest"])
+    .index("by_status_expiry", ["status", "expiresAt"])
+    .index("by_status_created", ["status", "createdAt"])
+    .index("by_status_purged", ["status", "purgedAt"]),
+
+  /** One file of a shared build; `storageId` once its bytes were uploaded and checked against its size and SHA-256. */
+  reviewBuildFiles: defineTable({
+    buildId: v.id("reviewBuilds"),
+    path: v.string(),
+    sha256: v.string(),
+    size: v.number(),
+    /** From the path's extension, by the server; never what the uploader sent. */
+    contentType: v.string(),
+    storageId: v.optional(v.id("_storage")),
+  })
+    .index("by_build_path", ["buildId", "path"])
+    .index("by_build_hash", ["buildId", "sha256"]),
 
   /** A lease's frame host on the proxy domain, stored only as the hash of its random label. */
   reviewFrameHosts: defineTable({

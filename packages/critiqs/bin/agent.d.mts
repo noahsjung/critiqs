@@ -294,3 +294,11 @@ export declare function readMockup(
   }[];
   saved: { folder: string; copies: string[]; edits: string } | null;
 }>;
+
+/** This computer's sign-in for a backend: the token, and calls to its Convex functions as the person signed in. */
+export declare function connect(options: Services & { backendUrl?: string }): Promise<{
+  backend: { backendUrl: string; siteUrl: string; signInUrl: string; transport: "convex" | "http" };
+  accessToken: string;
+  query(path: string, args: Record<string, unknown>): Promise<any>;
+  mutate(path: string, args: Record<string, unknown>): Promise<any>;
+}>;

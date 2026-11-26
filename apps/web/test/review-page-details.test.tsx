@@ -103,6 +103,7 @@ describe("Copy link", () => {
     usageToday: { requests: 0, bytes: 0 },
     createdByName: "Dana",
     createdAt: 1,
+    build: null,
   } as ReviewLinkSummary;
   test("copies on the first click", async () => {
     const written = recordingClipboard();

@@ -17,5 +17,7 @@ crons.interval("check organizations' subscriptions with billing", { hours: 24 },
 crons.interval("remove old billing records", { hours: 24 }, internal.billing.cleanUp, {});
 crons.interval("remove ended review link leases and old usage", { minutes: 10 }, internal.reviewLinks.cleanUp, {});
 crons.interval("check review links' addresses with the reputation provider", { hours: 1 }, internal.reviewLinks.recheckReputation, {});
+crons.interval("end shared builds past their expiry and unpublished uploads", { minutes: 10 }, internal.reviewBuilds.expire, {});
+crons.interval("remove ended shared builds' files", { minutes: 10 }, internal.reviewBuilds.purge, {});
 
 export default crons;

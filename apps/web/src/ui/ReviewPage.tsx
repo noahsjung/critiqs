@@ -311,7 +311,8 @@ function ReviewCanvas({
   const auth = useAuth();
   const host = useReviewHost();
   const { entry, source } = ready;
-  const sourceHost = new URL(source.origin).host;
+  // A shared build has no address of its own: the bar says what it is and until when.
+  const sourceHost = source.kind === "share" ? copy.review.sharedBuild(source.expiresAt) : new URL(source.origin).host;
   const [mode, setMode] = useState<"browse" | "comment">("comment");
   const [width, setWidth] = useState<FrameWidth>("fit");
   const [shownAt, setShownAt] = useState<{ width: number; before: FrameWidth } | null>(null);
@@ -517,8 +518,8 @@ function ReviewCanvas({
   const widthLabel = (value: FrameWidth) => copy.review.widths[String(value)] ?? copy.review.customWidth(value as number);
 
   const source_ = (
-    <span className="review-source" title={`${source.origin}${path}`}>
-      <strong>{breakableHost(sourceHost)}</strong>
+    <span className="review-source" title={source.kind === "share" ? sourceHost : `${source.origin}${path}`}>
+      <strong>{source.kind === "share" ? sourceHost : breakableHost(sourceHost)}</strong>
       <span>{path}</span>
     </span>
   );

@@ -297,10 +297,20 @@ export function rewriteHtml(ctx: UrlContext, source: string, documentUrl: URL, i
     }
   }
 
+  insertPageLayer(document, injected, { primary: ctx.primary, slots: ctx.slots });
+  return serialize(document);
+}
+
+/**
+ * The runtime shim and the page layer as the first two children of `<head>`.
+ * Their settings are attribute values the serializer escapes, never text
+ * inside a script.
+ */
+function insertPageLayer(document: DefaultTreeAdapterMap["document"], injected: Injected, map: { primary: string; slots: UrlContext["slots"] }): void {
   const head = [...elements(document)].find((element) => element.nodeName === "head" && element.namespaceURI === HTML_NS)!;
   const runtime = defaultTreeAdapter.createElement("script", HTML_NS, [
     { name: "src", value: `/__critiqs/${injected.runtime}` },
-    { name: "data-critiqs-map", value: JSON.stringify({ primary: ctx.primary, slots: ctx.slots, path: injected.finalPath }) },
+    { name: "data-critiqs-map", value: JSON.stringify({ primary: map.primary, slots: map.slots, path: injected.finalPath }) },
   ]);
   const layer = defaultTreeAdapter.createElement("script", HTML_NS, [
     { name: "src", value: `/__critiqs/${injected.layer}` },
@@ -316,5 +326,16 @@ export function rewriteHtml(ctx: UrlContext, source: string, documentUrl: URL, i
     defaultTreeAdapter.insertBefore(head, runtime, first);
     defaultTreeAdapter.insertBefore(head, layer, first);
   }
+}
+
+/**
+ * A shared build's page with the page layer put in, and nothing else
+ * changed: a build is served from its own files on the frame host, so its
+ * addresses already point where they should. `origin` is the build's
+ * `.build.invalid` name, which no address in the page uses.
+ */
+export function injectPageLayer(source: string, origin: string, injected: Injected): string {
+  const document = parse(source);
+  insertPageLayer(document, injected, { primary: origin, slots: [] });
   return serialize(document);
 }

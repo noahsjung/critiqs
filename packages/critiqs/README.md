@@ -38,6 +38,20 @@ setup; `npx critiqs --help` lists every option. Coding agents can follow
 to them as MCP tools. `critiqs/server` runs Critiqs inside your app's own Node
 or Bun server instead of Critiqs Cloud; see the `critiqs-react` README.
 
+## Share a build for review
+
+```sh
+npx critiqs share dist/
+```
+
+Uploads a built prototype (the output folder, never the source) and prints a
+review link that people open in their browser with nothing installed. Only
+the project's owners can share, from a computer signed in with
+`npx critiqs sign-in`. Links last 7 days (`--expires <days>`, up to 30);
+`npx critiqs share list` shows them and `npx critiqs share delete <id>` stops
+one at once. Source maps, hidden files and anything that isn't a static web
+file are refused. `npx critiqs share --help` lists every option.
+
 ## With a script tag
 
 The quickest way in, for any site. Add one tag, replacing `X.Y.Z` with the

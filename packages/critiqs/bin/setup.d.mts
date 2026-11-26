@@ -200,3 +200,5 @@ export declare function beginSetup(args: {
       finish(): Promise<SetupResult>;
     }
 >;
+/** The project (and backend) the app in `root` already names, as setup and doctor read it; null when it names none. */
+export declare function projectInCode(root: string, options?: { env?: Record<string, string | undefined> }): { projectId: string; backendUrl: string; env?: { name: string; file: string | null } } | null;

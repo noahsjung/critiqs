@@ -101,6 +101,13 @@ are read-only and credential-free (GET and HEAD only, no cookies or
   another site the frame's policy refused, a file the proxy refused or the
   browser couldn't read). `runtime/layer.ts` runs the page layer for the
   review page around the frame.
+- A shared build's frame host (`critiqs share`, a lease of kind `share`)
+  passes every check above, then `src/build-source.ts` asks the backend which
+  of the build's files the path is (`/internal/review/v1/build-file`, on every
+  request) and reads its bytes (`/internal/review/v1/build-blob`, kept by
+  SHA-256). It has no egress: nothing on that host reaches the network, signed
+  asset, slot and leave paths are 404, and pages get only the runtime shim and
+  page layer (`injectPageLayer`), nothing else rewritten.
 
 `bun run serve` starts it (with `--max-http-header-size=65536`, so cookies a
 sibling frame host planted can't make it refuse requests).

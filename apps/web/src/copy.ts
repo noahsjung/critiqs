@@ -315,6 +315,7 @@ export const copy = {
 
   review: {
     frameTitle: (host: string) => `Prototype: ${host}`,
+    sharedBuild: (expiresAt: number) => `Shared build · until ${new Date(expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
     browse: "Browse",
     comment: "Comment",
     modeLabel: "Mode",
@@ -409,5 +410,17 @@ export const copy = {
     usage: (requests: number) => `${requests} ${requests === 1 ? "request" : "requests"} today`,
     createdBy: (name: string) => `Created by ${name}`,
     notOffered: "This Critiqs backend doesn't offer review links.",
+    build: (files: number, bytes: number, expiresAt: number) =>
+      `Shared build · ${files} ${files === 1 ? "file" : "files"}, ${bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`} · until ${new Date(expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
+    removeBuildConfirm: "Stop sharing this build? Its link stops opening and its files are removed. Comments left on it stay.",
+  },
+  shareBuild: {
+    title: "Share a build",
+    lead: "No address, or one people can't reach? Build the prototype and share the output folder. Critiqs gives you a review link anyone the project's review access allows can open, with nothing to install.",
+    step: "In the prototype's folder, after building it:",
+    command: (projectId: string, backend: string | null) => `npx critiqs share dist/ --project ${projectId}${backend === null ? "" : ` --backend ${backend}`}`,
+    then: "It prints the review link. Links last 7 days unless you pass --expires <days> (up to 30); npx critiqs share delete <id> stops one at once.",
+    signIn: "The first time, it asks you to sign this computer in with npx critiqs sign-in.",
+    caution: "Share the built output, never the source: whoever opens the link can read every file in the folder.",
   },
 } as const;

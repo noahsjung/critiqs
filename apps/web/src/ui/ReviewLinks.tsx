@@ -3,10 +3,12 @@ import { failureMessage, type ReviewLinkSummary, useAuth, useBackend } from "../
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
 import { CopyButton, Heading, SignInButton } from "./parts.tsx";
+import { ShareBuildPanel } from "./Ways.tsx";
 
 // A project's review links, at /review-links/<project ID>, for the people who
 // manage it: create one for the prototype's address, copy it again, open it,
-// or remove it. The backend allows each of these only to the project's owners
+// or remove it. Shared builds (`critiqs share`) are listed with them, and the
+// command to share one is shown where the deployment offers shared builds. The backend allows each of these only to the project's owners
 // and never returns a link's key in the list; Copy asks for it each time.
 
 export function ReviewLinksPage({ projectId }: { projectId: string }) {
@@ -25,13 +27,14 @@ export function ReviewLinksPage({ projectId }: { projectId: string }) {
 function ReviewLinks({ projectId }: { projectId: string }) {
   const backend = useBackend();
   const project = backend.useProject(projectId);
-  const links = backend.useReviewLinks(backend.reviewLinks?.live === true ? projectId : null);
+  const offered = backend.reviewLinks?.live === true || backend.reviewLinks?.builds === true;
+  const links = backend.useReviewLinks(offered ? projectId : null);
   const [address, setAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   const fieldId = useId();
-  if (backend.reviewLinks?.live !== true) {
+  if (!offered) {
     return <Heading title={copy.reviewLinks.title} lead={copy.reviewLinks.notOffered} />;
   }
   const shownAddress = address ?? (project.status === "ready" ? (project.data.reviewUrl ?? "") : "");
@@ -50,30 +53,37 @@ function ReviewLinks({ projectId }: { projectId: string }) {
   return (
     <>
       <Heading title={project.status === "ready" ? `${copy.reviewLinks.title} · ${project.data.name}` : copy.reviewLinks.title} lead={copy.reviewLinks.lead} />
-      <form
-        className="stacked"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) void create();
-        }}
-      >
-        <label htmlFor={fieldId} className="note">{copy.reviewLinks.address}</label>
-        <div className="review-links-create">
-          <input id={fieldId} className="field" type="url" required placeholder={copy.reviewLinks.placeholder} value={shownAddress} onChange={(event) => setAddress(event.target.value)} />
-          <button type="submit" className="btn primary" disabled={busy || shownAddress.trim() === ""}>
-            {busy ? copy.reviewLinks.creating : copy.reviewLinks.create}
-          </button>
-        </div>
-        {error !== null && <p className="error" role="alert">{error}</p>}
-        {created !== null && (
-          <p className="note" role="status">
-            <a href={created}>{created}</a>
-          </p>
-        )}
-      </form>
+      {backend.reviewLinks?.live === true && (
+        <form
+          className="stacked"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!busy) void create();
+          }}
+        >
+          <label htmlFor={fieldId} className="note">{copy.reviewLinks.address}</label>
+          <div className="review-links-create">
+            <input id={fieldId} className="field" type="url" required placeholder={copy.reviewLinks.placeholder} value={shownAddress} onChange={(event) => setAddress(event.target.value)} />
+            <button type="submit" className="btn primary" disabled={busy || shownAddress.trim() === ""}>
+              {busy ? copy.reviewLinks.creating : copy.reviewLinks.create}
+            </button>
+          </div>
+          {error !== null && <p className="error" role="alert">{error}</p>}
+          {created !== null && (
+            <p className="note" role="status">
+              <a href={created}>{created}</a>
+            </p>
+          )}
+        </form>
+      )}
       {links.status === "loading" && <p className="note">{copy.loading}</p>}
       {links.status === "error" && <p className="error">{links.message}</p>}
       {links.status === "ready" && (links.data.length === 0 ? <p className="note">{copy.reviewLinks.none}</p> : <ul className="review-links">{links.data.map((link) => <LinkRow key={link.linkId} link={link} />)}</ul>)}
+      {backend.reviewLinks?.builds === true && (
+        <section className="stacked share-build">
+          <ShareBuildPanel projectId={projectId} />
+        </section>
+      )}
     </>
   );
 }
@@ -112,7 +122,7 @@ function LinkRow({ link }: { link: ReviewLinkSummary }) {
   return (
     <li className="review-link-row">
       <div className="review-link-text">
-        <strong>{`${link.origin}${link.startPath === "/" ? "" : link.startPath}`}</strong>
+        <strong>{link.build === null ? `${link.origin}${link.startPath === "/" ? "" : link.startPath}` : copy.reviewLinks.build(link.build.fileCount, link.build.bytes, link.build.expiresAt)}</strong>
         <span className="note">
           {[copy.reviewLinks.status[link.status] ?? link.status, link.paused ? copy.reviewLinks.paused : null, copy.reviewLinks.usage(link.usageToday.requests), copy.reviewLinks.createdBy(link.createdByName)].filter(Boolean).join(" · ")}
         </span>
@@ -132,7 +142,7 @@ function LinkRow({ link }: { link: ReviewLinkSummary }) {
           type="button"
           className="btn small"
           onClick={() => {
-            if (window.confirm(copy.reviewLinks.removeConfirm)) void backend.revokeReviewLink(link.linkId).catch((failure) => setError(failureMessage(failure, copy.review.failed)));
+            if (window.confirm(link.build === null ? copy.reviewLinks.removeConfirm : copy.reviewLinks.removeBuildConfirm)) void backend.revokeReviewLink(link.linkId).catch((failure) => setError(failureMessage(failure, copy.review.failed)));
           }}
         >
           {copy.reviewLinks.remove}

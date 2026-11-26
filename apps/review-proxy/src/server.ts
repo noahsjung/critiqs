@@ -1,4 +1,5 @@
 import { canonicalHost, classifyAddress, REVIEW_FILE_TIMING, REVIEW_LIMITED_TIMING, REVIEW_REFUSED_TIMING, type ReviewFailure } from "@critiqs/core";
+import { type BuildSource, buildSource } from "./build-source.ts";
 import { clientKey } from "./clients.ts";
 import type { ProxyConfig } from "./config.ts";
 import { rewriteCss } from "./css.ts";
@@ -6,7 +7,7 @@ import { BodyError, boundedChunks, readDecoded } from "./decompress.ts";
 import { FRAME_LABEL, type ReviewDirectory, type ReviewResolution, type ReviewUsageReport } from "./directory.ts";
 import type { Egress, EgressOutcome } from "./egress.ts";
 import { type ContentType, charsetOf, contentType, contentTypeHeader, frameworkHeaders, inboundHeaders, isPrefetch, type RequestClass, requestHeaderBytes } from "./headers.ts";
-import { decodeHtml, rewriteHtml } from "./html.ts";
+import { decodeHtml, injectPageLayer, rewriteHtml } from "./html.ts";
 import { budget, type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
 import { failurePage, frameCsp, inertCsp, leavePage, topLevelPage } from "./pages.ts";
 import { framePath } from "./paths.ts";
@@ -28,7 +29,10 @@ import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from 
 // through an egress (egress.ts) within the body limits. How a response is
 // served is decided by `handlingOf`, from the route and the response's type
 // as a browser reads it, never from what the client says a request is for:
-// the only documents a frame host serves are the proxy's own pages.
+// the only documents a frame host serves are the proxy's own pages. A shared
+// build's frame host (a `share` lease) goes through every one of those checks
+// too, then reads its files from the backend (build-source.ts) and never from
+// the network.
 
 /** The two scripts put in every page, built by `scripts/build-assets.ts`. */
 export interface ProxyAssets {
@@ -41,6 +45,8 @@ export interface ProxyDeps {
   /** `primary` sends the review user agent (a link's own and owner-approved origins); `asset` the non-privileged one (third-party files). */
   egress: { primary: Egress; asset: Egress };
   assets: ProxyAssets;
+  /** Where a shared build's files come from; by default the directory's backend. */
+  builds?: BuildSource;
   now?: () => number;
 }
 
@@ -116,14 +122,23 @@ function destination(request: Request): string {
  */
 type Handling = { kind: "page" } | { kind: "style"; imports: "style" | "import" | null } | { kind: "pass"; cap: number } | { kind: "refuse"; status: number };
 
+/**
+ * A shared build's file: the backend typed it from its extension, and it is
+ * served as it was uploaded. Its pages get the page layer and nothing else;
+ * a stylesheet is never rewritten, so nothing it names is fetched by the
+ * proxy.
+ */
+type BuildRoute = { kind: "build" };
+
 /** What the browser says a page's own file is for: these count against the files' budget, not the pages'. */
 const FILE_HINTS: ReadonlySet<RequestClass> = new Set(["image", "font", "style", "script", "media"]);
 
-function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }>, hint: RequestClass, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
+function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }> | BuildRoute, hint: RequestClass, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
   const ok = status >= 200 && status < 300;
   const type = parsed?.essence ?? "";
+  // A request that said it was for a file got a page: served as a file that can't be a document, never rewritten, so the files' budget can't open pages.
+  if (route.kind === "build") return HTML_TYPES.has(type) && !FILE_HINTS.has(hint) ? { kind: "page" } : { kind: "pass", cap: limits.assetBytes };
   if (route.kind === "primary") {
-    // A request that said it was for a file got a page: served as a file that can't be a document, never rewritten, so the files' budget can't open pages.
     if (HTML_TYPES.has(type)) return FILE_HINTS.has(hint) ? { kind: "pass", cap: limits.assetBytes } : { kind: "page" };
     if (type === "text/css" && ok) return { kind: "style", imports: "style" };
     return { kind: "pass", cap: limits.assetBytes };
@@ -180,6 +195,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   let slowReads = 0;
   const slowPerLease = new Map<string, number>();
   const usage = new Map<string, { requests: number; bytes: number }>();
+  const builds = deps.builds ?? buildSource(deps.directory);
 
   /** Headers every response carries; anything that isn't one of the proxy's documents is inert and may be framed only by the website. */
   const common = (headers: Headers) => {
@@ -407,6 +423,44 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   }
 
   /**
+   * A shared build's file, after every check a live prototype's request
+   * passes: the lease's request window and read slots, then the backend's
+   * answer for this path now. Read from the backend, never the network.
+   */
+  async function serveBuild(lease: ReviewResolution, label: string, url: URL, request: Request, asPage: boolean, head: boolean): Promise<Response> {
+    const spent = FILE_HINTS.has(hintOf(request)) ? fileBudget : pageBudget;
+    if (!spent.take(lease.leaseId)) return asPage ? limitedPage(spent.waitMs(lease.leaseId), head) : limitedFile(spent.waitMs(lease.leaseId));
+    const entry = usage.get(lease.linkId) ?? { requests: 0, bytes: 0 };
+    entry.requests++;
+    usage.set(lease.linkId, entry);
+    const release = await takeSlots(lease, new URL(lease.origin).hostname, false, request.signal);
+    if (release === null) return asPage ? failure("busy", head) : plain(503, "Busy", { "retry-after": "2" });
+    try {
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(limits.headersTimeoutMs + limits.bodyTimeoutMs)]);
+      const file = await builds.file(label, url.pathname, signal).catch(() => null);
+      if (file === null) return asPage ? failure("not-found", head) : plain(404, "");
+      count(lease, file.body.byteLength);
+      const handling = handlingOf({ kind: "build" }, hintOf(request), file.status, contentType(file.contentType), limits);
+      if (handling.kind === "page") {
+        const text = decodeHtml(file.body, charsetOf(file.contentType));
+        if (text === null) return failure("unsupported", head);
+        const html = injectPageLayer(text, lease.origin, { runtime: deps.assets.runtime.file, layer: deps.assets.layer.file, panelOrigins: config.webOrigins, finalPath: null });
+        return new Response(head ? null : html, {
+          status: file.status,
+          headers: common(new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", "content-security-policy": frameCsp(config.webOrigins) })),
+        });
+      }
+      if (handling.kind !== "pass" || file.body.byteLength > handling.cap) return plain(502, "");
+      return new Response(head ? null : file.body, {
+        status: file.status,
+        headers: common(new Headers({ "content-type": file.contentType, "content-length": String(file.body.byteLength), "cache-control": "private, no-store", etag: `"${file.sha256}"` })),
+      });
+    } finally {
+      release();
+    }
+  }
+
+  /**
    * A read slot from every pool a request counts against, all or none:
    * waited for in line, briefly, when one has no room (`slotLine`). The
    * shares stay what they were: a lease 8, a link and an upstream host 24, the
@@ -530,6 +584,8 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       });
     }
     const head = request.method === "HEAD";
+    // A shared build has only its own files: no other origin, signed asset, or leave notice.
+    if (lease.kind === "share") return route.kind === "primary" ? await serveBuild(lease, label, url, request, hintOf(request) === "document", head) : notFound();
     if (route.kind === "leave") return document(200, leavePage(route.to, false, config.webOrigins), head);
 
     // What the browser says the request is for, as a hint only (see `hintOf`).

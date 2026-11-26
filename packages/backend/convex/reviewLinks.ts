@@ -107,7 +107,8 @@ function reputationSource(setup: ReviewSetup | null): "web-risk" | "fixture" | n
 export function reviewLinksCapability(): ReviewLinksCapability | null {
   const setup = reviewSetup();
   if (setup === null) return null;
-  return { version: 1, live: reputationSource(setup) !== null, builds: false, allowCritiqs: false };
+  // A shared build has no address to check, so it needs only the proxy.
+  return { version: 1, live: reputationSource(setup) !== null, builds: true, allowCritiqs: false };
 }
 
 /** The shortest gap between two reputation checks of one link that opening it starts. */
@@ -117,11 +118,11 @@ const REPUTATION_ATTEMPT_MS = 60_000;
 // Keys
 
 /** The key ring version new links use. */
-const KEY_VERSION = 1;
+export const KEY_VERSION = 1;
 const ringName = (version: number) => `review-link-key:v${version}`;
 
 /** The key ring's secret for `version`, made on first use in a mutation. Never leaves the backend. */
-async function ringSecret(ctx: QueryCtx | MutationCtx, version: number): Promise<string | null> {
+export async function ringSecret(ctx: QueryCtx | MutationCtx, version: number): Promise<string | null> {
   const row = await ctx.db
     .query("settings")
     .withIndex("by_key", (q) => q.eq("key", ringName(version)))
@@ -133,7 +134,7 @@ async function ringSecret(ctx: QueryCtx | MutationCtx, version: number): Promise
   return value;
 }
 
-async function linkKey(ctx: QueryCtx | MutationCtx, link: Doc<"reviewLinks">): Promise<string | null> {
+export async function linkKey(ctx: QueryCtx | MutationCtx, link: Doc<"reviewLinks">): Promise<string | null> {
   const secret = await ringSecret(ctx, link.keyVersion);
   return secret === null ? null : await deriveLinkKey(secret, link._id, link.keyVersion);
 }
@@ -176,14 +177,14 @@ async function listed(ctx: QueryCtx, projectId: Id<"projects">, origin: string):
   return rows.some((row) => listsOrigin(project, row, origin));
 }
 
-async function usageToday(ctx: QueryCtx, linkId: Id<"reviewLinks">, now: number): Promise<Doc<"reviewUsage"> | null> {
+export async function usageToday(ctx: QueryCtx, linkId: Id<"reviewLinks">, now: number): Promise<Doc<"reviewUsage"> | null> {
   return await ctx.db
     .query("reviewUsage")
     .withIndex("by_link_day", (q) => q.eq("linkId", linkId).eq("day", utcDay(now)))
     .unique();
 }
 
-function pausedBy(usage: Doc<"reviewUsage"> | null): boolean {
+export function pausedBy(usage: Doc<"reviewUsage"> | null): boolean {
   return usage !== null && (usage.requests >= REVIEW_LINK_LIMITS.requestsPerLinkPerDay || usage.bytes >= REVIEW_LINK_LIMITS.bytesPerLinkPerDay);
 }
 
@@ -207,6 +208,12 @@ async function serving(
   if (link.status === "revoked" || link.status === "blocked") return "denied";
   for (const subject of denySubjects(link)) if (await denied(ctx, subject)) return "denied";
   if (!(await canReview(store, project, userId))) return "denied";
+  if (link.kind === "share") {
+    // A shared build serves only while it is published and unexpired; it has no address to keep listed or to check.
+    const build = link.buildId === undefined ? null : await ctx.db.get(link.buildId);
+    if (build === null || build.status !== "ready" || build.expiresAt === undefined || build.expiresAt <= now || build.linkId !== link._id) return "denied";
+    return pausedBy(await usageToday(ctx, link._id, now)) ? "limited" : "ok";
+  }
   if (!(await listed(ctx, project._id, link.origin))) return "denied";
   if (link.status !== "active" || link.checkedAt === undefined || now - link.checkedAt > REPUTATION_MAX_AGE_MS) return "pending";
   if (reputationSource(reviewSetup()) === null) return "pending";
@@ -236,8 +243,8 @@ async function viewerId(ctx: QueryCtx, store: Store): Promise<Id<"users"> | null
 // ---------------------------------------------------------------------------
 // Owners: create, list, copy, revoke
 
-const OWNERS_ONLY = "Only the project's owners can create or change its review links.";
-const OFF = "Review links aren't set up on this deployment.";
+export const OWNERS_ONLY = "Only the project's owners can create or change its review links.";
+export const OFF = "Review links aren't set up on this deployment.";
 const REQUEST_KEY = /^[A-Za-z0-9_-]{8,100}$/;
 const REQUEST_KEY_MS = 24 * 60 * 60_000;
 
@@ -247,7 +254,7 @@ const REQUEST_KEY_MS = 24 * 60 * 60_000;
  * someone the deployment has never seen gets the same refusal as any
  * non-owner.
  */
-async function managed(ctx: QueryCtx, store: Store, projectId: string) {
+export async function managed(ctx: QueryCtx, store: Store, projectId: string) {
   const { user } = await operations.currentReviewer(store, await identityOf(ctx));
   if (user === null) fail("forbidden", OWNERS_ONLY);
   const project = await operations.requireProject(store, user, projectId);
@@ -382,6 +389,7 @@ export const list = query({
       const summaries: ReviewLinkSummary[] = [];
       for (const link of links) {
         const usage = await usageToday(ctx, link._id, now);
+        const build = link.buildId === undefined ? null : await ctx.db.get(link.buildId);
         summaries.push({
           linkId: link._id,
           kind: link.kind,
@@ -393,6 +401,7 @@ export const list = query({
           createdAt: link.createdAt,
           createdByName: (await ctx.db.get(link.createdBy))?.name ?? "Reviewer",
           usageToday: { requests: usage?.requests ?? 0, bytes: usage?.bytes ?? 0 },
+          build: build === null ? null : { buildId: build._id, fileCount: build.fileCount, bytes: build.bytes, expiresAt: build.expiresAt ?? build.createdAt },
         });
       }
       return summaries;
@@ -420,17 +429,37 @@ export const revoke = mutation({
   handler: async (ctx, args): Promise<null> =>
     run(async () => {
       const { link } = await managedLink(ctx, convexStore(ctx), args.linkId);
-      if (link.status !== "revoked") await ctx.db.patch(link._id, { status: "revoked", revokedAt: Date.now() });
-      // Every check already refuses the link; its leases go now, or with cleanup.
-      for (const lease of await ctx.db
-        .query("reviewLeases")
-        .withIndex("by_link", (q) => q.eq("linkId", link._id))
-        .take(100)) {
-        await removeLease(ctx, lease._id);
-      }
+      await revokeLink(ctx, link);
+      // A shared build's link is the build: removing one removes the other, and its files go with cleanup.
+      if (link.buildId !== undefined) await endBuild(ctx, link.buildId, "deleted");
       return null;
     }),
 });
+
+/** Revokes a link for good and removes its leases; every check already refuses it, and the leases go now, or with cleanup. */
+export async function revokeLink(ctx: MutationCtx, link: Doc<"reviewLinks">) {
+  if (link.status !== "revoked") await ctx.db.patch(link._id, { status: "revoked", revokedAt: Date.now() });
+  for (const lease of await ctx.db
+    .query("reviewLeases")
+    .withIndex("by_link", (q) => q.eq("linkId", link._id))
+    .take(100)) {
+    await removeLease(ctx, lease._id);
+  }
+}
+
+/**
+ * Ends a shared build: it stops serving at once, its link is revoked, and
+ * cleanup removes its stored files. Threads left on it stay, with the
+ * build's `.build.invalid` address. Ending it again changes nothing.
+ */
+export async function endBuild(ctx: MutationCtx, buildId: Id<"reviewBuilds">, status: "expired" | "deleted") {
+  const build = await ctx.db.get(buildId);
+  if (build === null) return;
+  if (build.status === "uploading" || build.status === "ready") await ctx.db.patch(build._id, { status, endedAt: Date.now() });
+  const link = build.linkId === undefined ? null : await ctx.db.get(build.linkId);
+  if (link !== null) await revokeLink(ctx, link);
+  await ctx.scheduler.runAfter(0, internal.reviewBuilds.purge, {});
+}
 
 async function removeLease(ctx: MutationCtx, leaseId: Id<"reviewLeases">) {
   for (const host of await ctx.db
@@ -492,6 +521,7 @@ export const open = mutation({
       }
       if (verdict === "limited" || !(await countLease(ctx, link._id, now))) return { kind: "limited" };
 
+      const build = link.buildId === undefined ? null : await ctx.db.get(link.buildId);
       const label = newFrameLabel();
       const renewalSecret = newSecret();
       const expiresAt = now + REVIEW_LEASE_MS;
@@ -509,7 +539,7 @@ export const open = mutation({
         entry: { origin: frameOrigin(setup.proxy, label), path: link.startPath, leaseId, renewalSecret, expiresAt, renewEveryMs: RENEW_EVERY_MS },
         projectId: user === null ? null : project!._id,
         projectName: user === null ? null : project!.name,
-        source: { kind: "site", origin: link.origin },
+        source: build === null ? { kind: "site", origin: link.origin } : { kind: "share", origin: link.origin, expiresAt: build.expiresAt ?? now },
       };
     }),
 });
@@ -610,38 +640,46 @@ export const resolveHost = internalQuery({
   // judged by its own clock could be answered from Convex's cache after the
   // lease or link ended, as long as nothing it read changed.
   args: { hostHash: v.string(), now: v.number() },
-  handler: async (ctx, { hostHash, now }): Promise<ReviewResolution | null> => {
-    if (!HOST_HASH.test(hostHash)) return null;
-    const host = await ctx.db
-      .query("reviewFrameHosts")
-      .withIndex("by_host_hash", (q) => q.eq("hostHash", hostHash))
-      .unique();
-    if (host === null) return null;
-    const lease = await ctx.db.get(host.leaseId);
-    if (lease === null || !live(lease, now)) return null;
-    const link = await ctx.db.get(lease.linkId);
-    if (link === null || link._id !== host.linkId) return null;
-    const project = await ctx.db.get(link.projectId);
-    if ((await serving(ctx, convexStore(ctx), link, project, lease.userId ?? null, now)) !== "ok") return null;
-    const assetOrigins: ReviewResolution["assetOrigins"] = [];
-    for (const [index, origin] of link.assetOrigins.entries()) {
-      if (await listed(ctx, link.projectId, origin)) assetOrigins.push({ slot: index + 1, origin });
-    }
-    const expiresAt = Math.min(lease.expiresAt, lease.deadline);
-    return {
-      v: 1,
-      kind: "site",
-      linkId: link._id,
-      leaseId: lease._id,
-      origin: link.origin,
-      assetOrigins,
-      // Allow Critiqs tokens come with Allow Critiqs; until then the proxy sends none.
-      allow: [],
-      expiresAt,
-      cacheUntil: Math.min(now + RESOLUTION_CACHE_MS, expiresAt),
-    };
-  },
+  handler: async (ctx, { hostHash, now }): Promise<ReviewResolution | null> => (await hostResolution(ctx, hostHash, now))?.resolution ?? null,
 });
+
+/**
+ * What a frame host stands for now, with its link, or null for anything that
+ * must serve nothing: every check `serving` runs, for the lease's viewer.
+ * The proxy's resolve and a shared build's file routes all start here.
+ */
+export async function hostResolution(ctx: QueryCtx, hostHash: string, now: number = Date.now()): Promise<{ resolution: ReviewResolution; link: Doc<"reviewLinks"> } | null> {
+  if (!HOST_HASH.test(hostHash)) return null;
+  const host = await ctx.db
+    .query("reviewFrameHosts")
+    .withIndex("by_host_hash", (q) => q.eq("hostHash", hostHash))
+    .unique();
+  if (host === null) return null;
+  const lease = await ctx.db.get(host.leaseId);
+  if (lease === null || !live(lease, now)) return null;
+  const link = await ctx.db.get(lease.linkId);
+  if (link === null || link._id !== host.linkId) return null;
+  const project = await ctx.db.get(link.projectId);
+  if ((await serving(ctx, convexStore(ctx), link, project, lease.userId ?? null, now)) !== "ok") return null;
+  const assetOrigins: ReviewResolution["assetOrigins"] = [];
+  for (const [index, origin] of link.assetOrigins.entries()) {
+    if (link.kind === "site" && (await listed(ctx, link.projectId, origin))) assetOrigins.push({ slot: index + 1, origin });
+  }
+  const expiresAt = Math.min(lease.expiresAt, lease.deadline);
+  const resolution: ReviewResolution = {
+    v: 1,
+    kind: link.kind,
+    linkId: link._id,
+    leaseId: lease._id,
+    origin: link.origin,
+    assetOrigins,
+    // Allow Critiqs tokens come with Allow Critiqs; until then the proxy sends none.
+    allow: [],
+    expiresAt,
+    cacheUntil: Math.min(now + RESOLUTION_CACHE_MS, expiresAt),
+  };
+  return { resolution, link };
+}
 
 /** Adds the proxy's traffic reports to each link's day; returns the links now past the day's ceiling. */
 export const recordUsage = internalMutation({
@@ -682,7 +720,8 @@ export const reputationSubjects = internalQuery({
   args: { linkId: v.id("reviewLinks") },
   handler: async (ctx, { linkId }): Promise<string[] | null> => {
     const link = await ctx.db.get(linkId);
-    if (link === null || link.status === "revoked" || link.status === "blocked") return null;
+    // A shared build has no address on the web: nothing to ask about.
+    if (link === null || link.kind === "share" || link.status === "revoked" || link.status === "blocked") return null;
     return [reputationSubject(link.origin, link.startPath), ...link.assetOrigins.map((origin) => reputationSubject(origin, "/"))];
   },
 });
@@ -751,7 +790,7 @@ export const recheckReputation = internalMutation({
         .take(50)),
       ...(await ctx.db
         .query("reviewLinks")
-        .withIndex("by_status_checked", (q) => q.eq("status", "active").lt("checkedAt", now - REPUTATION_RECHECK_MS))
+        .withIndex("by_status_checked", (q) => q.eq("status", "active").gt("checkedAt", 0).lt("checkedAt", now - REPUTATION_RECHECK_MS))
         .take(50)),
     ];
     for (const link of due) await ctx.scheduler.runAfter(0, internal.reviewLinks.checkReputation, { linkId: link._id });
