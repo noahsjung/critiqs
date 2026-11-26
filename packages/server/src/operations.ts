@@ -1,6 +1,7 @@
 import {
   type Anchor,
   type CaptureState,
+  DEFAULT_TAGS as CORE_DEFAULT_TAGS,
   type NotificationSettings,
   type ParticipantInfo,
   type ProjectUsage,
@@ -52,8 +53,11 @@ export { createGroup, deleteGroup, mergeGroups, renameGroup, setTagGroups } from
 // Critiqs's server rules (F2–F12), shared by every backend. Each function runs
 // inside one transaction of the backend that calls it.
 
-/** Initial project tags (F11). Projects can change them later. */
-export const DEFAULT_TAGS = ["Bug", "UX copy change", "Design change request", "User feedback"];
+/**
+ * Initial project tags (F11). Core keeps the list, read-only, with the starting
+ * tags for each purpose; this copy stays a `string[]`, as callers have had it.
+ */
+export const DEFAULT_TAGS: string[] = [...CORE_DEFAULT_TAGS];
 
 /** Operational request bound, independent of product storage/export limits. */
 export const PAGE_SIZE = 40;
@@ -170,7 +174,7 @@ export async function createProject(
   await useQuota(store, { plan: await planFor(store, organization), metric: "projects", accountId: organization._id, projectId: null, now });
   return await store.projects.insert({
     name,
-    tags: DEFAULT_TAGS,
+    tags: [...CORE_DEFAULT_TAGS],
     createdBy: user._id,
     createdAt: now,
     organizationId: organization._id,
