@@ -91,6 +91,8 @@ interface AppProps {
    */
   page?: PageLink;
   supplyCapture?: SupplyCapture;
+  /** A comment to open as a link to it would, such as the one whose pin opened the extension's side panel. */
+  openThread?: string;
 }
 
 /**
@@ -134,6 +136,7 @@ function PanelApp({
   host,
   page,
   supplyCapture,
+  openThread,
 }: Omit<AppProps, "page"> & { page: PageLink }) {
   const transport = useTransport();
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -187,7 +190,7 @@ function PanelApp({
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
   /** Everything of Critiqs hidden (Ctrl or Cmd + \), keeping its state for when it returns. Not kept across reloads. */
   const [hidden, setHidden] = useState(false);
-  const [pendingLink, setPendingLink] = useState(() => parseLink(page.getState().url));
+  const [pendingLink, setPendingLink] = useState(() => parseLink(page.getState().url) ?? (openThread === undefined ? null : { threadId: openThread, messageId: null }));
   // Mockup mode: a mockup to open on entering it, its panel (in the sidebar's place), and what Escape closes there.
   const [mockupRequest, setMockupRequest] = useState<MockupRequest | null>(null);
   const mockupRequests = useRef(0);
@@ -499,7 +502,8 @@ function PanelApp({
     // Show resolved threads too, so the linked one is visible in context.
     setFilters((current) => ({ ...current, status: "all" }));
     setPendingLink(null);
-    void page.request("removeLink", {}).catch((error) => console.warn("Critiqs: the link couldn't be taken out of the page's address", error));
+    // Only a link in the page's address is taken out of it; a comment the panel was asked to open never touched it.
+    if (parseLink(page.getState().url) !== null) void page.request("removeLink", {}).catch((error) => console.warn("Critiqs: the link couldn't be taken out of the page's address", error));
   }, [pendingLink, signedIn, projectId, select, setSidebarOpen, page]);
 
   const linkFor = useCallback(

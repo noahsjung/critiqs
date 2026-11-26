@@ -23,6 +23,12 @@ export interface ReviewerSession {
   setDisplayName(name: string): Promise<boolean>;
 }
 
+/** A sign-in that hands Convex its token, such as the popup's or a panel's own. */
+export interface TokenSession extends ReviewerSession {
+  /** The current access token, renewed when asked or shortly before it expires; null when signed out. */
+  fetchAccessToken(args: { forceRefreshToken: boolean }): Promise<string | null>;
+}
+
 interface StoredSession {
   accessToken: string;
   refreshToken: string;
@@ -42,7 +48,7 @@ export class SignInError extends Error {
 /** Refresh this long before the access token expires. */
 const REFRESH_LEEWAY_MS = 60_000;
 
-export class Session implements ReviewerSession {
+export class Session implements TokenSession {
   private readonly storageKey: string;
   private readonly listeners = new Set<() => void>();
   private refreshing: Promise<string | null> | null = null;

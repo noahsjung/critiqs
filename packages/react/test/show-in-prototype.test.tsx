@@ -143,9 +143,12 @@ function storeSignIn() {
   );
 }
 
-async function mount(integration: Partial<CritiqsProps>, { sidebarOpen = true, signedIn = true }: { sidebarOpen?: boolean; signedIn?: boolean } = {}) {
+async function mount(
+  integration: Partial<CritiqsProps>,
+  { sidebarOpen = true, signedIn = true, openThread, url }: { sidebarOpen?: boolean; signedIn?: boolean; openThread?: string; url?: string } = {},
+) {
   (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(
-    window.location.href.includes("critiqs=") ? window.location.href : "https://prototype.example/patient-education",
+    url ?? (window.location.href.includes("critiqs=") ? window.location.href : "https://prototype.example/patient-education"),
   );
   if (signedIn) storeSignIn();
   localStorage.setItem("critiqs:sidebar-open", JSON.stringify(sidebarOpen));
@@ -164,6 +167,7 @@ async function mount(integration: Partial<CritiqsProps>, { sidebarOpen = true, s
           deployment={{ backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null }}
           session={session}
           host={host!}
+          openThread={openThread}
         />
       </TransportContext.Provider>,
     ),
@@ -742,3 +746,15 @@ test("replacement motion is settled before the current target is scrolled", asyn
   expect(premature).toBe(0);
   expect(scrolled).toEqual([newButton!]);
 });
+
+test("a panel asked to open a comment, as the extension's is after a pin's click, opens it like a link, without touching the page's address", async () => {
+  useThread(SAVED_VIEW);
+  const app = prototypeState({ screen: "patient-engagement", viewState: { ...SAVED_VIEW } });
+  renderTargets(1);
+  // An address whose query a rewrite would change: the app's own encoding must stay as it is.
+  const address = "https://prototype.example/patient-education?q=red%20shoes&sig=hash~value";
+  const shadow = await mount({ getContext: app.getContext, restoreContext: () => true }, { openThread: "thread", url: address });
+  await until(() => threadWindow(shadow) !== null);
+  await frames();
+  expect(window.location.href).toBe(address);
+}, 10_000);

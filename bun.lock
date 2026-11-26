@@ -142,6 +142,22 @@
       "name": "critiqs-django",
       "version": "0.3.0",
     },
+    "packages/extension": {
+      "name": "@critiqs/extension",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@critiqs/backend": "workspace:*",
+        "@critiqs/core": "workspace:*",
+        "@happy-dom/global-registrator": "^20.14.6",
+        "@types/bun": "^1.4.2",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "convex": "^1.46.0",
+        "modern-screenshot": "^4.6.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
+      },
+    },
     "packages/flask": {
       "name": "critiqs-flask",
       "version": "0.3.0",
@@ -457,6 +473,8 @@
     "@critiqs/example-pilot": ["@critiqs/example-pilot@workspace:examples/pilot"],
 
     "@critiqs/example-self-host": ["@critiqs/example-self-host@workspace:examples/self-host"],
+
+    "@critiqs/extension": ["@critiqs/extension@workspace:packages/extension"],
 
     "@critiqs/server": ["@critiqs/server@workspace:packages/server"],
 

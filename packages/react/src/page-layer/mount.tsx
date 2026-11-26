@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { SupplyCapture } from "../App.tsx";
 import { attachHost, Connect } from "../connect.tsx";
 import type { CritiqsProps } from "../host.ts";
+import type { TokenSession } from "../session.ts";
 import { createPageLayer, type PageHost } from "./layer.tsx";
 import { PageLink } from "./link.ts";
 
@@ -40,6 +41,10 @@ export type PanelOptions = Omit<CritiqsProps, "getContext" | "restoreContext"> &
   channel: string;
   /** A screenshot of the view from outside the page, such as `captureVisibleTab`; the page's own capture otherwise. */
   supplyCapture?: SupplyCapture;
+  /** The panel's own sign-in, such as the extension's; Critiqs's sign-in popup otherwise. Convex backends only. */
+  session?: TokenSession;
+  /** A comment to open once the panel shows, as a link to it would. */
+  openThread?: string;
 };
 
 /** A running panel: remove it, closing its connection to the page layer. */
@@ -57,7 +62,7 @@ export interface MountedPanel {
  * page layer answers, and connects again whenever the page layer restarts,
  * such as after the frame loads another page.
  */
-export function mountPanel(container: Element, { transport, channel, supplyCapture, ...props }: PanelOptions): MountedPanel {
+export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, ...props }: PanelOptions): MountedPanel {
   const { host, container: inner } = attachHost(container);
   const root = createRoot(inner);
   const link = new PageLink(panelEndpoint(transport, { channel }));
@@ -71,7 +76,7 @@ export function mountPanel(container: Element, { transport, channel, supplyCaptu
     // starts, it says so and the link connects then.
     void link.connect({ timeoutMs: 5000 }).catch(() => undefined);
   }).then(() => {
-    if (!destroyed) root.render(<Connect props={props} host={host} page={link} supplyCapture={supplyCapture} />);
+    if (!destroyed) root.render(<Connect props={props} host={host} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} />);
   });
   return {
     ready,
