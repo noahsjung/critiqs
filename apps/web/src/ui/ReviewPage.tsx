@@ -537,6 +537,10 @@ function ReviewCanvas({
           : copy.review.unsupportedForm;
   // Part of the page didn't load: one quiet line with the extension as the way to see it all.
   const bannerLine = partialNotice ? (isBuild ? copy.review.partial : copy.review.partialBanner) : copy.review.extension;
+  // A site that blocked Critiqs: its project's owners can let review links in (Allow Critiqs), so they are shown the way there.
+  const blockedSite = notice?.kind === "failed" && notice.reason === "blocked" && source.kind === "site" && backend.reviewLinks?.allowCritiqs === true;
+  const project = backend.useProject(blockedSite ? projectId : null);
+  const allowHref = blockedSite && projectId !== null && project.status === "ready" && project.data.isOwner ? `/allow-critiqs?project=${encodeURIComponent(projectId)}&origin=${encodeURIComponent(source.origin)}` : null;
   const widthLabel = (value: FrameWidth) => copy.review.widths[String(value)] ?? copy.review.customWidth(value as number);
 
   const source_ = (
@@ -662,6 +666,12 @@ function ReviewCanvas({
       {(problem !== null || noticeLine !== null) && (
         <p className="review-strip problem" role="alert">
           {problem ?? noticeLine}
+          {problem === null && allowHref !== null && (
+            <>
+              {" "}
+              <a href={allowHref}>{copy.review.allowCritiqs}</a>
+            </>
+          )}
         </p>
       )}
       <div className="review-canvas">

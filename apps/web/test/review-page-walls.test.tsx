@@ -146,3 +146,28 @@ describe("the bar on a phone", () => {
     expect(name.innerHTML).toBe("shop.<wbr>example.<wbr>com");
   });
 });
+
+describe("a site that blocked Critiqs", () => {
+  const ALLOWING = { version: 1, live: true, builds: true, allowCritiqs: true } as const;
+  const withProject = (isOwner: boolean) =>
+    fakeBackend({
+      reviewLinks: ALLOWING,
+      openReviewLink: async () => ({ ...ready(), projectId: "p1", projectName: "Pilot" }),
+      project: { _id: "p1", name: "Pilot", reviewUrl: null, isOwner } as never,
+    });
+  const allowLink = (container: HTMLElement) => container.querySelector('a[href^="/allow-critiqs"]')?.getAttribute("href") ?? null;
+  test("shows the project's owner the way to Allow Critiqs for that site", async () => {
+    const container = await openReview(fakeHost(), withProject(true));
+    await tell(container, { kind: "failed", reason: "blocked" });
+    await settle();
+    expect(text(container)).toContain("The prototype's site blocked Critiqs");
+    expect(allowLink(container)).toBe(`/allow-critiqs?project=p1&origin=${encodeURIComponent("https://shop.example.com")}`);
+  });
+  test("shows anyone else only the notice", async () => {
+    const container = await openReview(fakeHost(), withProject(false));
+    await tell(container, { kind: "failed", reason: "blocked" });
+    await settle();
+    expect(text(container)).toContain("The prototype's site blocked Critiqs");
+    expect(allowLink(container)).toBeNull();
+  });
+});

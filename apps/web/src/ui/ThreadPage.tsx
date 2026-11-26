@@ -137,7 +137,9 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
     document.title = `${copy.threadPage.tabTitle} · ${copy.appName}`;
     return () => void (document.title = copy.appName);
   }, []);
-  const target = prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
+  // A comment on a shared build opens that build, through its review link, never the project's live address.
+  const onBuild = isSharedBuild(thread.prototype.pageUrl);
+  const target = onBuild ? null : prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
   const ownLink = `${window.location.origin}${window.location.pathname}`;
   const extension = extensionWay(thread.project.connectedAt, thread.prototype.madeWith);
   // The project's review link for the address the comment was left on: the prototype in a frame, with nothing installed.
@@ -178,7 +180,7 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
             ? copy.threadPage.opensAt(shownAddress(removeLink(target)))
             : reviewUrl !== null
               ? copy.threadPage.opensInReviewLink
-              : isSharedBuild(thread.prototype.pageUrl)
+              : onBuild
                 ? copy.threadPage.sharedBuildEnded
                 : copy.threadPage.noAddress(shownAddress(thread.prototype.pageUrl))}
         </p>

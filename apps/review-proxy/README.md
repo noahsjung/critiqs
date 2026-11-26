@@ -214,7 +214,7 @@ The rule for Allow Critiqs, which the proxy's side already follows:
 
 ## Deploying
 
-Nothing here deploys anything; these are the steps when Noah chooses a host.
+Nothing here deploys anything. These are the steps an operator follows to run the proxy on a host of their choice.
 
 1. A domain of its own (not under the website's or the backend's site), with
    wildcard DNS (`*.<domain>` and `<domain>`) to the host, and a wildcard
