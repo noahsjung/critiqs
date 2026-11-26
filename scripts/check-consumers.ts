@@ -140,7 +140,7 @@ async function workspace() {
   };
   for (const [path, text] of Object.entries(files)) await Bun.write(join(ws, path), text);
   await run(["npm", "install", "--no-audit", "--no-fund"], ws);
-  await run(["npm", "install", "--no-audit", "--no-fund", "--no-save", "playwright-core@1"], ws);
+  await run(["npm", "install", "--no-audit", "--no-fund", "--no-save", "playwright-core@1.57.0"], ws);
 
   // Critiqs's own server, with the host app's sign-in, from the packed package.
   const { createCritiqsHandler } = await import(join(ws, "node_modules/critiqs-react/dist/server/index.js"));

@@ -62,12 +62,14 @@ Each consumer check makes its app with a starter at a fixed version
 (`create-nuxt@4.1.0`, `create-vue@3.24.0`, and so on), and `npm install`
 then picks the newest framework release the starter's ranges allow, so the
 checks test what a new app gets today. When a release breaks every app, with
-or without Critiqs, the check pins the release before it, with the reason
-beside the pin. Pinned now: vue-router 5.5.1 in the Nuxt app. vue-router
-5.5.2 (26 November 2026) makes the server of any Nuxt app with `pages/`
-answer 500 (`__VUE_OPTIONS_API__ is not defined`); the change came with
-[vuejs/router#2944](https://github.com/vuejs/router/pull/2944). Move the pin
-to the first release that fixes it.
+or without Critiqs, the check leaves out that release only, with the reason
+beside the range, so it takes the next release by itself and fails again if
+that one is still broken. Left out now: vue-router 5.5.2 in the Nuxt app, which
+installs 5.5.1 until a newer release exists. vue-router 5.5.2 (26 November
+2026) makes the server of any Nuxt app with `pages/` answer 500
+(`__VUE_OPTIONS_API__ is not defined`); the change came with
+[vuejs/router#2944](https://github.com/vuejs/router/pull/2944). The tools the
+checks drive, such as `playwright-core`, stay at one exact version everywhere.
 
 The package and consumer checks pack or build the packages themselves. To
 check files you already packed with `bun scripts/publish.ts pack`, set

@@ -36,13 +36,16 @@ Object.assign(manifest.dependencies, packed.dependencies);
 manifest.overrides = { ...packed.overrides, "critiqs-vue": packed.dependencies["critiqs-vue"] };
 // What `nuxi typecheck` needs; vue-tsc runs on TypeScript 6, the last with a JavaScript API.
 manifest.devDependencies = { ...manifest.devDependencies, "vue-tsc": "3.3.14", typescript: "6.0.3" };
-// vue-router 5.5.1, not 5.5.2: 5.5.2's bundler build reads a global
-// __VUE_OPTIONS_API__ that only a bundler defines, and Nuxt's server loads it
-// unbundled, so any Nuxt app with pages/ answers 500 ("__VUE_OPTIONS_API__ is
-// not defined"), with or without Critiqs. It came with vuejs/router#2944.
-// Move the pin to the first release that fixes it.
-manifest.dependencies["vue-router"] = "5.5.1";
-manifest.overrides["vue-router"] = "5.5.1";
+// Nuxt's own vue-router range (^5.5.1) without 5.5.2: 5.5.2's bundler build
+// reads a global __VUE_OPTIONS_API__ that only a bundler defines, and Nuxt's
+// server loads it unbundled, so any Nuxt app with pages/ answers 500
+// ("__VUE_OPTIONS_API__ is not defined"), with or without Critiqs. It came
+// with vuejs/router#2944. npm installs 5.5.1 until a newer release exists,
+// then that one; if it is still broken, this check fails again. Remove this
+// once Nuxt's range no longer lets npm pick 5.5.2.
+const VUE_ROUTER = "^5.5.1 <5.5.2 || ^5.5.3";
+manifest.dependencies["vue-router"] = VUE_ROUTER;
+manifest.overrides["vue-router"] = VUE_ROUTER;
 await Bun.write(join(app, "package.json"), JSON.stringify(manifest, null, 2));
 await run(["npm", "install", "--no-audit", "--no-fund"], app);
 assert.equal(nuxt.detect(app), true);
