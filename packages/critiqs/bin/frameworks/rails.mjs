@@ -6,6 +6,7 @@
 // </body> outside ERB code, comments and scripts.
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { codeDefinitions } from "../env.mjs";
 import { describeProjectId, readText } from "./shared.mjs";
 
 const DEVELOPMENT = "config/environments/development.rb";
@@ -498,12 +499,6 @@ function manualSteps(settings) {
   return { tag, steps };
 }
 
-/** Whether Ruby `source` sets `variable` with a plain `ENV["…"] = "…"` line (not `||=`), outside a comment. */
-function plainRubyAssignment(source, variable) {
-  const name = variable.replace(/[^A-Za-z0-9_]/g, "");
-  return new RegExp(`^[ \\t]*ENV\\[[ \\t]*(["'])${name}\\1[ \\t]*\\][ \\t]*=[ \\t]*["']`, "m").test(source);
-}
-
 function railsEnv(variable, localFile) {
   return {
     variable,
@@ -551,8 +546,9 @@ export const rails = {
     const development = developmentSource === null ? null : DEVELOPMENT;
     if (!dotenv) return railsEnv(variable, development);
     // dotenv sets the environment from .env before Rails runs development.rb, where an `ENV[...] ||=` default
-    // then gives way and a plain `ENV[...] =` someone wrote wins. Setup writes the one that wins.
-    const plain = development !== null && plainRubyAssignment(developmentSource, variable);
+    // then gives way and a plain `ENV[...] = "…"` someone wrote wins. Setup writes the one that wins, but only
+    // rewrites a line that sets one string (see `codeDefinitions`); it reports any other line instead.
+    const plain = development !== null && codeDefinitions(DEVELOPMENT, variable, developmentSource).some((line) => line.editable && !line.default);
     return { ...railsEnv(variable, plain ? DEVELOPMENT : ".env"), loads: development === null ? [".env"] : plain ? [DEVELOPMENT, ".env"] : [".env", DEVELOPMENT] };
   },
 

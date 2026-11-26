@@ -513,3 +513,18 @@ test("init keeps the rest of a hand-written default's line, such as its comment,
   expect(init(root, PROJECT).code).toBe(0);
   expect(read(root, "manage.py")).toBe(manage.replace(OLD, PROJECT));
 });
+
+test("init leaves a hand-written default inside an if block alone, sets the ID before the block, and says the app uses it", () => {
+  const OLD = "k98765432109876543210987654321098";
+  const block = `    if os.environ.get("STAGING"):\n        os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\n`;
+  const manage = MANAGE.replace("    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n", `    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n${block}`);
+  const root = starter({ "manage.py": manage });
+  const { code, output } = init(root, PROJECT);
+  expect(code).toBe(0);
+  const ours = `    # Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n`;
+  expect(read(root, "manage.py")).toBe(manage.replace(block, `${ours}${block}`));
+  expect(output).toContain(
+    `manage.py:13 sets CRITIQS_PROJECT_ID only when nothing set it before (\`os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\`), and manage.py sets it first, so the app uses ${PROJECT}. Setup left that line as it is.`,
+  );
+  expect(output).not.toContain("Warning:");
+});

@@ -121,7 +121,8 @@ export function runInit(argv, { cwd = process.cwd(), print = console.log, env: s
   // In use only when this computer's setting was read and holds this ID; the code naming the variable isn't enough.
   if (result.action === "unchanged" && !env?.changed) {
     print(`${at} already uses this project ID${env === undefined ? "" : ` (${env.name} in ${env.file === null ? "this shell's environment" : show(env.file)})`}.`);
-    if (env?.unloaded) print(`Warning: ${env.unloaded}`);
+    for (const warning of env?.warnings ?? []) print(`Warning: ${warning}`);
+    for (const note of env?.notes ?? []) print(note);
     for (const step of steps) print(step);
     return 0;
   }
@@ -136,7 +137,8 @@ export function runInit(argv, { cwd = process.cwd(), print = console.log, env: s
     const line = `${env.name}=${projectId}`;
     if (env.file === null) print(`Set ${line} in the environment the app runs with on this computer.`);
     else if (env.changed) print(`${options.dryRun ? "Would set" : "Set"} ${line} in ${show(env.file)} for ${isCodeFile(env.file) ? "development" : "this computer"}${dry}.`);
-    if (env.unloaded) print(`Warning: ${env.unloaded}`);
+    for (const warning of env.warnings ?? []) print(`Warning: ${warning}`);
+    for (const note of env.notes ?? []) print(note);
     print(env.advice);
   }
   for (const step of steps) print(step);

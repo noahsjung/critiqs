@@ -281,13 +281,20 @@ const DOTENV = {
   replace: (line, name, value) => `${DEFINITION.exec(line)[1] ?? ""}${name}=${value}`,
   insert: (lines, name, value, comment) => [...lines, ...(comment === null ? [] : [`# ${comment}`]), `${name}=${value}`],
 };
-const codeSyntax = (pattern, statement, place) => ({
+/**
+ * In code, setup rewrites a definition only when it sets one string and nothing else: at most a comment after it,
+ * and no conditional block around it. Anything else someone wrote (a condition, an expression, a block) is left as
+ * it is, and setup's own default goes just before it, so it is read first. `definitions` says, for each definition,
+ * whether setup may rewrite it and whether it only fills a variable nothing set before (a default), so the
+ * value set before it stays in effect.
+ */
+const codeSyntax = ({ pattern, statement, place, blocks, isDefault }) => ({
   code: true,
   parse: (line) => {
     const match = pattern.exec(line);
     return match === null ? null : { name: match[3], value: match[5] };
   },
-  // The rest of the line stays: a hand-written condition (`if ...`) or comment after the value.
+  // Only a definition `definitions` calls editable is replaced, so what follows its value is at most a comment, which stays.
   replace: (line, name, value) => {
     const match = pattern.exec(line);
     return `${match[1]}${statement(name, value)}${line.slice(match[0].length)}`;
@@ -296,22 +303,98 @@ const codeSyntax = (pattern, statement, place) => ({
     const { at, indent, extra } = place(lines);
     return [...lines.slice(0, at), ...extra, ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}`, ...lines.slice(at)];
   },
+  insertBefore: (lines, at, name, value, comment) => {
+    const indent = /^[ \t]*/.exec(lines[at])[0];
+    return [...lines.slice(0, at), ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}`, ...lines.slice(at)];
+  },
+  definitions: (lines, name) =>
+    lines.flatMap((line, index) => {
+      const match = pattern.exec(line);
+      if (match === null || match[3] !== name) return [];
+      const around = blocks(lines, index).filter((block) => block.conditional);
+      const rest = line.slice(match[0].length);
+      return [
+        {
+          index,
+          // The first line to put a default before: this one, or the outermost conditional block around it.
+          before: around[0]?.index ?? index,
+          text: line.trim(),
+          editable: /^[ \t]*(?:#.*)?$/.test(rest) && around.length === 0,
+          default: isDefault(match[0], rest, name) || around.some((block) => isDefault("", block.text, name)),
+        },
+      ];
+    }),
 });
-const PYTHON = codeSyntax(PYTHON_DEFINITION, (name, value) => `os.environ.setdefault(${JSON.stringify(name)}, ${JSON.stringify(value)})`, (lines) => {
-  // Beside Django's own default, in main(), so it is set before the command runs; or else after the module's last import.
-  const django = lines.findIndex((line) => DJANGO_SETTINGS_LINE.test(line));
-  if (django !== -1) return { at: django + 1, indent: DJANGO_SETTINGS_LINE.exec(lines[django])[1], extra: [] };
-  const imports = lines.flatMap((line, i) => (/^(?:import|from)\s/.test(line) ? [i] : []));
-  const hasOs = lines.some((line) => /^import os(?:\s|$|,)/.test(line));
-  const at = imports.length > 0 ? imports.at(-1) + 1 : lines[0]?.startsWith("#!") ? 1 : 0;
-  return { at, indent: "", extra: hasOs ? [] : ["import os"] };
+
+/** The blocks around line `index` of Python code, outermost first, found by indentation. */
+function pythonBlocks(lines, index) {
+  const found = [];
+  let indent = /^[ \t]*/.exec(lines[index])[0].length;
+  for (let i = index - 1; i >= 0 && indent > 0; i--) {
+    const text = lines[i].trim();
+    if (text === "" || text.startsWith("#")) continue;
+    const own = /^[ \t]*/.exec(lines[i])[0].length;
+    if (own >= indent) continue;
+    found.unshift({ index: i, text, conditional: /^(?:if|elif|else|while|for|try|except|finally|with|match|case)\b/.test(text) });
+    indent = own;
+  }
+  return found;
+}
+
+/** The blocks open at line `index` of Ruby code, outermost first: `do` blocks, and statements `end` closes. */
+function rubyBlocks(lines, index) {
+  const open = [];
+  for (let i = 0; i < index; i++) {
+    const text = lines[i].replace(/#.*$/, "").trim();
+    if (text === "") continue;
+    if (/^end\b/.test(text)) {
+      open.pop();
+      continue;
+    }
+    const keyword = /^(if|unless|case|while|until|for|begin|def|class|module)\b/.exec(text)?.[1];
+    // A statement that opens and closes on one line (`if a then b end`) leaves nothing open.
+    if ((keyword !== undefined && !/\bend$/.test(text)) || /\bdo(?:[ \t]*\|[^|]*\|)?$/.test(text)) {
+      open.push({ index: i, text, conditional: ["if", "unless", "case", "while", "until", "for"].includes(keyword) });
+    }
+  }
+  return open;
+}
+
+/** Whether a Ruby condition (a line's `unless …` modifier, or a block's opening line) holds only while `name` is unset. */
+const rubyUnset = (text, name) =>
+  new RegExp(
+    `^[ \\t]*(?:unless[ \\t]+ENV(?:\\[[ \\t]*(["'])${name}\\1[ \\t]*\\]|\\.(?:key\\?|has_key\\?|include\\?|member\\?)\\([ \\t]*(["'])${name}\\2[ \\t]*\\))|if[ \\t]+ENV\\[[ \\t]*(["'])${name}\\3[ \\t]*\\]\\.nil\\?)[ \\t]*(?:then[ \\t]*)?(?:#.*)?$`,
+  ).test(text);
+
+const PYTHON = codeSyntax({
+  pattern: PYTHON_DEFINITION,
+  statement: (name, value) => `os.environ.setdefault(${JSON.stringify(name)}, ${JSON.stringify(value)})`,
+  place: (lines) => {
+    // Beside Django's own default, in main(), so it is set before the command runs; or else after the module's last import.
+    const django = lines.findIndex((line) => DJANGO_SETTINGS_LINE.test(line));
+    if (django !== -1) return { at: django + 1, indent: DJANGO_SETTINGS_LINE.exec(lines[django])[1], extra: [] };
+    const imports = lines.flatMap((line, i) => (/^(?:import|from)\s/.test(line) ? [i] : []));
+    const hasOs = lines.some((line) => /^import os(?:\s|$|,)/.test(line));
+    const at = imports.length > 0 ? imports.at(-1) + 1 : lines[0]?.startsWith("#!") ? 1 : 0;
+    return { at, indent: "", extra: hasOs ? [] : ["import os"] };
+  },
+  blocks: pythonBlocks,
+  // setdefault never replaces a value.
+  isDefault: () => true,
 });
-const RUBY = {
-  ...codeSyntax(RUBY_DEFINITION, (name, value) => `ENV[${JSON.stringify(name)}] ||= ${JSON.stringify(value)}`, (lines) => {
+const RUBY_SYNTAX = codeSyntax({
+  pattern: RUBY_DEFINITION,
+  statement: (name, value) => `ENV[${JSON.stringify(name)}] ||= ${JSON.stringify(value)}`,
+  place: (lines) => {
     const end = lines.at(-1) === "" ? lines.length - 1 : lines.length;
     return { at: end, indent: "", extra: lines[end - 1] === undefined || lines[end - 1].trim() === "" ? [] : [""] };
-  }),
-  // A definition gets the new value and keeps its own operator (a plain `=` stays plain) and the rest of its line.
+  },
+  blocks: rubyBlocks,
+  isDefault: (assignment, rest, name) => /\|\|=/.test(assignment) || rubyUnset(rest, name),
+});
+const RUBY = {
+  ...RUBY_SYNTAX,
+  // A definition gets the new value and keeps its own operator (a plain `=` stays plain) and its comment.
   replace: (line, name, value) => {
     const match = RUBY_DEFINITION.exec(line);
     return `${match[1]}ENV[${JSON.stringify(name)}] ${/\|\|=/.test(match[0]) ? "||=" : "="} ${JSON.stringify(value)}${line.slice(match[0].length)}`;
@@ -326,11 +409,29 @@ function syntaxOf(file) {
 /** Whether setup writes `file`'s setting as code the development server runs, rather than as a `.env` line. */
 export const isCodeFile = (file) => syntaxOf(file).code;
 
+/**
+ * Each line of code `text` (the file `file`, by default as it is on disk) that defines `name`: its line number and
+ * text, whether setup may rewrite it (see `codeSyntax`), and whether it only fills a variable nothing set before.
+ */
+export function codeDefinitions(file, name, text = readText(file)) {
+  if (!isCodeFile(file) || text === null) return [];
+  return syntaxOf(file)
+    .definitions(text.split(/\r?\n/), name)
+    .map(({ index, text: line, editable, default: fills }) => ({ line: index + 1, text: line, editable, default: fills }));
+}
+
 /** Sets `name` to `value` in one file's text, replacing its definitions and keeping every other line as it is. */
 function setInText(text, name, value, comment, syntax = DOTENV) {
   const eol = text?.includes("\r\n") ? "\r\n" : "\n";
   if (text === null || text === "") return `${syntax.insert([], name, value, comment).join(eol)}${eol}`;
   const lines = text.split(/\r?\n/);
+  if (syntax.code) {
+    const found = syntax.definitions(lines, name);
+    const editable = new Set(found.filter((definition) => definition.editable).map((definition) => definition.index));
+    if (editable.size > 0) return lines.map((line, i) => (editable.has(i) ? syntax.replace(line, name, value) : line)).join(eol);
+    if (found.length > 0) return syntax.insertBefore(lines, found[0].before, name, value, comment).join(eol);
+    return syntax.insert(lines, name, value, comment).join(eol);
+  }
   let found = false;
   const updated = lines.map((line) => {
     if (syntax.parse(line)?.name !== name) return line;
@@ -338,11 +439,8 @@ function setInText(text, name, value, comment, syntax = DOTENV) {
     return syntax.replace(line, name, value);
   });
   if (found) return updated.join(eol);
-  if (!syntax.code) {
-    const separator = text.endsWith("\n") ? "" : eol;
-    return `${text}${separator}${syntax.insert([], name, value, comment).join(eol)}${eol}`;
-  }
-  return syntax.insert(lines, name, value, comment).join(eol);
+  const separator = text.endsWith("\n") ? "" : eol;
+  return `${text}${separator}${syntax.insert([], name, value, comment).join(eol)}${eol}`;
 }
 
 /**

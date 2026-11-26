@@ -167,18 +167,98 @@ describe("env", () => {
     expect(messages.join("\n")).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in ${DEVELOPMENT_PATH} for development.`);
   });
 
-  test("init keeps a hand-written line's condition and comment when it replaces the ID", () => {
-    const OLD = "k98765432109876543210987654321098";
-    const cases: [string, string][] = [
-      [`ENV["CRITIQS_PROJECT_ID"] = "${OLD}" if ENV["CI"].nil? # hand-written`, `ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}" if ENV["CI"].nil? # hand-written`],
-      [`  ENV['CRITIQS_PROJECT_ID'] ||= '${OLD}' unless Rails.env.test?`, `  ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}" unless Rails.env.test?`],
-    ];
-    for (const [written, updated] of cases) {
-      const older = DEVELOPMENT.replace("end\n", `${written}\nend\n`);
-      const root = app({ Gemfile: `${GEMFILE}gem "critiqs-rails"\n`, [DEVELOPMENT_PATH]: older });
-      expect(runInit(["init", PROJECT], { cwd: root, print: () => {}, env: {} })).toBe(0);
-      expect(read(root, DEVELOPMENT_PATH)).toBe(older.replace(written, updated));
+  const OLD = "k98765432109876543210987654321098";
+  const PLAIN_GEMFILE = `${GEMFILE}gem "critiqs-rails"\n`;
+  const DOTENV_GEMFILE = `${PLAIN_GEMFILE}gem "dotenv-rails", groups: [:development, :test]\n`;
+  /** development.rb with `written` first in its configure block, from line 4. */
+  const withLine = (written: string) => DEVELOPMENT.replace("Rails.application.configure do\n", `Rails.application.configure do\n${written}\n`);
+  const ours = (value: string) =>
+    `  # Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n  ENV["CRITIQS_PROJECT_ID"] ||= "${value}"\n`;
+  const initIn = (root: string, args: string[] = []) => {
+    const messages: string[] = [];
+    const code = runInit(["init", PROJECT, ...args], { cwd: root, print: (message) => messages.push(message), env: {} });
+    return { code, output: messages.join("\n") };
+  };
+
+  test("init edits a hand-written line only when it sets one string, with at most a comment after it", () => {
+    for (const [written, updated] of [
+      [`  ENV["CRITIQS_PROJECT_ID"] = "${OLD}"`, `  ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}"`],
+      [`  ENV['CRITIQS_PROJECT_ID'] = '${OLD}' # staging`, `  ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}" # staging`],
+      [`  ENV["CRITIQS_PROJECT_ID"] ||= "${OLD}"`, `  ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"`],
+    ]) {
+      const root = app({ Gemfile: PLAIN_GEMFILE, [DEVELOPMENT_PATH]: withLine(written!) });
+      const { code, output } = initIn(root);
+      expect([written, code, output.includes("Warning:")]).toEqual([written, 0, false]);
+      expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(updated!));
     }
+  });
+
+  test("init leaves a conditional or computed line alone, sets the ID before it, and says which value the app uses", () => {
+    // [the line as written, whether it only sets the variable when nothing set it before]
+    const cases: [string, boolean][] = [
+      [`  ENV["CRITIQS_PROJECT_ID"] = "${OLD}" + "-x"`, false],
+      [`  ENV["CRITIQS_PROJECT_ID"] = "${OLD}" if ENV["CI"].nil? # hand-written`, false],
+      [`  ENV["CRITIQS_PROJECT_ID"] = "${OLD}" unless ENV["CRITIQS_PROJECT_ID"]`, true],
+      [`  ENV['CRITIQS_PROJECT_ID'] ||= '${OLD}' unless Rails.env.test?`, true],
+      [`  if Rails.env.development?\n    ENV["CRITIQS_PROJECT_ID"] = "${OLD}"\n  end`, false],
+      [`  unless ENV.key?("CRITIQS_PROJECT_ID")\n    ENV["CRITIQS_PROJECT_ID"] = "${OLD}"\n  end`, true],
+    ];
+    for (const [written, yields] of cases) {
+      const root = app({ Gemfile: PLAIN_GEMFILE, [DEVELOPMENT_PATH]: withLine(written) });
+      const first = initIn(root);
+      expect([written, first.code]).toEqual([written, 0]);
+      // The line stays as written; the ID is set just before it (before the block around it), so it is read first.
+      expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(`${ours(PROJECT)}${written}`));
+      const at = written.trimStart().startsWith("ENV") ? 6 : 7;
+      const text = (written.split("\n").find((line) => line.includes(OLD)) ?? "").trim();
+      const said = yields
+        ? `${DEVELOPMENT_PATH}:${at} sets CRITIQS_PROJECT_ID only when nothing set it before (\`${text}\`), and ${DEVELOPMENT_PATH} sets it first, so the app uses ${PROJECT}. Setup left that line as it is.`
+        : `Warning: ${DEVELOPMENT_PATH}:${at} sets CRITIQS_PROJECT_ID itself (\`${text}\`) and runs after ${DEVELOPMENT_PATH} sets it, so whenever that line runs the app uses the value it sets, not ${PROJECT}. Change or remove that line to use this project.`;
+      expect([written, first.output]).toEqual([written, expect.stringContaining(said)]);
+      // A second run changes nothing and says the same.
+      const again = initIn(root);
+      expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(`${ours(PROJECT)}${written}`));
+      expect([written, again.output]).toEqual([written, expect.stringContaining(said)]);
+    }
+  });
+
+  test("with dotenv, a line that only fills an unset variable gives way to .env, so init writes .env and leaves the line alone", () => {
+    const written = `  ENV["CRITIQS_PROJECT_ID"] = "${OLD}" unless ENV["CRITIQS_PROJECT_ID"]`;
+    const root = app({ Gemfile: DOTENV_GEMFILE, [DEVELOPMENT_PATH]: withLine(written), ".env": `CRITIQS_PROJECT_ID=${OLD}\n` });
+    const { code, output } = initIn(root);
+    expect(code).toBe(0);
+    expect(read(root, ".env")).toBe(`CRITIQS_PROJECT_ID=${PROJECT}\n`);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(written));
+    expect(output).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in .env for this computer.`);
+    expect(output).toContain(
+      `${DEVELOPMENT_PATH}:4 sets CRITIQS_PROJECT_ID only when nothing set it before (\`${written.trim()}\`), and .env sets it first, so the app uses ${PROJECT}. Setup left that line as it is.`,
+    );
+    expect(output).not.toContain("Warning:");
+  });
+
+  test("with dotenv, a computed line wins over .env: init writes .env, leaves the line alone, and says the line wins", () => {
+    const written = `  ENV["CRITIQS_PROJECT_ID"] = "${OLD}" + "-x"`;
+    const root = app({ Gemfile: DOTENV_GEMFILE, [DEVELOPMENT_PATH]: withLine(written) });
+    const { code, output } = initIn(root);
+    expect(code).toBe(0);
+    expect(read(root, ".env")).toContain(`CRITIQS_PROJECT_ID=${PROJECT}`);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(written));
+    expect(output).toContain(
+      `Warning: ${DEVELOPMENT_PATH}:4 sets CRITIQS_PROJECT_ID itself (\`${written.trim()}\`) and runs after .env sets it, so whenever that line runs the app uses the value it sets, not ${PROJECT}. Change or remove that line to use this project.`,
+    );
+  });
+
+  test("with dotenv and --project-env-file .env, init writes .env without saying Rails doesn't load it, and says a plain line still wins", () => {
+    const written = `  ENV["CRITIQS_PROJECT_ID"] = "${OLD}"`;
+    const root = app({ Gemfile: DOTENV_GEMFILE, [DEVELOPMENT_PATH]: withLine(written) });
+    const { code, output } = initIn(root, ["--project-env-file", ".env"]);
+    expect(code).toBe(0);
+    expect(read(root, ".env")).toContain(`CRITIQS_PROJECT_ID=${PROJECT}`);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(written));
+    expect(output).not.toContain("doesn't load");
+    expect(output).toContain(
+      `Warning: ${DEVELOPMENT_PATH}:4 sets CRITIQS_PROJECT_ID itself (\`${written.trim()}\`) and runs after .env sets it, so whenever that line runs the app uses the value it sets, not ${PROJECT}. Change or remove that line to use this project, or run init again without --project-env-file to update it.`,
+    );
   });
 
   test("with dotenv, init updates a plain ENV[…] = line in development.rb, which wins over .env, and otherwise writes .env", () => {
