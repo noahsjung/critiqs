@@ -25,7 +25,8 @@ Every pull request adds a release note in `.changeset/`, following
 Critiqs package the change ships in (`critiqs`, `critiqs-react`, and the
 other `critiqs-*` packages; a change to `packages/core`, `server`, or
 `backend` names the packages that bundle it), chosen from what the diff does
-to host apps, or a no-release note that says why nothing ships. All Critiqs
-packages ship at one shared version. Do not edit other notes, `version`
+to host apps, or a no-release note that says why nothing ships. A pull
+request that only updates dependencies that no package ships needs no note.
+All Critiqs packages ship at one shared version. Do not edit other notes, `version`
 fields, or changelogs; the generated release pull request does that, and a
 person merges it.

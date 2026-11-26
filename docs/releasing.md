@@ -86,13 +86,6 @@ decision. Under Semantic Versioning, `^0.2.0` accepts only 0.2.x, so a
 breaking change is released as a `minor` note. It still needs the owner's
 approval and migration instructions first; 0.x permits breaking no host app.
 
-Dependabot's pull requests arrive without a note, so `release-notes` fails on
-them until a maintainer pushes one to the branch: a `patch` note naming the
-packages the updated dependency ships in, or a short no-release note when it
-ships in none. Any change under `packages/` other than tests and check
-scripts counts as shipped to the check, so a `package.json` change there needs
-a `patch` note even for a development dependency.
-
 Several notes in one pull request are fine; the largest type across all notes
 sets the shared version. Do not edit
 or remove another pull request's note, and do not change any `version` field
@@ -101,19 +94,48 @@ or `CHANGELOG.md` yourself.
 Reviewers check that the declared type matches the diff. CI checks the form of
 the note, not whether the type is right.
 
+### Dependency updates
+
+A pull request that only changes dependency versions (ranges in
+`package.json` files, `bun.lock` files, and the actions the workflows use)
+needs no note when none of the updates ships in a released package. Most of
+Dependabot's weekly pull requests are like that and pass as they are. An
+update ships when a package's users install it or a package's build puts its
+code in:
+
+- a `dependencies`, `peerDependencies`, or `optionalDependencies` range of a
+  package under `packages/`; a private workspace's ranges ship in the released
+  packages that bundle it;
+- a `devDependencies` package that a shipped file under `packages/` imports
+  and that the package doesn't leave to its users (`critiqs` bundles React from
+  its development dependencies), or whose command a package's build script
+  runs (such as `tsc` or `svelte-package`);
+- a version the root `bun.lock` resolves for any of these, or for what they
+  depend on, except what the package's users install themselves.
+
+Type packages, test tools, workspaces outside `packages/`, other projects'
+lockfiles (`site-src/bun.lock`), and actions ship nothing. For an update that
+ships, `release-notes` fails, lists the updates, names the packages, and
+suggests the command. Check out the pull request's branch, add that `patch`
+note with a summary such as "Update the AI SDK to 7.0.177.", and push it to
+the branch. A no-release note does not cover an update that ships.
+
 ## What CI checks
 
 The `release-notes` job in [CI](../.github/workflows/ci.yml) runs
 `bun scripts/release.ts check` on the pull request's own commits, from the
 merge base with its target branch. It fails when:
 
-- no release note was added, or a note is malformed, has no summary, names a
+- no release note was added, unless the pull request only updates
+  dependencies and none of the updates ships (see
+  [Dependency updates](#dependency-updates));
+- a note is malformed, has no summary, names a
   package outside the release group (a private workspace, a registry name such
   as `django-critiqs`, or anything else), or uses a type other than patch,
   minor, or major (`major` only from 1.0.0);
 - a file that ships changed (anything under `packages/` except tests and a
-  package's check scripts, `scripts/check-*.ts`, which no package publishes)
-  and the only notes are no-release notes;
+  package's check scripts, `scripts/check-*.ts`, which no package publishes),
+  or a dependency update that ships, and the only notes are no-release notes;
 - an existing note was edited or removed, a `version` field changed, a
   `CHANGELOG.md` changed, or another file was added to `.changeset/`, unless
   the pull request is a verified release pull request (below);

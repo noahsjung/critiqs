@@ -11,14 +11,9 @@ import { lstat, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shippedChanges } from "./shipped-changes.ts";
 
 const BUMPS = ["patch", "minor", "major"];
-// Files that ship: every package under packages/ is a released package or a
-// private workspace bundled into one. Tests do not ship, nor do a package's
-// check scripts (scripts/check-*.ts, such as its consumer check), which no
-// package's files, gemspec, or sdist includes.
-const SHIPPED = /^packages\//;
-const TEST = /(^|\/)(test|tests|__tests__|spec)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_(test|spec)\.rb$|^packages\/[^/]+\/scripts\/check-[^/]*\.ts$/;
 
 /** Where a released package is published. */
 export type Registry = "npm" | "rubygems" | "pypi";
@@ -264,6 +259,8 @@ async function isGeneratedRelease(cwd: string, mergeBase: string, head: string):
 
 export type CheckResult = { ok: boolean; kind: "release" | "notes"; messages: string[] };
 
+const listed = (lines: string[]) => [...lines.slice(0, 10).map((line) => `  ${line}`), ...(lines.length > 10 ? [`  and ${lines.length - 10} more`] : [])];
+
 /** The release metadata rules every pull request must meet. */
 export async function check(cwd: string, base: string, head = "HEAD"): Promise<CheckResult> {
   const mergeBase = await git(cwd, "merge-base", base, head);
@@ -289,7 +286,8 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
   const notes: string[] = [];
   let releases = 0;
   // A pull request may add a package to the group and name it in its note.
-  const names = (await releasePackages(commitTree(cwd, head))).map((pkg) => pkg.name);
+  const group = await releasePackages(commitTree(cwd, head));
+  const names = group.map((pkg) => pkg.name);
   const current = highestVersion(await releasePackages(commitTree(cwd, mergeBase)));
   for (const { status, path } of diff) {
     if (!path.startsWith(".changeset/")) continue;
@@ -325,13 +323,22 @@ export async function check(cwd: string, base: string, head = "HEAD"): Promise<C
     }
     if (parsed.releases.length === 0) notes.push(`${path}: no release`);
   }
+  const read = (commit: string, path: string) => git(cwd, "show", `${commit}:${path}`).catch(() => null);
+  const { dependenciesOnly, shipped, packages } = await shippedChanges(cwd, mergeBase, head, diff, new Map(group.map((pkg) => [pkg.dir, pkg.name])), read);
   if (notes.length === 0 && errors.length === 0) {
+    // A dependency update that changes nothing a package ships, such as an
+    // action's version or a test tool's, releases nothing and needs no note.
+    if (dependenciesOnly && shipped.length === 0) {
+      return { ok: true, kind: "notes", messages: ["No release note needed: the pull request only updates dependencies, and none ships in a Critiqs package."] };
+    }
     errors.push('Add a release note (docs/releasing.md): `bun run changeset` for a patch, minor, or major release of the Critiqs packages the change ships in, or `bun run changeset add --empty -m "<why>"` when nothing ships.');
+    if (dependenciesOnly) {
+      errors.push(`These dependency updates ship in ${packages.join(", ")}, so they need a patch note naming those packages, such as \`bun run changeset add --patch ${packages.join(",")} -m "Update <dependency> to <version>."\`:`,
+        ...listed(shipped));
+    }
   }
-  const shipped = diff.filter(({ path }) => SHIPPED.test(path) && !TEST.test(path)).map(({ path }) => path);
   if (shipped.length > 0 && releases === 0 && errors.length === 0) {
-    errors.push("These files ship in Critiqs packages, so a no-release note does not cover them; add a patch, minor, or major note naming those packages:",
-      ...shipped.slice(0, 10).map((path) => `  ${path}`), ...(shipped.length > 10 ? [`  and ${shipped.length - 10} more`] : []));
+    errors.push("These files ship in Critiqs packages, so a no-release note does not cover them; add a patch, minor, or major note naming those packages:", ...listed(shipped));
   }
   return { ok: errors.length === 0, kind: "notes", messages: errors.length > 0 ? errors : notes };
 }
