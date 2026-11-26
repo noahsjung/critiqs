@@ -89,9 +89,9 @@ approval and migration instructions first; 0.x permits breaking no host app.
 Dependabot's pull requests arrive without a note, so `release-notes` fails on
 them until a maintainer pushes one to the branch: a `patch` note naming the
 packages the updated dependency ships in, or a short no-release note when it
-ships in none. Any change under `packages/` other than tests counts as shipped
-to the check, so a `package.json` change there needs a `patch` note even for a
-development dependency.
+ships in none. Any change under `packages/` other than tests and check
+scripts counts as shipped to the check, so a `package.json` change there needs
+a `patch` note even for a development dependency.
 
 Several notes in one pull request are fine; the largest type across all notes
 sets the shared version. Do not edit
@@ -111,8 +111,9 @@ merge base with its target branch. It fails when:
   package outside the release group (a private workspace, a registry name such
   as `django-critiqs`, or anything else), or uses a type other than patch,
   minor, or major (`major` only from 1.0.0);
-- a file that ships changed (anything under `packages/` except tests) and the
-  only notes are no-release notes;
+- a file that ships changed (anything under `packages/` except tests and a
+  package's check scripts, `scripts/check-*.ts`, which no package publishes)
+  and the only notes are no-release notes;
 - an existing note was edited or removed, a `version` field changed, a
   `CHANGELOG.md` changed, or another file was added to `.changeset/`, unless
   the pull request is a verified release pull request (below);

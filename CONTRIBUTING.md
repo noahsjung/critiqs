@@ -105,7 +105,8 @@ request's branch:
 - otherwise a short no-release note, such as
   `bun run changeset add --empty -m "Dependency update for development tools only: nothing ships."`
 
-The check treats any file under `packages/` other than tests as shipped, so
+The check treats any file under `packages/` other than tests and check
+scripts (`scripts/check-*.ts`) as shipped, so
 an update that changes a `package.json` there needs a `patch` note even when
 only a development dependency moved.
 

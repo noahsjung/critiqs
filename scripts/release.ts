@@ -14,9 +14,11 @@ import { fileURLToPath } from "node:url";
 
 const BUMPS = ["patch", "minor", "major"];
 // Files that ship: every package under packages/ is a released package or a
-// private workspace bundled into one. Tests do not ship.
+// private workspace bundled into one. Tests do not ship, nor do a package's
+// check scripts (scripts/check-*.ts, such as its consumer check), which no
+// package's files, gemspec, or sdist includes.
 const SHIPPED = /^packages\//;
-const TEST = /(^|\/)(test|tests|__tests__|spec)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_(test|spec)\.rb$/;
+const TEST = /(^|\/)(test|tests|__tests__|spec)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_(test|spec)\.rb$|^packages\/[^/]+\/scripts\/check-[^/]*\.ts$/;
 
 /** Where a released package is published. */
 export type Registry = "npm" | "rubygems" | "pypi";
