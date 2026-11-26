@@ -3,7 +3,8 @@ import { api } from "../convex/_generated/api";
 import { anchor, reviewer, setup } from "./harness";
 
 // "Open in prototype" on a thread page offers the project's review link for
-// the address the comment was left on, to the people who may open the page,
+// the address the comment was left on, to the project's owners and its
+// organization's members who may open the page,
 // and only while that link is still served to them.
 
 const ENV: Record<string, string> = {

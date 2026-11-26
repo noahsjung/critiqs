@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ALLOW_TOKEN, frameHostHash } from "@critiqs/server/review-links";
 import { api } from "../convex/_generated/api";
-import { reviewer, setup } from "./harness";
+import { anchor, reviewer, setup } from "./harness";
 
 // Allow Critiqs on Convex: a token is one project's for one exact origin,
 // shown only to that project's owners, and leases carry it to that origin
@@ -172,4 +172,21 @@ test("the proxy's answer is read field by field; an unreachable or odd proxy ver
   // Five so far; fifteen more reach the hour's twenty.
   for (let n = 5; n < 20; n++) await check();
   expect(await outcome(check())).toBe("A project can check its Allow Critiqs rules 20 times an hour. Try again later.");
+});
+
+test("a thread page offers the project's review link only to its owners and its organization's members, never to someone who only commented", async () => {
+  const f = await fixture();
+  const link = await f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: "https://walled.example/" });
+  await f.t.finishAllScheduledFunctions(() => undefined);
+  await f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin: "https://walled.example" });
+  expect((await f.dana.action(api.reviewAllow.check, { projectId: f.projectId, origin: "https://walled.example" })).verified).toBe(true);
+  const onSite = { ...anchor, evidence: { ...anchor.evidence, url: "https://walled.example/pricing" } };
+  const capture = { status: "failed" as const, failureReason: "x" };
+  // Lee is outside the organization and was never sent the link; in a project open to anyone he may comment, and open his own thread's page.
+  const leesThread = await f.lee.mutation(api.threads.create, { projectId: f.projectId, anchor: onSite, body: "hi", tags: [], capture });
+  const leesPage = await f.lee.mutation(api.threads.pageKey, { threadId: leesThread });
+  expect(await f.lee.query(api.reviewLinks.forThreadPage, { key: leesPage })).toBeNull();
+  // The owner and a member who isn't an owner get it, on the same page.
+  expect(await f.dana.query(api.reviewLinks.forThreadPage, { key: leesPage })).toBe(`${link.url}#/pricing`);
+  expect(await f.riley.query(api.reviewLinks.forThreadPage, { key: leesPage })).toBe(`${link.url}#/pricing`);
 });

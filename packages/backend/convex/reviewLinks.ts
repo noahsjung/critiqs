@@ -3,6 +3,7 @@ import {
   canReview,
   countWithinAll,
   fail,
+  inProjectOrganization,
   operations,
   projectAccess,
   recordProjectOpened,
@@ -654,6 +655,12 @@ export const forThreadPage = query({
       if (setup === null) return null;
       const store = convexStore(ctx);
       const { user, thread, project } = await operations.threadPageSubject(store, await identityOf(ctx), args.key);
+      // Only to people who could already have the link: the project's owners and its organization's members.
+      // Anyone else who may open the thread page (in a project open to anyone, someone who only commented)
+      // would get a key the owners never gave them, and with it the site's Allow Critiqs allowance.
+      if (user === null) return null;
+      const record = project as unknown as Parameters<typeof projectAccess>[1];
+      if ((await projectAccess(store, record, user._id)) !== "manage" && !(await inProjectOrganization(store, record, user._id))) return null;
       let page: URL;
       try {
         page = new URL(thread.anchor.evidence.url);
