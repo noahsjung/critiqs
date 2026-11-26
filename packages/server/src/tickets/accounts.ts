@@ -102,6 +102,11 @@ export interface TrackerSignIn {
   refresh(refreshToken: string, now: number, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<SignInTokens>;
   /** Where an organization installs the app to reach its repositories (GitHub). */
   installUrl?: string;
+  /**
+   * Whether ending one sign-in ends every token the app holds for the person
+   * (GitHub's grant), so a sign-in they made since would end with it.
+   */
+  endsEveryToken?: boolean;
   /** Ends a sign-in at the tracker, where it offers a call that does: true when the tracker no longer accepts its tokens. */
   end?(tokens: { access: string | null; refresh: string | null }, fetchFn?: typeof fetch, now?: number): Promise<boolean>;
 }
@@ -127,8 +132,21 @@ export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment)
       exchange: (input, now, fetchFn) => exchangeGithubCode(endpoint(fetchFn), app, input, now),
       refresh: (refreshToken, now, signal, fetchFn) => refreshGithubToken(endpoint(fetchFn), app, refreshToken, now, signal),
       installUrl: githubInstallUrl(deployment.githubAppUrl, app.slug),
-      // Deleting the app's grant for the person ends every token it holds for them.
-      end: async ({ access }, fetchFn) => access !== null && (await deleteGithubGrant({ baseUrl: deployment.githubApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) }, app, access)),
+      endsEveryToken: true,
+      // Deleting the app's grant for the person ends every token it holds for them. GitHub needs a valid access token for
+      // it, and they last eight hours: one GitHub turns down is refreshed first, when the refresh token still works.
+      end: async ({ access, refresh }, fetchFn, now = Date.now()) => {
+        const api = { baseUrl: deployment.githubApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) };
+        const first = access === null ? "refused" : await deleteGithubGrant(api, app, access);
+        if (first !== "refused" || refresh === null) return first === "deleted";
+        let fresh: SignInTokens;
+        try {
+          fresh = await refreshGithubToken(endpoint(fetchFn), app, refresh, now);
+        } catch {
+          return false;
+        }
+        return (await deleteGithubGrant(api, app, fresh.access)) === "deleted";
+      },
     };
   }
   return null;
@@ -363,6 +381,11 @@ async function linearRefuses(endpoint: TrackerEndpointOptions, access: string): 
   } catch (error) {
     return error instanceof CritiqsError && error.code === "invalid";
   }
+}
+
+/** Whether a person has an account for a tracker now, as after connecting it again. One transaction. */
+export async function hasTrackerAccount(store: Store, args: { userId: string; tracker: TrackerId }): Promise<boolean> {
+  return (await ticketStore(store).accounts.find(args.userId, args.tracker)) !== null;
 }
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */

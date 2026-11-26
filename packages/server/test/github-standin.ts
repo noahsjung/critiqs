@@ -82,6 +82,8 @@ export interface GithubStandIn {
   /** Issued access and refresh tokens. */
   accessTokens: Map<string, { login: string; expiresAt: number }>;
   refreshTokens: Map<string, string>;
+  /** The access token issued with each refresh token, which refreshing with it ends too. */
+  pairs: Map<string, string>;
   /** The stand-in's clock, for token expiry. */
   now: () => number;
   /**
@@ -192,6 +194,7 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
     signInAs: "dana-smith",
     accessTokens: new Map(),
     refreshTokens: new Map(),
+    pairs: new Map(),
     now: () => Date.now(),
     intercept: null,
     setState: (nodeId, state, reason = state === "closed" ? "completed" : "reopened") => {
@@ -286,6 +289,7 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
     const refresh = `ghr_standin_${issued}`;
     standIn.accessTokens.set(access, { login, expiresAt: standIn.now() + 28_800_000 });
     standIn.refreshTokens.set(refresh, login);
+    standIn.pairs.set(refresh, access);
     return { access_token: access, expires_in: 28800, refresh_token: refresh, refresh_token_expires_in: 15897600, scope: "", token_type: "bearer" };
   }
 
@@ -317,14 +321,15 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
       return new Response(null, { status: 302, headers: { Location: back.toString() } });
     }
     // Delete an app authorization (https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-authorization):
-    // the app's client ID and secret by Basic authentication, the user's access token in the body; 204, and every token of
-    // the app for that user stops working.
+    // the app's client ID and secret by Basic authentication, and "a valid OAuth access_token" in the body; 204, and every
+    // token of the app for that user stops working. An expired or unknown token is refused with 422, the only refusal listed.
     if (request.method === "DELETE" && path === `/applications/${standIn.app.clientId}/grant`) {
       if (authorization !== `Basic ${btoa(`${standIn.app.clientId}:${standIn.app.clientSecret}`)}`) return message("Requires authentication", 401);
       const body: unknown = await request.json().catch(() => null);
       const token = typeof body === "object" && body !== null && typeof (body as { access_token?: unknown }).access_token === "string" ? (body as { access_token: string }).access_token : "";
-      const owner = standIn.accessTokens.get(token)?.login;
-      if (owner === undefined) return message("Validation Failed", 422);
+      const access = standIn.accessTokens.get(token);
+      if (access === undefined || access.expiresAt <= standIn.now()) return message("Validation Failed", 422);
+      const owner = access.login;
       for (const [access, entry] of standIn.accessTokens) if (entry.login === owner) standIn.accessTokens.delete(access);
       for (const [refresh, login] of standIn.refreshTokens) if (login === owner) standIn.refreshTokens.delete(refresh);
       return new Response(null, { status: 204 });
@@ -338,8 +343,11 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
       if (form.get("grant_type") === "refresh_token") {
         const login = standIn.refreshTokens.get(form.get("refresh_token") ?? "");
         if (login === undefined) return fail("bad_refresh_token", "The refresh token passed is incorrect or expired.");
-        // Rotated: the refresh token used here stops working.
+        // Rotated: "that refresh token and the old user access token will no longer work"
+        // (https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens).
         standIn.refreshTokens.delete(form.get("refresh_token")!);
+        const pair = standIn.pairs.get(form.get("refresh_token")!);
+        if (pair !== undefined) standIn.accessTokens.delete(pair);
         return json(issueTokens(login));
       }
       const code = codes.get(form.get("code") ?? "");

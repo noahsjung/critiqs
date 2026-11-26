@@ -119,7 +119,10 @@ happened there:
   works is spent, and its new tokens revoked).
 - **GitHub sign-in:** the app's grant for the person is deleted
   (`DELETE /applications/{client_id}/grant`), which ends every token the app
-  holds for them. The app stays installed on the organization's
+  holds for them. GitHub needs a valid access token for it, and they last
+  eight hours, so one GitHub turns down (422) is refreshed first with the
+  refresh token, then used. A retry is skipped once the person has connected
+  GitHub again, since deleting the grant would end the new sign-in too. The app stays installed on the organization's
   repositories; only the organization can remove it.
 - **When the tracker can't be told** (unreachable, or it refused), Your
   trackers says that Critiqs can still reach the account and how to end it in

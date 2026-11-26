@@ -763,11 +763,12 @@ export async function refreshGithubToken(endpoint: TrackerEndpointOptions, app: 
  * Ends a person's sign-in at GitHub: deletes the app's grant for them
  * (https://docs.github.com/en/rest/apps/oauth-applications#delete-an-app-authorization),
  * which ends every token the app holds for them, with the app's client ID
- * and secret by Basic authentication and one of their access tokens. True
- * when GitHub answered 204; false when it couldn't be reached, or refused,
- * as it does a token that no longer works (422).
+ * and secret by Basic authentication and one of their access tokens, which
+ * GitHub requires to be valid. `deleted` when GitHub answered 204;
+ * `refused` when it turned the token down (422, as for one that expired);
+ * `unreachable` when there was no answer, or another one.
  */
-export async function deleteGithubGrant(endpoint: TrackerEndpointOptions, app: GithubApp, accessToken: string): Promise<boolean> {
+export async function deleteGithubGrant(endpoint: TrackerEndpointOptions, app: GithubApp, accessToken: string): Promise<"deleted" | "refused" | "unreachable"> {
   const to = endpointOf(endpoint, GITHUB_API_URL);
   try {
     const response = await to.fetch(`${to.baseUrl}/applications/${encodeURIComponent(app.clientId)}/grant`, {
@@ -782,9 +783,9 @@ export async function deleteGithubGrant(endpoint: TrackerEndpointOptions, app: G
       body: JSON.stringify({ access_token: accessToken }),
     });
     await response.body?.cancel().catch(() => undefined);
-    return response.status === 204;
+    return response.status === 204 ? "deleted" : response.status === 422 ? "refused" : "unreachable";
   } catch {
-    return false;
+    return "unreachable";
   }
 }
 

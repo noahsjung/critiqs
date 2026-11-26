@@ -9,18 +9,20 @@ import {
   disconnectTracker,
   endTrackerAccount,
   finishTokenRefresh,
+  hasTrackerAccount,
   listTrackerAccounts,
   requireTrackerPerson,
   saveOwnTrackerAccount,
   saveSignedInAccount,
   setTrackerAttribution,
   startTrackerSignIn,
+  trackerSignIn,
   type TrackerToken,
 } from "@critiqs/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action, internalAction, internalMutation, mutation, query } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { storedTokenValidator, tokenUseValidator, trackerValidator } from "./lib/validators";
 import { convexStore, identityOf, run } from "./lib/store";
 import { siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
@@ -97,13 +99,22 @@ export const removeAccount = internalMutation({
 export const endAccount = internalAction({
   args: { account: disconnectedAccount, attempt: v.optional(v.number()) },
   handler: async (ctx, args): Promise<string> => {
-    const outcome = await endTrackerAccount(ticketsDeployment(), args.account);
+    const deployment = ticketsDeployment();
+    // Connected again since: where ending the old sign-in ends every token the app holds (GitHub), it would end the new
+    // one too, so the old one is left to expire; the person was told how to end it.
+    if (trackerSignIn(args.account.tracker, deployment)?.endsEveryToken === true && (await ctx.runQuery(internal.trackers.connected, { userId: args.account.userId, tracker: args.account.tracker }))) return "kept";
+    const outcome = await endTrackerAccount(deployment, args.account);
     // The try after `attempt` waits END_RETRY_MS[attempt]; past the last, it is left to the person.
     const attempt = args.attempt ?? 1;
     const next = END_RETRY_MS[attempt];
     if (outcome === "failed" && next !== undefined) await ctx.scheduler.runAfter(next, internal.trackers.endAccount, { account: args.account, attempt: attempt + 1 });
     return outcome;
   },
+});
+
+export const connected = internalQuery({
+  args: { userId: v.string(), tracker: trackerValidator },
+  handler: async (ctx, args): Promise<boolean> => await hasTrackerAccount(convexStore(ctx), { userId: args.userId, tracker: args.tracker }),
 });
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */

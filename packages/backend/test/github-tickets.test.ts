@@ -143,6 +143,48 @@ test("disconnecting a GitHub sign-in deletes the app's grant at GitHub, so neith
   expect(github.refreshTokens.has(refresh)).toBe(false);
 });
 
+test("disconnecting a GitHub sign-in whose access token has expired still deletes the grant, refreshing first; when GitHub can't be told, the person is", async () => {
+  withApp();
+  const { t, dana } = await project();
+  await signIn(t, dana);
+  const [row] = await t.run((ctx) => ctx.db.query("trackerAccounts").collect());
+  const access = (await decryptToken(KEY, trackerTokenBinding("github", row!.userId), row!.access))!;
+  const refresh = (await decryptToken(KEY, trackerTokenBinding("github", row!.userId), row!.refresh!))!;
+  // Eight hours on: GitHub no longer accepts the access token, and deleting the grant needs a valid one.
+  github.accessTokens.get(access)!.expiresAt = Date.now() - 1;
+  await t.run((ctx) => ctx.db.patch(row!._id, { expiresAt: Date.now() - 1 }));
+  expect(await dana.action(api.trackers.disconnect, { tracker: "github" })).toBe("ended");
+  expect(github.requests.filter((request) => request === `DELETE /applications/${github.app.clientId}/grant`).length).toBeGreaterThanOrEqual(1);
+  expect(github.refreshTokens.size).toBe(0);
+  expect([...github.accessTokens.keys()].filter((token) => github.accessTokens.get(token)!.expiresAt > Date.now())).toEqual([]);
+  expect(github.refreshTokens.has(refresh)).toBe(false);
+
+  // Both tokens expired or revoked: GitHub can't be told, and disconnecting says so, so the person removes the app in GitHub.
+  await signIn(t, dana);
+  const [again] = await t.run((ctx) => ctx.db.query("trackerAccounts").collect());
+  const stale = (await decryptToken(KEY, trackerTokenBinding("github", again!.userId), again!.access))!;
+  github.accessTokens.get(stale)!.expiresAt = Date.now() - 1;
+  github.refreshTokens.clear();
+  expect(await dana.action(api.trackers.disconnect, { tracker: "github" })).toBe("failed");
+});
+
+test("a disconnect GitHub couldn't be told of is tried again later, but not once the person has connected GitHub again, whose new sign-in shares the grant", async () => {
+  withApp();
+  const { t, dana } = await project();
+  await signIn(t, dana);
+  github.intercept = (method, path) => (method === "DELETE" && path.endsWith("/grant") ? new Response("unavailable", { status: 503 }) : undefined);
+  expect(await dana.action(api.trackers.disconnect, { tracker: "github" })).toBe("failed");
+  const [retry] = await t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.state.kind === "pending" && job.name.includes("endAccount")));
+  github.intercept = null;
+  // Dana connects GitHub again before the retry: deleting the grant now would end her new sign-in too.
+  await signIn(t, dana);
+  const grants = () => github.requests.filter((request) => request.endsWith("/grant")).length;
+  const before = grants();
+  expect(await t.action(internal.trackers.endAccount, retry!.args[0] as never)).toBe("kept");
+  expect(grants()).toBe(before);
+  expect((await dana.action(api.tickets.destinations, { tracker: "github" })).length).toBeGreaterThan(0);
+});
+
 test("GitHub sign-in into an account with none of the Critiqs email's addresses saves nothing, and the window says so", async () => {
   withApp();
   const { t, dana } = await project();
