@@ -97,8 +97,8 @@ the note, not whether the type is right.
 ### Dependency updates
 
 A pull request that only changes dependency versions (ranges in
-`package.json` files, the versions `bun.lock` files resolve, and the actions
-the workflows use) needs no note when none of the updates
+`package.json` files, the versions `bun.lock` files resolve, and the commits
+the workflows' actions are pinned to) needs no note when none of the updates
 ships in a released package. Most of Dependabot's weekly pull requests are
 like that and pass as they are. An update ships when a package's users
 install it, or a package's build puts its code in or runs it:
@@ -134,6 +134,16 @@ What the gate can't tell apart needs a note: a `bun.lock` change other than
 resolved versions and the workspaces' ranges (such as its overrides or
 trusted dependencies), a `bun.lock` it can't read, and any other file, such as
 `bunfig.toml` or `.npmrc`.
+
+An action's new pin needs no note only when the action itself (owner,
+repository, and path) stays the same, both pins are full commit SHAs with at
+most a version comment, and the workflow can't publish, push, or read
+secrets: it sets top-level `permissions:` and grants nothing `write`. Anything
+else on a `uses:` line, such as another publisher's action or a tag, is judged
+as any workflow change and needs a note. The Publish and Release workflows
+build, version, and publish what users get, so an action update there needs a
+person's note even when only the pin moved: check what changed in the action,
+then add a no-release note that says so.
 
 Type packages, test tools, workspaces outside `packages/`, and other projects'
 lockfiles (`site-src/bun.lock`) ship nothing. For an update that ships,

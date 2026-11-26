@@ -18,7 +18,9 @@
 // packages that bundle it. What the gate can't tell apart counts against the
 // pull request: a package missing from the record counts every update as
 // shipped in it, and a lockfile it can't read, or a lockfile change other than
-// resolved versions and ranges, needs a note.
+// resolved versions and ranges, needs a note. Workflows: an action's new pin
+// needs no note only when the action stays the same and the workflow can't
+// publish, push, or read secrets.
 
 type Change = { status: string; path: string };
 type Read = (commit: string, path: string) => Promise<string | null>;
@@ -50,7 +52,7 @@ const BUILD_SCRIPTS = ["build", "prepack", "prepare", "release:build"];
 const LOCK_VERSIONS = new Set(["workspaces", "packages"]);
 
 export interface ShippedChanges {
-  /** Every change is a dependency's version: a package.json dependency range, a bun.lock entry, or an action a workflow uses. */
+  /** Every change is a dependency's version: a package.json dependency range, a bun.lock entry, or an action's pin in a workflow. */
   dependenciesOnly: boolean;
   /** What ships, one line each: a path, or `<path>: <dependency> <before> → <after>`. */
   shipped: string[];
@@ -81,7 +83,13 @@ export async function shippedChanges(cwd: string, from: string, to: string, diff
   };
 
   for (const { status, path } of diff) {
-    if (status === "M" && WORKFLOW.test(path) && sameApartFromActions(await read(from, path), await read(to, path))) continue;
+    if (status === "M" && WORKFLOW.test(path)) {
+      const [before, after] = [await read(from, path), await read(to, path)];
+      if (sameApartFromActionPins(before, after)) {
+        if (!canWriteOrPublish(before!) && !canWriteOrPublish(after!)) continue;
+        reasons.push(`${path} moves actions to new commits in a workflow that can publish, push, or read secrets; a person checks the update and adds a note.`);
+      }
+    }
     // Lockfiles of projects outside packages/, such as site-src's, resolve nothing a package ships.
     if (status === "M" && path.endsWith("bun.lock") && path !== "bun.lock" && !SHIPPED.test(path)) continue;
     if (status === "M" && path === "bun.lock") {
@@ -141,10 +149,24 @@ export async function shippedChanges(cwd: string, from: string, to: string, diff
   return { dependenciesOnly, shipped: listed, packages: [...reached].sort(), reasons };
 }
 
-/** Whether two workflow files differ only in the actions their `uses:` lines name. */
-function sameApartFromActions(before: string | null, after: string | null): boolean {
-  const strip = (text: string) => text.replace(/^(\s*(?:-\s+)?uses:\s*).*$/gm, "$1");
-  return before !== null && after !== null && strip(before) === strip(after);
+/**
+ * A `uses:` line pinned to a full commit, with an optional version comment:
+ * the action (owner, repository, path) is kept, the pin and comment are not.
+ */
+const PIN = /^([ \t]*(?:-[ \t]+)?uses:[ \t]*)([\w.-]+\/[\w.-]+(?:\/[\w./-]+)?)@[0-9a-f]{40}(?:[ \t]+#[ \t]*v?\d+(?:\.\d+)*(?:-[\w.]+)?)?[ \t]*$/gm;
+/** Whether two workflow files differ only in the commits their actions are pinned to, and those actions' version comments. */
+function sameApartFromActionPins(before: string | null, after: string | null): boolean {
+  const unpinned = (text: string) => text.replace(PIN, "$1$2@");
+  return before !== null && after !== null && unpinned(before) === unpinned(after);
+}
+
+/**
+ * Whether a workflow can publish, push, or use secrets: a permission set to
+ * write, a secret, a privileged trigger, or no top-level `permissions:` (the
+ * token then gets the repository's default, which may write).
+ */
+function canWriteOrPublish(text: string): boolean {
+  return !/^permissions:/m.test(text) || /write-all|^[ \t]*[\w-]+:[ \t]*write\b|\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/m.test(text);
 }
 
 function parse(text: string | null): Manifest | undefined {

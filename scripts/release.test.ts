@@ -360,7 +360,8 @@ test("no released package publishes the check scripts the gate counts as tests",
 });
 
 describe("dependency updates", () => {
-  const workflow = (checkout: string, run = "bun test") => `name: CI\non: pull_request\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@${checkout}\n      - run: ${run}\n`;
+  const [v4, v5] = ["11d5960a326750d5838078e36cf38b85af677262 # v4.4.0", "34e114876b0b11c390a56381ad16ebd13914f8d5 # v5.0.0"];
+  const workflow = (checkout: string, run = "bun test", permissions = "contents: read") => `name: CI\non: pull_request\npermissions:\n  ${permissions}\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@${checkout}\n      - run: ${run}\n`;
   /** A bun.lock as Bun writes it: `left-pad` needs `pad-core`; `test-tool` needs `tool-core`; `vue` is left to users; `convex-like` is a runtime dependency `critiqs` also bundles. */
   const lock = ({ pad = "1.0.0", tool = "1.0.0", vue = "3.5.0", runtime = "1.0.0" } = {}) => `{\n  "lockfileVersion": 1,\n  "workspaces": {},\n  "packages": {\n    "convex-like": ["convex-like@${runtime}", "", {}, "sha512-f"],\n    "left-pad": ["left-pad@1.0.0", "", { "dependencies": { "pad-core": "^1.0.0" } }, "sha512-a"],\n    "pad-core": ["pad-core@${pad}", "", {}, "sha512-b"],\n    "test-tool": ["test-tool@1.0.0", "", { "dependencies": { "tool-core": "^1.0.0" }, "bin": { "test-tool": "cli.js" } }, "sha512-c"],\n    "tool-core": ["tool-core@${tool}", "", {}, "sha512-d"],\n    "vue": ["vue@${vue}", "", {}, "sha512-e"],\n  }\n}\n`;
   /** What each released package's build bundles, as bundled-dependencies.ts records it: `critiqs` bundles left-pad, pad-core, and its own runtime dependency convex-like. */
@@ -372,7 +373,7 @@ describe("dependency updates", () => {
   async function withDependencies() {
     const repo = await fixture();
     await repo.commit({
-      ".github/workflows/ci.yml": workflow("v4"),
+      ".github/workflows/ci.yml": workflow(v4),
       "bun.lock": lock(),
       "scripts/bundled-dependencies.json": record(),
       "site-src/bun.lock": lock(),
@@ -389,7 +390,9 @@ describe("dependency updates", () => {
   }
 
   const cases: [string, Record<string, string>, boolean, RegExp][] = [
-    ["the actions a workflow uses, with no note", { ".github/workflows/ci.yml": workflow("v5") }, true, /No release note needed/],
+    ["the actions a workflow uses, with no note", { ".github/workflows/ci.yml": workflow(v5) }, true, /No release note needed/],
+    ["another publisher's action, with no note", { ".github/workflows/ci.yml": workflow(v4).replace("actions/checkout", "someone-else/checkout") }, false, /^Add a release note[^\n]*$/],
+    ["an action's new commit beside new permissions, with no note", { ".github/workflows/ci.yml": workflow(v5, "bun test", "id-token: write") }, false, /^Add a release note[^\n]*$/],
     ["what a runtime dependency resolves to, when the package bundles it, with no note", { "bun.lock": lock({ runtime: "1.1.0" }) }, false, /ship in critiqs, so[^\n]*\n  bun\.lock: convex-like 1\.0\.0 → 1\.1\.0/],
     ["a development tool update, when the record doesn't name a package", { "bun.lock": lock({ tool: "1.1.0" }), "scripts/bundled-dependencies.json": record({ critiqs: { bundles: ["convex-like", "left-pad", "pad-core"], runs: [] } }) }, false, /^Add a release note[\s\S]*doesn't say what critiqs-django bundles/],
     ["a development tool update beside a narrower record, with only a no-release note", { "bun.lock": lock({ tool: "1.1.0" }), "scripts/bundled-dependencies.json": record({ critiqs: { bundles: ["convex-like", "left-pad", "pad-core"], runs: [] } }), ".changeset/deps.md": "---\n---\n\nNothing ships.\n" }, false, /no-release note does not cover them[^\n]*\n  bun\.lock: tool-core/],
@@ -403,7 +406,7 @@ describe("dependency updates", () => {
     ["a private workspace's dependency, with no note", { "packages/core/package.json": json({ name: "@critiqs/core", version: "0.0.0", private: true, dependencies: { "pad-core": "^1.1.0" }, devDependencies: { vue: "^3.5.0" } }) }, false, /ship in critiqs, critiqs-react[^\n]*\n  packages\/core\/package.json: pad-core/],
     ["a bundled dependency with only a no-release note", { "bun.lock": lock({ pad: "1.0.1" }), ".changeset/deps.md": "---\n---\n\nNothing ships.\n" }, false, /no-release note does not cover them[^\n]*\n  bun\.lock: pad-core/],
     ["a bundled dependency with a patch note", { "bun.lock": lock({ pad: "1.0.1" }), ".changeset/deps.md": note({ critiqs: "patch", "critiqs-react": "patch" }, "Update pad-core to 1.0.1.") }, true, /critiqs patch/],
-    ["a workflow change beyond the actions it uses, with no note", { ".github/workflows/ci.yml": workflow("v5", "bun run check") }, false, /^Add a release note[^\n]*$/],
+    ["a workflow change beyond the actions it uses, with no note", { ".github/workflows/ci.yml": workflow(v5, "bun run check") }, false, /^Add a release note[^\n]*$/],
     ["a manifest change beyond dependencies, with no note", { "packages/critiqs/package.json": json({ ...JSON.parse(critiqs({ "left-pad": "^1.0.0", "test-tool": "^1.1.0" })), files: ["dist"] }) }, false, /^Add a release note[^\n]*$/],
     ["shipped code beside a development tool update, with no note", { "bun.lock": lock({ tool: "1.1.0" }), "packages/react/src/index.ts": "export const a = 2;\n" }, false, /^Add a release note[^\n]*$/],
     ["a dependency in a manifest inside a package, with no note", { "packages/react/templates/package.json": json({ dependencies: { "left-pad": "^1.1.0" } }) }, false, /^Add a release note[^\n]*$/],

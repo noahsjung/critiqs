@@ -7,7 +7,7 @@
 //   patch - ships in a Critiqs package: refused with no note, and refused
 //           beside a no-release note.
 // The cases are the ways an update could reach users without a note: the
-// lockfile, manifests, and files the gate never classified.
+// lockfile, manifests, workflows, and files the gate never classified.
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -70,6 +70,9 @@ const manifestEdit = (edit: (manifest: Record<string, any>) => void) => (text: s
 
 const noRelease = { ".changeset/case-no-release.md": "---\n---\n\nNothing ships.\n" };
 const patch = (...names: string[]) => ({ ".changeset/case-patch.md": `---\n${names.map((name) => `"${name}": patch`).join("\n")}\n---\n\nUpdate.\n` });
+/** The workflow line that pins `action`, in `file`. */
+const usesLine = async (file: string, action: string) => (await show(file)).match(new RegExp(`^.*uses: ${action}@[0-9a-f]{40}.*$`, "m"))![0];
+const otherSha = "0123456789abcdef0123456789abcdef01234567";
 
 type Expect = "free" | "note" | "patch";
 const cases: [string, Record<string, Edit>, Expect, string[]?][] = [
@@ -127,6 +130,20 @@ const cases: [string, Record<string, Edit>, Expect, string[]?][] = [
   ["a new workflow", { ".github/workflows/other.yml": "name: Other\non: push\npermissions: {}\njobs: {}\n" }, "note"],
 ];
 
+/** Workflow cases: each changes the line pinning an action in a workflow. */
+const workflowCases: [string, string, (line: string) => string, Expect][] = [
+  ["CI: the same action at another commit", ".github/workflows/ci.yml", (line) => line.replace(/@[0-9a-f]{40} # v[\d.]+/, `@${otherSha} # v9.9.9`), "free"],
+  ["CI: the same action, only its version comment", ".github/workflows/ci.yml", (line) => line.replace(/ # v[\d.]+/, " # v4.4.1"), "free"],
+  ["CI: another publisher's action at a commit", ".github/workflows/ci.yml", (line) => line.replace(/uses: [^/]+\//, "uses: someone-else/"), "note"],
+  ["CI: another action in the same repository", ".github/workflows/ci.yml", (line) => line.replace(/uses: ([^@]+)@/, "uses: $1/sub@"), "note"],
+  ["CI: a commit pin moved to a tag", ".github/workflows/ci.yml", (line) => line.replace(/@[0-9a-f]{40} # (v[\d.]+)/, "@$1"), "note"],
+  ["CI: a Docker image instead", ".github/workflows/ci.yml", (line) => line.replace(/uses: .*$/, "uses: docker://example/uploader:latest"), "note"],
+  ["CI: the pin bump with a command after it on the line", ".github/workflows/ci.yml", (line) => line.replace(/@[0-9a-f]{40} # v[\d.]+/, `@${otherSha} # v9.9.9 && curl example.com`), "note"],
+  ["Publish: the same action at another commit", ".github/workflows/publish.yml", (line) => line.replace(/@[0-9a-f]{40} # v[\d.]+/, `@${otherSha} # v9.9.9`), "note"],
+  ["Publish: another publisher's setup-bun", ".github/workflows/publish.yml", (line) => line.replace("oven-sh/", "someone-else/"), "note"],
+  ["Release: the same action at another commit", ".github/workflows/release.yml", (line) => line.replace(/@[0-9a-f]{40} # v[\d.]+/, `@${otherSha} # v9.9.9`), "note"],
+];
+
 async function expectAnswer(name: string, edits: Record<string, Edit>, expected: Expect, packages: string[] = []) {
   const bare = await check(root, head, await commit(edits));
   const text = bare.messages.join("\n");
@@ -156,6 +173,18 @@ async function expectAnswer(name: string, edits: Record<string, Edit>, expected:
 
 describe("the release notes gate on this repository", () => {
   for (const [name, edits, expected, packages] of cases) test(`${expected}: ${name}`, () => expectAnswer(name, edits, expected, packages));
+  for (const [name, file, change, expected] of workflowCases) {
+    test(`${expected}: ${name}`, async () => {
+      const line = await usesLine(file, file.endsWith("publish.yml") ? "oven-sh/setup-bun" : "actions/checkout");
+      // Dependabot changes every line that pins the action.
+      await expectAnswer(name, { [file]: (text) => text.replaceAll(line, change(line)) }, expected);
+    });
+  }
+  test("note: CI: two steps' actions swapped", async () => {
+    const [checkout, bun] = [await usesLine(".github/workflows/ci.yml", "actions/checkout"), await usesLine(".github/workflows/ci.yml", "oven-sh/setup-bun")];
+    const swapped = (text: string) => text.replaceAll(checkout, "\0").replaceAll(bun, checkout).replaceAll("\0", bun);
+    await expectAnswer("swapped", { ".github/workflows/ci.yml": swapped }, "note");
+  });
 
   // People's pull requests: judged as before.
   const people: [string, Record<string, Edit>, Expect][] = [

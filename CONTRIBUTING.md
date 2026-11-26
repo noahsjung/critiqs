@@ -116,8 +116,11 @@ form.
 
 A pull request that only changes dependency versions needs no release note
 when none of the updates ships in a Critiqs package: type packages, test tools,
-and the apps, examples, and site outside `packages/`. Most of Dependabot's
-weekly pull requests pass as they are.
+the apps, examples, and site outside `packages/`, and new commits of the same
+actions in the CI workflow. Most of Dependabot's weekly pull requests pass as
+they are. An action update in the Publish or Release workflow, which build and
+publish what users get, needs a person to check it and add a no-release note,
+such as `bun run changeset add --empty -m "Publish workflow: actions/checkout 4.4.0 to 4.5.0, checked."`.
 
 When an update does ship (a range users install, or code a package's build
 bundles or runs, at any depth, as `scripts/bundled-dependencies.json` lists
