@@ -15,5 +15,7 @@ crons.interval("remove expired AI request counters", { hours: 1 }, internal.grou
 crons.interval("report Critiqs AI usage to billing", { minutes: 1 }, internal.billing.reportUsage, {});
 crons.interval("check organizations' subscriptions with billing", { hours: 24 }, internal.billing.reconcile, {});
 crons.interval("remove old billing records", { hours: 24 }, internal.billing.cleanUp, {});
+crons.interval("remove ended review link leases and old usage", { minutes: 10 }, internal.reviewLinks.cleanUp, {});
+crons.interval("check review links' addresses with the reputation provider", { hours: 1 }, internal.reviewLinks.recheckReputation, {});
 
 export default crons;

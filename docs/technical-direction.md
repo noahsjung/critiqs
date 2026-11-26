@@ -1173,6 +1173,60 @@ move into organizations with `organizations:backfill`.
   Self-hosted deployments must run with no outside sign-in service. Clerk
   charges for each monthly active user, while Pro allows unlimited reviewers.
 
+## Review links
+
+A review link lets someone review a prototype with nothing installed: the
+Critiqs website shows the prototype in a frame served by a review proxy on its
+own domain, with the comment panel beside it.
+
+**Built (backend only; the proxy and the review page come next):** Convex
+stores the links and decides every request the proxy serves.
+
+- **Links.** A project's owners create a link for a public `https:` address
+  (`reviewLinks:createLive`). Its exact origin, and any of up to four other
+  origins its pages read from, join the project's address list. The link's
+  key (`<website>/r/<key>`, 130 random bits) is stored only as a hash; owners
+  copy it again with `reviewLinks:copy`, which derives it from the link's ID
+  with a key ring the deployment keeps to itself. Owners list and revoke
+  links. A project holds 20 open links, and a person creates 10 a day.
+- **Leases.** Opening a link (`reviewLinks:open`) gives the viewer a lease: a
+  new random frame host, `v-<label>.<proxy domain>`, stored only as a hash.
+  It lasts 10 minutes, the review page renews it every 5 (`renew`), and it
+  ends 8 hours after it began. Signed out, a link opens only when the project
+  is open to anyone, and the answer names no project until the viewer signs
+  in and adopts the lease (`adopt`). Limited to its organization, only its
+  members get a lease. A link that won't open answers like a key that doesn't
+  exist.
+- **Every request is checked again.** The proxy asks
+  `POST /internal/review/v1/resolve` what a frame host stands for, with the
+  shared secret, and may reuse the answer for at most 5 seconds. The answer
+  is a 404 unless the lease is current, the link is active, the viewer may
+  still review the project, the exact origin is still in the address list,
+  the reputation verdict is clean and less than two days old, no operator
+  takedown names the link, project, or origin, and the link is under its
+  daily ceiling (50,000 requests or 5 GB, reported by the proxy to
+  `/internal/review/v1/usage`). The proxy's side is `convexDirectory` in
+  `@critiqs/server/review-directory`.
+- **Reputation.** A new link stays `checking` until Google Web Risk answers
+  for its addresses (origin and path, never the query); an unsafe verdict
+  blocks it for good, and active links are checked again daily. Without a
+  key, links are served only when the proxy is on this computer
+  (`*.localhost`).
+- **Takedowns.** An operator stops a link, a project, or an origin at once:
+  `npx convex run reviewLinks:deny '{"origin":"https://x.example","reason":"…"}'`,
+  undone with `reviewLinks:undeny`.
+
+Settings on the Convex deployment; `/critiqs/config` reports `reviewLinks`
+only when the first three are set and the proxy's domain is apart from the
+website and the backend:
+
+| Setting | Value |
+| --- | --- |
+| `CRITIQS_REVIEW_PROXY_URL` | The proxy's domain as an origin, such as `https://critiqs-review.net` (`http://review.localhost:<port>` on one computer) |
+| `CRITIQS_PROXY_SECRET` | At least 32 characters, the same value the proxy has |
+| `CRITIQS_WEB_URL` | The website that serves `/r/<key>` |
+| `CRITIQS_WEB_RISK_API_KEY` | Google Web Risk Lookup API key; without it, links aren't served except on a `*.localhost` proxy |
+
 ## Private R2 screenshot storage
 
 **Agreed:** screenshots may live in a private Cloudflare R2 bucket while Convex

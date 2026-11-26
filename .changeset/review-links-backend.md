@@ -1,0 +1,5 @@
+---
+"critiqs-react": minor
+---
+
+Convex backends can now serve review links through a review proxy, once `CRITIQS_REVIEW_PROXY_URL`, `CRITIQS_PROXY_SECRET`, and `CRITIQS_WEB_URL` are set (and `CRITIQS_WEB_RISK_API_KEY` for a proxy on the internet). A project's owners create, list, copy, and revoke links (`reviewLinks:createLive`, `list`, `copy`, `revoke`); opening one gives its viewer a short lease with its own frame host (`reviewLinks:open`, `renew`, `adopt`, `recordOpened`), only as the project's review access allows. The proxy checks each frame host through `/internal/review/v1/resolve` with the shared secret, and every check (the link, review access, the exact address in the project's address list, the reputation verdict, operator takedowns with `reviewLinks:deny`, and daily usage) applies within five seconds. Backends report the feature as `reviewLinks` in their configuration; without those settings nothing changes. Deploy the matching backend for the new tables.

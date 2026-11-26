@@ -179,6 +179,83 @@ export default defineSchema({
     .index("by_user_time", ["userId", "openedAt"]),
 
   /**
+   * A review link: a durable key on the Critiqs website (`/r/<key>`) that
+   * shows one of the project's prototypes through the review proxy. Only the
+   * key's hash is stored; owners copy it again by deriving it from the ID with
+   * the deployment's key ring (`reviewLinks:copy`).
+   */
+  reviewLinks: defineTable({
+    projectId: v.id("projects"),
+    kind: v.literal("site"),
+    /** The prototype's exact origin; it must stay in the project's address list for the link to open. */
+    origin: v.string(),
+    /** Path and query the link opens at. */
+    startPath: v.string(),
+    /** Other exact origins from the address list its pages may read from, in slot order. */
+    assetOrigins: v.array(v.string()),
+    keyHash: v.string(),
+    keyVersion: v.number(),
+    /** `checking` until the reputation provider has a verdict; `blocked` when it called an address unsafe; `revoked` by an owner. */
+    status: v.union(v.literal("checking"), v.literal("active"), v.literal("blocked"), v.literal("revoked")),
+    /** When the reputation provider last gave a clear verdict on every address. */
+    checkedAt: v.optional(v.number()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    /** The client's key for this create, so a retry returns this link. */
+    requestKey: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_key_hash", ["keyHash"])
+    .index("by_project_status", ["projectId", "status"])
+    .index("by_creator_request", ["createdBy", "requestKey"])
+    .index("by_status_checked", ["status", "checkedAt"]),
+
+  /**
+   * One viewer's short hold on a review link, renewed by the review page. An
+   * anonymous lease has no `userId` until the viewer signs in and adopts it.
+   */
+  reviewLeases: defineTable({
+    linkId: v.id("reviewLinks"),
+    userId: v.optional(v.id("users")),
+    /** Hash of the renewal secret the review page keeps in memory. */
+    renewalHash: v.string(),
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    /** The lease ends here however often it is renewed. */
+    deadline: v.number(),
+  })
+    .index("by_link", ["linkId"])
+    .index("by_expiry", ["expiresAt"]),
+
+  /** A lease's frame host on the proxy domain, stored only as the hash of its random label. */
+  reviewFrameHosts: defineTable({
+    hostHash: v.string(),
+    leaseId: v.id("reviewLeases"),
+    linkId: v.id("reviewLinks"),
+  })
+    .index("by_host_hash", ["hostHash"])
+    .index("by_lease", ["leaseId"]),
+
+  /**
+   * An operator's takedown: a link, a project, or a prototype origin that review
+   * links must not serve. `subject` is `link:<id>`, `project:<id>`, or `origin:<origin>`.
+   */
+  reviewDeny: defineTable({ subject: v.string(), reason: v.string(), createdAt: v.number() }).index("by_subject", ["subject"]),
+
+  /** A review link's traffic on one day (UTC) as the proxy reports it, and the leases it minted in the current hour. */
+  reviewUsage: defineTable({
+    linkId: v.id("reviewLinks"),
+    day: v.string(),
+    requests: v.number(),
+    bytes: v.number(),
+    /** The hour `leases` counts, as `YYYY-MM-DDTHH`. */
+    leaseHour: v.string(),
+    leases: v.number(),
+  })
+    .index("by_link_day", ["linkId", "day"])
+    .index("by_day", ["day"]),
+
+  /**
    * Critiqs Cloud plans configured on this deployment, replacing the built-in
    * plan of the same name. Set with `npx convex run plans:set`.
    */

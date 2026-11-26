@@ -9,6 +9,8 @@
     "./sqlite": "./src/sqlite/index.ts",
     "./http": "./src/http/index.ts",
     "./public-web": "./src/public-web.ts",
+    "./review-links": "./src/review-links.ts",
+    "./review-directory": "./src/review-directory.ts",
     "./contract": "./test/contract.ts",
     "./ai-providers": "./src/ai/providers.ts",
     "./contract-ai": "./test/contract-ai.ts",
