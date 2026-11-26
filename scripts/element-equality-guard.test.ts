@@ -226,9 +226,11 @@ test("every matcher bun has, failing on an element, fails at once with a short m
   const { code, output, ms } = await runInDom(FAILING.map(([matcher, assertion], i) => `test(${JSON.stringify(`${i} ${matcher}`)}, async () => { ${assertion}; });`).join("\n"));
   expect([code, output.match(/^ \d+ pass\n \d+ fail$/m)?.[0]]).toEqual([1, ` 0 pass\n ${FAILING.length} fail`]);
   // Each test's report ends with its "(fail)" line; without the guard some reach hundreds of megabytes.
+  // On GitHub's runners bun repeats each failure as an "::error" annotation line, which doubles a report
+  // (a plain event prints about 2.3 KB, so 4.5 KB there). The bound only has to tell kilobytes from megabytes.
   const reports = output.split(/^\(fail\) .*$/m).slice(0, FAILING.length);
-  const sizes = reports.map((report, i) => [FAILING[i]![1], report.length] as const);
-  expect(sizes.filter(([, size]) => size > 2500)).toEqual([]);
+  const sizes = reports.map((report, i) => [FAILING[i]![1], report.replace(/^::error .*$/gm, "").length] as const);
+  expect(sizes.filter(([, size]) => size > 16_000)).toEqual([]);
   for (const [i, [matcher]] of FAILING.entries()) {
     const refused = (DIFFS as readonly string[]).includes(matcher) || (REFUSED as readonly string[]).includes(matcher);
     if (refused && !(matcher === "toHaveProperty" && FAILING[i]![1].includes('"zzz"'))) expect([i, reports[i]]).toEqual([i, expect.stringMatching(/was given|isn't available/)]);
