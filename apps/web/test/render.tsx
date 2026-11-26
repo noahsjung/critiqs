@@ -99,6 +99,7 @@ export function fakeBackend(
     componentBackend: overrides.componentBackend ?? null,
     createKeys: overrides.createKeys ?? false,
     addressEdits: overrides.addressEdits ?? false,
+    developerResends: overrides.developerResends ?? false,
     checkAddress: record("checkAddress", overrides.checkAddress ?? (async () => ({ kind: "public", stack: null }) as const)),
     saveAboutYou: record("saveAboutYou", overrides.saveAboutYou ?? (async () => {})),
     createProject: record("createProject", overrides.createProject ?? (async () => "k57abcdefghijklmnop")),

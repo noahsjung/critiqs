@@ -107,6 +107,8 @@ export default defineSchema({
     attempts: v.array(v.object({ at: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.null()) })),
     /** The current email exactly as first prepared, so a retry sends the same request. */
     message: v.optional(storedMailValidator),
+    /** How many times the address was sent the steps again after an email went out; absent means none. */
+    resends: v.optional(v.number()),
   }).index("by_project_email", ["projectId", "email"]),
 
   /** Inboxes whose people reported Critiqs's email as unwanted; they get no more developer or invite emails. */

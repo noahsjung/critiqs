@@ -1,5 +1,7 @@
 import {
   DEVELOPER_INVITES_PER_PERSON_PER_DAY,
+  DEVELOPER_RESEND_AFTER_MS,
+  MAX_DEVELOPER_RESENDS,
   type DeveloperInvite,
   type DeveloperLimit,
   type DeveloperSendResult,
@@ -137,7 +139,20 @@ const LIMIT_MESSAGES: Record<DeveloperLimit, (email: string) => string> = {
   person: () => `You've sent ${DEVELOPER_INVITES_PER_PERSON_PER_DAY} developer emails today. Copy the message instead.`,
   inbox: (email) => `${email} got as many emails from Critiqs as it can today. Try again tomorrow, or copy the message instead.`,
   deployment: () => "Critiqs is sending a lot of emails right now. Try again later, or copy the message instead.",
+  wait: (email) => `${email} got the steps less than a day ago. You can send them again 24 hours after the last email.`,
+  resends: (email) => `${email} was already sent the steps again ${MAX_DEVELOPER_RESENDS} times. Copy the message instead.`,
 };
+
+/** When a send's current email went out: the attempt the mail service accepted, else its first attempt, else when it was reserved. */
+function sentAt(send: DeveloperSendRecord): number {
+  return (send.attempts.find((attempt) => attempt.answer === "accepted") ?? send.attempts[0])?.at ?? send.reservedAt;
+}
+
+/** When the steps can go to a send's address again, or null when they can't (see `DeveloperSendSummary`). */
+export function resendAt(send: DeveloperSendRecord): number | null {
+  if (sendStatus(send.attempts) === "failed" || (send.resends ?? 0) >= MAX_DEVELOPER_RESENDS) return null;
+  return sentAt(send) + DEVELOPER_RESEND_AFTER_MS;
+}
 
 /** An email reserved in the transaction, for the email path to deliver once it commits. */
 export interface ReservedEmail {
@@ -164,11 +179,19 @@ export interface ReservedEmail {
  * each `sent` result's `invite` says which happened. A retried email never
  * invites: its `invite` is the developer's state now, so an invite withdrawn
  * since stays withdrawn.
+ *
+ * With `resend`, an address whose email went out (or may have) is sent the
+ * steps again instead of answering `already-sent`: 24 hours after that email
+ * (`DEVELOPER_RESEND_AFTER_MS`), at most `MAX_DEVELOPER_RESENDS` times, as a
+ * new email under the next key, counted against the person's day, the
+ * inbox's day, and the deployment's hour like any other. Too soon, or past
+ * the resends, refuses that address (`limit`, `wait` or `resends`). It
+ * doesn't count against the project's developers, and never invites.
  */
 export async function reserveDeveloperSends(
   store: Store,
   identity: Identity | null,
-  args: { projectId: string; emails: string[] },
+  args: { projectId: string; emails: string[]; resend?: boolean },
   now: number,
 ): Promise<{ results: DeveloperSendResult[]; reserved: ReservedEmail[] }> {
   const user = await requireUser(store, identity);
@@ -219,7 +242,11 @@ export async function reserveDeveloperSends(
       reserved.push({ sendId: existing._id, idempotencyKey: developerEmailKey(existing._id, existing.emailNumber) });
       return { email, status: "sent", sendId: existing._id, invite: await inviteNow(email) };
     }
-    if (existing !== null && sendStatus(existing.attempts) !== "failed") return { email, status: "already-sent", sendId: existing._id };
+    /** Sending the steps again to an address whose email went out, or may have: asked for, 24 hours after it, at most twice. */
+    const again = existing !== null && sendStatus(existing.attempts) !== "failed";
+    if (again && args.resend !== true) return { email, status: "already-sent", sendId: existing._id };
+    if (again && (existing.resends ?? 0) >= MAX_DEVELOPER_RESENDS) return { email, status: "limit", limit: "resends", message: LIMIT_MESSAGES.resends(email) };
+    if (again && now < sentAt(existing) + DEVELOPER_RESEND_AFTER_MS) return { email, status: "limit", limit: "wait", message: LIMIT_MESSAGES.wait(email) };
     if (existing === null && (await store.developerSends.forProject(project._id, MAX_DEVELOPER_INVITES_PER_PROJECT)).length >= MAX_DEVELOPER_INVITES_PER_PROJECT) {
       return { email, status: "limit", limit: "developers", message: LIMIT_MESSAGES.developers(email) };
     }
@@ -245,25 +272,38 @@ export async function reserveDeveloperSends(
           : "Organization names in setup emails can't contain web addresses. Ask an admin to rename it, or copy the message instead.",
       );
     }
-    const next = await reserve(store, existing, { projectId: project._id, email, sentBy: user._id }, now);
+    const next = await reserve(store, existing, { projectId: project._id, email, sentBy: user._id }, now, again);
     reserved.push(next);
-    return { email, status: "sent", sendId: next.sendId, invite: await invite(email) };
+    // Sending again never invites: the developer's state now, so an invite withdrawn since stays withdrawn.
+    return { email, status: "sent", sendId: next.sendId, invite: again ? await inviteNow(email) : await invite(email) };
   }
 }
 
-/** Records a new email for the address: its first, creating its record, or one that replaces a failed email, under the next key. */
+/**
+ * Records a new email for the address: its first, creating its record, or,
+ * under the next key, one that replaces a failed email or, `again`, sends the
+ * steps again after one went out, which counts as one of its resends.
+ */
 async function reserve(
   store: Store,
   existing: DeveloperSendRecord | null,
   fields: Pick<DeveloperSendRecord, "projectId" | "email" | "sentBy">,
   now: number,
+  again = false,
 ): Promise<ReservedEmail> {
   if (existing === null) {
     const sendId = await store.developerSends.insert({ ...fields, createdAt: now, reservedAt: now, emailNumber: 0, attempts: [] });
     return { sendId, idempotencyKey: developerEmailKey(sendId, 0) };
   }
   const emailNumber = existing.emailNumber + 1;
-  await store.developerSends.patch(existing._id, { sentBy: fields.sentBy, reservedAt: now, emailNumber, attempts: [], message: null });
+  await store.developerSends.patch(existing._id, {
+    sentBy: fields.sentBy,
+    reservedAt: now,
+    emailNumber,
+    attempts: [],
+    message: null,
+    ...(again ? { resends: (existing.resends ?? 0) + 1 } : {}),
+  });
   return { sendId: existing._id, idempotencyKey: developerEmailKey(existing._id, emailNumber) };
 }
 
@@ -499,7 +539,8 @@ export async function listDeveloperSends(store: Store, identity: Identity | null
     sendId: send._id,
     email: send.email,
     status: sendStatus(send.attempts),
-    lastSentAt: (send.attempts.find((attempt) => attempt.answer === "accepted") ?? send.attempts[0])?.at ?? send.reservedAt,
+    lastSentAt: sentAt(send),
+    resendAt: resendAt(send),
   }));
 }
 

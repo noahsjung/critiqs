@@ -149,7 +149,7 @@ export const ARGUMENTS: Record<string, Check> = {
     "idempotencyKey?": string,
   }),
   saveAboutYou: object({ "role?": string, "teamSize?": string }),
-  sendDeveloperSetup: object({ projectId: string, emails: array(string, MAX_DEVELOPER_INVITES_PER_PROJECT) }),
+  sendDeveloperSetup: object({ projectId: string, emails: array(string, MAX_DEVELOPER_INVITES_PER_PROJECT), "resend?": boolean }),
   developerSetup: object({ sendId: string }),
   projectSetup: object({ projectId: string }),
   clearConnected: object({ projectId: string }),

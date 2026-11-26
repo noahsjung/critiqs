@@ -588,7 +588,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     listPersonalAiModels: (args: { draft?: AiModelListDraft }, identity) =>
       listModels({ prepare: () => store.transaction((s) => preparePersonalModelList(s, identity, Date.now())), deployment, ...modelListOptions }, args.draft),
     // Reserved and counted in one transaction, then each email sent and its answer recorded in its own.
-    sendDeveloperSetup: async (args: { projectId: string; emails: string[] }, identity) => {
+    sendDeveloperSetup: async (args: { projectId: string; emails: string[]; resend?: boolean }, identity) => {
       if (developerEmails === null) fail("unavailable", "This Critiqs server can't send setup emails. Copy the message instead.");
       const { mailer: sender, web: site, publicBase: origin } = developerEmails;
       const { results, reserved } = await store.transaction((s) => reserveDeveloperSends(s, identity, args, Date.now()));
@@ -1189,6 +1189,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
       // say when it last did at the project's own address (`connected` on `projectSetup` and `developerSetup`), and its
       // owners clear it (`clearConnected`).
+      // `developerResends`: `resend` on `sendDeveloperSetup` sends the steps again 24 hours after an email went out, at most
+      // twice, and `developerSends` says when (`resendAt`).
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1210,6 +1212,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         createKeys: true,
         presetTags: true,
         connections: true,
+        developerResends: true,
       });
     }
     if (path === "/critiqs/connected" && request.method === "POST") return await connected(request);

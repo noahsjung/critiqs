@@ -172,8 +172,10 @@ export interface DeveloperSendRecord {
   createdAt: number;
   /** When the current email was reserved: counted, but not yet handed to the mail service. */
   reservedAt: number;
-  /** The current email's number, from 0, in its idempotency key; an email that replaces a failed one gets the next. */
+  /** The current email's number, from 0, in its idempotency key; an email that replaces a failed one, or a resend, gets the next. */
   emailNumber: number;
+  /** How many times the address was sent the steps again after an email went out (`MAX_DEVELOPER_RESENDS`); absent means none. */
+  resends?: number;
   /** The current email's attempts, oldest first; its status follows from them (`sendStatus`). */
   attempts: DeveloperAttempt[];
   /** The current email, once prepared. */
@@ -574,7 +576,7 @@ export type DeliveryChanges = Partial<
   Pick<DeliveryRecord, "status" | "attempts" | "dueAt" | "claimToken" | "leaseUntil" | "message" | "payload" | "finishedAt" | "reason">
 >;
 /** Changes to a send record; a null message clears it, for a new email. */
-export type DeveloperSendChanges = Partial<Pick<DeveloperSendRecord, "sentBy" | "reservedAt" | "emailNumber" | "attempts">> & { message?: StoredMail | null };
+export type DeveloperSendChanges = Partial<Pick<DeveloperSendRecord, "sentBy" | "reservedAt" | "emailNumber" | "attempts" | "resends">> & { message?: StoredMail | null };
 export type PreferenceChanges = Partial<Pick<PreferenceRecord, "mentionEmails" | "replyEmails" | "mutedProjects">>;
 export type ReadStateChanges = Partial<Pick<ReadStateRecord, "lastReadAt" | "manualUnread">>;
 

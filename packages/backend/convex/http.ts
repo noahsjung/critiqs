@@ -110,6 +110,8 @@ http.route({
       // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
       // say when it last did at the project's own address (`connected` on `onboarding:projectSetup` and
       // `onboarding:developerSetup`), and its owners clear it (`onboarding:clearConnected`).
+      // `developerResends`: `resend` on `onboarding:sendDeveloperSetup` sends the steps again 24 hours after an email went
+      // out, at most twice, and `onboarding:developerSends` says when (`resendAt`).
       // `developerEmails`: a project's owners email its setup steps to developers (`onboarding:sendDeveloperSetup`,
       // `onboarding:developerSends`), and setup links show them (`onboarding:developerSetup`); false without email. A copied
       // message's setup page shows the project and its install commands (`onboarding:projectSetup`), with or without email.
@@ -143,6 +145,7 @@ http.route({
         onboardingAnswers: true,
         developerEmails: developerEmailSetup() !== null,
         connections: true,
+        developerResends: true,
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),

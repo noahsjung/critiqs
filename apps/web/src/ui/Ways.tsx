@@ -16,7 +16,7 @@ import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
 import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { BackendStep, CheckIcon, Command, ConnectionStatus, CopyButton, Heading, oneCommand, ScriptTagStep, waitingForInstall } from "./parts.tsx";
+import { BackendStep, CheckIcon, Command, ConnectionStatus, CopyButton, Heading, oneCommand, ScriptTagStep, useReached, waitingForInstall } from "./parts.tsx";
 
 // The ways in: run one command, send the steps to a developer, or review
 // with the browser extension, with nothing added to the prototype.
@@ -82,11 +82,16 @@ function withBackendStep(message: string, stack: CreatedProject["stack"], backen
   return parts.join("\n\n");
 }
 
-/** A line about one developer's setup email. `copy`: offer Copy message beside it, since Critiqs won't email them; `send-again`: its email failed, so Send again emails them now. */
+/**
+ * A line about one developer's setup email. `copy`: offer Copy message beside
+ * it, since Critiqs won't email them; `send-again`: its email failed, so Send
+ * again emails them now; `resend`: 24 hours have passed since its email went
+ * out, so Send again sends them the steps again.
+ */
 export interface DeliveryLine {
   text: string;
   tone: "success" | "error" | "note";
-  action: "copy" | "send-again" | null;
+  action: "copy" | "send-again" | "resend" | null;
 }
 
 /**
@@ -95,10 +100,10 @@ export interface DeliveryLine {
  * says why; otherwise the project's record of the email when there is one,
  * which updates live, so a failed one says so and offers Send again.
  */
-export function deliveryLine(email: string, summary: DeveloperSendSummary | undefined, result: DeveloperSendResult | undefined): DeliveryLine | null {
+export function deliveryLine(email: string, summary: DeveloperSendSummary | undefined, result: DeveloperSendResult | undefined, resendDue = false): DeliveryLine | null {
   switch (result?.status) {
     case "already-sent":
-      return { text: copy.send.alreadySent(email), tone: "note", action: "copy" };
+      return { text: copy.send.alreadySent(email), tone: "note", action: resendDue ? "resend" : "copy" };
     case "limit":
       return { text: result.message, tone: "error", action: "copy" };
     case "suppressed":
@@ -109,7 +114,7 @@ export function deliveryLine(email: string, summary: DeveloperSendSummary | unde
     case undefined:
       if (summary?.status === "failed") return { text: copy.send.failed(email), tone: "error", action: "send-again" };
       // An email whose answer never came counts as sent, as the server counts it.
-      return result === undefined && summary === undefined ? null : { text: copy.send.sent(email), tone: "success", action: null };
+      return result === undefined && summary === undefined ? null : { text: copy.send.sent(email), tone: "success", action: resendDue ? "resend" : null };
     default: {
       const exhaustive: never = result;
       return exhaustive;
@@ -185,7 +190,7 @@ export function SendPanel({
       onDevelopers={onDevelopers}
       email={email}
       sends={sends}
-      send={(emails) => backend.sendDeveloperSetup(project.id, emails)}
+      send={(emails, resend) => backend.sendDeveloperSetup(project.id, emails, resend)}
       onDone={onDone}
       />
       {/* Once an email went out: waiting for the developer to install, then Connected. */}
@@ -215,10 +220,11 @@ export function SendPanelView({
   onDevelopers: (fields: string[]) => void;
   email: string | null;
   sends: QueryState<DeveloperSendSummary[]>;
-  send: (emails: string[]) => Promise<DeveloperSendResult[]>;
+  /** Sends to the addresses; `resend` sends the steps again to addresses whose email went out. */
+  send: (emails: string[], resend?: boolean) => Promise<DeveloperSendResult[]>;
   onDone?: () => void;
 }) {
-  const { componentBackend } = useBackend();
+  const { componentBackend, developerResends } = useBackend();
   const waitingId = useId();
   const [results, setResults] = useState<readonly DeveloperSendResult[]>([]);
   const [sending, setSending] = useState(false);
@@ -238,11 +244,16 @@ export function SendPanelView({
     return answer !== "sent" && answer !== "already-sent";
   });
 
-  const run = async (emails: string[]) => {
+  // The page renders again when the next address can be sent the steps again.
+  const resendTimes = developerResends ? summaries.flatMap((summary) => (summary.status !== "failed" && summary.resendAt != null ? [summary.resendAt] : [])) : [];
+  useReached(resendTimes.length === 0 ? null : Math.min(...resendTimes));
+  const resendDue = (summary: DeveloperSendSummary | undefined) => developerResends && summary?.status !== "failed" && summary?.resendAt != null && Date.now() >= summary.resendAt;
+
+  const run = async (emails: string[], resend = false) => {
     setSending(true);
     setFailure(null);
     try {
-      const answered = await send(emails);
+      const answered = await send(emails, resend || undefined);
       setResults((current) => withResults(current, answered));
       if (answered.some((result) => result.status === "sent")) {
         setAdding(false);
@@ -283,7 +294,8 @@ export function SendPanelView({
   const addresses = [...new Map(filled.map((address) => [exactAddress(address), address])).values()];
   const lines = addresses.flatMap((address) => {
     const result = recordFor(results, address);
-    const line = deliveryLine(address, recordFor(summaries, address), result);
+    const summary = recordFor(summaries, address);
+    const line = deliveryLine(address, summary, result, resendDue(summary));
     const invite = result?.status === "sent" ? inviteLine(address, result.invite, org?.name ?? copy.send.invite.theOrganization) : null;
     return line === null ? [] : [{ address, line, invite }];
   });
@@ -303,6 +315,11 @@ export function SendPanelView({
           </span>
           {line.action === "copy" && (
             <CopyButton text={message} label={copy.send.copyMessageShort} copiedLabel={copy.send.messageCopied} name={copy.send.copyMessageFor(address)} className="btn small" onCopied={onDone} />
+          )}
+          {line.action === "resend" && (
+            <button type="button" className="btn small" disabled={sending} aria-label={copy.sends.resendTo(address)} onClick={() => void run([address], true)}>
+              {copy.sends.resend}
+            </button>
           )}
           {line.action === "send-again" && (
             <button type="button" className="btn small" disabled={sending || !known} aria-label={copy.send.sendAgainTo(address)} aria-describedby={waiting} onClick={() => void run([address])}>

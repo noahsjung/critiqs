@@ -92,6 +92,42 @@ describe("the setup page", () => {
     expect(developer.querySelector(".connection")?.textContent).toStartWith("Waiting for Critiqs to load on acme-proto.vercel.app…");
   });
 
+  test("an owner sends the steps again once 24 hours have passed, and sees when before then", async () => {
+    const now = Date.now();
+    const sends = [
+      { sendId: "s1", email: "dev@acme.com", status: "sent" as const, lastSentAt: now - 25 * 3_600_000, resendAt: now - 3_600_000 },
+      { sendId: "s2", email: "ops@acme.com", status: "sent" as const, lastSentAt: now - 3_600_000, resendAt: now + 23 * 3_600_000 },
+      { sendId: "s3", email: "qa@acme.com", status: "sent" as const, lastSentAt: now - 50 * 3_600_000, resendAt: null },
+    ];
+    const backend = fakeBackend({
+      sends,
+      developerResends: true,
+      sendDeveloperSetup: async (_projectId, emails) => emails.map((email) => ({ email, status: "sent" as const, sendId: "s1", invite: "none" as const })),
+    });
+    const page = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend });
+    const rows = [...page.querySelectorAll(".send-list li")];
+    expect(rows.map((row) => row.querySelector("button")?.getAttribute("aria-label") ?? null)).toEqual(["Send the steps again to dev@acme.com", null, null]);
+    expect(rows[1]?.textContent).toContain("Can send again");
+    // Sent again twice already: nothing more is offered.
+    expect(rows[2]?.textContent).not.toContain("again");
+    await click(button(page, "Send the steps again to dev@acme.com"));
+    expect(backend.calls.filter((call) => call.name === "sendDeveloperSetup").map((call) => call.args)).toEqual([[PROJECT_ID, ["dev@acme.com"], true]]);
+    expect(rows[0]?.textContent).toContain("Sent again");
+    // A refusal says why.
+    const refusing = fakeBackend({
+      sends,
+      developerResends: true,
+      sendDeveloperSetup: async (_projectId, emails) => emails.map((email) => ({ email, status: "limit" as const, limit: "person" as const, message: "You've sent 5 developer emails today. Copy the message instead." })),
+    });
+    const refused = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend: refusing });
+    await click(button(refused, "Send the steps again to dev@acme.com"));
+    expect(refused.querySelector(".send-list li .error")?.textContent).toBe("You've sent 5 developer emails today. Copy the message instead.");
+    // A backend that can't send again offers nothing.
+    const older = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend: fakeBackend({ sends }) });
+    expect(older.querySelector(".send-list button")).toBeNull();
+    expect(older.querySelector(".send-list")?.textContent).not.toContain("Can send again");
+  });
+
   test("a project on a backend other than Critiqs Cloud: a step that gives Critiqs its backend", async () => {
     const backend = fakeBackend({ componentBackend: "https://team-backend.convex.cloud" });
     const page = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />, { backend });

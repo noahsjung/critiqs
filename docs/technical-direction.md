@@ -994,6 +994,21 @@ reports only where it does. The website shows it live on the setup screen
 and the setup page; nothing is emailed, since no notification rule covers
 it.
 
+**Built: sending setup steps again.** A project's owners can send a
+developer the steps again 24 hours after their last email went out, at most
+twice (`DEVELOPER_RESEND_AFTER_MS`, `MAX_DEVELOPER_RESENDS`). They ask for it
+with `resend` on `sendDeveloperSetup`; without it an address that got its
+email still answers `already-sent`. Each resend is a new email under the next
+idempotency key, counted against the person's day, the inbox's day, and the
+deployment's hour like any other, and checked against the suppression list.
+It doesn't count against the project's three developers, and never invites
+again. Too soon or past the resends refuses that address as a `limit`
+(`wait`, `resends`). A failed email is still sent again at once and uses no
+resend. `developerSends` says when each address can be sent them again
+(`resendAt`, null when it can't), and `/critiqs/config` reports
+`developerResends`. The website shows Send again on the setup page and in
+onboarding once that time comes, and says when before then.
+
 **Proposed, built in the pilot:** Critiqs renders in its own React root inside a
 shadow root, so its events, contexts, and styles stay separate from the host
 app's. In Comment mode pointer and keyboard events are stopped before the

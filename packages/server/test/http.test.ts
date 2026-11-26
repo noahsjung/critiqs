@@ -106,6 +106,7 @@ test("reports itself as a server in the host app, current with the component", a
     createKeys: true,
     presetTags: true,
     connections: true,
+    developerResends: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -1115,7 +1116,7 @@ test("a project's owner emails its setup steps; the developer opens the setup li
   ]);
   expect(sent[0]!.text).toContain(`Setup steps: https://critiqs.example/setup/${sendId}`);
   expect((await dana.api("developerSends", { projectId })).body.value).toEqual([
-    { sendId, email: "sam@acme.test", status: "sent", lastSentAt: expect.any(Number) },
+    { sendId, email: "sam@acme.test", status: "sent", lastSentAt: expect.any(Number), resendAt: expect.any(Number) },
   ]);
   // The developer, signed in with that address, sees the steps; someone else sees nothing, as for a send that doesn't exist.
   const shown = await personBrowser(handler, "sam").api("developerSetup", { sendId });

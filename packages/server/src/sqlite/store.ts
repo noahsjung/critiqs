@@ -46,7 +46,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -551,6 +551,10 @@ export const MIGRATIONS: Migration[] = [
   `,
   shortenLongProjectNames,
   addConnections,
+  // How many times each developer was sent the setup steps again.
+  `
+  ALTER TABLE developer_sends ADD COLUMN resends INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /**
@@ -970,6 +974,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     reservedAt: row.reserved_at,
     emailNumber: row.email_number,
     attempts: JSON.parse(row.attempts) as DeveloperAttempt[],
+    ...(row.resends === 0 ? {} : { resends: row.resends }),
     ...(row.message === null ? {} : { message: JSON.parse(row.message) as StoredMail }),
   });
   const project = (row: ProjectRow): ProjectRecord => ({
@@ -1308,8 +1313,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
       insert: async (record) => {
         const id = newId("developerSends");
         sql.run(
-          `INSERT INTO developer_sends (id, project_id, email, sent_by, created_at, reserved_at, email_number, attempts, message)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO developer_sends (id, project_id, email, sent_by, created_at, reserved_at, email_number, attempts, message, resends)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             record.projectId,
@@ -1320,12 +1325,14 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
             record.emailNumber,
             json(record.attempts),
             record.message === undefined ? null : json(record.message),
+            record.resends ?? 0,
           ],
         );
         return id;
       },
       patch: async (id, changes) =>
         patch("developer_sends", id, {
+          resends: changes.resends,
           sent_by: changes.sentBy,
           reserved_at: changes.reservedAt,
           email_number: changes.emailNumber,
@@ -2136,6 +2143,7 @@ interface DeveloperSendRow {
   email_number: number;
   attempts: string;
   message: string | null;
+  resends: number;
 }
 interface InviteRow {
   seq: number;

@@ -102,13 +102,14 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
  */
 function SetupStatus({ state, setup }: { state: QueryState<SetupInfo>; setup: SetupInfo }) {
   // Only the project's owners can read its sends; anyone else gets an error here, and sees no list.
-  const sends = useBackend().useDeveloperSends(setup.projectId);
+  const backend = useBackend();
+  const sends = backend.useDeveloperSends(setup.projectId);
   const waiting = sends.status === "ready" ? waitingForInstall(sends.data) : null;
   const host = setup.address === null ? null : setup.address.replace(/^https?:\/\//, "").replace(/\/$/, "");
   return (
     <>
       <ConnectionStatus setup={state} host={host} waiting={waiting ?? undefined} waitingNote={waiting === null ? copy.connection.setupWaiting : undefined} />
-      <SendList sends={sends} />
+      <SendList sends={sends} resend={backend.developerResends ? (email) => backend.sendDeveloperSetup(setup.projectId, [email], true) : undefined} />
     </>
   );
 }

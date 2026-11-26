@@ -72,6 +72,7 @@ test("the sign-in service declares remote approval, and starts grants with no se
   expect((await (await t.fetch("/critiqs/config")).json()).createKeys).toBe(true);
   expect((await (await t.fetch("/critiqs/config")).json()).presetTags).toBe(true);
   expect((await (await t.fetch("/critiqs/config")).json()).connections).toBe(true);
+  expect((await (await t.fetch("/critiqs/config")).json()).developerResends).toBe(true);
   const { status, body } = await startDevice(t);
   expect(status).toBe(200);
   expect(body.userCode).toMatch(/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/);

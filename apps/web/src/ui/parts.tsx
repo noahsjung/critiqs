@@ -1,4 +1,4 @@
-import { backendSetting, type DeveloperSendSummary, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
+import { backendSetting, type DeveloperSendResult, type DeveloperSendSummary, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
@@ -302,24 +302,75 @@ export function waitingForInstall(sends: readonly DeveloperSendSummary[]): strin
   );
 }
 
+/** Whether the clock has reached `at`, rendering again when it does; false for null. */
+export function useReached(at: number | null | undefined, now: () => number = Date.now): boolean {
+  const [, setTick] = useState(0);
+  const reached = at != null && now() >= at;
+  useEffect(() => {
+    if (at == null || reached) return;
+    // Timers longer than about 24.8 days fire at once, so a far time is checked again daily.
+    const timer = setTimeout(() => setTick((tick) => tick + 1), Math.min(at - now() + 250, 86_400_000));
+    return () => clearTimeout(timer);
+  }, [at, reached]);
+  return reached;
+}
+
 /**
  * The project's setup emails, for its owners: each address, and when its
- * email went out, or Not sent after a confirmed failure. Nothing for anyone
- * else, who can't read them.
+ * email went out, or Not sent after a confirmed failure. With `resend`, an
+ * address can be sent the steps again once its `resendAt` comes, or says
+ * when it can. Nothing for anyone else, who can't read them.
  */
-export function SendList({ sends }: { sends: QueryState<DeveloperSendSummary[]> }) {
+export function SendList({ sends, resend }: { sends: QueryState<DeveloperSendSummary[]>; resend?: (email: string) => Promise<DeveloperSendResult[]> }) {
   if (sends.status !== "ready" || sends.data.length === 0) return null;
   return (
     <section className="stacked" aria-label={copy.sends.title}>
       <h2 className="section-title">{copy.sends.title}</h2>
       <ul className="send-list">
         {sends.data.map((send) => (
-          <li key={send.sendId} className={send.status === "failed" ? "error" : undefined}>
-            <span className="send-email">{send.email}</span>
-            <span className="note">{send.status === "failed" ? copy.sends.notSent : copy.sends.sentAt(send.lastSentAt)}</span>
-          </li>
+          <SendRow key={send.sendId} send={send} resend={resend} />
         ))}
       </ul>
     </section>
+  );
+}
+
+function SendRow({ send, resend }: { send: DeveloperSendSummary; resend?: (email: string) => Promise<DeveloperSendResult[]> }) {
+  const due = useReached(send.resendAt);
+  const [state, setState] = useState<{ status: "idle" | "sending" } | { status: "done"; text: string; error: boolean }>({ status: "idle" });
+  const again = async () => {
+    if (resend === undefined) return;
+    setState({ status: "sending" });
+    try {
+      const [result] = await resend(send.email);
+      setState(
+        result?.status === "sent"
+          ? { status: "done", text: copy.sends.resent, error: false }
+          : { status: "done", text: result !== undefined && "message" in result ? result.message : copy.sends.resendFailed, error: true },
+      );
+    } catch {
+      setState({ status: "done", text: copy.sends.resendFailed, error: true });
+    }
+  };
+  return (
+    <li className={send.status === "failed" ? "error" : undefined}>
+      <span className="send-email">{send.email}</span>
+      <span className="send-state">
+        <span className="note">{send.status === "failed" ? copy.sends.notSent : copy.sends.sentAt(send.lastSentAt)}</span>
+        {resend !== undefined && send.resendAt != null && state.status !== "done" &&
+          (due ? (
+            <button type="button" className="btn small" disabled={state.status === "sending"} aria-label={copy.sends.resendTo(send.email)} onClick={() => void again()}>
+              {state.status === "sending" ? copy.sends.sending : copy.sends.resend}
+            </button>
+          ) : (
+            <span className="note">{copy.sends.resendAfter(send.resendAt)}</span>
+          ))}
+        {state.status === "done" && (
+          <span className={state.error ? "error" : "note"} role="status">
+            {state.text}
+          </span>
+        )}
+      </span>
+    </li>
   );
 }

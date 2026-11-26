@@ -101,12 +101,13 @@ const RETRY_DELAYS_MS = [60_000, 10 * 60_000];
 
 /**
  * Emails a project's setup steps to up to three developers, for the people
- * who manage it, with a result for each address. Limits are checked and
+ * who manage it, with a result for each address. With `resend`, an address
+ * that got them 24 hours ago or more is sent them again, at most twice. Limits are checked and
  * counted, and each email reserved, in this transaction; the emails go out
  * right after, from `deliverDeveloperEmail`.
  */
 export const sendDeveloperSetup = mutation({
-  args: { projectId: v.string(), emails: v.array(v.string()) },
+  args: { projectId: v.string(), emails: v.array(v.string()), resend: v.optional(v.boolean()) },
   handler: async (ctx, args) =>
     run(async () => {
       if (developerEmailSetup() === null) fail("unavailable", "This deployment can't send setup emails. Copy the message instead.");

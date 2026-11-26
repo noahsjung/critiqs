@@ -139,6 +139,7 @@ export const APP_STYLES = `
 .send-list li { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; overflow-wrap: anywhere; }
 .send-list li.error .note { color: var(--danger); }
 .send-email { font-weight: 500; min-width: 0; }
+.send-state { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 12px; }
 /* The extension's steps, numbered. */
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
 .steps li { padding-left: 4px; }

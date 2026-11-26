@@ -281,6 +281,82 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect(await counter(backend, `inviteEmails:sam@acme.com:${utcDay(day)}`)).toBe(2);
   });
 
+  test(`${name}: the steps can be sent again 24 hours after an email went out, at most twice, each a new email`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const DAY = 24 * HOUR;
+    const resend = (now: number, emails = ["sam@acme.com"], who: Identity = dana) =>
+      backend.run((store) => reserveDeveloperSends(store, who, { projectId, emails, resend: true }, now));
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    await deliver(backend, first.reserved, "ok", day);
+    const sendId = first.reserved[0]!.sendId;
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", lastSentAt: day, resendAt: day + DAY });
+    // Without asking to send again, an address that got its email is refused as before.
+    expect((await send(backend, projectId, ["sam@acme.com"], day + 2 * DAY)).results[0]).toEqual({ email: "sam@acme.com", status: "already-sent", sendId });
+    // A minute short of 24 hours: too soon, and nothing is counted.
+    const early = await resend(day + DAY - 60_000);
+    expect(early.results[0]).toMatchObject({ status: "limit", limit: "wait" });
+    expect(early.reserved).toEqual([]);
+    expect(await counter(backend, `developerEmails:${(await backend.run((store) => store.users.byToken(dana.tokenIdentifier)))!._id}:${utcDay(day)}`)).toBe(1);
+    // At 24 hours: a new email under the next key, counted like any other, inviting no one again.
+    const second = await resend(day + DAY);
+    expect(second.results[0]).toMatchObject({ status: "sent", sendId, invite: "pending" });
+    expect(second.reserved).toEqual([{ sendId, idempotencyKey: `critiqs-developer:${sendId}:1` }]);
+    const delivered = await deliver(backend, second.reserved, "ok", day + DAY);
+    expect(delivered.asked.map((message) => [message.to, message.idempotencyKey])).toEqual([["sam@acme.com", `critiqs-developer:${sendId}:1`]]);
+    expect(await counter(backend, `inviteEmails:sam@acme.com:${utcDay(day + DAY)}`)).toBe(1);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", lastSentAt: day + DAY, resendAt: day + 2 * DAY });
+    // The 24 hours count from the latest email.
+    expect((await resend(day + 2 * DAY - 1)).results[0]).toMatchObject({ status: "limit", limit: "wait" });
+    const third = await resend(day + 2 * DAY);
+    expect(third.reserved).toEqual([{ sendId, idempotencyKey: `critiqs-developer:${sendId}:2` }]);
+    await deliver(backend, third.reserved, "ok", day + 2 * DAY);
+    // Twice is the most: no resend is offered, and asking is refused, however long after.
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: null });
+    const fourth = await resend(day + 30 * DAY);
+    expect(fourth.results[0]).toMatchObject({ status: "limit", limit: "resends" });
+    expect(fourth.reserved).toEqual([]);
+  });
+
+  test(`${name}: sending again keeps the other rules: owners only, the suppression list, and the person's daily limit`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const DAY = 24 * HOUR;
+    const first = await send(backend, projectId, ["sam@acme.com", "kim@acme.com"]);
+    await deliver(backend, first.reserved, "ok", day);
+    const resend = (now: number, emails: string[], who: Identity = dana) =>
+      backend.run((store) => reserveDeveloperSends(store, who, { projectId, emails, resend: true }, now));
+    // Only the people who manage the project.
+    await expect(resend(day + DAY, ["sam@acme.com"], lee)).rejects.toThrow("Only the people who manage this project");
+    // An inbox that reported Critiqs's email gets nothing more.
+    await backend.run((store) => reportUnwantedEmail(store, { sendId: first.reserved[1]!.sendId }, day + HOUR));
+    expect((await resend(day + DAY, ["kim@acme.com"])).results[0]).toEqual({ email: "kim@acme.com", status: "suppressed" });
+    // The person's daily limit counts resends: five other projects' emails use it up on the resend's day.
+    for (const index of [1, 2, 3, 4, 5]) {
+      const other = await create(backend, dana, { name: `Other ${index}` });
+      expect((await send(backend, other, [`dev${index}@corp.com`], day + DAY)).results[0]).toMatchObject({ status: "sent" });
+    }
+    const refused = await resend(day + DAY, ["sam@acme.com"]);
+    expect(refused.results[0]).toMatchObject({ status: "limit", limit: "person" });
+    expect(refused.reserved).toEqual([]);
+    // The next day it goes, and the address's own 24 hours have long passed.
+    expect((await resend(day + 2 * DAY, ["sam@acme.com"])).results[0]).toMatchObject({ status: "sent" });
+  });
+
+  test(`${name}: a failed email is sent again at once, without waiting or using a resend`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    await deliver(backend, first.reserved, "refused", day);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "failed", resendAt: null });
+    const again = await backend.run((store) => reserveDeveloperSends(store, dana, { projectId, emails: ["sam@acme.com"], resend: true }, day + HOUR));
+    expect(again.results[0]).toMatchObject({ status: "sent" });
+    await deliver(backend, again.reserved, "ok", day + HOUR);
+    // Still two resends left.
+    expect(await backend.run(async (store) => (await store.developerSends.get(first.reserved[0]!.sendId))?.resends ?? 0)).toBe(0);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: day + HOUR + 24 * HOUR });
+  });
+
   test(`${name}: an unknown result counts, and sending again retries it under the same key and the same email`, async () => {
     const backend = fresh();
     const projectId = await create(backend);

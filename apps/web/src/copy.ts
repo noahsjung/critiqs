@@ -163,6 +163,11 @@ export const copy = {
     sentAt: (at: number) => `Sent ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}`,
     sending: "Sending…",
     notSent: "Not sent",
+    resend: "Send again",
+    resendTo: (email: string) => `Send the steps again to ${email}`,
+    resendAfter: (at: number) => `Can send again ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}`,
+    resent: "Sent again",
+    resendFailed: "Couldn't send again. Try again later.",
   },
 
   ways: {

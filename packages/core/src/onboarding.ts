@@ -575,9 +575,18 @@ export function startingTags(purpose: Purpose | undefined): readonly string[] {
 export const MAX_DEVELOPER_INVITES_PER_PROJECT = 3;
 /** Developer emails one person can send in a day, across projects. */
 export const DEVELOPER_INVITES_PER_PERSON_PER_DAY = 5;
+/** How long after a developer's email went out the steps can be sent to them again. */
+export const DEVELOPER_RESEND_AFTER_MS = 24 * 60 * 60 * 1000;
+/** How many times one developer can be sent a project's steps again. */
+export const MAX_DEVELOPER_RESENDS = 2;
 
-/** A limit that refused a developer email: the project's developers, the person's day, the inbox's day, or the deployment's hour. */
-export type DeveloperLimit = "developers" | "person" | "inbox" | "deployment";
+/**
+ * A limit that refused a developer email: the project's developers, the
+ * person's day, the inbox's day, or the deployment's hour; for sending the
+ * steps again, the 24 hours since the last email (`wait`) or the resends used
+ * up (`resends`).
+ */
+export type DeveloperLimit = "developers" | "person" | "inbox" | "deployment" | "wait" | "resends";
 
 /**
  * What a send did about the developer joining the project's organization,
@@ -621,6 +630,13 @@ export interface DeveloperSendSummary {
   status: DeveloperSendStatus;
   /** When the email went out: the attempt the mail service accepted, else its first attempt, else when it was reserved. */
   lastSentAt: number;
+  /**
+   * When the steps can be sent to this address again, 24 hours after the
+   * email went out; null when they can't: a failed email is sent again at
+   * once instead, and an address that was sent them again twice gets no
+   * more. Absent from backends that can't send them again.
+   */
+  resendAt?: number | null;
 }
 
 /** What a project's setup page shows: the project, its address, its saved stack, and how to install Critiqs in it. */
