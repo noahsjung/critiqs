@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { failureMessage, type ReviewLinkSummary, useAuth, useBackend } from "../backend.ts";
+import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
 import { CopyButton, Heading, SignInButton } from "./parts.tsx";
 
@@ -81,12 +82,32 @@ function LinkRow({ link }: { link: ReviewLinkSummary }) {
   const backend = useBackend();
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const reveal = async () => {
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  /** Asks the backend for the link and copies it, in the one click: the list never holds keys. */
+  const copyLink = async () => {
+    setError(null);
+    const asked = backend.copyReviewLink(link.linkId);
+    let done = false;
+    // Where the browser takes a clipboard item whose text is still coming, the click's permission covers the backend's answer.
+    if (typeof ClipboardItem === "function" && typeof navigator.clipboard?.write === "function") {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": asked.then((value) => new Blob([value], { type: "text/plain" })) })]);
+        done = true;
+      } catch {
+        // Copied below, once the address is here.
+      }
+    }
+    let address: string;
     try {
-      setUrl(await backend.copyReviewLink(link.linkId));
+      address = await asked;
     } catch (failure) {
       setError(failureMessage(failure, copy.review.failed));
+      return;
     }
+    setUrl(address);
+    if (!done) done = await copyText(address);
+    setCopied(done ? "copied" : "failed");
+    if (done) setTimeout(() => setCopied("idle"), 2000);
   };
   return (
     <li className="review-link-row">
@@ -98,14 +119,15 @@ function LinkRow({ link }: { link: ReviewLinkSummary }) {
         {error !== null && <span className="error">{error}</span>}
       </div>
       <div className="review-link-actions">
-        {url === null ? (
-          <button type="button" className="btn small" onClick={() => void reveal()}>{copy.reviewLinks.copy}</button>
+        {url === null || copied !== "failed" ? (
+          <button type="button" className={copied === "copied" ? "btn small copied" : "btn small"} onClick={() => void copyLink()}>
+            <span aria-live="polite">{copied === "copied" ? copy.reviewLinks.copied : copy.reviewLinks.copy}</span>
+          </button>
         ) : (
-          <>
-            <CopyButton text={url} label={copy.reviewLinks.copy} copiedLabel={copy.reviewLinks.copied} className="btn small" />
-            <a className="btn small" href={url} target="_blank" rel="noreferrer noopener">{copy.reviewLinks.open}</a>
-          </>
+          // The browser refused the clipboard: the usual button, which offers the address to select.
+          <CopyButton text={url} label={copy.reviewLinks.copy} copiedLabel={copy.reviewLinks.copied} className="btn small" />
         )}
+        {url !== null && <a className="btn small" href={url} target="_blank" rel="noreferrer noopener">{copy.reviewLinks.open}</a>}
         <button
           type="button"
           className="btn small"

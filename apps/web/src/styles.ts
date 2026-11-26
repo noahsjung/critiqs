@@ -354,8 +354,18 @@ export const APP_STYLES = `
 .review-link-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .review-link-actions { display: flex; gap: 8px; flex: none; }
 .review-links-create { display: flex; gap: 8px; }
-@media (max-width: 720px) {
-  .review-source { display: none; }
-  .review-bar { gap: 8px; padding: 0 8px; }
+.review-break { display: none; }
+/* Narrow screens (NARROW_QUERY in ReviewPage.tsx): the panel is a sheet the bar opens; the frame takes the width. */
+.review.narrow .review-bar { gap: 8px; padding: 0 8px; }
+.review.narrow .review-comments[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); }
+/* A phone: the bar takes two rows, Browse and Comment first, so every control stays on screen. */
+@media (max-width: 600px) {
+  .review.narrow .review-bar { flex-wrap: wrap; height: auto; padding: 6px 8px; row-gap: 6px; }
+  .review.narrow .review-break { display: block; flex-basis: 100%; height: 0; }
+  .review.narrow .review-modes { flex: 1; }
+  .review.narrow .review-modes button { flex: 1; height: 34px; }
+  .review.narrow .review-comments { margin-left: auto; height: 36px; }
+  .review.narrow .review-source { flex: 1 1 60px; }
+  .review.narrow .review-account { max-width: 120px; }
 }
 `;

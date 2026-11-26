@@ -1,5 +1,5 @@
 import { type PanelSignedIn, type PanelSignIn, panelSignIn, parseReviewFrameMessage, type ReviewFrameMessage, windowTransport } from "@critiqs/core";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { failureMessage, type ReviewReady, useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
@@ -42,8 +42,40 @@ export const DEVICE_WIDTHS = ["fit", 1440, 1280, 768, 390] as const;
 export type FrameWidth = "fit" | number;
 
 const BANNER_KEY = "critiqs:review-extension-banner";
-/** The review bar's height, in CSS pixels (`.review-bar` in styles.ts). */
+/** The review bar's height on one row, in CSS pixels (`.review-bar` in styles.ts); on a phone it takes two. */
 const BAR_HEIGHT = 52;
+
+/**
+ * Below this width a sidebar beside the frame would leave the prototype and
+ * the bar less than about 600 pixels, so the panel becomes a sheet over the
+ * frame's lower part instead, opened from the bar (`.review` in styles.ts).
+ */
+export const NARROW_QUERY = "(max-width: 959px)";
+
+function subscribeNarrow(listener: () => void) {
+  const query = window.matchMedia?.(NARROW_QUERY);
+  if (query === undefined) {
+    window.addEventListener("resize", listener);
+    return () => window.removeEventListener("resize", listener);
+  }
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+
+/** Whether the review page lays out for a narrow screen (`NARROW_QUERY`). */
+function useNarrow(): boolean {
+  return useSyncExternalStore(subscribeNarrow, () => window.matchMedia?.(NARROW_QUERY).matches ?? window.innerWidth < 960, () => false);
+}
+
+/**
+ * The path to show in the bar and copy with Share for a path the frame
+ * reports: a path starting with `//` gets `/.` in front, as the proxy writes
+ * it, so it never reads as another site's address; null for the proxy's own
+ * paths and anything else a review address can't hold.
+ */
+export function shownPathOf(pathname: string): string | null {
+  return reviewPathOf(pathname.startsWith("//") ? `/.${pathname}` : pathname);
+}
 
 /** The frame's origin, if it is a lease host: `v-<26 base32 characters>` under the proxy's domain, `https:`, or `http:` on `.localhost`. */
 export function leaseOrigin(origin: string): string | null {
@@ -261,6 +293,10 @@ function ReviewCanvas({
     }
   });
   const [shared, setShared] = useState(false);
+  const narrow = useNarrow();
+  // On a narrow screen the panel is a sheet, closed until the reviewer opens it from the bar.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const bar = useRef<HTMLElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const panelBox = useRef<HTMLDivElement>(null);
   const mounted = useRef<MountedPanel | null>(null);
@@ -269,10 +305,17 @@ function ReviewCanvas({
   // The frame opens once at the path the link or its address names; afterwards it navigates itself.
   const [src] = useState(() => `${entry.origin}${path.startsWith("/") ? path : `/${path}`}`);
 
-  // The panel's thread windows stay below the bar, so Browse, Comment, widths and Share stay reachable.
+  // The panel's thread windows stay below the bar, so Browse, Comment, widths and Share stay reachable, however many rows it takes.
   useEffect(() => {
-    keepThreadWindowsBelow(BAR_HEIGHT);
-    return () => keepThreadWindowsBelow(0);
+    const element = bar.current;
+    const below = () => keepThreadWindowsBelow(Math.ceil(element?.getBoundingClientRect().bottom ?? BAR_HEIGHT) || BAR_HEIGHT);
+    below();
+    const observer = typeof ResizeObserver === "function" && element !== null ? new ResizeObserver(below) : null;
+    if (observer !== null && element !== null) observer.observe(element);
+    return () => {
+      observer?.disconnect();
+      keepThreadWindowsBelow(0);
+    };
   }, []);
 
   // Keep the lease while the page is open; when it can't be kept, the frame has stopped serving anyway.
@@ -319,6 +362,8 @@ function ReviewCanvas({
   }, [askToSignIn, adopt]);
 
   const onThreadOpened = useCallback(async (threadWidth: number) => {
+    // On a narrow screen the sheet goes down, so the thread shows over the frame beside its pin.
+    setSheetOpen(false);
     if (!Number.isFinite(threadWidth) || threadWidth < 200 || threadWidth > 4000) return;
     const rounded = Math.round(threadWidth);
     setWidth((before) => {
@@ -333,13 +378,27 @@ function ReviewCanvas({
   const onState = useCallback(
     (state: { url: string; viewport: { width: number } }) => {
       viewport.current = state.viewport.width;
-      const shownPath = new URL(state.url).pathname;
+      const shownPath = shownPathOf(new URL(state.url).pathname);
+      // The proxy's own pages, or a path no review address can hold: the bar keeps the last one.
+      if (shownPath === null) return;
       setPath(shownPath);
-      // The address bar follows the frame, so a copied address reopens this page.
-      window.history.replaceState(window.history.state, "", `/r/${linkKey}#${shownPath}`);
+      // The address bar follows the frame, so a copied address reopens this page. A browser that
+      // limits how often a page may change its address refuses some of these; the bar still shows the path.
+      if (window.location.hash === `#${shownPath}`) return;
+      try {
+        window.history.replaceState(window.history.state, "", `/r/${linkKey}#${shownPath}`);
+      } catch {
+        // Kept as it was.
+      }
     },
     [linkKey],
   );
+
+  /** Browse or Comment, from the bar or the panel. Commenting picks on the frame, so a sheet over it goes down. */
+  const chooseMode = useCallback((next: "browse" | "comment") => {
+    setMode(next);
+    if (next === "comment") setSheetOpen(false);
+  }, []);
 
   const surface = useCallback(
     (currentMode: "browse" | "comment") => ({
@@ -347,11 +406,12 @@ function ReviewCanvas({
       mapUrl: (url: URL) => prototypeUrl(source.origin, url),
       onState,
       mode: currentMode,
-      onModeChange: setMode,
+      onModeChange: chooseMode,
       ensureReviewer,
       onThreadOpened,
+      panel: narrow ? { layout: "sheet" as const, open: sheetOpen, onClose: () => setSheetOpen(false) } : { layout: "side" as const },
     }),
-    [entry.origin, source.origin, onState, ensureReviewer, onThreadOpened],
+    [entry.origin, source.origin, onState, chooseMode, ensureReviewer, onThreadOpened, narrow, sheetOpen],
   );
 
   // Critiqs's panel, for this lease's frame.
@@ -399,55 +459,101 @@ function ReviewCanvas({
     notice !== null &&
     ((notice.kind === "left" && notice.signIn) || (notice.kind === "failed" && notice.reason === "needs-sign-in") || notice.kind === "unsupported");
   const noticeLine =
-    notice === null ? null : notice.kind === "failed" ? copy.review.frame[notice.reason] ?? null : notice.kind === "left" ? copy.review.left(notice.url) : copy.review.unsupportedForm;
+    notice === null
+      ? null
+      : notice.kind === "failed"
+        ? copy.review.frame[notice.reason] ?? null
+        : notice.kind === "left"
+          ? copy.review.left(notice.url)
+          : notice.feature === "load"
+            ? copy.review.partial
+            : copy.review.unsupportedForm;
+  // Part of the page didn't load: one quiet line with the extension as the way to see it all.
+  const bannerLine = notice?.kind === "unsupported" && notice.feature === "load" ? copy.review.partialBanner : copy.review.extension;
   const widthLabel = (value: FrameWidth) => copy.review.widths[String(value)] ?? copy.review.customWidth(value as number);
 
-  return (
-    <div className="review" style={{ right: sideWidth }}>
-      <header className="review-bar">
-        <a className="brand" href="https://critiqs.app/" target="_blank" rel="noreferrer noopener">
-          <Logo />
-          <span className="visually-hidden">{copy.appName}</span>
-        </a>
-        <span className="review-source" title={`${source.origin}${path}`}>
-          <strong>{sourceHost}</strong>
-          <span>{path}</span>
-        </span>
-        <div className="review-modes" role="group" aria-label={copy.review.modeLabel}>
-          {(["browse", "comment"] as const).map((value) => (
-            <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)}>
-              {value === "browse" ? copy.review.browse : copy.review.comment}
-            </button>
-          ))}
-        </div>
-        <label className="review-width">
-          <span className="visually-hidden">{copy.review.width}</span>
-          <select
-            value={String(width)}
-            onChange={(event) => {
-              setShownAt(null);
-              setWidth(event.target.value === "fit" ? "fit" : Number(event.target.value));
-            }}
-          >
-            {DEVICE_WIDTHS.map((value) => (
-              <option key={value} value={String(value)}>{widthLabel(value)}</option>
-            ))}
-            {typeof width === "number" && !DEVICE_WIDTHS.includes(width as never) && <option value={String(width)}>{widthLabel(width)}</option>}
-          </select>
-        </label>
-        <button type="button" className="btn small" onClick={() => void share()}>
-          {shared ? copy.review.shareCopied : copy.review.share}
+  const source_ = (
+    <span className="review-source" title={`${source.origin}${path}`}>
+      <strong>{sourceHost}</strong>
+      <span>{path}</span>
+    </span>
+  );
+  const modes = (
+    <div className="review-modes" role="group" aria-label={copy.review.modeLabel}>
+      {(["browse", "comment"] as const).map((value) => (
+        <button key={value} type="button" aria-pressed={mode === value} onClick={() => chooseMode(value)}>
+          {value === "browse" ? copy.review.browse : copy.review.comment}
         </button>
-        <span className="review-account">
-          {auth.reviewer !== null ? (
-            <>
-              <span className="account-email" title={auth.reviewer.email}>{auth.reviewer.name}</span>
-              <button type="button" className="quiet" onClick={() => void signOut()}>{copy.review.signOut}</button>
-            </>
-          ) : (
-            <button type="button" className="quiet" onClick={() => void ensureReviewer()}>{copy.review.signIn.button}</button>
-          )}
-        </span>
+      ))}
+    </div>
+  );
+  const widths = (
+    <label className="review-width">
+      <span className="visually-hidden">{copy.review.width}</span>
+      <select
+        value={String(width)}
+        onChange={(event) => {
+          setShownAt(null);
+          setWidth(event.target.value === "fit" ? "fit" : Number(event.target.value));
+        }}
+      >
+        {DEVICE_WIDTHS.map((value) => (
+          <option key={value} value={String(value)}>{widthLabel(value)}</option>
+        ))}
+        {typeof width === "number" && !DEVICE_WIDTHS.includes(width as never) && <option value={String(width)}>{widthLabel(width)}</option>}
+      </select>
+    </label>
+  );
+  const shareButton = (
+    <button type="button" className="btn small" onClick={() => void share()}>
+      {shared ? copy.review.shareCopied : copy.review.share}
+    </button>
+  );
+  const account = (
+    <span className="review-account">
+      {auth.reviewer !== null ? (
+        <>
+          <span className="account-email" title={auth.reviewer.email}>{auth.reviewer.name}</span>
+          <button type="button" className="quiet" onClick={() => void signOut()}>{copy.review.signOut}</button>
+        </>
+      ) : (
+        <button type="button" className="quiet" onClick={() => void ensureReviewer()}>{copy.review.signIn.button}</button>
+      )}
+    </span>
+  );
+  const brand = (
+    <a className="brand" href="https://critiqs.app/" target="_blank" rel="noreferrer noopener">
+      <Logo />
+      <span className="visually-hidden">{copy.appName}</span>
+    </a>
+  );
+
+  return (
+    <div className={narrow ? "review narrow" : "review"} style={{ right: narrow ? 0 : sideWidth }}>
+      <header ref={bar} className="review-bar">
+        {narrow ? (
+          <>
+            {brand}
+            {modes}
+            <button type="button" className="btn small review-comments" aria-expanded={sheetOpen} onClick={() => setSheetOpen((open) => !open)}>
+              {sheetOpen ? copy.review.hideComments : copy.review.comments}
+            </button>
+            <span className="review-break" aria-hidden="true" />
+            {source_}
+            {widths}
+            {shareButton}
+            {account}
+          </>
+        ) : (
+          <>
+            {brand}
+            {source_}
+            {modes}
+            {widths}
+            {shareButton}
+            {account}
+          </>
+        )}
       </header>
       {shownAt !== null && (
         <p className="review-strip" role="status">
@@ -459,7 +565,7 @@ function ReviewCanvas({
       )}
       {showBanner && (
         <p className="review-strip extension" role="status">
-          {copy.review.extension}{" "}
+          {bannerLine}{" "}
           {host.extensionUrl !== null && (
             <a href={host.extensionUrl} target="_blank" rel="noreferrer noopener">{copy.review.getExtension}</a>
           )}

@@ -64,7 +64,7 @@ function summary(id: string, width: number): ThreadSummary {
 }
 
 /** The panel in a review page, signed out, over a scripted page layer. */
-async function reviewPanel(options: { backend?: Partial<FakeBackend>; signedIn?: boolean; answers?: Parameters<typeof scriptedPage>[0] } = {}) {
+async function reviewPanel(options: { backend?: Partial<FakeBackend>; signedIn?: boolean; answers?: Parameters<typeof scriptedPage>[0]; panel?: ReviewSurface["panel"] } = {}) {
   let shown = pageState("page-a", 1);
   const page = scriptedPage({ display: async () => shown, measure: measured, capture: async () => ({ status: "captured", image: new Blob(["png"]) }), reveal: async () => ({ status: "failed", reason: "not here", keepOccurrence: false }), ...options.answers });
   const link = new PageLink(page.endpoint, { initial: shown });
@@ -93,6 +93,7 @@ async function reviewPanel(options: { backend?: Partial<FakeBackend>; signedIn?:
     onThreadOpened: async (width) => {
       calls.push(`width:${width}`);
     },
+    ...(options.panel === undefined ? {} : { panel: options.panel }),
   };
   host = document.createElement("div");
   document.body.append(host);
@@ -197,6 +198,33 @@ test("the sidebar stays open with no close button", async () => {
   const panel = await reviewPanel();
   expect(panel.shadow.querySelector("aside.sidebar")).not.toBeNull();
   expect(panel.shadow.querySelector('button[aria-label="Close sidebar"]')).toBeNull();
+});
+
+test("on a narrow screen the sidebar is a sheet: shown while the page opens it, closed by its own button", async () => {
+  const closed: string[] = [];
+  const shut = await reviewPanel({ panel: { layout: "sheet", open: false, onClose: () => void closed.push("close") } });
+  expect(shut.shadow.querySelector("aside.sidebar")).toBeNull();
+  await act(async () => root?.unmount());
+  root = null;
+  host?.remove();
+  const open = await reviewPanel({ panel: { layout: "sheet", open: true, onClose: () => void closed.push("close") } });
+  const sheet = open.shadow.querySelector<HTMLElement>("aside.sidebar.sheet")!;
+  expect(sheet).not.toBeNull();
+  // The full width of the window, not the side panel's: no width of its own and no edge to drag.
+  expect(sheet.style.width).toBe("");
+  expect(open.shadow.querySelector(".sidebar-resize")).toBeNull();
+  const close = open.shadow.querySelector<HTMLButtonElement>('button[aria-label="Close comments"]')!;
+  await act(async () => close.click());
+  expect(closed).toEqual(["close"]);
+});
+
+test("with the sheet down, a comment's composer has the window's whole width", async () => {
+  const panel = await reviewPanel({ panel: { layout: "sheet", open: false, onClose: () => undefined } });
+  await panel.pick();
+  const composer = panel.shadow.querySelector<HTMLElement>('form[aria-label="New comment"]')!;
+  expect(composer).not.toBeNull();
+  // Centered in the whole window (${window.innerWidth} px here), not in the part left of a sidebar that isn't there.
+  expect(Math.round(Number.parseFloat(composer.style.left) + 160)).toBe(Math.round(window.innerWidth / 2));
 });
 
 // ---------------------------------------------------------------------------

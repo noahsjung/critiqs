@@ -165,6 +165,9 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 .sidebar { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; max-width: 100vw; background: var(--surface);
   border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgb(0 0 0 / 0.08); display: flex; flex-direction: column; }
 .sidebar[hidden] { display: none; }
+/* A review link's page on a narrow screen: the sidebar is a sheet over the frame's lower part. */
+.sidebar.sheet { top: auto; left: 0; width: auto; max-width: none; height: min(70vh, 600px); border-left: 0; border-top: 1px solid var(--border);
+  border-radius: 14px 14px 0 0; box-shadow: 0 -12px 32px rgb(0 0 0 / 0.18); }
 /* The sidebar's left edge, dragged to resize it (sidebar-width.tsx). */
 .sidebar-resize { position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; }
 .sidebar-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background 0.15s; }

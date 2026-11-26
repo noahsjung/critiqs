@@ -92,7 +92,7 @@ describe("the review page", () => {
     const { host } = fakeHost();
     const container = await render(page(host), { backend: fakeBackend({ openReviewLink: async () => ({ kind: "sign-in" }) }), auth: fakeAuth(null) });
     await settle();
-    expect(text(container)).toContain("This review link is for the project's organization");
+    expect(text(container)).toContain("Sign in to open this review link");
     expect(container.querySelector("iframe")).toBeNull();
   });
 

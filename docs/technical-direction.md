@@ -1257,12 +1257,28 @@ page's address, with the prototype's path after `#`), and the account.
   the extension banner after a sign-in redirect.
 - **Widths.** Opening a thread from the list shows the frame at the width the
   comment was left at, with a way back.
-- **Headers.** Whatever serves the website sends, for `/r/*`:
-  `Content-Security-Policy: frame-ancestors 'none'; frame-src <lease hosts>`,
-  `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex, nofollow`
-  (`apps/web/vite.config.ts` sets them for `vite` and `vite preview`, with
-  `CRITIQS_REVIEW_FRAMES` such as `https://*.critiqs-review.net`). The page
-  also refuses to show inside another site's frame.
+- **Narrow screens.** Below 960 pixels a sidebar beside the frame would leave
+  the prototype too little room, so the frame takes the whole width and the
+  panel is a sheet over its lower part: **Comments** in the bar opens it, its
+  own Close button closes it, and choosing Comment or opening a thread puts it
+  down so the frame can be picked from. On a phone the bar takes two rows.
+- **When part of the page can't load.** The proxy's runtime tells the page
+  once when something on the prototype couldn't load through the link (a web
+  socket, another site the frame's policy refuses, a file the proxy refused
+  or the browser couldn't read), and the page shows one line with the
+  extension as the way to see it all. A copy of Critiqs the prototype itself
+  installed stays out of the frame.
+- **Headers.** Whatever serves the website sends, for `/r/*` and
+  `/review-links/*`: `Content-Security-Policy: frame-ancestors 'none';
+  frame-src <lease hosts>`, `Referrer-Policy: no-referrer` and
+  `X-Robots-Tag: noindex, nofollow`. `apps/web/vite.config.ts` sets them for
+  `vite` and `vite preview` (with `CRITIQS_REVIEW_FRAMES` such as
+  `https://*.critiqs-review.net`), and `apps/web/vercel.json` for the
+  website's host, where `frame-src` names the proxy's domain; a test keeps the
+  two the same. The `frame-src` is what keeps a frame from being navigated to
+  another site where the browser lacks the Navigation API, so a deployment
+  without it must not serve review links. The page also refuses to show
+  inside another site's frame.
 - **Owners** create, copy, open and remove a project's links at
   `/review-links/<project ID>`.
 

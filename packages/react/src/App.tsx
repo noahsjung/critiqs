@@ -97,7 +97,9 @@ export type MockupPlace = { kind: "elsewhere"; open: (request: MockupOpen) => vo
  * bar's switch), the frame's width, and sign-in: a reviewer picks and writes
  * before signing in, and signs in inside the review page when they post their
  * first comment, keeping what they picked and wrote. The panel then shows no
- * toolbar of its own, and its sidebar stays open beside the frame.
+ * toolbar of its own. On a wide screen its sidebar stays open beside the
+ * frame; on a narrow one it is a sheet over the frame's lower part, which the
+ * review page opens and the sheet's own Close button closes (`panel`).
  */
 export interface ReviewSurface {
   mode: "browse" | "comment";
@@ -110,10 +112,14 @@ export interface ReviewSurface {
   ensureReviewer(): Promise<boolean>;
   /** A thread opened from the list or a link: the review page shows the frame at the width it was left at, then it's revealed. */
   onThreadOpened?(viewportWidth: number): Promise<void> | void;
+  /** Where the sidebar shows: beside the frame, always open (the default), or as a sheet over its lower part, shown while `open`. */
+  panel?: ReviewPanel;
 }
 
-/** Whether the panel is in a review link's page, whose sidebar stays open. */
-const InReviewPage = createContext(false);
+export type ReviewPanel = { layout: "side" } | { layout: "sheet"; open: boolean; onClose(): void };
+
+/** The review page's sidebar, in a review link's page; null when Critiqs is installed or in the extension. */
+const InReviewPage = createContext<ReviewPanel | null>(null);
 
 interface AppProps {
   props: CritiqsProps;
@@ -210,8 +216,12 @@ function PanelApp({
     surface.onModeChange(value);
   }, []);
   const [storedSidebarOpen, setSidebarOpen] = useStoredState("critiqs:sidebar-open", false);
-  // A review link's page keeps the sidebar open beside the frame.
-  const sidebarOpen = review !== undefined || storedSidebarOpen;
+  // A review link's page keeps the sidebar open beside the frame, or shows it as a sheet when the page opens it.
+  const reviewPanel: ReviewPanel | null = review === undefined ? null : (review.panel ?? { layout: "side" });
+  const sheet = reviewPanel?.layout === "sheet";
+  const sidebarOpen = reviewPanel === null ? storedSidebarOpen : reviewPanel.layout === "side" || reviewPanel.open;
+  // How much of the window's right side the sidebar covers: a sheet covers none of it.
+  const sidebarBeside = sidebarOpen && !sheet;
   // Pins and the composer stay left of the sidebar, as wide as it is now.
   const sideWidth = useSidebarWidth();
   // Placing beside the sidebar follows the window as it resizes, even when the sidebar's width doesn't change.
@@ -996,7 +1006,7 @@ function PanelApp({
 
   // What the page layer draws: pins, the revealed target's outline, and Comment mode's selection.
   const windowAnchorRef = windowAnchor?.ref ?? null;
-  const coveredFrom = page.overPage && sidebarOpen ? windowWidth - sideWidth : null;
+  const coveredFrom = page.overPage && sidebarBeside ? windowWidth - sideWidth : null;
   const showPins = signedIn && !showSetup && !inMockup;
   // A review link's reviewer picks before signing in.
   const pickingShown = (signedIn || review !== undefined) && picking && !hidden;
@@ -1274,7 +1284,7 @@ function PanelApp({
   if (required && projectMissing) return null;
 
   return (
-    <InReviewPage.Provider value={review !== undefined}>
+    <InReviewPage.Provider value={reviewPanel}>
     <HiddenContext.Provider value={hidden}>
     <OpenBillingContext.Provider value={openBilling}>
     <div className="layer" aria-hidden={hidden || undefined}>
@@ -1305,7 +1315,7 @@ function PanelApp({
           key={selected.threadId}
           selectionId={selected.id}
           anchor={elementOf(windowAnchor)}
-          sidebarOpen={sidebarOpen}
+          sidebarOpen={sidebarBeside}
           host={host}
           returnFocus={selected.returnFocus}
           onClose={closeThread}
@@ -1356,7 +1366,7 @@ function PanelApp({
           onSignIn={signIn}
           onSubmit={() => void submitComment()}
           onCancel={cancelComment}
-          rightEdge={sidebarOpen ? windowWidth - sideWidth : windowWidth}
+          rightEdge={sidebarBeside ? windowWidth - sideWidth : windowWidth}
         />
       )}
       {review === undefined && <Toolbar
@@ -1462,16 +1472,18 @@ function SidebarFrame({
   children: ReactNode;
 }) {
   const width = useSidebarWidth();
-  // A review link's page keeps the sidebar open: it has nothing to close to.
-  const closable = !useContext(InReviewPage);
+  const reviewPanel = useContext(InReviewPage);
+  // A review link's page keeps a sidebar beside the frame open: it has nothing to close to. Its sheet closes back to the frame.
+  const sheet = reviewPanel?.layout === "sheet" ? reviewPanel : null;
+  const closable = reviewPanel === null || sheet !== null;
   return (
-    <aside className="sidebar" aria-label={label} style={{ width }}>
-      <SidebarResizer />
+    <aside className={sheet !== null ? "sidebar sheet" : "sidebar"} aria-label={label} style={sheet !== null ? undefined : { width }}>
+      {sheet === null && <SidebarResizer />}
       <div className="sidebar-header">
         <h2>{title}</h2>
         {actions}
         {closable && (
-          <button type="button" className="icon-btn" aria-label="Close sidebar" title="Close" onClick={onClose}>
+          <button type="button" className="icon-btn" aria-label={sheet !== null ? "Close comments" : "Close sidebar"} title="Close" onClick={sheet !== null ? () => sheet.onClose() : onClose}>
             <CloseIcon />
           </button>
         )}
