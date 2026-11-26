@@ -1,4 +1,4 @@
-import type { TicketBadge, TicketStatus, TrackerId } from "../tickets.ts";
+import { type TicketBadge, type TicketStatus, TRACKER_LIMITS, type TrackerId } from "../tickets.ts";
 import type { Rect, Scope, Target, TargetLocation, ViewState } from "../types.ts";
 import {
   array,
@@ -350,7 +350,7 @@ function pageChecks(limits: PageLimits): PageChecks {
     },
   });
   const ticketStatus: Check<TicketStatus> = object({ label: text(MAX_TEXT), category: oneOf(["open", "started", "done", "canceled", "unknown"]) });
-  const ticketBadge: Check<TicketBadge> = object({ tracker: oneOf<TrackerId>(["linear", "github", "jira"]), key: text(256), status: nullable(ticketStatus) });
+  const ticketBadge: Check<TicketBadge> = object({ tracker: oneOf<TrackerId>(["linear", "github", "jira"]), key: text(TRACKER_LIMITS.key), status: nullable(ticketStatus) });
   const display: Check<PageDisplay> = object({
     hidden: boolean,
     exposedRight: nullable(finite),

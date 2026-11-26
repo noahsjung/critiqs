@@ -796,11 +796,11 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .take(limit);
           return rows.map(withoutCreationTime);
         },
-        findByExternal: async (tracker, externalId) => {
+        findByExternal: async (tracker, externalId, limit) => {
           const rows = await db
             .query("ticketLinks")
             .withIndex("by_tracker_external", (q) => q.eq("tracker", tracker).eq("externalId", externalId))
-            .collect();
+            .take(limit);
           return rows.map(withoutCreationTime);
         },
         findByCreation: async (creationId) => {

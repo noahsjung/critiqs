@@ -1,6 +1,8 @@
 import type { ExportThread } from "./export.ts";
+import { markdownBlocks } from "./markdown-blocks.ts";
 import { markdownLink, markdownText, unresolvedText } from "./markdown-text.ts";
 import { contextLines, discussionLines, quoted, summarize, TICKET_STYLE } from "./thread-markdown.ts";
+import type { WebAddress } from "./web-address.ts";
 
 // Tickets in a team's tracker, created from a thread or linked to one. Each
 // person uses their own tracker account; see docs/tickets.md.
@@ -192,8 +194,8 @@ export interface TrackerSignInStart {
 export interface TicketTextOptions {
   /** Who is creating the ticket, for "Created from Critiqs by …"; null when they turned attribution off. */
   attribution: { name: string } | null;
-  /** The thread's link, on the project's review address when it has one. */
-  link: string;
+  /** The thread's link, on the project's review address; null when the project has none, and the ticket doesn't link to the thread. */
+  link: WebAddress | null;
   /** `uploaded` when the tracker gets the capture as an image; `link` when it can't (GitHub), so the capture is viewed by opening the thread. */
   captureNote: "uploaded" | "link";
 }
@@ -228,39 +230,58 @@ export function ticketText(thread: ExportThread, options: TicketTextOptions): { 
   };
 }
 
-function attributionLines(name: string, link: string): string[] {
-  return ["---", "", `Created from Critiqs by ${markdownText(name)}: ${markdownLink("open the thread", link)}`];
+function attributionLines(name: string, link: WebAddress | null): string[] {
+  return ["---", "", `Created from Critiqs by ${markdownText(name)}${link === null ? "." : `: ${markdownLink("open the thread", link)}`}`];
 }
+
+declare const ticketMarkdown: unique symbol;
+/**
+ * Ticket text as Critiqs sends it to a tracker: made only by `ticketBody` and
+ * `ticketLinkComment`, so everything in it that others wrote renders as
+ * written and nothing Critiqs adds is swallowed. Trackers' adapters take only
+ * this, never a plain string.
+ */
+export type TicketMarkdown = string & { readonly [ticketMarkdown]: true };
 
 export interface TicketBodyOptions {
   /**
-   * The thread's capture: the address of the copy uploaded into the ticket,
-   * `missing` when the tracker takes images but this one couldn't be
+   * The thread's capture: the checked address of the copy uploaded into the
+   * ticket, `missing` when the tracker takes images but this one couldn't be
    * added, or null to add nothing.
    */
-  capture: { url: string } | "missing" | null;
+  capture: { url: WebAddress } | "missing" | null;
   /** Who is creating the ticket; null when they turned attribution off. */
   attribution: { name: string } | null;
-  link: string;
+  /** The thread's link; null when the project has no review address. */
+  link: WebAddress | null;
 }
 
 /**
- * The text a ticket is created with: the person's draft, as they edited it
- * (`ticketText` without attribution), then the capture, then, unless turned
- * off, the line saying it came from Critiqs.
+ * The text a ticket is created with: the person's draft exactly as they
+ * edited it, then the capture, then, unless turned off, the line saying it
+ * came from Critiqs. When the draft ends inside a block at the top level
+ * that a blank line doesn't end (a code fence, an HTML comment, a `<pre>`
+ * block, and the like), the line that ends it is added after it, so what
+ * Critiqs adds stays outside it; nothing else in the draft changes.
  */
-export function ticketBody(draft: string, options: TicketBodyOptions): string {
-  const lines = [draft.trimEnd()];
+export function ticketBody(draft: string, options: TicketBodyOptions): TicketMarkdown {
+  const added: string[] = [];
   if (options.capture !== null) {
-    lines.push(
-      "",
+    added.push(
       "## Capture",
-      "",
-      options.capture === "missing" ? `Critiqs couldn't add the capture to this ticket; ${markdownLink("open the thread", options.link)} to view it.` : `!${markdownLink("Capture", options.capture.url)}`,
+      options.capture !== "missing"
+        ? `!${markdownLink("Capture", options.capture.url)}`
+        : options.link === null
+          ? "Critiqs couldn't add the capture to this ticket."
+          : `Critiqs couldn't add the capture to this ticket; ${markdownLink("open the thread", options.link)} to view it.`,
     );
   }
-  if (options.attribution !== null) lines.push("", ...attributionLines(options.attribution.name, options.link));
-  return `${lines.join("\n")}\n`;
+  if (options.attribution !== null) added.push(attributionLines(options.attribution.name, options.link).join("\n"));
+  if (added.length === 0) return draft as TicketMarkdown;
+  if (draft.trim() === "") return `${added.join("\n\n")}\n` as TicketMarkdown;
+  const end = markdownBlocks(draft).openBlockEnd;
+  const ended = /[\r\n]$/.test(draft) ? draft : `${draft}\n`;
+  return `${ended}${end === null ? "" : `${end}\n`}\n${added.join("\n\n")}\n` as TicketMarkdown;
 }
 
 /**
@@ -268,12 +289,13 @@ export function ticketBody(draft: string, options: TicketBodyOptions): string {
  * thread's first message, quoted, and its link; unless they turned it off, it
  * says it came from Critiqs.
  */
-export function ticketLinkComment(summary: string, options: { link: string; attribution: { name: string } | null }): string {
-  const link = markdownLink("open the thread", options.link);
-  return [
-    ...quoted(TICKET_STYLE.lines(summary.trim())),
-    "",
-    options.attribution === null ? `Thread: ${link}` : `Linked from Critiqs by ${options.attribution.name}: ${link}`,
-    "",
-  ].join("\n");
+export function ticketLinkComment(summary: string, options: { link: WebAddress | null; attribution: { name: string } | null }): TicketMarkdown {
+  const link = options.link === null ? null : markdownLink("open the thread", options.link);
+  const line =
+    options.attribution === null
+      ? link === null
+        ? []
+        : [`Thread: ${link}`]
+      : [`Linked from Critiqs by ${markdownText(options.attribution.name)}${link === null ? "." : `: ${link}`}`];
+  return `${[...quoted(TICKET_STYLE.lines(summary.trim())), ...(line.length === 0 ? [] : ["", ...line])].join("\n")}\n` as TicketMarkdown;
 }

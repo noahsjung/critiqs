@@ -173,6 +173,12 @@ link Critiqs writes. The page's address leaves out its query
 and fragment, which can carry a prototype's sign-in token. The Markdown
 export, a file the team downloads, keeps comments' own Markdown.
 
+The ticket is created with the text as the person left it. Critiqs adds the
+capture and attribution after it; when the text ends inside a block that a
+blank line doesn't end (a code fence, an HTML comment, a `<pre>`, `<script>`,
+`<style>`, or `<textarea>` block, and the like), it first adds the line that
+ends it, so they stay outside it, and changes nothing else.
+
 Built for Linear: each draft creates at most one ticket, however often the
 person retries it. When a ticket the person started didn't finish, such as
 when its answer was lost or Linear stopped accepting their connection, the
@@ -190,8 +196,17 @@ the ticket (see [Attribution](#attribution)). On GitHub, where the link would
 otherwise mean editing someone else's issue text, the link goes in a comment
 instead. The person can also add a comment with the thread's summary.
 
-A thread can link to more than one ticket. Unlinking removes the link in
-Critiqs only; the ticket and its link back stay in the tracker.
+A thread can link to more than one ticket, and a ticket can be linked to at
+most 50 threads. Unlinking removes the link in Critiqs only; the ticket and
+its link back stay in the tracker.
+
+The thread's link in a ticket (in its text, its link back, and a link
+comment) is on the project's review address, as in emails. Without a review
+address, a ticket doesn't link to the thread: its text says so, and nothing is
+added to the ticket as a link back. Critiqs never links a ticket to the page a
+thread was left on, since the thread's author sends that address and it could
+name any site. Each person may search their tracker or list where tickets go
+60 times a minute, and create or link 20 tickets a minute.
 
 **Proposed:** an **Also create a ticket** choice in the new-comment composer,
 and **Create tickets** for a selected feedback collection, one ticket per

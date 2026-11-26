@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
 import type { ExportThread } from "../src/export.ts";
-import { ticketText } from "../src/tickets.ts";
+import { ticketBody, ticketLinkComment, ticketText } from "../src/tickets.ts";
+import { webAddress } from "../src/web-address.ts";
 import { githubReferences, render, renderGfm, TICKET_TAGS } from "./markdown-oracle.ts";
 
 // Ticket text goes into a tracker the whole team reads, under the creator's
 // name. Everything in it that a reviewer or a tracker wrote must render
 // exactly as written: no link, image, HTML, or other structure of theirs.
 
-const LINK = "https://review.example/app?critiqs=t1";
+const LINK = webAddress("https://review.example/app?critiqs=t1")!;
 
 const HOSTILE = [
   "[Phish](https://evil.example)",
@@ -84,4 +85,27 @@ test("a ticket's title from a reviewer's first line reads as written and mention
   const { title } = ticketText({ ...thread, messages: [{ ...thread.messages[0]!, body: "@octocat #12 is back :smile:\nmore" }] }, { attribution: null, link: LINK, captureNote: "link" });
   expect(title.replace(/\u2060/g, "")).toBe("@octocat #12 is back :smile:");
   expect(githubReferences(title)).toEqual([]);
+});
+
+test("a link comment names its person exactly as written", () => {
+  const comment = ticketLinkComment("First [x](https://evil.example)", { link: LINK, attribution: { name: "[Admin](https://evil.example) <img src=x onerror=alert(1)>" } });
+  const rendered = expectOnlyCritiqsMarkup(comment);
+  expect(rendered.text).toContain("Linked from Critiqs by [Admin](https://evil.example) <img src=x onerror=alert(1)>: open the thread");
+});
+
+// What Critiqs adds after the person's draft (the capture and the attribution)
+// must stay outside any block the draft leaves open.
+const OPEN_ENDINGS = ["```\ncode", "~~~~\ncode", "<!-- comment", "<pre>\ntext", "<script>\nx", "<style>\nx", "<textarea>\nx", "<?php\nx", "<!DOCTYPE x", "<![CDATA[\nx", "    indented code"];
+
+test("a draft ending inside a code fence, an HTML comment, or another open HTML block doesn't swallow the capture or attribution", () => {
+  for (const ending of OPEN_ENDINGS) {
+    const body = ticketBody(`Hello\n\n${ending}`, { capture: { url: webAddress("https://uploads.linear.app/cap.png")! }, attribution: { name: "Dana" }, link: LINK });
+    const rendered = render(body);
+    expect({ ending, capture: rendered.images, attributed: rendered.text.includes("Created from Critiqs by Dana: open the thread") }).toEqual({
+      ending,
+      capture: ["https://uploads.linear.app/cap.png"],
+      attributed: true,
+    });
+    expect({ ending, heading: rendered.html.includes("<h2>Capture</h2>") }).toEqual({ ending, heading: true });
+  }
 });

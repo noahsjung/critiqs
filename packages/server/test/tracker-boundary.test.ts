@@ -85,3 +85,59 @@ test("adapters call trackers only through the endpoint Critiqs gives them", () =
     expect({ file, bare }).toEqual({ file, bare: [] });
   }
 });
+
+test("destinations a tracker sends keep only IDs Critiqs can use, with names cut", async () => {
+  reply = () => Response.json({ data: { teams: { nodes: [{ id: "t".repeat(5_000), name: "Long ID", key: "L" }, { id: "t1", name: "N".repeat(5_000), key: "K".repeat(5_000) }] } } });
+  const teams = await linearAdapter({ baseUrl: baseUrl() }).destinations(key);
+  expect(teams.map((team) => team.id)).toEqual(["t1"]);
+  expect(teams[0]!.name.length).toBeLessThanOrEqual(200);
+  expect(teams[0]!.key!.length).toBeLessThanOrEqual(256);
+});
+
+test("every tracker Critiqs offers has its answers checked", async () => {
+  const { TRACKER_ADAPTERS } = await import("../src/tickets/trackers/index.ts");
+  for (const [tracker, make] of Object.entries(TRACKER_ADAPTERS)) expect({ tracker, checked: isCheckedAdapter(make!({})) }).toEqual({ tracker, checked: true });
+});
+
+test("an upload goes only to a public HTTPS address, with only the storage headers the tracker names, and its asset address must be a web address", async () => {
+  const sent: { url: string; headers: Record<string, string> }[] = [];
+  const answers: Response[] = [];
+  const recorder = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    sent.push({ url: String(input), headers: Object.fromEntries(new Headers(init?.headers).entries()) });
+    return answers.shift() ?? new Response(null, { status: 200 });
+  }) as typeof fetch;
+  const linear = linearAdapter({ baseUrl: "https://api.linear.test", fetch: recorder });
+  const image = { data: new Blob([new Uint8Array([137, 80, 78, 71])]), contentType: "image/png", name: "c.png" };
+  const upload = (uploadUrl: string, assetUrl: string) =>
+    Response.json({
+      data: {
+        fileUpload: {
+          success: true,
+          uploadFile: {
+            uploadUrl,
+            assetUrl,
+            headers: [
+              { key: "x-goog-meta-id", value: "1" },
+              { key: "X-Injected-Header", value: "pwned" },
+              { key: "Authorization", value: "Bearer stolen" },
+              { key: "Cookie", value: "a=b" },
+            ],
+          },
+        },
+      },
+    });
+  answers.push(upload("http://127.0.0.1:5731/internal", "https://uploads.linear.app/a"));
+  expect((await refusal(linear.uploadImage!(key, image))).code).toBe("unavailable");
+  expect(sent.map((each) => each.url)).toEqual(["https://api.linear.test/graphql"]);
+  sent.length = 0;
+  answers.push(upload("https://storage.example/put?sig=1", "https://uploads.linear.app/a"));
+  expect((await linear.uploadImage!(key, image)) as string).toBe("https://uploads.linear.app/a");
+  const put = sent[1]!;
+  expect(put.url).toBe("https://storage.example/put?sig=1");
+  expect(put.headers["x-goog-meta-id"]).toBe("1");
+  expect(put.headers["x-injected-header"]).toBeUndefined();
+  expect(put.headers.authorization).toBeUndefined();
+  expect(put.headers.cookie).toBeUndefined();
+  answers.push(upload("https://storage.example/put?sig=1", "javascript:alert(document.domain)"));
+  expect((await refusal(linear.uploadImage!(key, image))).code).toBe("unavailable");
+});

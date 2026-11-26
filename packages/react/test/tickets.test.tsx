@@ -448,3 +448,12 @@ test("a thread without tickets shows no chips, badge, or pin mark", async () => 
   expect(shadow.querySelector(".pin-ticket")).toBeNull();
   expect(shadow.querySelector(".pin")!.getAttribute("aria-label")).toBe("Open comment by Dana");
 });
+
+test("a linked ticket's address that isn't a web address is never a link", async () => {
+  const views = [fakeTicketView({ _id: "a", url: "javascript:alert(1)" }), fakeTicketView({ _id: "b", key: "ENG-2", url: "https://linear.app/acme/issue/eng-2" })];
+  const shadow = await mount(backend({ threads: [summary([badge])], thread: detail(views) }));
+  await click(shadow.querySelector(".pin"));
+  const links = [...shadow.querySelectorAll('[aria-label="Linked tickets"] a')].map((anchor) => anchor.getAttribute("href"));
+  expect(links).toEqual(["https://linear.app/acme/issue/eng-2"]);
+  expect(shadow.querySelector('[aria-label="Linked tickets"]')!.textContent).toContain("ENG-1");
+});

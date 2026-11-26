@@ -5,6 +5,7 @@ export * from "./sidebar.ts";
 export * from "./export.ts";
 export * from "./export-pages.ts";
 export * from "./markdown-text.ts";
+export * from "./web-address.ts";
 export * from "./links.ts";
 export * from "./review-address.ts";
 export * from "./restore.ts";

@@ -8,6 +8,7 @@ import {
   type TicketsConfig,
   type TrackerAccountView,
   type TrackerId,
+  webAddress,
 } from "@critiqs/core";
 import { useEffect, useId, useRef, useState } from "react";
 import { useStoredState } from "../hooks.ts";
@@ -70,9 +71,10 @@ export function TicketChips({
   };
   return (
     <ul className="ticket-chips" aria-label="Linked tickets">
-      {tickets.map((ticket) => (
-        <li key={ticket._id} className="ticket-chip">
-          <a href={ticket.url} target="_blank" rel="noreferrer noopener" title={`${ticket.title} (${trackerLabel(ticket.tracker)}, linked by ${ticket.linkedByName})`}>
+      {tickets.map((ticket) => {
+        const title = `${ticket.title} (${trackerLabel(ticket.tracker)}, linked by ${ticket.linkedByName})`;
+        const chip = (
+          <>
             <TicketIcon size={14} />
             <span className="key">{ticket.key}</span>
             {ticket.status !== null && (
@@ -81,25 +83,38 @@ export function TicketChips({
                 {ticket.status.label}
               </span>
             )}
-          </a>
-          {ticket.canAddLinkBack && (
-            <button
-              type="button"
-              className="link-btn"
-              disabled={adding === ticket._id}
-              title={`${trackerLabel(ticket.tracker)} didn't add the link back to this thread`}
-              onClick={() => addLinkBack(ticket)}
-            >
-              {adding === ticket._id ? "Adding link back…" : "Add link back"}
-            </button>
-          )}
-          {ticket.canUnlink && (
-            <button type="button" className="icon-btn" aria-label={`Unlink ${ticket.key}`} title="Unlink" onClick={() => onUnlink(ticket)}>
-              <CloseIcon />
-            </button>
-          )}
-        </li>
-      ))}
+          </>
+        );
+        // Only a web address is a link: React doesn't refuse a `javascript:` one, whatever a backend sends.
+        const href = webAddress(ticket.url);
+        return (
+          <li key={ticket._id} className="ticket-chip">
+            {href === null ? (
+              <span title={title}>{chip}</span>
+            ) : (
+              <a href={href} target="_blank" rel="noreferrer noopener" title={title}>
+                {chip}
+              </a>
+            )}
+            {ticket.canAddLinkBack && (
+              <button
+                type="button"
+                className="link-btn"
+                disabled={adding === ticket._id}
+                title={`${trackerLabel(ticket.tracker)} didn't add the link back to this thread`}
+                onClick={() => addLinkBack(ticket)}
+              >
+                {adding === ticket._id ? "Adding link back…" : "Add link back"}
+              </button>
+            )}
+            {ticket.canUnlink && (
+              <button type="button" className="icon-btn" aria-label={`Unlink ${ticket.key}`} title="Unlink" onClick={() => onUnlink(ticket)}>
+                <CloseIcon />
+              </button>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -1,4 +1,15 @@
-import { isPrivateHost, type TicketDestination, type TicketRef, type TicketStatus, TRACKER_LIMITS, type TrackerId } from "@critiqs/core";
+import {
+  isPrivateHost,
+  type TicketDestination,
+  type TicketMarkdown,
+  type TicketRef,
+  type TicketStatus,
+  type TicketStatusCategory,
+  TRACKER_LIMITS,
+  type TrackerId,
+  type WebAddress,
+  webAddress,
+} from "@critiqs/core";
 import { CritiqsError } from "../../errors.ts";
 import { linearAdapter } from "./linear.ts";
 
@@ -52,7 +63,8 @@ export const MAX_TRACKER_ANSWER_BYTES = 2 * 1024 * 1024;
  * The endpoint an adapter calls a tracker through. Its `fetch` sends a
  * request only to the tracker's own address (`baseUrl`, which the operator
  * sets) or to a public HTTPS address (such as an upload address the tracker
- * signs), never to this computer or a private network; never follows a
+ * signs), never to this computer or a private network, and sends the
+ * person's token and cookies only to the tracker's own address; never follows a
  * redirect; gives up after `TRACKER_TIMEOUT_MS`; and reads at most
  * `MAX_TRACKER_ANSWER_BYTES` of an answer. Any of these throws, as a request
  * that got no answer does.
@@ -73,8 +85,11 @@ export function trackerEndpoint(options: TrackerEndpointOptions, defaultBaseUrl:
       if (outer.aborted) controller.abort(outer.reason);
       else outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
     }
+    // The person's token and cookies go only to the tracker's own address, never to an address it names, such as an upload's.
+    const headers = new Headers(init?.headers);
+    if (url.origin !== base.origin) for (const name of ["authorization", "proxy-authorization", "cookie"]) headers.delete(name);
     try {
-      const response = await send(input, { ...init, redirect: "manual", signal: controller.signal });
+      const response = await send(input, { ...init, headers, redirect: "manual", signal: controller.signal });
       if ((response.status >= 300 && response.status < 400) || response.type === "opaqueredirect") {
         await response.body?.cancel().catch(() => undefined);
         throw new Error("The tracker answered with a redirect, which Critiqs doesn't follow.");
@@ -165,18 +180,78 @@ function checkedIdentity(identity: TrackerIdentity): TrackerIdentity {
   };
 }
 
+const CATEGORIES: readonly TicketStatusCategory[] = ["open", "started", "done", "canceled", "unknown"];
+
+/** A status a tracker sent: its label cut, and a category Critiqs knows. */
+export function checkedStatus(status: TicketStatus): TicketStatus {
+  const label = trackerText(status.label, TRACKER_LIMITS.status);
+  return { label: label === "" ? "Unknown" : label, category: CATEGORIES.includes(status.category) ? status.category : "unknown" };
+}
+
+/**
+ * A ticket a tracker sent, held to Critiqs's limits: its ID within
+ * `TRACKER_LIMITS.id` and its address a web address, or null when either
+ * isn't; its key, title, and status cut; its site's ID kept only within
+ * the limit.
+ */
+function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: string | null }>(ticket: T): T | null {
+  const externalId = trackerId(ticket.externalId);
+  const url = webAddress(ticket.url);
+  const key = trackerText(ticket.key, TRACKER_LIMITS.key);
+  if (externalId === null || url === null || key === "") return null;
+  return {
+    ...ticket,
+    externalId,
+    key,
+    url,
+    title: trackerText(ticket.title, TRACKER_LIMITS.title),
+    ...(ticket.status === undefined ? {} : { status: checkedStatus(ticket.status) }),
+    ...(ticket.site === undefined ? {} : { site: ticket.site === null ? null : trackerId(ticket.site) }),
+  };
+}
+
+function checkedDestination(destination: TicketDestination): TicketDestination | null {
+  const id = trackerId(destination.id);
+  if (id === null) return null;
+  const key = destination.key === null ? "" : trackerText(destination.key, TRACKER_LIMITS.key);
+  return { id, name: trackerText(destination.name, TRACKER_LIMITS.name), key: key === "" ? null : key };
+}
+
+const some = <T>(items: (T | null)[]) => items.filter((item): item is T => item !== null).slice(0, TRACKER_LIMITS.list);
+
 /**
  * An adapter whose answers are held to Critiqs's limits, whatever its own
- * parsing missed. Each tracker's factory returns its adapter through this.
+ * parsing missed: IDs and addresses checked, names and labels cut, lists
+ * capped. Each tracker's factory returns its adapter through this, and a test
+ * fails any that doesn't.
  */
 export function checkedAdapter<T extends Partial<TrackerAdapter>>(adapter: T): T {
-  const checked = { ...adapter };
-  if (adapter.verify) {
-    const verify = adapter.verify;
-    checked.verify = async (token) => checkedIdentity(await verify(token));
+  const checked: Partial<TrackerAdapter> = { ...adapter };
+  const { verify, destinations, search, get, create, findCreated, status, uploadImage } = adapter;
+  const unreadable = (what: string) => refused(what);
+  if (verify) checked.verify = async (token) => checkedIdentity(await verify(token));
+  if (destinations) checked.destinations = async (token) => some((await destinations(token)).map(checkedDestination));
+  if (search) checked.search = async (token, query, destinationId) => some((await search(token, query, destinationId)).map(checkedTicket));
+  if (get) checked.get = async (token, externalId) => checkedTicket(await get(token, externalId)) ?? Promise.reject(unreadable("ticket"));
+  if (create) {
+    checked.create = async (token, input) => {
+      const outcome = await create(token, input);
+      if (outcome.status !== "created") return outcome;
+      const ticket = checkedTicket(outcome.ticket);
+      // Made, but not a ticket Critiqs can keep: the next attempt finds it again.
+      return ticket === null ? { status: "unknown", error: unreadable("ticket") } : { status: "created", ticket };
+    };
   }
+  if (findCreated) {
+    checked.findCreated = async (token, created) => {
+      const found = await findCreated(token, created);
+      return found === null ? null : (checkedTicket(found) ?? Promise.reject(unreadable("ticket")));
+    };
+  }
+  if (status) checked.status = async (token, ticket) => checkedStatus(await status(token, ticket));
+  if (uploadImage) checked.uploadImage = async (token, image) => webAddress(await uploadImage(token, image)) ?? Promise.reject(unreadable("upload address"));
   checkedAdapters.add(checked);
-  return checked;
+  return checked as T;
 }
 
 /** A ticket Critiqs created, as the tracker reports it. */
@@ -224,19 +299,20 @@ export interface TrackerAdapter {
    * the same across its attempts: a tracker that lets callers choose the new
    * ticket's ID takes it, so one creation can't make two tickets.
    */
-  create(token: TrackerToken, input: { destinationId: string; title: string; body: string; labels: string[]; creationId: string }): Promise<CreateOutcome>;
+  create(token: TrackerToken, input: { destinationId: string; title: string; body: TicketMarkdown; labels: string[]; creationId: string }): Promise<CreateOutcome>;
   /**
    * The ticket a creation made, when an attempt's outcome is unknown: found by
    * `creationId` where the tracker took it as the ticket's ID, else by the
    * thread's link. Null when the creation made no ticket.
    */
-  findCreated(token: TrackerToken, created: { creationId: string; link: string }): Promise<CreatedTicket | null>;
+  findCreated(token: TrackerToken, created: { creationId: string; link: WebAddress | null }): Promise<CreatedTicket | null>;
   /** Adds a link back to the thread: a Linear attachment, a Jira remote link, or a GitHub comment. Safe to repeat: the ticket keeps one link to the thread. */
-  linkBack(token: TrackerToken, ticket: TicketRef, link: { url: string; title: string }): Promise<void>;
-  comment(token: TrackerToken, ticket: TicketRef, body: string): Promise<void>;
+  linkBack(token: TrackerToken, ticket: TicketRef, link: { url: WebAddress; title: string }): Promise<void>;
+  /** Adds a comment: text Critiqs made (`ticketLinkComment`), never a plain string. */
+  comment(token: TrackerToken, ticket: TicketRef, body: TicketMarkdown): Promise<void>;
   status(token: TrackerToken, ticket: TicketRef): Promise<TicketStatus>;
   /** Uploads an image for a new ticket's text and returns the address to embed; absent where the tracker can't take images (GitHub). */
-  uploadImage?(token: TrackerToken, image: TicketImage): Promise<string>;
+  uploadImage?(token: TrackerToken, image: TicketImage): Promise<WebAddress>;
   /** The destination's own ticket templates, where the tracker has them. */
   templates?(token: TrackerToken, destinationId: string): Promise<{ id: string; name: string; body: string }[]>;
 }

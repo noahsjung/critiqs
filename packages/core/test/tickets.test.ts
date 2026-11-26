@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExportThread } from "../src/export.ts";
 import { TRACKERS, ticketBody, ticketLinkComment, ticketText } from "../src/tickets.ts";
+import { type WebAddress, webAddress } from "../src/web-address.ts";
 
 const thread: ExportThread = {
   id: "t1",
@@ -23,7 +24,7 @@ const thread: ExportThread = {
   ],
 };
 
-const review = "https://review.example/?critiqs=t1";
+const review = webAddress("https://review.example/?critiqs=t1")!;
 
 test("Critiqs offers Linear, then GitHub Issues, then Jira", () => {
   expect(TRACKERS.map((tracker) => tracker.label)).toEqual(["Linear", "GitHub Issues", "Jira"]);
@@ -81,9 +82,9 @@ test("thread links render to exactly the review address, with attribution on or 
     "https://review.example/?critiqs=t1#/details)",
     "https://review.example/?a=1&copy;b=2&critiqs=t1",
   ]) {
-    const on = ticketText(thread, { attribution: { name: "Dana" }, link: odd, captureNote: "uploaded" }).body;
+    const on = ticketText(thread, { attribution: { name: "Dana" }, link: odd as WebAddress, captureNote: "uploaded" }).body;
     expect(renderedLinks(on)).toEqual([odd, odd]);
-    const off = ticketText(thread, { attribution: null, link: odd, captureNote: "uploaded" }).body;
+    const off = ticketText(thread, { attribution: null, link: odd as WebAddress, captureNote: "uploaded" }).body;
     expect(renderedLinks(off)).toEqual([odd]);
   }
 });
@@ -131,13 +132,13 @@ test("a reply a coding agent wrote keeps that mark in the ticket", () => {
 test("a created ticket's text is the edited draft, then the uploaded capture, then attribution when chosen", () => {
   const draft = ticketText(thread, { attribution: null, link: review, captureNote: "uploaded" }).body;
   const edited = `${draft}\nAlso check the Support team.\n`;
-  const full = ticketBody(edited, { capture: { url: "https://uploads.linear.app/a/b(1).png" }, attribution: { name: "Dana" }, link: review });
+  const full = ticketBody(edited, { capture: { url: webAddress("https://uploads.linear.app/a/b(1).png")! }, attribution: { name: "Dana" }, link: review });
   expect(full.startsWith(`${edited.trimEnd()}\n\n## Capture\n\n![Capture](`)).toBe(true);
   expect(Bun.markdown.html(full)).toContain('<img src="https://uploads.linear.app/a/b(1).png" alt="Capture"');
   expect(full.trimEnd().endsWith("Created from Critiqs by Dana: [open the thread](<https://review.example/?critiqs=t1>)")).toBe(true);
   // Turned off: no Critiqs text, and the draft's own link to the thread stays.
   const off = ticketBody(edited, { capture: null, attribution: null, link: review });
-  expect(off).toBe(`${edited.trimEnd()}\n`);
+  expect(off as string).toBe(`${edited.trimEnd()}\n`);
   expect(off).not.toContain("Critiqs");
 });
 
@@ -149,7 +150,7 @@ test("a capture the tracker should have taken but couldn't says to open the thre
 
 test("a link comment quotes the thread's first message and links the thread, naming Critiqs only with attribution", () => {
   const on = ticketLinkComment("Department is wrong\n```\nunclosed", { link: review, attribution: { name: "Dana" } });
-  expect(on).toBe("> Department is wrong\n> \\`\\`\\`\n> unclosed\n\nLinked from Critiqs by Dana: [open the thread](<https://review.example/?critiqs=t1>)\n");
+  expect(on as string).toBe("> Department is wrong\n> \\`\\`\\`\n> unclosed\n\nLinked from Critiqs by Dana: [open the thread](<https://review.example/?critiqs=t1>)\n");
   const off = ticketLinkComment("Department is wrong", { link: review, attribution: null });
   expect(off).not.toContain("Critiqs");
   expect(renderedLinks(off)).toEqual([review]);

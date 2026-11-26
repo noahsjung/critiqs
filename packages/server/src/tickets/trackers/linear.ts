@@ -1,4 +1,4 @@
-import type { TicketDestination, TicketRef, TicketStatus, TicketStatusCategory } from "@critiqs/core";
+import { type TicketDestination, type TicketRef, type TicketStatus, type TicketStatusCategory, type WebAddress, webAddress } from "@critiqs/core";
 import { CritiqsError, fail } from "../../errors.ts";
 import {
   checkedAdapter,
@@ -140,13 +140,16 @@ export function linearStatusCategory(type: string): TicketStatusCategory {
  * image goes there with the headers it names, and the issue's text embeds its
  * asset address, which Linear serves to people in the workspace.
  */
-async function uploadImage(to: TrackerEndpoint, token: TrackerToken, image: TicketImage): Promise<string> {
+async function uploadImage(to: TrackerEndpoint, token: TrackerToken, image: TicketImage): Promise<WebAddress> {
   const written = await write(to, token, UPLOAD, { contentType: image.contentType, filename: image.name, size: image.data.size }, "fileUpload");
   const file = written.done && written.clean ? written.payload.uploadFile : null;
   if (!isRecord(file) || !text(file.uploadUrl) || !text(file.assetUrl) || !Array.isArray(file.headers)) throw unexpected("no upload address");
+  const asset = webAddress(file.assetUrl);
+  if (asset === null) throw unexpected("upload address");
   const headers = new Headers({ "Content-Type": image.contentType, "Cache-Control": "public, max-age=31536000" });
   for (const header of file.headers) {
-    if (isRecord(header) && text(header.key) && typeof header.value === "string") headers.set(header.key, header.value);
+    // Only the storage's own headers that sign the upload, never ones that could stand for someone, such as Authorization.
+    if (isRecord(header) && text(header.key) && UPLOAD_HEADER.test(header.key) && typeof header.value === "string") headers.set(header.key, header.value);
   }
   let response: Response;
   try {
@@ -155,8 +158,11 @@ async function uploadImage(to: TrackerEndpoint, token: TrackerToken, image: Tick
     throw unreachable();
   }
   if (!response.ok) throw unexpected(`upload status ${response.status}`);
-  return file.assetUrl;
+  return asset;
 }
+
+/** The headers an upload may carry from Linear's answer: its storage's signed `x-goog-` (or `x-amz-`) headers, and how the file is stored. */
+const UPLOAD_HEADER = /^(?:x-goog-[a-z0-9-]+|x-amz-[a-z0-9-]+|content-disposition|content-md5|cache-control)$/i;
 
 const unreachable = () => new CritiqsError("unavailable", "Critiqs couldn't reach Linear. Try again in a moment.");
 const unexpected = (what: string) => new CritiqsError("unavailable", `Linear's answer wasn't what Critiqs expected (${what}). Try again in a moment.`);

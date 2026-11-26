@@ -152,7 +152,7 @@ export const unlink = mutation({
 
 export const requireAccount = internalMutation({
   args: { tracker: trackerValidator },
-  handler: async (ctx, args) => run(async () => requireTrackerAccount(convexStore(ctx), await identityOf(ctx), args)),
+  handler: async (ctx, args) => run(async () => requireTrackerAccount(convexStore(ctx), await identityOf(ctx), args, Date.now())),
 });
 
 export const prepareDraft = internalMutation({

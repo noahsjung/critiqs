@@ -229,15 +229,6 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     expect(filled.body).not.toContain("Created from Critiqs");
   });
 
-  test(`${name}: without a review address, the thread links on the page it was left on`, async () => {
-    const backend = fresh();
-    const { threadId } = await setup(backend, { review: false });
-    await connect(backend, dana);
-    const linear = linearStandIn();
-    await create(backend, dana, linear, { threadId });
-    expect(linear.attachments).toEqual([{ issueId: expect.any(String), url: `${anchor.evidence.url}?critiqs=${threadId}`, title: "Department is wrong" }]);
-  });
-
   test(`${name}: creating saves a pending link before calling Linear, then links the issue with its key, status, and the thread's link`, async () => {
     const backend = fresh();
     const { threadId } = await setup(backend);
@@ -314,7 +305,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     // Someone archived the new issue in Linear before Dana tried again.
     linear.issues[0]!.archivedAt = "2026-11-25T10:00:00.000Z";
     // Linear's lists leave it out now: search doesn't find it.
-    const asDana = { requirePerson: () => backend.run((store) => requireTrackerAccount(store, dana, { tracker: "linear" })), token: token(dana) };
+    const asDana = { requirePerson: () => backend.run((store) => requireTrackerAccount(store, dana, { tracker: "linear" }, 1_000)), token: token(dana) };
     expect(await searchTickets(asDana, deployment, { tracker: "linear", query: "ENG-1" }, linear.fetchFn)).toEqual([]);
     const view = await create(backend, dana, linear, { threadId, submissionId });
     expect(view.key).toBe("ENG-1");
@@ -392,7 +383,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     const backend = fresh();
     await setup(backend);
     const linear = linearStandIn("https://linear.test", [{ id: "i1", identifier: "ENG-1", title: "Department label", teamId: "team-eng", state: { name: "Todo", type: "unstarted" } }]);
-    const steps = (who: Identity) => ({ requirePerson: () => backend.run((store) => requireTrackerAccount(store, who, { tracker: "linear" })), token: token(who) });
+    const steps = (who: Identity) => ({ requirePerson: () => backend.run((store) => requireTrackerAccount(store, who, { tracker: "linear" }, 1_000)), token: token(who) });
     expect((await refusal(listTicketDestinations(steps(lee), deployment, { tracker: "linear" }, linear.fetchFn))).message).toBe("Connect Linear in Your trackers first.");
     await connect(backend, lee);
     expect((await listTicketDestinations(steps(lee), deployment, { tracker: "linear" }, linear.fetchFn)).map((team) => team.name)).toEqual(["Engineering", "Design"].sort());
@@ -963,5 +954,110 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     linear.operations.length = 0;
     expect((await addLinkBack(backend, dana, linear, view._id)).canAddLinkBack).toBe(false);
     expect(linear.operations).toEqual([]);
+  });
+
+  // Security: what reviewers and trackers send can't choose where tickets link, or break them.
+
+  /** A project without a review address, and a thread Lee left on `page`, an address the thread's author sends. */
+  async function threadOn(backend: ContractBackend, page: string) {
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype" }));
+    const threadId = await backend.run((store) =>
+      ops.createThread(store, lee, { projectId, anchor: { ...anchor, evidence: { ...anchor.evidence, url: page } }, body: "Department is wrong", tags: [], capture: failed }),
+    );
+    return { projectId, threadId };
+  }
+
+  /** Every link and image address a tracker would render from Markdown, web and email addresses included. */
+  const rendered = (markdown: string) =>
+    [...Bun.markdown.html(markdown, { autolinks: true }).matchAll(/(?:href|src)="([^"]*)"/g)].map((match) => match[1]!.replaceAll("&amp;", "&"));
+
+  test(`${name}: without a review address, a ticket never links to the page its thread's author sent, nor copies its query`, async () => {
+    const backend = fresh();
+    const { threadId } = await threadOn(backend, "https://evil.example/critiqs-login?session=SECRET");
+    await connect(backend, dana);
+    const linear = linearStandIn("https://linear.test", [{ id: "issue-9", identifier: "ENG-9", title: "Existing", teamId: "team-eng", state: { name: "Todo", type: "unstarted" } }]);
+    const filled = await draft(backend, dana, threadId);
+    // The page shows as text, so whoever reads the ticket knows where it was left; never as a link, and never with its query.
+    expect(rendered(filled.body)).toEqual([]);
+    expect(filled.body).toContain("- Link: none");
+    expect(filled.body).not.toContain("SECRET");
+    const view = await create(backend, dana, linear, { threadId, body: filled.body });
+    expect(view.canAddLinkBack).toBe(false);
+    await link(backend, dana, linear, { threadId, externalId: "issue-9", comment: true });
+    for (const issue of linear.issues) expect({ issue: issue.identifier, links: rendered(issue.description) }).toEqual({ issue: issue.identifier, links: [] });
+    expect(linear.attachments).toEqual([]);
+    expect(linear.comments.map((comment) => rendered(comment.body))).toEqual([[]]);
+    expect(JSON.stringify({ issues: linear.issues, comments: linear.comments })).not.toContain("SECRET");
+    expect(linear.issues.find((issue) => issue.title === "Department is wrong")!.description).toContain("Created from Critiqs by Dana.");
+  });
+
+  test(`${name}: a thread whose page isn't a web address can still be drafted, created, and linked`, async () => {
+    const backend = fresh();
+    await connect(backend, dana);
+    for (const page of ["javascript:alert(1)", "ftp://evil.example/a", "not an address"]) {
+      const { threadId } = await threadOn(backend, page);
+      const filled = await draft(backend, dana, threadId);
+      expect({ page, links: rendered(filled.body) }).toEqual({ page, links: [] });
+      const linear = linearStandIn();
+      await create(backend, dana, linear, { threadId, body: filled.body });
+      expect(rendered(linear.issues[0]!.description)).toEqual([]);
+    }
+  });
+
+  test(`${name}: an over-long key, title, or status from the tracker is kept within what Critiqs shows`, async () => {
+    const backend = fresh();
+    const { threadId } = await setup(backend);
+    await connect(backend, dana);
+    const linear = linearStandIn();
+    linear.intercept = (operation, variables) =>
+      operation === "CritiqsCreate"
+        ? Response.json({
+            data: {
+              issueCreate: {
+                success: true,
+                issue: {
+                  id: (variables.input as { id: string }).id,
+                  identifier: `ENG-${"9".repeat(300)}`,
+                  title: "T".repeat(5_000),
+                  url: "https://linear.app/acme/issue/eng-1",
+                  state: { name: "S".repeat(100_000), type: "unstarted" },
+                  updatedAt: new Date(5_000).toISOString(),
+                  team: { organization: { id: "org-1" } },
+                },
+              },
+            },
+          })
+        : undefined;
+    const view = await create(backend, dana, linear, { threadId });
+    expect(view.key.length).toBeLessThanOrEqual(256);
+    expect(view.title.length).toBeLessThanOrEqual(255);
+    expect(view.status!.label.length).toBeLessThanOrEqual(100);
+  });
+
+  test(`${name}: one ticket can be linked to at most 50 threads, so its status updates stay within one transaction`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype", reviewUrl: REVIEW }));
+    await connect(backend, dana);
+    const linear = linearStandIn("https://linear.test", [{ id: "issue-9", identifier: "ENG-9", title: "Existing", teamId: "team-eng", state: { name: "Todo", type: "unstarted" } }]);
+    for (let index = 0; index <= 50; index++) {
+      const threadId = await backend.run((store) => ops.createThread(store, dana, { projectId, anchor, body: `Thread ${index}`, tags: [], capture: failed }));
+      // A minute apart, so the per-person limit on links doesn't decide it.
+      const linking = link(backend, dana, linear, { threadId, externalId: "issue-9" }, { now: 6_000 + index * 60_000 });
+      if (index < 50) await linking;
+      else expect((await refusal(linking)).code).toBe("limit");
+    }
+  });
+
+  test(`${name}: each person may search their tracker 60 times and create or link 20 tickets a minute`, async () => {
+    const backend = fresh();
+    const { threadId } = await setup(backend);
+    await connect(backend, dana);
+    const linear = linearStandIn();
+    const steps = (now: number) => ({ requirePerson: () => backend.run((store) => requireTrackerAccount(store, dana, { tracker: "linear" }, now)), token: tokens(backend) });
+    for (let index = 0; index < 60; index++) await searchTickets(steps(10_000), deployment, { tracker: "linear", query: "department" }, linear.fetchFn);
+    expect((await refusal(searchTickets(steps(10_000), deployment, { tracker: "linear", query: "department" }, linear.fetchFn))).code).toBe("limit");
+    expect((await searchTickets(steps(80_000), deployment, { tracker: "linear", query: "department" }, linear.fetchFn)).length).toBeGreaterThanOrEqual(0);
+    for (let index = 0; index < 20; index++) await create(backend, dana, linear, { threadId: (await threadOn(backend, anchor.evidence.url)).threadId }, { now: 200_000 });
+    expect((await refusal(create(backend, dana, linear, { threadId }, { now: 200_000 }))).code).toBe("limit");
   });
 }

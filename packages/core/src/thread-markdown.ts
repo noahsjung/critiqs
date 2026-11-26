@@ -1,5 +1,6 @@
 import type { ExportThread } from "./export.ts";
 import { markdownCode, markdownLines, markdownLink, markdownText } from "./markdown-text.ts";
+import type { WebAddress } from "./web-address.ts";
 
 // Markdown pieces of one exported thread, shared by the Markdown export and
 // ticket text. Internal: not exported from the package.
@@ -74,9 +75,19 @@ function pageWithoutQuery(url: string): string {
  * `linkText` writes the link as a Markdown link with that text, for trackers,
  * which render it; the export keeps the bare address.
  */
-export function contextLines(thread: ExportThread, style: ThreadTextStyle, options: { link: string; linkText?: string; status: boolean; capture: string }): string[] {
+export function contextLines(
+  thread: ExportThread,
+  style: ThreadTextStyle,
+  options: { link: string; linkText?: undefined; status: boolean; capture: string } | { link: WebAddress | null; linkText: string; status: boolean; capture: string },
+): string[] {
+  const link =
+    options.linkText === undefined
+      ? options.link
+      : options.link === null
+        ? "none; this project has no review address, so tickets don't link to its threads"
+        : markdownLink(options.linkText, options.link);
   const lines = [
-    `- Link: ${options.linkText === undefined ? options.link : markdownLink(options.linkText, options.link)}`,
+    `- Link: ${link}`,
     ...(options.status ? [`- Status: ${thread.status}`] : []),
     `- Tags: ${thread.tags.length > 0 ? thread.tags.map(style.text).join(", ") : "none"}`,
     `- Screen: ${style.text(thread.screen)}`,

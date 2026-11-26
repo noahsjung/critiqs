@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { markdownCode, markdownLines, markdownLink, markdownText } from "../src/markdown-text.ts";
+import type { WebAddress } from "../src/web-address.ts";
 import { githubReferences, render, renderGfm, renderLinkified, renderMarked } from "./markdown-oracle.ts";
 
 const TOKENS = [
@@ -99,7 +100,7 @@ test("a code span holds any text, backticks included, as written", () => {
 });
 
 test("a link's text is escaped and its address renders exactly as given", () => {
-  const rendered = render(markdownLink("[x](https://evil.example) <b>", "https://review.example/a b?x=1&y=<2>"));
+  const rendered = render(markdownLink("[x](https://evil.example) <b>", "https://review.example/a b?x=1&y=<2>" as WebAddress));
   expect(rendered.tags).toEqual(["p", "a"]);
   expect(rendered.hrefs).toEqual(["https://review.example/a%20b?x=1&y=%3C2%3E"]);
   expect(rendered.text).toBe("[x](https://evil.example) <b>");

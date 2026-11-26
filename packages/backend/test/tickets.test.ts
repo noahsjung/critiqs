@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { type LinearStandIn, linearStandIn } from "@critiqs/server/linear-standin";
 import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import { anchor, reviewer, setup, upload } from "./harness";
 import { list, thread as getThread } from "./pages";
 
@@ -157,4 +158,58 @@ test("once a project is limited to its organization, someone outside it can't dr
   // A member of the organization still can.
   await riley.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_riley" });
   expect((await riley.action(api.tickets.create, { ...create, submissionId: crypto.randomUUID() })).key).toBe("ENG-10");
+});
+
+test("a tracker's upload answer can't make Critiqs call a private address, send other headers, or put a script address in the ticket", async () => {
+  const { lee, projectId, threadId } = await project();
+  const storageId = await upload(lee, projectId, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]));
+  await lee.mutation(api.threads.attachScreenshot, { threadId, storageId });
+  await lee.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_lee" });
+  const reached: string[] = [];
+  const internal = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (request) => {
+      reached.push(`${request.method} ${new URL(request.url).pathname} ${request.headers.get("X-Injected-Header")}`);
+      return new Response(null, { status: 200 });
+    },
+  });
+  try {
+    linear.intercept = (operation) =>
+      operation === "CritiqsUpload"
+        ? Response.json({
+            data: {
+              fileUpload: {
+                success: true,
+                uploadFile: { uploadUrl: `http://127.0.0.1:${internal.port}/internal-admin-put`, assetUrl: "javascript:alert(document.domain)", headers: [{ key: "X-Injected-Header", value: "pwned" }] },
+              },
+            },
+          })
+        : undefined;
+    const view = await lee.action(api.tickets.create, { threadId, submissionId: crypto.randomUUID(), tracker: "linear", destinationId: "team-eng", title: "T", body: "Text", createdFromCritiqs: false });
+    expect(reached).toEqual([]);
+    const issue = linear.issues.find((each) => each.id === view.externalId)!;
+    expect(issue.description).not.toContain("javascript:");
+    expect(issue.description).toContain("Critiqs couldn't add the capture to this ticket");
+  } finally {
+    internal.stop(true);
+  }
+});
+
+test("tickets can't be drafted, created, or linked from a mockup thread, and Linear isn't asked", async () => {
+  const { dana, projectId } = await project();
+  const page = '<html><head></head><body data-critiqs-node="1"><button data-critiqs-node="2">Save</button></body></html>';
+  const copy = await upload(dana, projectId, page, { type: "text/html", purpose: "pageCopy" });
+  const source = { url: "https://proto.example/users/alex", screen: "user-details", viewState: {}, revision: null, persona: null };
+  const mockupId = await dana.action(api.mockups.create, { projectId, title: "Bigger save", source, snapshot: { storageId: copy, width: 1440, height: 2000, scrollY: 0, viewportHeight: 900, capturedAt: 1 } });
+  const snapshotId = (await dana.query(api.mockups.get, { mockupId })).snapshots[0]!._id as Id<"mockupSnapshots">;
+  const threadId = await dana.mutation(api.threads.create, { projectId, anchor, body: "Make it bigger", tags: [], capture: failedCapture, mockup: { mockupId, snapshotId, node: 2 } });
+  await dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_dana" });
+  const asked = linear.operations.length;
+  await expect(dana.action(api.tickets.draft, { threadId, tracker: "linear" })).rejects.toThrow("mockup threads");
+  await expect(
+    dana.action(api.tickets.create, { threadId, submissionId: crypto.randomUUID(), tracker: "linear", destinationId: "team-eng", title: "T", body: "Text", createdFromCritiqs: false }),
+  ).rejects.toThrow("mockup threads");
+  await expect(dana.action(api.tickets.link, { threadId, tracker: "linear", externalId: "issue-9", comment: false })).rejects.toThrow("mockup threads");
+  expect(linear.operations.length).toBe(asked);
 });

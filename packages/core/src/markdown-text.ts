@@ -1,3 +1,5 @@
+import type { WebAddress } from "./web-address.ts";
+
 // Text that people or trackers wrote, as Markdown that renders exactly as
 // written. Ticket text goes into a tracker the whole team reads, under the
 // name of the person who created it, so nothing a reviewer typed (a comment,
@@ -181,9 +183,9 @@ export function markdownCode(value: unknown): string {
  * rendering exactly as given: in angle brackets, so ")" can't end it, with
  * "&" written as "&amp;" so no part of the address is read as a character
  * reference, and the characters that angle brackets can't hold
- * percent-encoded.
+ * percent-encoded. Only a checked address (`webAddress`) can be a link.
  */
-export function markdownLink(text: string, url: string): string {
+export function markdownLink(text: string, url: WebAddress): string {
   const destination = url.replaceAll("&", "&amp;").replace(/[<>\\\s]/g, (character) => encodeURIComponent(character));
   return `[${markdownText(text)}](<${destination}>)`;
 }

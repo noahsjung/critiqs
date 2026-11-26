@@ -1019,8 +1019,8 @@ export interface Store {
       get(id: string): Promise<TicketLinkRecord | null>;
       /** A thread's links in one state only (linked, or still being created), in the order they were added; at most `limit`. */
       listForThread(threadId: string, state: TicketLinkRecord["state"], limit: number): Promise<TicketLinkRecord[]>;
-      /** Every link to one ticket, in any thread, as status updates find them. */
-      findByExternal(tracker: TrackerId, externalId: string): Promise<TicketLinkRecord[]>;
+      /** Links to one ticket, in any thread, as status updates find them: at most `limit`. */
+      findByExternal(tracker: TrackerId, externalId: string, limit: number): Promise<TicketLinkRecord[]>;
       /** The link a creation made or is making, in any thread, by its creation ID; null when there is none. */
       findByCreation(creationId: string): Promise<TicketLinkRecord | null>;
       insert(link: New<TicketLinkRecord>): Promise<string>;

@@ -171,10 +171,10 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     // The same ID in another tracker is another ticket.
     await backend.run((store) => tickets(store).links.insert(link(ids, "ENG-1", { tracker: "jira" })));
 
-    const found = await backend.run((store) => tickets(store).links.findByExternal("linear", "id-ENG-1"));
+    const found = await backend.run((store) => tickets(store).links.findByExternal("linear", "id-ENG-1", 100));
     expect(found.map((row) => row.threadId).sort()).toEqual([threadId, otherThreadId].sort());
     expect(found.every((row) => row.tracker === "linear" && row.key === "ENG-1")).toBe(true);
-    expect(await backend.run((store) => tickets(store).links.findByExternal("github", "id-ENG-1"))).toEqual([]);
+    expect(await backend.run((store) => tickets(store).links.findByExternal("github", "id-ENG-1", 100))).toEqual([]);
   });
 
   test(`${name}: a creation's link is found by its creation ID in any thread, pending or linked`, async () => {
@@ -217,7 +217,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       statusCheckedAt: 2_500,
       statusChangedAt: 2_400,
     });
-    expect((await backend.run((store) => tickets(store).links.findByExternal("linear", "id-ENG-7"))).map((row) => row._id)).toEqual([id]);
+    expect((await backend.run((store) => tickets(store).links.findByExternal("linear", "id-ENG-7", 100))).map((row) => row._id)).toEqual([id]);
 
     await backend.run((store) => tickets(store).links.patch(id, { status: null, statusCheckedAt: null, statusChangedAt: null, site: null }));
     const { site: _site, ...withoutSite } = link(ids, "ENG-7");

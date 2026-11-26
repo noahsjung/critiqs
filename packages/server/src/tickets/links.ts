@@ -1,5 +1,4 @@
 import {
-  buildLink,
   type ExportPageLoader,
   exportThread,
   loadExport,
@@ -14,6 +13,8 @@ import {
   ticketLinkComment,
   ticketText,
   type TrackerId,
+  type WebAddress,
+  webAddress,
 } from "@critiqs/core";
 import { fail } from "../errors.ts";
 import { reviewAddressLink } from "../notify.ts";
@@ -37,13 +38,31 @@ export const MAX_TICKET_SEARCH_LENGTH = 200;
 type Tickets = NonNullable<Store["tickets"]>;
 
 /**
- * A thread's link for tickets: on the project's review address when it has
- * one, else on the page the thread was left on.
+ * A thread's link for tickets: on the project's review address, which its
+ * owner sets, as emails link; null without a usable one. Never the page the
+ * thread was left on: its author sends that address, so it could name any
+ * site, and its query can carry a prototype's sign-in token.
  */
-export function ticketThreadLink(project: ProjectRecord, thread: ThreadRecord): string {
-  const target = { threadId: thread._id, messageId: null };
-  const page = thread.anchor.evidence.url;
-  return reviewAddressLink(project, target) ?? buildLink(new URL(page).origin, page, target);
+export function ticketThreadLink(project: ProjectRecord, thread: ThreadRecord): WebAddress | null {
+  const link = reviewAddressLink(project, { threadId: thread._id, messageId: null });
+  return link === null ? null : webAddress(link);
+}
+
+/** How many times a minute one person may list where tickets go or search their tracker: each calls it. */
+export const TRACKER_READS_PER_MINUTE = 60;
+/** How many times a minute one person may create or link a ticket, retries included. */
+export const TICKET_WRITES_PER_MINUTE = 20;
+/** The most threads one ticket can be linked to, so a status update for it saves within one transaction. */
+export const MAX_TICKET_THREADS = 50;
+/** The most links to one ticket read at once: every thread's, with room for those being added. */
+export const MAX_TICKET_LINK_ROWS = 2 * MAX_TICKET_THREADS;
+
+/** Refuses a person's next tracker call past the minute's limit for its kind. */
+async function requireTrackerRoom(store: Store, kind: "read" | "write", userId: string, now: number): Promise<void> {
+  const limit = kind === "read" ? TRACKER_READS_PER_MINUTE : TICKET_WRITES_PER_MINUTE;
+  if (!(await store.rateLimits.hit(`tracker-${kind}:${userId}`, limit, 60_000, now))) {
+    fail("limit", kind === "read" ? "Too many tracker requests. Wait a minute, then try again." : "Too many tickets created or linked. Wait a minute, then try again.");
+  }
 }
 
 /** The first line of a thread's first message, to name the thread on the ticket. */
@@ -110,8 +129,9 @@ export interface TrackerPerson {
 }
 
 /** The signed-in person who uses their tracker account, before it is called; refused without one. */
-export async function requireTrackerAccount(store: Store, identity: Identity | null, args: { tracker: TrackerId }): Promise<TrackerPerson> {
+export async function requireTrackerAccount(store: Store, identity: Identity | null, args: { tracker: TrackerId }, now: number): Promise<TrackerPerson> {
   const { user, account } = await requireAccount(store, identity, args.tracker);
+  await requireTrackerRoom(store, "read", user._id, now);
   return { userId: user._id, accountId: account.accountId };
 }
 
@@ -143,7 +163,8 @@ export async function searchTickets(steps: TrackerSteps, deployment: TicketsDepl
 export interface DraftContext {
   projectId: string;
   threadId: string;
-  link: string;
+  /** The thread's link; null when the project has no review address. */
+  link: WebAddress | null;
   createdFromCritiqs: boolean;
   resumeSubmissionId: string | null;
 }
@@ -175,7 +196,8 @@ export async function ticketDraft(steps: { prepare(): Promise<DraftContext>; loa
   const data = await loadExport(steps.loadPage, context.projectId, [context.threadId], () => false);
   const [entry] = data.threads;
   if (entry === undefined) fail("unavailable", "This thread was deleted.");
-  const thread = exportThread(entry, () => context.link);
+  // The export's own links aren't in ticket text; only `context.link` is.
+  const thread = exportThread(entry, () => context.link ?? "");
   // Linear takes the capture into the ticket; other trackers link to the thread for it.
   const { title, body } = ticketText(thread, { attribution: null, link: context.link, captureNote: args.tracker === "linear" ? "uploaded" : "link" });
   return { title, body, createdFromCritiqs: context.createdFromCritiqs, resumeSubmissionId: context.resumeSubmissionId };
@@ -253,8 +275,8 @@ export interface TicketHold {
 export interface HeldCreation extends TicketHold {
   /** The ID the new ticket takes; the same across the creation's attempts. */
   creationId: string;
-  /** The link back to the thread, as recorded at submission. */
-  linkBack: { url: string; title: string };
+  /** The link back to the thread, as recorded at submission; null when the project had no review address. */
+  linkBack: { url: WebAddress; title: string } | null;
 }
 
 /** The person's creation, held by this attempt and checked. */
@@ -324,6 +346,7 @@ export async function claimTicketCreation(
   const { tickets, user, account } = await requireAccount(store, identity, args.tracker);
   const { thread, project } = await ticketThread(store, user, args.threadId);
   if (account.accountId !== args.accountId) fail("unavailable", `Your ${trackerLabel(args.tracker)} connection changed. Try again.`);
+  await requireTrackerRoom(store, "write", user._id, now);
   const leaseUntil = now + CREATION_LEASE_MS;
   const common = {
     threadId: thread._id,
@@ -344,15 +367,16 @@ export async function claimTicketCreation(
     }
     requireSameAccount(earlier, account, args.tracker, "this ticket");
     await tickets.links.patch(earlier._id, { claimToken: args.holder, leaseUntil });
-    // Every creation records its link back when it is submitted.
-    const { url, title } = earlier.linkBack!;
-    return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: { url, title }, resumed: true } };
+    // Every creation records its link back when it is submitted, unless the project had no review address.
+    const url = earlier.linkBack === undefined ? null : webAddress(earlier.linkBack.url);
+    return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: url === null ? null : { url, title: earlier.linkBack!.title }, resumed: true } };
   }
   if ((await unfinishedCreation(tickets, { threadId: thread._id, userId: user._id, tracker: args.tracker, accountId: account.accountId })) !== null) {
     fail("invalid", "You started a ticket on this thread that isn't finished yet. Close this dialog and choose Create ticket again to finish it.");
   }
   await requireRoom(tickets, thread._id, now);
-  const linkBack = { url: ticketThreadLink(project, thread), title: threadTitle((await store.messages.first(thread._id))?.body) };
+  const url = ticketThreadLink(project, thread);
+  const linkBack = url === null ? null : { url, title: threadTitle((await store.messages.first(thread._id))?.body) };
   const linkId = await tickets.links.insert({
     projectId: project._id,
     threadId: thread._id,
@@ -364,7 +388,7 @@ export async function claimTicketCreation(
     state: "pending",
     creationId: args.creationId,
     creatorAccountId: account.accountId,
-    linkBack: { ...linkBack, added: false },
+    ...(linkBack === null ? {} : { linkBack: { ...linkBack, added: false } }),
     claimToken: args.holder,
     leaseUntil,
     linkedBy: user._id,
@@ -464,6 +488,8 @@ function heldAdapter(steps: { now(): number }, tracker: TrackerId, deployment: T
  * ticket is linked either way, never created again.
  */
 async function linkCreated(steps: CreateSteps, adapter: TrackerAdapter, token: TrackerToken, hold: HeldCreation, ticket: CreatedTicket) {
+  // Without a review address there is no link back to add.
+  if (hold.linkBack === null) return await steps.finish(hold, ticket, true);
   const added = await adapter.linkBack(token, ticket, hold.linkBack).then(
     () => true,
     () => false,
@@ -501,7 +527,7 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
   const adapter = heldAdapter(steps, ticket.tracker, deployment, fetchFn, held);
   const found = async () => {
     try {
-      return await adapter.findCreated(token, { creationId: held.creationId, link: held.linkBack.url });
+      return await adapter.findCreated(token, { creationId: held.creationId, link: held.linkBack?.url ?? null });
     } catch (error) {
       if (!tokenRefused(error)) throw error;
       // Critiqs can't tell whether the ticket exists, and can't until the person connects again: set aside, so it holds no place on the thread.
@@ -515,7 +541,7 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
       if (made !== null) return await linkCreated(steps, adapter, token, held, made);
     }
     const capture = held.captureFileId === null || adapter.uploadImage === undefined ? null : await uploadCapture(steps, adapter.uploadImage, token, held.captureFileId);
-    const body = ticketBody(ticket.body, { capture, attribution: ticket.createdFromCritiqs ? { name: held.name } : null, link: held.linkBack.url });
+    const body = ticketBody(ticket.body, { capture, attribution: ticket.createdFromCritiqs ? { name: held.name } : null, link: held.linkBack?.url ?? null });
     const outcome = await adapter.create(token, { destinationId: ticket.destinationId, title: ticket.title, body, labels: [], creationId: held.creationId });
     switch (outcome.status) {
       case "created":
@@ -536,10 +562,10 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
 /** The capture uploaded into the tracker, or `missing` when it couldn't be read or uploaded; the ticket is created either way. */
 async function uploadCapture(
   steps: CreateSteps,
-  upload: (token: TrackerToken, image: TicketImage) => Promise<string>,
+  upload: (token: TrackerToken, image: TicketImage) => Promise<WebAddress>,
   token: TrackerToken,
   fileId: string,
-): Promise<{ url: string } | "missing"> {
+): Promise<{ url: WebAddress } | "missing"> {
   try {
     const image = await steps.capture(fileId);
     if (image === null) return "missing";
@@ -555,7 +581,7 @@ async function uploadCapture(
 
 /** A created ticket's missing link back, checked, to add; `added` when the tracker has it already. */
 export type PreparedLinkBack =
-  | { status: "ready"; person: TrackerPerson; tracker: TrackerId; ticket: TicketRef; linkBack: { url: string; title: string } }
+  | { status: "ready"; person: TrackerPerson; tracker: TrackerId; ticket: TicketRef; linkBack: { url: WebAddress; title: string } }
   | { status: "added"; view: TicketLinkView };
 
 /**
@@ -578,7 +604,7 @@ export async function prepareTicketLinkBack(store: Store, identity: Identity | n
     person: { userId: user._id, accountId: account.accountId },
     tracker: link.tracker,
     ticket: { tracker: link.tracker, externalId: link.externalId, key: link.key, url: link.url, title: link.title },
-    linkBack: { url: link.linkBack.url, title: link.linkBack.title },
+    linkBack: { url: webAddress(link.linkBack.url) ?? fail("invalid", "This ticket's link back to the thread isn't a web address."), title: link.linkBack.title },
   };
 }
 
@@ -634,12 +660,12 @@ export async function addTicketLinkBack(steps: LinkBackSteps, deployment: Ticket
 
 /** A link to an existing ticket, held for this attempt; `existing` when the thread links to it already. */
 export type LinkClaim =
-  | { status: "claimed"; hold: TicketHold; person: TrackerPerson; link: string; linkTitle: string; summary: string; attribution: { name: string } | null }
+  | { status: "claimed"; hold: TicketHold; person: TrackerPerson; link: WebAddress | null; linkTitle: string; summary: string; attribution: { name: string } | null }
   | { status: "existing"; view: TicketLinkView };
 
 /** The thread's link to this ticket, if it has one. */
 async function existingLink(tickets: Tickets, threadId: string, tracker: TrackerId, externalId: string): Promise<TicketLinkRecord | null> {
-  const links = await tickets.links.findByExternal(tracker, externalId);
+  const links = await tickets.links.findByExternal(tracker, externalId, MAX_TICKET_LINK_ROWS);
   return links.find((link) => link.threadId === threadId && link.state === "linked") ?? null;
 }
 
@@ -658,10 +684,12 @@ export async function claimTicketLink(
   const { tickets, user, account } = await requireAccount(store, identity, args.tracker);
   const { thread, project } = await ticketThread(store, user, args.threadId);
   if (args.externalId.trim() === "") fail("invalid", "Choose a ticket to link.");
-  const links = await tickets.links.findByExternal(args.tracker, args.externalId);
+  await requireTrackerRoom(store, "write", user._id, now);
+  const links = await tickets.links.findByExternal(args.tracker, args.externalId, MAX_TICKET_LINK_ROWS);
   const onThread = links.filter((link) => link.threadId === thread._id);
   const linked = onThread.find((link) => link.state === "linked");
   if (linked !== undefined) return { status: "existing", view: await ticketView(store, linked, { userId: user._id, owner: false }) };
+  if (links.length - onThread.length >= MAX_TICKET_THREADS) fail("limit", `A ticket can be linked to at most ${MAX_TICKET_THREADS} threads, and this one is already.`);
   for (const pending of onThread.filter((link) => link.state === "pending")) {
     if (creationState(pending, now) === "attempting") fail("unavailable", `Critiqs is still linking this ticket in ${trackerLabel(args.tracker)}. Try again in a moment.`);
     // An earlier attempt that ended without knowing; its link back is safe to add again.
@@ -781,8 +809,8 @@ export async function linkTicket(steps: LinkSteps, deployment: TicketsDeployment
     throw error;
   }
   try {
-    // Safe to repeat: the tracker keeps one link to the thread.
-    await adapter.linkBack(token, ticket, { url: claim.link, title: claim.linkTitle });
+    // Safe to repeat: the tracker keeps one link to the thread. Without a review address there is none to add.
+    if (claim.link !== null) await adapter.linkBack(token, ticket, { url: claim.link, title: claim.linkTitle });
   } catch (error) {
     // A refusal added nothing; otherwise the link back may be there, and the place stays held for a retry.
     await release(error instanceof TrackerRefusal ? "nothing" : "unknown");
