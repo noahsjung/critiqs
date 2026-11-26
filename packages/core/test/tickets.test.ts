@@ -44,8 +44,9 @@ test("a long first line is shortened for the title", () => {
 test("the text carries the thread's link, context, and whole discussion", () => {
   const { body } = ticketText(thread, { attribution: { name: "Dana" }, link: review, captureNote: "uploaded" });
   expect(body).toContain("- Link: [open the thread](");
-  expect(body).toContain("- Screen: user-details");
-  expect(body).toContain('- Target: `user.department`, "Sales", record user:alex');
+  // Reviewers' and the app's text is escaped, so it renders exactly as written.
+  expect(body).toContain("- Screen: user\\-details");
+  expect(body).toContain('- Target: `user.department`, "Sales", record user\\:alex');
   expect(body).toContain("- Scope: this record only");
   expect(body).toContain("- Revision: abc123");
   expect(body).toContain("- Tags: Bug, Wording");
@@ -97,7 +98,7 @@ test("a comment with old Mac line endings stays inside its quote too", () => {
 test("context from the app stays on its line, so it can't hide the rest of the ticket", () => {
   const odd = { ...thread, viewState: { note: "two\n```\nlines" }, screen: "a\r\n```", persona: "x\n```" };
   const { body } = ticketText(odd, { attribution: { name: "Dana" }, link: review, captureNote: "uploaded" });
-  expect(body).toContain("- View state: note=two ``` lines");
+  expect(body).toContain("- View state: note=two \\`\\`\\` lines");
   expect(renderedLinks(body)).toEqual([review, review]);
   expect(Bun.markdown.html(body)).toContain("<h2>Discussion</h2>");
 });

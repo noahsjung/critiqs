@@ -1,5 +1,6 @@
 import type { ExportThread } from "./export.ts";
-import { contextLines, discussionLines, markdownLink, quoted, summarize } from "./thread-markdown.ts";
+import { markdownLink, markdownText } from "./markdown-text.ts";
+import { contextLines, discussionLines, quoted, summarize, TICKET_STYLE } from "./thread-markdown.ts";
 
 // Tickets in a team's tracker, created from a thread or linked to one. Each
 // person uses their own tracker account; see docs/tickets.md.
@@ -106,17 +107,17 @@ export function ticketText(thread: ExportThread, options: TicketTextOptions): { 
       ? "attached to this ticket"
       : "saved with the thread; open its link to view it";
   const lines = [
-    // Quoted, so a comment's own Markdown (an unclosed code fence, say) can't swallow the rest.
-    ...(first === undefined ? [] : [...quoted(first.body.trim()), ""]),
+    // Every reviewer's text renders exactly as written (TICKET_STYLE), and quoted.
+    ...(first === undefined ? [] : [...quoted(TICKET_STYLE.lines(first.body.trim())), ""]),
     "## Context",
     "",
-    ...contextLines(thread, { link: options.link, linkText: "open the thread", status: false, capture }),
+    ...contextLines(thread, TICKET_STYLE, { link: options.link, linkText: "open the thread", status: false, capture }),
     "",
     "## Discussion",
-    ...discussionLines(thread),
+    ...discussionLines(thread, TICKET_STYLE),
   ];
   if (options.attribution !== null) {
-    lines.push("", "---", "", `Created from Critiqs by ${options.attribution.name}: ${markdownLink("open the thread", options.link)}`);
+    lines.push("", "---", "", `Created from Critiqs by ${markdownText(options.attribution.name)}: ${markdownLink("open the thread", options.link)}`);
   }
   return {
     title: first === undefined ? "(no messages)" : summarize(first.body),

@@ -3,6 +3,7 @@ export * from "./anchor.ts";
 export * from "./read-state.ts";
 export * from "./sidebar.ts";
 export * from "./export.ts";
+export * from "./markdown-text.ts";
 export * from "./links.ts";
 export * from "./review-address.ts";
 export * from "./restore.ts";

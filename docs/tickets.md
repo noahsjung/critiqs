@@ -105,6 +105,14 @@ the first message as the summary, then the link, screen, target, scope,
 revision, tags, and the whole discussion, with the capture where the tracker
 accepts images.
 
+Everything in ticket text that people or trackers wrote (comments, names,
+tags, the page's details) renders exactly as written, as Critiqs shows it:
+Critiqs escapes it, so none of it can form a link, image, HTML, code block,
+heading, or other structure in the tracker. The thread's link is the only
+link Critiqs writes. The page's address leaves out its query
+and fragment, which can carry a prototype's sign-in token. The Markdown
+export, a file the team downloads, keeps comments' own Markdown.
+
 **Link ticket** searches the person's tracker by key or words and links the
 chosen ticket. On Linear and Jira, Critiqs adds a link back to the thread on
 the ticket (see [Attribution](#attribution)). On GitHub, where the link would

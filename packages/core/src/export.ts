@@ -1,4 +1,4 @@
-import { contextLines, discussionLines, formatTime, summarize } from "./thread-markdown.ts";
+import { contextLines, discussionLines, EXPORT_STYLE, formatTime, summarize } from "./thread-markdown.ts";
 import type { Revision, Scope, ThreadStatus, ViewState } from "./types.ts";
 
 /** Bumped when the JSON export shape changes incompatibly. */
@@ -72,9 +72,9 @@ function threadMarkdown(thread: ExportThread): string[] {
   return [
     `## ${heading}`,
     "",
-    ...contextLines(thread, { link: thread.link, status: true, capture: thread.hasCapture ? "saved; open the link to view it" : "none" }),
+    ...contextLines(thread, EXPORT_STYLE, { link: thread.link, status: true, capture: thread.hasCapture ? "saved; open the link to view it" : "none" }),
     "",
     "### Discussion",
-    ...discussionLines(thread),
+    ...discussionLines(thread, EXPORT_STYLE),
   ];
 }
