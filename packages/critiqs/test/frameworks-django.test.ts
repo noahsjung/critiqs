@@ -546,6 +546,43 @@ test("init leaves a hand-written default that is an expression starting with a s
   }
 });
 
+test("init sets the ID before the whole statement when a hand-written default sits in an else or except branch", () => {
+  const OLD = "k98765432109876543210987654321098";
+  for (const block of [
+    `    if os.environ.get("STAGING"):\n        pass\n    else:\n        os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\n`,
+    `    if os.environ.get("A"):\n        pass\n    elif os.environ.get("B"):\n        os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\n    else:\n        pass\n`,
+    `    try:\n        import dotenv\n    except ImportError:\n        os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\n`,
+    `    try:\n        pass\n    # a note\n\n    finally:\n        os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\n`,
+  ]) {
+    const manage = MANAGE.replace("    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n", `    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n${block}`);
+    const root = starter({ "manage.py": manage });
+    expect(init(root, PROJECT).code).toBe(0);
+    const ours = `    # Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n`;
+    expect(read(root, "manage.py")).toBe(manage.replace(block, `${ours}${block}`));
+  }
+});
+
+test("init sets the ID before a line it leaves as written when a plain default follows that line, so the app uses it", () => {
+  const OLD = "k98765432109876543210987654321098";
+  const plain = `    os.environ.setdefault("CRITIQS_PROJECT_ID", "second")\n`;
+  for (const theirs of [
+    `    os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}" + "-x")\n`,
+    `    if os.environ.get("STAGING"):\n        os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}")\n`,
+  ]) {
+    const manage = MANAGE.replace("    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n", `    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n${theirs}${plain}`);
+    const root = starter({ "manage.py": manage });
+    const { code, output } = init(root, PROJECT);
+    expect(code).toBe(0);
+    const ours = `    # Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n`;
+    const expected = manage.replace(`${theirs}${plain}`, `${ours}${theirs}${plain.replace("second", PROJECT)}`);
+    expect(read(root, "manage.py")).toBe(expected);
+    expect(output).toContain(`so the app uses ${PROJECT}. Setup left that line as it is.`);
+    // A second run changes nothing.
+    expect(init(root, PROJECT).code).toBe(0);
+    expect(read(root, "manage.py")).toBe(expected);
+  }
+});
+
 test("init replaces the ID in a hand-written default with a space before its closing parenthesis or an escaped quote in it", () => {
   const OLD = "k98765432109876543210987654321098";
   for (const [before, after] of [

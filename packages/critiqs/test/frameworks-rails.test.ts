@@ -222,6 +222,21 @@ describe("env", () => {
     }
   });
 
+  test("init sets the ID before a computed default when a plain default follows it, and not when a plain assignment follows it", () => {
+    const computed = `  ENV["CRITIQS_PROJECT_ID"] ||= "${OLD}" + "-x"`;
+    // A later default never runs once the computed one has set the variable: the new default goes first.
+    let root = app({ Gemfile: PLAIN_GEMFILE, [DEVELOPMENT_PATH]: withLine(`${computed}\n  ENV["CRITIQS_PROJECT_ID"] ||= "second"`) });
+    expect(initIn(root).code).toBe(0);
+    const first = DEVELOPMENT.replace("Rails.application.configure do\n", `Rails.application.configure do\n${ours(PROJECT)}${computed}\n  ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"\n`);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(first);
+    expect(initIn(root).code).toBe(0);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(first);
+    // A later plain assignment wins over everything before it: rewriting it is enough.
+    root = app({ Gemfile: PLAIN_GEMFILE, [DEVELOPMENT_PATH]: withLine(`${computed}\n  ENV["CRITIQS_PROJECT_ID"] = "second"`) });
+    expect(initIn(root).code).toBe(0);
+    expect(read(root, DEVELOPMENT_PATH)).toBe(withLine(`${computed}\n  ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}"`));
+  });
+
   test("with dotenv, a line that only fills an unset variable gives way to .env, so init writes .env and leaves the line alone", () => {
     const written = `  ENV["CRITIQS_PROJECT_ID"] = "${OLD}" unless ENV["CRITIQS_PROJECT_ID"]`;
     const root = app({ Gemfile: DOTENV_GEMFILE, [DEVELOPMENT_PATH]: withLine(written), ".env": `CRITIQS_PROJECT_ID=${OLD}\n` });

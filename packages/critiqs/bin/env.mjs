@@ -328,6 +328,8 @@ const codeSyntax = ({ pattern, statement, close = "", place, blocks, isDefault }
     }),
 });
 
+const PYTHON_CLAUSE = /^(?:elif|else|except|finally)\b/;
+
 /** The blocks around line `index` of Python code, outermost first, found by indentation. */
 function pythonBlocks(lines, index) {
   const found = [];
@@ -337,7 +339,21 @@ function pythonBlocks(lines, index) {
     if (text === "" || text.startsWith("#")) continue;
     const own = /^[ \t]*/.exec(lines[i])[0].length;
     if (own >= indent) continue;
-    found.unshift({ index: i, text, conditional: /^(?:if|elif|else|while|for|try|except|finally|with|match|case)\b/.test(text) });
+    // `else:`, `except:` and the like continue a statement that starts higher up: a line can go before that statement, never before the clause.
+    let start = i;
+    if (PYTHON_CLAUSE.test(text)) {
+      for (let j = i - 1; j >= 0; j--) {
+        const above = lines[j].trim();
+        const its = /^[ \t]*/.exec(lines[j])[0].length;
+        if (above === "" || above.startsWith("#") || its > own) continue;
+        if (its < own) break;
+        if (!PYTHON_CLAUSE.test(above)) {
+          start = j;
+          break;
+        }
+      }
+    }
+    found.unshift({ index: start, text, conditional: /^(?:if|elif|else|while|for|try|except|finally|with|match|case)\b/.test(text) });
     indent = own;
   }
   return found;
@@ -430,10 +446,14 @@ function setInText(text, name, value, comment, syntax = DOTENV) {
   const lines = text.split(/\r?\n/);
   if (syntax.code) {
     const found = syntax.definitions(lines, name);
+    if (found.length === 0) return syntax.insert(lines, name, value, comment).join(eol);
     const editable = new Set(found.filter((definition) => definition.editable).map((definition) => definition.index));
-    if (editable.size > 0) return lines.map((line, i) => (editable.has(i) ? syntax.replace(line, name, value) : line)).join(eol);
-    if (found.length > 0) return syntax.insertBefore(lines, found[0].before, name, value, comment).join(eol);
-    return syntax.insert(lines, name, value, comment).join(eol);
+    const replaced = lines.map((line, i) => (editable.has(i) ? syntax.replace(line, name, value) : line));
+    // A line setup leaves as written still sets the variable first when it comes before every line setup rewrote,
+    // so setup's own default goes just before it. A rewritten line that assigns outright (not a default) wins wherever it is.
+    const assigned = found.some((definition) => definition.editable && !definition.default);
+    if (found[0].editable || assigned) return replaced.join(eol);
+    return syntax.insertBefore(replaced, found[0].before, name, value, comment).join(eol);
   }
   let found = false;
   const updated = lines.map((line) => {
