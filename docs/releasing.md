@@ -88,6 +88,13 @@ decision. Under Semantic Versioning, `^0.2.0` accepts only 0.2.x, so a
 breaking change is released as a `minor` note. It still needs the owner's
 approval and migration instructions first; 0.x permits breaking no host app.
 
+A change under `packages/` counts as shipped, with one exception: the browser
+extension, `packages/extension`. No Critiqs package bundles it, and it ships
+through the Chrome Web Store, not at the shared version, so a change only there
+takes a no-release note. A change that also touches what the extension builds
+on, such as `packages/react` or `packages/core`, still names the packages that
+ship it.
+
 Several notes in one pull request are fine; the largest type across all notes
 sets the shared version. Do not edit
 or remove another pull request's note, and do not change any `version` field
@@ -169,9 +176,10 @@ merge base with its target branch. It fails when:
   package outside the release group (a private workspace, a registry name such
   as `django-critiqs`, or anything else), or uses a type other than patch,
   minor, or major (`major` only from 1.0.0);
-- a file that ships changed (anything under `packages/` except tests and a
-  package's check scripts, `scripts/check-*.ts`, which no package publishes),
-  or a dependency update that ships, and the only notes are no-release notes;
+- a file that ships changed (anything under `packages/` except tests, a
+  package's check scripts, `scripts/check-*.ts`, which no package publishes,
+  and the browser extension in `packages/extension`), or a dependency update
+  that ships, and the only notes are no-release notes;
 - an existing note was edited or removed, a `version` field changed, a
   `CHANGELOG.md` changed, or another file was added to `.changeset/`, unless
   the pull request is a verified release pull request (below);
