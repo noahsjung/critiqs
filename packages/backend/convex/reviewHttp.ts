@@ -62,7 +62,7 @@ export const buildFile = httpAction(async (ctx, request) => {
   const body = (await proxyBody(request)) as { hostHash?: unknown; path?: unknown } | null;
   if (body === null || typeof body !== "object" || typeof body.hostHash !== "string" || !HOST_HASH.test(body.hostHash)) return notFound();
   if (typeof body.path !== "string" || !body.path.startsWith("/") || body.path.length > 4_096) return notFound();
-  const answer = await ctx.runQuery(internal.reviewBuilds.fileForHost, { hostHash: body.hostHash, path: body.path });
+  const answer = await ctx.runQuery(internal.reviewBuilds.fileForHost, { hostHash: body.hostHash, path: body.path, now: Date.now() });
   if (answer === null) return notFound();
   return Response.json(answer, { headers: { "Cache-Control": "no-store" } });
 });
@@ -77,8 +77,8 @@ export const buildBlob = httpAction(async (ctx, request) => {
   if (body === null || typeof body !== "object" || typeof body.hostHash !== "string" || !HOST_HASH.test(body.hostHash)) return notFound();
   if (typeof body.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(body.sha256)) return notFound();
   const args = { hostHash: body.hostHash, sha256: body.sha256 };
-  const storageId = await ctx.runQuery(internal.reviewBuilds.blobForHost, args);
+  const storageId = await ctx.runQuery(internal.reviewBuilds.blobForHost, { ...args, now: Date.now() });
   const blob = storageId === null ? null : await ctx.storage.get(storageId);
-  if (blob === null || (await ctx.runQuery(internal.reviewBuilds.blobForHost, args)) !== storageId) return notFound();
+  if (blob === null || (await ctx.runQuery(internal.reviewBuilds.blobForHost, { ...args, now: Date.now() })) !== storageId) return notFound();
   return new Response(blob, { headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 });

@@ -63,13 +63,14 @@ async function filesOf(ctx: QueryCtx, buildId: Id<"reviewBuilds">): Promise<Doc<
     .take(BUILD_LIMITS.files + 1);
 }
 
-async function readyCount(ctx: QueryCtx, projectId: Id<"projects">): Promise<number> {
+/** The project's builds being served now: one that has run out doesn't count, though cleanup hasn't ended it yet. */
+async function readyCount(ctx: QueryCtx, projectId: Id<"projects">, now: number): Promise<number> {
   return (
     await ctx.db
       .query("reviewBuilds")
       .withIndex("by_project_status", (q) => q.eq("projectId", projectId).eq("status", "ready"))
-      .take(BUILD_LIMITS.readyPerProject)
-  ).length;
+      .take(BUILD_LIMITS.readyPerProject * 4)
+  ).filter((build) => (build.expiresAt ?? 0) > now).length;
 }
 
 const fresh = (build: Doc<"reviewBuilds">, now: number) => build.status === "uploading" && now - build.createdAt < BUILD_LIMITS.uploadMs;
@@ -109,11 +110,15 @@ export const begin = mutation({
       const now = Date.now();
       const userId = user._id as Id<"users">;
 
-      const earlier = await ctx.db
-        .query("reviewBuilds")
-        .withIndex("by_creator_digest", (q) => q.eq("createdBy", userId).eq("manifestDigest", digest))
-        .order("desc")
-        .first();
+      // This person's latest build of these files in this project: the same files shared into another project are that project's own.
+      const earlier =
+        (
+          await ctx.db
+            .query("reviewBuilds")
+            .withIndex("by_creator_digest", (q) => q.eq("createdBy", userId).eq("manifestDigest", digest))
+            .order("desc")
+            .take(BUILD_LIMITS.beginsPerPersonPerDay * 3)
+        ).find((build) => build.projectId === project._id) ?? null;
       if (earlier !== null && earlier.projectId === project._id) {
         if (earlier.status === "ready" && (earlier.expiresAt ?? 0) > now) return { buildId: earlier._id, ready: true, uploads: [], fileCount: earlier.fileCount, bytes: earlier.bytes };
         if (fresh(earlier, now)) {
@@ -124,7 +129,7 @@ export const begin = mutation({
         }
       }
 
-      if ((await readyCount(ctx, project._id)) >= BUILD_LIMITS.readyPerProject) {
+      if ((await readyCount(ctx, project._id, now)) >= BUILD_LIMITS.readyPerProject) {
         fail("limit", `A project can have ${BUILD_LIMITS.readyPerProject} shared builds at once. Delete one first (critiqs share list, then critiqs share delete <id>).`);
       }
       if (!(await countWithinAll(store, [[`reviewBuildBegins:${userId}:${utcDay(now)}`, BUILD_LIMITS.beginsPerPersonPerDay]]))) {
@@ -189,7 +194,7 @@ export const publish = mutation({
       const files = await filesOf(ctx, build._id);
       const missing = files.filter((file) => file.storageId === undefined).length;
       if (missing > 0 || files.length !== build.fileCount) fail("invalid", `${missing} of the build's files haven't finished uploading.`);
-      if ((await readyCount(ctx, build.projectId)) >= BUILD_LIMITS.readyPerProject) {
+      if ((await readyCount(ctx, build.projectId, now)) >= BUILD_LIMITS.readyPerProject) {
         fail("limit", `A project can have ${BUILD_LIMITS.readyPerProject} shared builds at once. Delete one first (critiqs share list, then critiqs share delete <id>).`);
       }
       const linkId = await ctx.db.insert("reviewLinks", {
@@ -375,17 +380,18 @@ export const upload = httpAction(async (ctx, request): Promise<Response> => {
 // ---------------------------------------------------------------------------
 // The proxy: a shared build's files (`/internal/review/v1/build-file`, `build-blob`)
 
-async function buildOfHost(ctx: QueryCtx, hostHash: string): Promise<Doc<"reviewBuilds"> | null> {
-  const resolved = await hostResolution(ctx, hostHash);
+/** The build a frame host serves at `now`, the time the proxy asked (passed in by the HTTP action, so a cached answer can't outlive the build). */
+async function buildOfHost(ctx: QueryCtx, hostHash: string, now: number): Promise<Doc<"reviewBuilds"> | null> {
+  const resolved = await hostResolution(ctx, hostHash, now);
   if (resolved === null || resolved.resolution.kind !== "share" || resolved.link.buildId === undefined) return null;
   return await ctx.db.get(resolved.link.buildId);
 }
 
 /** The file a shared build's frame host serves for `path` now (`buildLookup`), or null when the host serves nothing or no file matches. */
 export const fileForHost = internalQuery({
-  args: { hostHash: v.string(), path: v.string() },
-  handler: async (ctx, { hostHash, path }): Promise<BuildFileAnswer | null> => {
-    const build = await buildOfHost(ctx, hostHash);
+  args: { hostHash: v.string(), path: v.string(), now: v.number() },
+  handler: async (ctx, { hostHash, path, now }): Promise<BuildFileAnswer | null> => {
+    const build = await buildOfHost(ctx, hostHash, now);
     const lookup = build === null ? null : buildLookup(path, build.spa);
     if (build === null || lookup === null) return null;
     const tries: [string, 200 | 404][] = [...lookup.candidates.map((candidate) => [candidate, 200] as [string, 200]), ...lookup.fallbacks.map((entry) => [entry.path, entry.status] as [string, 200 | 404])];
@@ -402,9 +408,9 @@ export const fileForHost = internalQuery({
 
 /** The stored file with `sha256` in the build a frame host serves now, or null. */
 export const blobForHost = internalQuery({
-  args: { hostHash: v.string(), sha256: v.string() },
-  handler: async (ctx, { hostHash, sha256 }): Promise<Id<"_storage"> | null> => {
-    const build = await buildOfHost(ctx, hostHash);
+  args: { hostHash: v.string(), sha256: v.string(), now: v.number() },
+  handler: async (ctx, { hostHash, sha256, now }): Promise<Id<"_storage"> | null> => {
+    const build = await buildOfHost(ctx, hostHash, now);
     if (build === null) return null;
     const file = await ctx.db
       .query("reviewBuildFiles")

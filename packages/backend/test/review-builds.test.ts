@@ -308,3 +308,112 @@ test("a project has at most five shared builds at once, and a person starts at m
   for (let n = BUILD_LIMITS.readyPerProject; n < BUILD_LIMITS.beginsPerPersonPerDay; n++) await f.dana.mutation(api.reviewBuilds.begin, { projectId: second, files: await manifestOf({ "index.html": `${n}` }), spa: false });
   expect(await outcome(f.dana.mutation(api.reviewBuilds.begin, { projectId: second, files: await manifestOf({ "index.html": "eleventh" }), spa: false }))).toBe("You can share 10 builds a day. Try again tomorrow.");
 });
+
+// ---------------------------------------------------------------------------
+// Round 3: the protections the review found untested, and the open-tab and expiry gaps
+
+const userIdOf = async (f: Fixture, email: string) => await f.t.run(async (ctx) => (await ctx.db.query("users").collect()).find((user) => user.email === email)!._id);
+
+test("M13: the same files shared into a second project start that project's own upload, never resume the first project's", async () => {
+  const f = await fixture();
+  const files = await manifestOf(SITE);
+  const inPilot = await f.dana.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files, spa: false });
+  const second = await f.dana.mutation(api.projects.create, { name: "Second" });
+  const inSecond = await f.dana.mutation(api.reviewBuilds.begin, { projectId: second, files, spa: false });
+  expect(inSecond.buildId).not.toBe(inPilot.buildId);
+  expect(await f.t.run(async (ctx) => (await ctx.db.get(inSecond.buildId))!.projectId)).toBe(second);
+  // Back to the first project: its own upload resumes, though the second project's is newer.
+  const resumed = await f.dana.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files, spa: false });
+  expect(resumed.buildId).toBe(inPilot.buildId);
+});
+
+test("M5: someone who stops managing the project mid-upload can't upload another file, or publish", async () => {
+  const f = await fixture();
+  const [organization] = await f.dana.query(api.organizations.mine, {});
+  const rileyId = await userIdOf(f, "riley@example.com");
+  await f.dana.mutation(api.organizations.setRole, { organizationId: organization!.id, userId: rileyId, role: "admin" });
+  const begun = await f.riley.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files: await manifestOf(SITE), spa: false });
+  await f.dana.mutation(api.organizations.setRole, { organizationId: organization!.id, userId: rileyId, role: "member" });
+  const sha = await sha256Hex(encoder.encode(SITE["index.html"]!));
+  expect(await put(f.t, begun.uploads.find((upload) => upload.sha256 === sha)!.url, SITE["index.html"]!)).toEqual({ status: 400, text: "This upload is unavailable." });
+  expect(await outcome(f.riley.mutation(api.reviewBuilds.publish, { buildId: begun.buildId }))).toBe("Only the project's owners can create or change its review links.");
+});
+
+test("M6: a stored file is bound to the build only with the build's current grant, before the upload expires", async () => {
+  const f = await fixture();
+  const begun = await f.dana.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files: await manifestOf(SITE), spa: false });
+  const grant = new URL(begun.uploads[0]!.url).searchParams.get("grant")!;
+  const sha256 = begun.uploads[0]!.sha256;
+  const storageId = await f.t.run(async (ctx) => await ctx.storage.store(new Blob(["x"])));
+  expect(await f.t.mutation(internal.reviewBuilds.finishUpload, { buildId: begun.buildId, sha256, grant: "not-the-grant", storageId })).toBe(false);
+  setSystemTime(new Date(Date.now() + BUILD_LIMITS.uploadMs + 1));
+  expect(await f.t.mutation(internal.reviewBuilds.finishUpload, { buildId: begun.buildId, sha256, grant, storageId })).toBe(false);
+  setSystemTime();
+  expect(await f.t.mutation(internal.reviewBuilds.finishUpload, { buildId: begun.buildId, sha256, grant, storageId })).toBe(true);
+});
+
+test("M3: a share link serves only the build that names it", async () => {
+  const f = await fixture();
+  const first = await share(f);
+  const second = await share(f, { "index.html": "<h1>Two</h1>" });
+  // The second link pointed at the first build, whose own link is another: refused.
+  await f.t.run(async (ctx) => await ctx.db.patch(second.linkId as Id<"reviewLinks">, { buildId: first.buildId as Id<"reviewBuilds"> }));
+  expect(await f.dana.mutation(api.reviewLinks.open, { key: second.key })).toEqual({ kind: "unavailable" });
+});
+
+test("a build's files are judged at the time the proxy asks, which the HTTP action passes in, so no cached answer outlives the build", async () => {
+  const f = await fixture();
+  const shared = await share(f, SITE, { expiresInDays: 1 });
+  const lease = await openLease(f.t, shared.key);
+  const hostHash = await frameHostHash(lease.label);
+  expect(await f.t.query(internal.reviewBuilds.fileForHost, { hostHash, path: "/", now: Date.now() })).not.toBeNull();
+  expect(await f.t.query(internal.reviewBuilds.fileForHost, { hostHash, path: "/", now: shared.expiresAt })).toBeNull();
+  const sha256 = await sha256Hex(encoder.encode(SITE["index.html"]!));
+  expect(await f.t.query(internal.reviewBuilds.blobForHost, { hostHash, sha256, now: Date.now() })).not.toBeNull();
+  expect(await f.t.query(internal.reviewBuilds.blobForHost, { hostHash, sha256, now: shared.expiresAt })).toBeNull();
+});
+
+test("an open tab's watch on its lease says ended as soon as the build is deleted", async () => {
+  const f = await fixture();
+  const shared = await share(f);
+  const lease = await openLease(f.t, shared.key);
+  const watch = () => f.t.query(api.reviewLinks.leaseState, { leaseId: lease.entry.leaseId, renewalSecret: lease.entry.renewalSecret });
+  expect(await watch()).toEqual({ kind: "live" });
+  await f.dana.mutation(api.reviewBuilds.remove, { buildId: shared.buildId });
+  expect(await watch()).toEqual({ kind: "ended" });
+});
+
+test("a build that ran out says so to someone it was open to; a deleted one, and anyone it wasn't open to, get the usual answer", async () => {
+  const f = await fixture("organization");
+  const shared = await share(f, SITE, { expiresInDays: 1 });
+  setSystemTime(new Date(shared.expiresAt + 1));
+  expect(await f.riley.mutation(api.reviewLinks.open, { key: shared.key })).toEqual({ kind: "expired", expiredAt: shared.expiresAt });
+  expect(await f.lee.mutation(api.reviewLinks.open, { key: shared.key })).toEqual({ kind: "unavailable" });
+  expect(await f.t.mutation(api.reviewLinks.open, { key: shared.key })).toEqual({ kind: "sign-in" });
+  // Still so once cleanup has ended it.
+  await f.t.mutation(internal.reviewBuilds.expire, {});
+  expect(await f.riley.mutation(api.reviewLinks.open, { key: shared.key })).toEqual({ kind: "expired", expiredAt: shared.expiresAt });
+  setSystemTime();
+  const deleted = await share(f, { "index.html": "<h1>Gone</h1>" });
+  await f.dana.mutation(api.reviewBuilds.remove, { buildId: deleted.buildId });
+  expect(await f.riley.mutation(api.reviewLinks.open, { key: deleted.key })).toEqual({ kind: "unavailable" });
+});
+
+test("someone signed in whom the deployment has never seen gets the owners-only sentence from the builds list", async () => {
+  const f = await fixture();
+  const olive = f.t.withIdentity(reviewer("Olive"));
+  expect(await outcome(olive.query(api.reviewBuilds.list, { projectId: f.projectId }))).toBe("Only the project's owners can create or change its review links.");
+});
+
+test("a build ending isn't counted among the project's five once it has run out, before cleanup gets to it", async () => {
+  const f = await fixture();
+  for (let n = 0; n < BUILD_LIMITS.readyPerProject; n++) await share(f, { "index.html": `<h1>${n}</h1>` }, { expiresInDays: 1 });
+  setSystemTime(new Date(Date.now() + 24 * 60 * 60_000 + 60_000));
+  const begun = await f.dana.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files: await manifestOf({ "index.html": "sixth" }), spa: false });
+  expect(begun.ready).toBe(false);
+});
+
+test("a file under the proxy's own folder, __critiqs/, is refused at upload: it could never be served", async () => {
+  const f = await fixture();
+  expect(await outcome(f.dana.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files: await manifestOf({ ...SITE, "__critiqs/app.js": "x" }), spa: false }))).toContain("__critiqs/");
+});

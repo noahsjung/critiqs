@@ -417,6 +417,8 @@ export type ReviewOpen =
   | { kind: "unavailable" }
   | { kind: "pending" }
   | { kind: "limited" }
+  /** A shared build that ran out, said only to someone it was open to; a deleted build, or one closed to the viewer, is `unavailable`. */
+  | { kind: "expired"; expiredAt: number }
   | {
       kind: "ready";
       entry: ReviewEntry;

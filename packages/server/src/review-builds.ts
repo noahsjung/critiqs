@@ -102,6 +102,7 @@ export function buildPathProblem(path: string): string | null {
     if (segment === "" || segment === "." || segment === "..") return "isn't a plain path inside the folder";
     if (segment.startsWith(".")) return "is hidden (its name or a folder's starts with a dot)";
   }
+  if (path.split("/")[0] === "__critiqs") return "is in __critiqs/, a folder review links keep for themselves, so it could never be served";
   const extension = extensionOf(path);
   if (extension === "map") return "is a source map, which would publish the app's source";
   if (buildContentType(path) === null) return "isn't a file type a static build serves";

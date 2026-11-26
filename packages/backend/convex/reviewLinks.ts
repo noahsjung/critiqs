@@ -510,7 +510,13 @@ export const open = mutation({
       const user = signedIn ? await operations.requireUser(store, identity) : null;
       const now = Date.now();
       const verdict = await serving(ctx, store, link, project, user?._id ?? null, now);
-      if (verdict === "denied") return refused;
+      if (verdict === "denied") {
+        // A shared build that simply ran out says so, to someone it was open to: they hold its key, so it tells them nothing new.
+        const build = link.kind === "share" && link.buildId !== undefined ? await ctx.db.get(link.buildId) : null;
+        const ranOut = build !== null && build.expiresAt !== undefined && (build.status === "expired" || (build.status === "ready" && build.expiresAt <= now));
+        if (ranOut && signedIn && project !== null && reviewSetup() !== null && (await canReview(store, project, user?._id ?? null))) return { kind: "expired", expiredAt: build.expiresAt! };
+        return refused;
+      }
       if (verdict === "pending") {
         // A stale verdict is checked again, at most once a minute however often the link is opened.
         if (link.status === "active" && (link.attemptedAt === undefined || now - link.attemptedAt >= REPUTATION_ATTEMPT_MS)) {
@@ -648,7 +654,7 @@ export const resolveHost = internalQuery({
  * must serve nothing: every check `serving` runs, for the lease's viewer.
  * The proxy's resolve and a shared build's file routes all start here.
  */
-export async function hostResolution(ctx: QueryCtx, hostHash: string, now: number = Date.now()): Promise<{ resolution: ReviewResolution; link: Doc<"reviewLinks"> } | null> {
+export async function hostResolution(ctx: QueryCtx, hostHash: string, now: number): Promise<{ resolution: ReviewResolution; link: Doc<"reviewLinks"> } | null> {
   if (!HOST_HASH.test(hostHash)) return null;
   const host = await ctx.db
     .query("reviewFrameHosts")
