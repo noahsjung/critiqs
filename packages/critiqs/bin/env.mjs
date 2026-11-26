@@ -258,7 +258,8 @@ export function readEnvValue(target, name) {
 const definitions = (text, name, syntax = DOTENV) => (text ?? "").split(/\r?\n/).filter((line) => syntax.parse(line)?.name === name).length;
 
 const NAME = "[A-Za-z_][A-Za-z0-9_]*";
-const PYTHON_DEFINITION = new RegExp(`^([ \\t]*)os\\.environ\\.setdefault\\([ \\t]*(["'])(${NAME})\\2[ \\t]*,[ \\t]*(["'])(.*?)\\4[ \\t]*\\)`);
+// Up to the end of the first string after the name: what follows it (the closing parenthesis, or more of an expression) decides whether setup may rewrite the line.
+const PYTHON_DEFINITION = new RegExp(`^([ \\t]*)os\\.environ\\.setdefault\\([ \\t]*(["'])(${NAME})\\2[ \\t]*,[ \\t]*(["'])((?:(?!\\4)[^\\\\]|\\\\.)*)\\4`);
 // `ENV[...] ||= "…"`, or a plain `ENV[...] = "…"` someone wrote by hand, which wins even over the environment.
 const RUBY_DEFINITION = new RegExp(`^([ \\t]*)ENV\\[[ \\t]*(["'])(${NAME})\\2[ \\t]*\\][ \\t]*(?:\\|\\|)?=[ \\t]*(["'])(.*?)\\4`);
 const DJANGO_SETTINGS_LINE = /^([ \t]*)os\.environ\.setdefault\([ \t]*["']DJANGO_SETTINGS_MODULE["']/;
@@ -288,24 +289,24 @@ const DOTENV = {
  * whether setup may rewrite it and whether it only fills a variable nothing set before (a default), so the
  * value set before it stays in effect.
  */
-const codeSyntax = ({ pattern, statement, place, blocks, isDefault }) => ({
+const codeSyntax = ({ pattern, statement, close = "", place, blocks, isDefault }) => ({
   code: true,
   parse: (line) => {
     const match = pattern.exec(line);
     return match === null ? null : { name: match[3], value: match[5] };
   },
-  // Only a definition `definitions` calls editable is replaced, so what follows its value is at most a comment, which stays.
+  // Only a definition `definitions` calls editable is replaced, so what follows its value is at most what closes the statement and a comment, which stay.
   replace: (line, name, value) => {
     const match = pattern.exec(line);
     return `${match[1]}${statement(name, value)}${line.slice(match[0].length)}`;
   },
   insert: (lines, name, value, comment) => {
     const { at, indent, extra } = place(lines);
-    return [...lines.slice(0, at), ...extra, ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}`, ...lines.slice(at)];
+    return [...lines.slice(0, at), ...extra, ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}${close}`, ...lines.slice(at)];
   },
   insertBefore: (lines, at, name, value, comment) => {
     const indent = /^[ \t]*/.exec(lines[at])[0];
-    return [...lines.slice(0, at), ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}`, ...lines.slice(at)];
+    return [...lines.slice(0, at), ...(comment === null ? [] : [`${indent}# ${comment}`]), `${indent}${statement(name, value)}${close}`, ...lines.slice(at)];
   },
   definitions: (lines, name) =>
     lines.flatMap((line, index) => {
@@ -319,7 +320,8 @@ const codeSyntax = ({ pattern, statement, place, blocks, isDefault }) => ({
           // The first line to put a default before: this one, or the outermost conditional block around it.
           before: around[0]?.index ?? index,
           text: line.trim(),
-          editable: /^[ \t]*(?:#.*)?$/.test(rest) && around.length === 0,
+          // After the string comes only what closes the statement: more (`+ "-x"`, a second string, `if … else …`) makes it an expression.
+          editable: rest.trimStart().startsWith(close) && /^[ \t]*(?:#.*)?$/.test(rest.trimStart().slice(close.length)) && around.length === 0,
           default: isDefault(match[0], rest, name) || around.some((block) => isDefault("", block.text, name)),
         },
       ];
@@ -368,7 +370,8 @@ const rubyUnset = (text, name) =>
 
 const PYTHON = codeSyntax({
   pattern: PYTHON_DEFINITION,
-  statement: (name, value) => `os.environ.setdefault(${JSON.stringify(name)}, ${JSON.stringify(value)})`,
+  statement: (name, value) => `os.environ.setdefault(${JSON.stringify(name)}, ${JSON.stringify(value)}`,
+  close: ")",
   place: (lines) => {
     // Beside Django's own default, in main(), so it is set before the command runs; or else after the module's last import.
     const django = lines.findIndex((line) => DJANGO_SETTINGS_LINE.test(line));

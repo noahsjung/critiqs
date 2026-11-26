@@ -529,6 +529,36 @@ test("init leaves a hand-written default inside an if block alone, sets the ID b
   expect(output).not.toContain("Warning:");
 });
 
+test("init leaves a hand-written default that is an expression starting with a string alone, and sets the ID before it", () => {
+  const OLD = "k98765432109876543210987654321098";
+  for (const expression of [`"${OLD}" + "-x"`, `"${OLD}" "-x"`, `"${OLD}" if DEBUG else "other"`, `'${OLD}'.strip()`]) {
+    const theirs = `    os.environ.setdefault("CRITIQS_PROJECT_ID", ${expression})  # ours\n`;
+    const manage = MANAGE.replace("    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n", `    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n${theirs}`);
+    const root = starter({ "manage.py": manage });
+    const { code, output } = init(root, PROJECT);
+    expect(code).toBe(0);
+    const ours = `    # Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n`;
+    expect(read(root, "manage.py")).toBe(manage.replace(theirs, `${ours}${theirs}`));
+    expect(output).toContain(`so the app uses ${PROJECT}. Setup left that line as it is.`);
+    // A second run changes nothing.
+    expect(init(root, PROJECT).code).toBe(0);
+    expect(read(root, "manage.py")).toBe(manage.replace(theirs, `${ours}${theirs}`));
+  }
+});
+
+test("init replaces the ID in a hand-written default with a space before its closing parenthesis or an escaped quote in it", () => {
+  const OLD = "k98765432109876543210987654321098";
+  for (const [before, after] of [
+    [`os.environ.setdefault("CRITIQS_PROJECT_ID", "${OLD}" )`, `os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}" )`],
+    [`os.environ.setdefault("CRITIQS_PROJECT_ID", "a\\"b")`, `os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")`],
+  ] as const) {
+    const manage = MANAGE.replace("    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n", `    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n    ${before}\n`);
+    const root = starter({ "manage.py": manage });
+    expect(init(root, PROJECT).code).toBe(0);
+    expect(read(root, "manage.py")).toBe(manage.replace(before, after));
+  }
+});
+
 test("templates in a folder TEMPLATES[\"DIRS\"] lists are read, so a run without --entry after one with it adds no second tag", () => {
   const settings = SETTINGS.replace("'DIRS': [],", "'DIRS': [BASE_DIR / 'site_templates'],");
   expect(settings).not.toBe(SETTINGS);
