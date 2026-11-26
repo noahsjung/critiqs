@@ -336,7 +336,7 @@ async function runDoctor(options, { cwd, print }) {
 
 /**
  * Runs the CLI; resolves to its exit code: 0 done, 1 not done, 2 usage error.
- * `env`, `fetchFn`, and `sleep` stand in for the real ones in `sign-in`.
+ * `env`, `fetchFn`, and `sleep` stand in for the real ones in `sign-in` and `sign-out`.
  */
 export async function runCli(argv, { cwd = process.cwd(), print = console.log, env = process.env, fetchFn = fetch, sleep } = {}) {
   // `share` has its own options and subcommands.

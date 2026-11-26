@@ -835,10 +835,14 @@ tool, instead of approving every session.
   same name, waited for and taken over the same way; earlier versions can't
   remove a directory, so they wait. A session that ended is removed, and the
   agent is told to sign in again. Signing out cancels a sign-in still waiting
-  for approval, ends both the saved token and a saved replacement, and
+  for approval, ends both the saved token and a saved replacement (together,
+  so it holds the lock for one request's time), and
   forgets the computer's sign-in only once the service answers, including a
-  sign-in another process renewed to that replacement meanwhile. It never
-  reports a clean sign-out while a session it couldn't end stays saved, or
+  sign-in another process renewed to that replacement meanwhile. Sessions kept
+  aside are ended after the lock is released, as a renewal's clean-up is. It never
+  reports a clean sign-out while a session it couldn't end stays saved
+  (counted from the file as it is at the end, so one another process kept
+  aside meanwhile counts), or
   while another process changed the sign-in meanwhile: it says what is left
   and fails;
   `/auth/sign-out` adds `Critiqs-Session-Ended`, so a session it didn't find

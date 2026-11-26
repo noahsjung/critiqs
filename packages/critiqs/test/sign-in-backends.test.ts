@@ -906,3 +906,21 @@ test("a session another process replaced during a refused renewal is held to the
   }) as unknown as typeof fetch;
   await expect(accessTokenFor(TEAM_SITE, { backendUrl: TEAM, env, fetchFn })).rejects.toThrow(`isn't approved for the backend at ${TEAM}`);
 });
+
+test("an older version's Critiqs Cloud sign-in alone, which the service doesn't confirm ending, isn't reported as signed out", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const { fetchFn } = network({ [CLOUD_SIGN_IN]: CLOUD_SIGN_IN });
+  const offline = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/sign-out")) throw new Error("offline");
+    return fetchFn(input, init);
+  }) as typeof fetch;
+  // Signed out here since that sign-in was made, so it never moved in; only the older version keeps it.
+  writeFileSync(join(config, "sign-in.v2.json"), JSON.stringify({ version: 2, services: {}, cloudSignedOutAt: Date.now() }));
+  save(config, { [CLOUD_SIGN_IN]: { refreshToken: "sam-r", reviewer: { name: "Sam", email: "sam@example.com" }, signedInAt: Date.now() - 60_000 } }, 1);
+
+  await expect(signOutComputer({ backendUrl: CLOUD, env, fetchFn: offline })).rejects.toThrow(
+    new RegExp(`^Critiqs's sign-in service at ${CLOUD_SIGN_IN.replaceAll(".", "\\.")} didn't confirm ending an earlier session from this computer, so it stays saved here\\.`),
+  );
+  expect(file(config).recovered?.map((spare: { refreshToken: string }) => spare.refreshToken)).toEqual(["sam-r"]);
+});
