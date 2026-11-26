@@ -1,16 +1,18 @@
-// Verifies and publishes every Critiqs package at the version recorded on
-// main. npm packages are published here with `npm publish`, each after the
-// Critiqs packages it depends on (`critiqs` first). RubyGems and PyPI packages are built with their
-// `release:build` script, and their unpublished files are staged for the
-// registries' own upload actions. Every command skips a package whose registry
-// already has the version, so a partly failed publish can be rerun. The
-// procedure is in docs/releasing.md.
+// Verifies and packs every Critiqs package at the version recorded on main,
+// for the Publish workflow to check and then publish unchanged. npm packages
+// are packed with `npm pack`; RubyGems and PyPI packages are built with their
+// `release:build` script. `pack` writes every file once into one folder, with
+// a SHA256SUMS file listing each file's sha256 and `npm/order` listing the
+// npm tarballs in publish order (each after the Critiqs packages it depends
+// on, `critiqs` first). The workflow's publishing jobs check those sha256s
+// and skip a version a registry already has, so a partly failed publish can
+// be rerun. The procedure is in docs/releasing.md.
 //
 //   bun scripts/publish.ts verify --version <version> [--registry npm|rubygems|pypi]
-//   bun scripts/publish.ts publish --registry npm --version <version> [--dry-run]
-//   bun scripts/publish.ts stage --registry rubygems|pypi --version <version> --out <dir>
+//   bun scripts/publish.ts pack --version <version> --out <dir>
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { pendingReleases, releasePackages, workingTree, type Registry, type ReleasePackage } from "./release.ts";
 
 export const REGISTRIES: Registry[] = ["npm", "rubygems", "pypi"];
@@ -130,6 +132,52 @@ export async function plan(cwd: string, version: string, registries: Registry[],
 const describe = ({ registry, registryName, published }: Planned, version: string) =>
   `${registryName}@${version} (${REGISTRY_NAMES[registry]}): ${published ? `already published, skipped` : "to publish"}`;
 
+/** The file name `npm pack` gives a package's tarball. */
+export const npmTarballName = (name: string, version: string) => `${name.replace(/^@/, "").replace("/", "-")}-${version}.tgz`;
+
+/** `<sha256>  <path>` lines, as `sha256sum --check` reads them, for every file under `dir`, sorted by path. */
+export async function checksums(dir: string): Promise<string> {
+  const files = (await readdir(dir, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(dir, join(entry.parentPath, entry.name)))
+    .sort();
+  const lines = await Promise.all(files.map(async (file) => `${new Bun.CryptoHasher("sha256").update(await Bun.file(join(dir, file)).arrayBuffer()).digest("hex")}  ${file}\n`));
+  return lines.join("");
+}
+
+/**
+ * Packs every planned package into `dir`: npm tarballs in `npm/`, in publish
+ * order in `npm/order`; the gem in `rubygems/`; wheels and source
+ * distributions in `pypi/`; and SHA256SUMS last. Packages a registry already
+ * has are packed too, since the others are checked against them.
+ */
+async function pack(cwd: string, dir: string, version: string, planned: Planned[], effects: Effects, log: (line: string) => void): Promise<string[]> {
+  await rm(dir, { recursive: true, force: true });
+  for (const registry of REGISTRIES) await mkdir(join(dir, registry), { recursive: true });
+  const order: string[] = [];
+  const problems: string[] = [];
+  for (const { pkg, artifacts } of planned) {
+    if (pkg.registry === "npm") {
+      const file = npmTarballName(pkg.name, version);
+      await effects.exec(["npm", "pack", "--pack-destination", join(dir, "npm")], join(cwd, pkg.dir));
+      if (!existsSync(join(dir, "npm", file))) problems.push(`${pkg.name}: npm pack didn't write npm/${file}.`);
+      order.push(file);
+      log(`Packed npm/${file}.`);
+    } else {
+      for (const artifact of artifacts) {
+        await copyFile(artifact.path, join(dir, pkg.registry!, basename(artifact.path)));
+        log(`Packed ${pkg.registry}/${basename(artifact.path)}.`);
+      }
+    }
+  }
+  const packed = (await readdir(join(dir, "npm"))).sort();
+  if (packed.join("\n") !== [...order].sort().join("\n")) problems.push(`npm/ holds ${packed.join(", ")}, not the packed ${order.join(", ")}.`);
+  if (problems.length > 0) return problems;
+  await Bun.write(join(dir, "npm/order"), order.map((file) => `${file}\n`).join(""));
+  await Bun.write(join(dir, "SHA256SUMS"), await checksums(dir));
+  return [];
+}
+
 /** Runs one command; returns its exit status. */
 export async function main(args: string[], cwd: string, effects: Effects, log = console.log, error = console.error): Promise<number> {
   const [command, ...rest] = args;
@@ -143,44 +191,30 @@ export async function main(args: string[], cwd: string, effects: Effects, log = 
   const usage = () => {
     error([
       "Usage: bun scripts/publish.ts verify --version <version> [--registry npm|rubygems|pypi]",
-      "       bun scripts/publish.ts publish --registry npm --version <version> [--dry-run]",
-      "       bun scripts/publish.ts stage --registry rubygems|pypi --version <version> --out <dir>",
+      "       bun scripts/publish.ts pack --version <version> --out <dir>",
     ].join("\n"));
     return 2;
   };
   if (!version || (registry !== undefined && !REGISTRIES.includes(registry))) return usage();
-  if (command === "publish" && registry !== "npm") return usage();
-  if (command === "stage" && (!out || (registry !== "rubygems" && registry !== "pypi"))) return usage();
-  if (command === undefined || !["verify", "publish", "stage"].includes(command)) return usage();
+  if (command === "pack" && (!out || registry !== undefined)) return usage();
+  if (command === undefined || !["verify", "pack"].includes(command)) return usage();
 
   const { problems, planned } = await plan(cwd, version, registry ? [registry] : REGISTRIES, effects);
-  if (problems.length > 0) {
+  const refuse = (problems: string[]) => {
     error(`Critiqs ${version} can't be published from here:\n${problems.map((problem) => `- ${problem}`).join("\n")}`);
     return 1;
-  }
+  };
+  if (problems.length > 0) return refuse(problems);
   for (const entry of planned) log(describe(entry, version));
   const todo = planned.filter((entry) => !entry.published);
 
   if (command === "verify") {
     log(todo.length === 0 ? `Every package is already published at ${version}; nothing to do.` : `Critiqs ${version} can be published from this checkout.`);
-  } else if (command === "publish") {
-    const dryRun = rest.includes("--dry-run");
-    for (const { pkg } of todo) {
-      // Trusted publishing adds provenance automatically when the source
-      // repository is public. Forcing it would reject a private source repository.
-      await effects.exec(["npm", "publish", "--access", "public", ...(dryRun ? ["--dry-run"] : [])], join(cwd, pkg.dir));
-      log(`${dryRun ? "Checked (dry run)" : "Published"} ${pkg.name}@${version}.`);
-    }
-  } else {
-    const dir = resolve(cwd, out!);
-    await rm(dir, { recursive: true, force: true });
-    await mkdir(dir, { recursive: true });
-    for (const artifact of todo.flatMap((entry) => entry.artifacts)) {
-      await copyFile(artifact.path, join(dir, basename(artifact.path)));
-      log(`Staged ${basename(artifact.path)}.`);
-    }
-    if (todo.length === 0) log(`Nothing to upload to ${REGISTRY_NAMES[registry!]}.`);
+    return 0;
   }
+  const packProblems = await pack(cwd, resolve(cwd, out!), version, planned, effects, log);
+  if (packProblems.length > 0) return refuse(packProblems);
+  log(`Packed ${planned.length} packages into ${out}, with SHA256SUMS.`);
   return 0;
 }
 

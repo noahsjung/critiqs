@@ -509,7 +509,7 @@ Back up the database with SQLite's online backup
 (`sqlite3 critiqs.sqlite ".backup backup.sqlite"`).
 
 The first-release API and interaction choices remain provisional. See the
-[project documentation](https://github.com/noahsjung/Critiqs/tree/main/docs)
+[project documentation](https://github.com/noahsjung/critiqs/tree/main/docs)
 for agreed behavior, proposed choices, and own-backend setup.
 
 Critiqs is released under the [MIT license](LICENSE).

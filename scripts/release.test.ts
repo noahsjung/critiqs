@@ -533,12 +533,12 @@ esac
         await sh(repo.dir, "git", "push", "-q", "origin", "main");
       },
       /** One workflow run; returns its `gh` calls, each as its first words. */
-      async run({ fails = false } = {}): Promise<string[]> {
+      async run({ fails = false, path = "" } = {}): Promise<string[]> {
         await Bun.write(state.log, "");
         const work = join(bin, `work-${attempts++}`);
         await sh(bin, "git", "clone", "-q", "--branch", "main", origin, work);
         await linkChangesets(work);
-        const env = { ...process.env, ...job.env, GH_TOKEN: "unused", RUNNER_TEMP: bin, PATH: `${bin}:${process.env.PATH}` };
+        const env = { ...process.env, ...job.env, GH_TOKEN: "unused", RUNNER_TEMP: bin, PATH: `${path ? `${path}:` : ""}${bin}:${process.env.PATH}` };
         let failed = false;
         for (const name of ["Version", "Open or update the release pull request"]) {
           const child = Bun.spawn(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step(name)], { cwd: work, env, stdout: "pipe", stderr: "pipe" });
@@ -606,6 +606,67 @@ esac
       expect(await dispatched()).toEqual([pushed]);
     });
   }
+
+  /** A `git` that runs `script` first when called as `git <command>`, then the real git. */
+  async function gitShim(origin: string, command: string, script: string) {
+    const shim = await mkdtemp(join(origin, "..", `git-${command}-`));
+    const realGit = `${await sh(origin, "git", "--exec-path")}/git`;
+    await Bun.write(join(shim, "git"), `#!/usr/bin/env bash\nif [ "$1" = ${command} ]; then\n${script}\nfi\nexec "${realGit}" "$@"\n`);
+    await chmod(join(shim, "git"), 0o755);
+    return shim;
+  }
+
+  test("stops, leaving the release pull request open, when git status fails", async () => {
+    const { origin, run, push, setPullRequests, pullRequests } = await setup();
+    await push({ ".changeset/a.md": note({ "critiqs-react": "minor" }, "Feature.") });
+    await setPullRequests([{ number: 7, isCrossRepository: false }]);
+    // A git whose status fails must not read as "nothing to release" and close the pull request.
+    const shim = await gitShim(origin, "status", `echo "injected status failure" >&2; exit 128`);
+    expect(await run({ fails: true, path: shim })).toEqual(["pr list"]);
+    expect(await pullRequests()).toEqual([{ number: 7, isCrossRepository: false }]);
+  });
+
+  test("creates a missing release branch, refusing to overwrite one that appeared meanwhile", async () => {
+    const { origin, run, push, branchHead } = await setup();
+    await push({ ".changeset/a.md": note({ "critiqs-react": "minor" }, "Feature.") });
+    const main = await sh(origin, "git", "rev-parse", "main");
+    // The branch is created by someone else after the workflow saw it missing.
+    const race = await gitShim(origin, "push", `git -C "${origin}" update-ref refs/heads/changeset-release/main ${main}; echo "injected race" >&2`);
+    expect(await run({ fails: true, path: race })).toEqual(["pr list"]);
+    expect(await branchHead()).toBe(main);
+  });
+
+  for (const command of ["ls-remote", "fetch"]) {
+    test(`stops without pushing when git ${command} can't read the release branch`, async () => {
+      const { origin, run, push, branchHead, setPullRequests } = await setup();
+      await push({ ".changeset/a.md": note({ "critiqs-react": "minor" }, "Feature.") });
+      await run();
+      await setPullRequests([{ number: 7, isCrossRepository: false }]);
+      const released = await branchHead();
+      // A new note would normally replace the branch; a read failure must not look like "no branch" and force-push.
+      await push({ ".changeset/b.md": note({ "critiqs-react": "patch" }, "Fix.") });
+      const failing = await gitShim(origin, command, `echo "fatal: injected ${command} failure" >&2; exit 128`);
+      expect(await run({ fails: true, path: failing })).toEqual(["pr list"]);
+      expect(await branchHead()).toBe(released);
+    });
+  }
+
+  test("replaces the release branch only if it is still the commit it read", async () => {
+    const { origin, run, push, branchHead, setPullRequests } = await setup();
+    await push({ ".changeset/a.md": note({ "critiqs-react": "minor" }, "Feature.") });
+    await run();
+    await setPullRequests([{ number: 7, isCrossRepository: false }]);
+    await push({ ".changeset/b.md": note({ "critiqs-react": "patch" }, "Fix.") });
+    const main = await sh(origin, "git", "rev-parse", "main");
+    // Someone pushes to the branch after the workflow read it, before it pushes.
+    const race = await gitShim(origin, "push", `git -C "${origin}" update-ref refs/heads/changeset-release/main ${main}; echo "injected race" >&2`);
+    expect(await run({ fails: true, path: race })).toEqual(["pr list"]);
+    expect(await branchHead()).toBe(main);
+
+    // Without a race, the same release replaces the branch.
+    expect(await run()).toEqual(["pr list", "pr edit 7", "run list", "workflow run"]);
+    expect(await branchHead()).not.toBe(main);
+  });
 
   test("ignores a fork's pull request from a branch with the same name", async () => {
     const { run, push, setPullRequests, pullRequests } = await setup();

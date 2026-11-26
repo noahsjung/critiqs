@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packageTarball, tarballFiles } from "./package-tarball.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const sharedDir = join(root, "packages/critiqs");
@@ -96,14 +97,20 @@ try {
   `], dir, { ...process.env, NODE_ENV: "production" });
 }
 
-/** The files `npm pack` would publish, after checking each expected file is there and nothing else is. */
-async function packedFiles(dir: string, expected: string[], allowed: RegExp): Promise<string[]> {
-  const [dryRun] = JSON.parse(await run(["npm", "pack", "--dry-run", "--json"], dir));
-  const files: string[] = dryRun.files.map((file: { path: string }) => file.path);
-  for (const name of expected) assert(files.includes(name), `${dryRun.name}: missing ${name}`);
+/**
+ * The files in a package's tarball, after checking each expected file is
+ * there and nothing else is. The tarball is the packed one in CRITIQS_PACKED
+ * when it is set (the Publish workflow checks the files it then publishes),
+ * otherwise `npm pack` packs the package here.
+ */
+async function packedFiles(dir: string, expected: string[], allowed: RegExp): Promise<{ tarball: string; files: string[] }> {
+  const tarball = await packageTarball(dir, scratch, run);
+  const files = await tarballFiles(tarball, run, scratch);
+  const name = basename(tarball);
+  for (const file of expected) assert(files.includes(file), `${name}: missing ${file}`);
   const unexpected = files.filter((path) => !allowed.test(path));
-  assert.deepEqual(unexpected, [], `${dryRun.name}: unexpected tarball contents`);
-  return files;
+  assert.deepEqual(unexpected, [], `${name}: unexpected tarball contents`);
+  return { tarball, files };
 }
 
 /** Ready for the public registry: no private flag, a license, public access, and the runtime it needs. */
@@ -121,7 +128,7 @@ async function checkManifest(dir: string, name: string) {
 
 try {
   // The shared package carries the CLI, the backend it deploys, and the self-hosting server.
-  const sharedFiles = await packedFiles(sharedDir, [
+  const sharedPack = await packedFiles(sharedDir, [
     "LICENSE", "README.md", "AGENT_SETUP.md", "dist/index.js", "dist/index.d.ts", "dist/element.js", "dist/element.d.ts",
     "bin/critiqs.mjs", "bin/cli.mjs", "bin/cli.d.mts", "bin/init.mjs", "bin/env.mjs", "bin/setup.mjs", "bin/mcp.mjs", "bin/agent.mjs", "bin/markup.mjs",
     "bin/frameworks/index.mjs", "bin/frameworks/react.mjs", "bin/frameworks/next.mjs",
@@ -129,23 +136,21 @@ try {
     "dist/server/index.js", "dist/server/index.d.ts",
   ], /^(dist\/|bin\/|README\.md$|AGENT_SETUP\.md$|LICENSE$|package\.json$)/);
   // critiqs-react is the component, with the command and server from critiqs under its own name.
-  const reactFiles = await packedFiles(reactDir, [
+  const reactPack = await packedFiles(reactDir, [
     "LICENSE", "README.md", "AGENT_SETUP.md", "dist/index.js", "dist/index.d.ts", "dist/host.d.ts", "dist/core/types.d.ts", "dist/server/index.js", "dist/server/index.d.ts", "bin/critiqs.mjs",
   ], /^(dist\/(index\.js|[\w-]+\.d\.ts|core\/types\.d\.ts|server\/index\.(js|d\.ts))$|bin\/critiqs\.mjs$|README\.md$|AGENT_SETUP\.md$|LICENSE$|package\.json$)/);
-  const files = [...sharedFiles, ...reactFiles];
-  const [sharedPacked] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], sharedDir));
-  const [reactPacked] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], reactDir));
+  const files = [...sharedPack.files, ...reactPack.files];
   // critiqs isn't on the registry yet, so each consumer installs the packed one beside critiqs-react,
   // which satisfies critiqs-react's exact dependency on it.
-  const tarballs = [join(scratch, sharedPacked.filename), join(scratch, reactPacked.filename)];
+  const tarballs = [sharedPack.tarball, reactPack.tarball];
   // React 18 too: an isolated consumer that mounts it and renders it on the server.
   const react18 = join(scratch, "react18");
   await mkdir(react18);
   await Bun.write(join(react18, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, "react@18", "react-dom@18", "@happy-dom/global-registrator@20"], react18);
+  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, "react@18", "react-dom@18", "@happy-dom/global-registrator@21.0.4"], react18);
   await reactConsumerChecks(react18, "18.");
   await Bun.write(join(scratch, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, "react@19", "react-dom@19", "@types/react@19", "@types/node@22", "@happy-dom/global-registrator@20"]);
+  await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, "react@19", "react-dom@19", "@types/react@19", "@types/node@22", "@happy-dom/global-registrator@21.0.4"]);
   const installed = await checkManifest(scratch, "critiqs-react");
   const shared = await checkManifest(scratch, "critiqs");
   // One version of the shared package, the exact one critiqs-react was released with.

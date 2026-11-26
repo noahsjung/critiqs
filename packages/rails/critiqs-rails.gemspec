@@ -9,13 +9,13 @@ Gem::Specification.new do |spec|
   spec.authors = ["Noah Jung"]
   spec.summary = "Critiqs for Ruby on Rails apps: comment on an interactive prototype, discuss feedback, and find its context."
   spec.description = "Adds Critiqs to a Rails app's pages with one view helper, critiqs_tag, and serves Critiqs's browser bundle through the app's asset pipeline (Propshaft or Sprockets)."
-  spec.homepage = "https://github.com/noahsjung/Critiqs/tree/main/packages/rails#readme"
+  spec.homepage = "https://github.com/noahsjung/critiqs/tree/main/packages/rails#readme"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.3"
   spec.metadata = {
     "homepage_uri" => spec.homepage,
-    "source_code_uri" => "https://github.com/noahsjung/Critiqs/tree/main/packages/rails",
-    "bug_tracker_uri" => "https://github.com/noahsjung/Critiqs/issues",
+    "source_code_uri" => "https://github.com/noahsjung/critiqs/tree/main/packages/rails",
+    "bug_tracker_uri" => "https://github.com/noahsjung/critiqs/issues",
     "rubygems_mfa_required" => "true",
   }
 

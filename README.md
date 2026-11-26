@@ -25,10 +25,12 @@ These are working definitions. Proposed choices remain open.
 
 ## Repository
 
-The first release is published on npm as `critiqs-react` 0.3.0 under the
-[MIT license](LICENSE); Critiqs Cloud still runs an earlier backend.
-[First-release status](docs/first-release.md#implementation-status) lists what
-works and what remains.
+The first release is published on npm as
+[`critiqs-react`](https://www.npmjs.com/package/critiqs-react) under the
+[MIT license](LICENSE): 0.3.0 is its first regular release, after an earlier
+`0.0.0-stage` pre-release. Critiqs Cloud still runs an earlier backend.
+[First-release status](docs/first-release.md#implementation-status)
+lists what works and what remains.
 
 Every Critiqs package is released at one shared version
 ([what is released](docs/releasing.md#what-is-released)). Framework packages
@@ -113,4 +115,24 @@ sign-in service.
 
 For private R2 screenshot storage, see [R2 setup](docs/technical-direction.md#private-r2-screenshot-storage). R2 credentials stay on the Convex backend; host applications need no storage secrets.
 
-Contributor guidance is in [AGENTS.md](AGENTS.md).
+## Documentation
+
+Guides for installing and using Critiqs are at
+[critiqs.app/docs](https://critiqs.app/docs). Their source is
+`site-src/content/`.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the checks to run, release
+notes, and what a pull request needs. Durable project instructions, for people
+and coding agents, are in [AGENTS.md](AGENTS.md). Everyone taking part follows
+the [code of conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md),
+not in public issues.
+
+## License
+
+Critiqs is released under the [MIT license](LICENSE).

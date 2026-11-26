@@ -11,10 +11,12 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { FRAMEWORKS } from "../../critiqs/bin/frameworks/index.mjs";
 import { expectToolbar, fakeBackend, PROJECT, run, scratch, waitForServer } from "../../../scripts/consumer-kit.ts";
-import { release, venv } from "./tasks.ts";
+import { packedFile } from "../../../scripts/package-tarball.ts";
+import { PACKAGE, release, venv } from "./tasks.ts";
 
 const django = FRAMEWORKS.find((adapter) => adapter.id === "django")!;
-const wheel = await release();
+// The release's built wheel when CRITIQS_PACKED is set; otherwise one built here.
+const wheel = packedFile("pypi", "django-critiqs", (await Bun.file(join(PACKAGE, "package.json")).json()).version) ?? await release();
 const dir = await scratch("django");
 const python = await venv(join(dir, "venv"), [wheel]);
 const root = join(dir, "app");

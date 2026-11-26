@@ -14,17 +14,16 @@
 // Critiqs requests, even with a project remembered on that origin. Set
 // CHROME_PATH to choose the browser, and CRITIQS_EVIDENCE_DIR to keep
 // screenshots. Needs the npm registry; run with `bun run check:consumers`
-// after `bun run build`.
+// after `bun run build`. With CRITIQS_PACKED set to the folder
+// `bun scripts/publish.ts pack` wrote, it checks those packed files instead of
+// packing its own.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { packageTarball } from "./package-tarball.ts";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
-const packageDir = join(root, "packages/react");
-const sharedDir = join(root, "packages/critiqs");
 const scratch = await mkdtemp(join(tmpdir(), "critiqs-consumers-"));
 const PROJECT = "j12345678901234567890123456789012";
 /** Another deployment's project. */
@@ -277,10 +276,9 @@ let tarball = "";
 let sharedTarball = "";
 try {
   // critiqs isn't on the registry yet, so each app installs the packed one beside critiqs-react.
-  const [shared] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], sharedDir));
-  sharedTarball = join(scratch, shared.filename);
-  const [packed] = JSON.parse(await run(["npm", "pack", "--json", "--pack-destination", scratch], packageDir));
-  tarball = join(scratch, packed.filename);
+  // With CRITIQS_PACKED set, both are the release's packed files; otherwise they are packed here.
+  sharedTarball = await packageTarball("packages/critiqs", scratch, run);
+  tarball = await packageTarball("packages/react", scratch, run);
 
   for (const react of ["18", "19"]) {
     const name = `vite-react${react}`;

@@ -8,11 +8,12 @@
 // the page now names, and that the page has no Critiqs where it's unset. Then
 // the same app moves to Sprockets and is checked again.
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, rm } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { expectToolbar, fakeBackend, inChrome, PROJECT, scratch, waitForServer } from "../../../scripts/consumer-kit.ts";
 import { rails } from "../../critiqs/bin/frameworks/rails.mjs";
-import { buildGem, ruby } from "./ruby.ts";
+import { packedFile } from "../../../scripts/package-tarball.ts";
+import { buildGem, gemVersion, ruby } from "./ruby.ts";
 
 const dir = await scratch("rails");
 const appDir = join(dir, "app");
@@ -119,7 +120,11 @@ function moveAround(url: string, pipeline: string) {
 }
 
 try {
-  const gem = await buildGem(env);
+  // The release's built gem when CRITIQS_PACKED is set, copied unchanged into this
+  // check's folder, which the Ruby container can read; otherwise one built here.
+  const packed = packedFile("rubygems", "critiqs-rails", await gemVersion());
+  const gem = packed === null ? await buildGem(env) : join(dir, basename(packed));
+  if (packed !== null) await copyFile(packed, gem);
   await env.run(["gem", "install", "rails", "--version", "~> 8.1", "--conservative", "--no-document"], dir);
   await env.run(["gem", "install", "--local", gem, "--no-document"], dir);
   await env.run(

@@ -2,12 +2,15 @@
 // `check:consumer` script builds a real app of its framework against the
 // packed packages (never the workspace sources) and checks in Chrome that
 // Critiqs's toolbar appears. Set CHROME_PATH to choose the browser and
-// CRITIQS_EVIDENCE_DIR to keep screenshots.
+// CRITIQS_EVIDENCE_DIR to keep screenshots. With CRITIQS_PACKED set to the
+// folder `bun scripts/publish.ts pack` wrote, the checks install those packed
+// files instead of packing or building their own.
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packedFile } from "./package-tarball.ts";
 
 export const ROOT = fileURLToPath(new URL("../", import.meta.url));
 /** Project IDs that look real; consumer apps never reach a backend that knows them. */
@@ -28,8 +31,15 @@ export async function scratch(name: string): Promise<string> {
   return mkdtemp(join(base, `critiqs-${name}-`));
 }
 
-/** Packs a built workspace package (such as `packages/critiqs`) into `dest`, returning the tarball's path. */
+/**
+ * Packs a built workspace package (such as `packages/critiqs`) into `dest`,
+ * returning the tarball's path; with CRITIQS_PACKED set, returns its packed
+ * tarball there instead.
+ */
 export async function pack(packageDir: string, dest: string): Promise<string> {
+  const { name, version } = await Bun.file(join(ROOT, packageDir, "package.json")).json();
+  const prepacked = packedFile("npm", name, version);
+  if (prepacked !== null) return prepacked;
   const [packed] = JSON.parse(await run(["npm", "pack", "--json", "--ignore-scripts", "--pack-destination", dest], join(ROOT, packageDir)));
   return join(dest, packed.filename);
 }
