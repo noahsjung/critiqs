@@ -410,15 +410,18 @@ describe("AT-20: hosts that serve nothing all look the same", () => {
 });
 
 describe("limits", () => {
-  test("a lease past its request window gets the busy notice", async () => {
+  test("a lease past its request budget gets a notice that says when pages open again", async () => {
     const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, requestsPerWindow: 2 } };
     const { proxy } = setup({ config });
     expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(200);
     expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(200);
     expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(429);
     const page = await ask(proxy, "/");
-    expect(page.status).toBe(503);
-    expect(await page.text()).toContain("Critiqs is busy");
+    expect(page.status).toBe(429);
+    expect(page.headers.get("retry-after")).toMatch(/^[0-9]+$/);
+    const text = await page.text();
+    expect(text).toContain("needs a short pause");
+    expect(text).toMatch(/reload in about [0-9]+ (?:seconds|minutes?)/);
   });
 
   test("past the lease's reads in flight, a read waits for the slot, which frees when the body ends", async () => {

@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { canonicalHost, siteOf } from "@critiqs/core";
 import { parseCidr, type PublicWebPolicy } from "@critiqs/server/public-web";
+import { CLIENT_ADDRESS_HEADERS } from "./clients.ts";
 
 export { siteOf };
 
@@ -47,14 +48,31 @@ export interface ProxyLimits {
   queuedPerLease: number;
   queuedPerProcess: number;
   /**
-   * How long a response may wait for the browser to read on before it is
-   * ended: a client that stops reading would otherwise hold its reads (and so
-   * its link's and upstream host's shares) until the body's own deadline.
+   * How long a response may wait for the browser to read on before it gives
+   * back its read slot: a browser on a slow connection keeps its download
+   * (it carries on without a slot, as one of at most `slowReadsPerLease` and
+   * `slowReadsPerProcess`), and its link's and upstream host's shares are
+   * free for others. A response whose browser goes longer than this, plus a
+   * second for every `slowReaderBytesPerSecond` bytes already sent, without
+   * taking anything has stopped, and is ended. Past either count of slow
+   * reads, a browser that stops reading is ended at once.
    */
   clientStallMs: number;
-  /** Requests and bytes one lease may use per window. */
+  slowReaderBytesPerSecond: number;
+  slowReadsPerLease: number;
+  slowReadsPerProcess: number;
+  /**
+   * What one lease may use per `windowMs`, as budgets that refill evenly
+   * across the window, so a viewer who waits gets some back and the notice can
+   * say when. Pages and data requests (fetch, XHR, an owner-approved origin's
+   * data) share `requestsPerWindow`; a page's own files (images, scripts,
+   * styles, fonts, media, by what the browser says they are) share the larger
+   * `fileRequestsPerWindow`. A file request answered with a page is never
+   * served as one, so the larger budget can't open pages.
+   */
   windowMs: number;
   requestsPerWindow: number;
+  fileRequestsPerWindow: number;
   /**
    * Prefetches (Next.js's router, the browser's own) per lease per window,
    * counted apart from `requestsPerWindow`: a framework prefetching every link
@@ -96,8 +114,12 @@ export const DEFAULT_LIMITS: ProxyLimits = {
   queuedPerLease: 256,
   queuedPerProcess: 4_096,
   clientStallMs: 3_000,
+  slowReaderBytesPerSecond: 4 * 1024,
+  slowReadsPerLease: 8,
+  slowReadsPerProcess: 256,
   windowMs: 10 * 60_000,
   requestsPerWindow: 300,
+  fileRequestsPerWindow: 1_200,
   prefetchRequestsPerWindow: 600,
   bytesPerWindow: 80 * 1024 * 1024,
   htmlInputBytes: 2 * 1024 * 1024,
@@ -269,7 +291,10 @@ export function parseProxyConfig(env: Record<string, string | undefined>): Proxy
     );
   }
   const clientIpHeader = clientIpText === "connection" ? null : clientIpText;
-  if (clientIpHeader !== null && !/^[a-z0-9-]{1,64}$/.test(clientIpHeader)) throw new ConfigError("CRITIQS_PROXY_CLIENT_IP_HEADER must be a header name, such as cf-connecting-ip, or connection.");
+  // Only a header a front server writes with the viewer's address: any other (Host, Cookie, a made-up name) is the client's own words.
+  if (clientIpHeader !== null && !CLIENT_ADDRESS_HEADERS.includes(clientIpHeader)) {
+    throw new ConfigError(`CRITIQS_PROXY_CLIENT_IP_HEADER must be a header the server in front sets to the viewer's address (${CLIENT_ADDRESS_HEADERS.join(", ")}), or connection.`);
+  }
 
   const isolationText = env.CRITIQS_PROXY_COOKIE_ISOLATION?.trim() ?? "";
   let cookieIsolation: CookieIsolation;

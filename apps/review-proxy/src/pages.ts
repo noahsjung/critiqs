@@ -15,7 +15,15 @@ const WORDS: Record<ReviewFailure, { title: string; body: string }> = {
   timeout: { title: "This page took too long", body: "The prototype's site didn't answer in time. Try again in a moment." },
   unsafe: { title: "This page can't be shown", body: "This address is reported as unsafe, so review links don't show it." },
   unsupported: { title: "This page can't be shown here", body: "This page uses something review links don't support, such as a text encoding other than UTF-8. Try the Critiqs extension." },
-  busy: { title: "Critiqs is busy", body: "Too many pages are loading through this review link at once. Try again in a moment." },
+  busy: {
+    title: "Critiqs is busy",
+    body: "Other pages from this site, or other viewers of this link, are loading through Critiqs, and this page waited 8 seconds without its turn. Reload it in a few seconds. If this keeps happening, the site is answering slowly.",
+  },
+  limited: {
+    title: "This review link needs a short pause",
+    body: "You opened many pages through this review link in the last few minutes. More open as time passes: reload in about a minute.",
+  },
+  offline: { title: "Critiqs can't check this link right now", body: "Critiqs couldn't reach its own service to check that this review link is still open. This usually passes in a few seconds: reload the page." },
   "not-found": { title: "This review link isn't available", body: "It may have ended or been turned off. Ask for a new link." },
 };
 
@@ -33,9 +41,18 @@ function page(title: string, body: string, message: ReviewFrameMessage | null, p
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${escape(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:15px/1.5 system-ui,sans-serif;color:#18181b;background:#fafafa}main{max-width:420px;padding:24px}h1{font-size:18px;margin:0 0 8px}p{margin:0;color:#52525b}@media (prefers-color-scheme:dark){body{color:#f4f4f5;background:#18181b}p{color:#a1a1aa}}</style></head><body><main><h1>${escape(title)}</h1><p>${escape(body)}</p></main>${post}</body></html>`;
 }
 
-export function failurePage(reason: ReviewFailure, panelOrigins: readonly string[]): string {
+/** Seconds, in words: "about 40 seconds", "about 2 minutes". */
+function waitWords(seconds: number): string {
+  if (seconds <= 60) return `about ${Math.max(5, Math.ceil(seconds / 5) * 5)} seconds`;
+  const minutes = Math.ceil(seconds / 60);
+  return `about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+/** The page for `reason`; for `limited`, `retryAfterSeconds` says when pages open again. */
+export function failurePage(reason: ReviewFailure, panelOrigins: readonly string[], retryAfterSeconds?: number): string {
   const words = WORDS[reason];
-  return page(words.title, words.body, { tag: REVIEW_FRAME_TAG, v: 1, kind: "failed", reason }, panelOrigins);
+  const body = reason === "limited" && retryAfterSeconds !== undefined ? words.body.replace("in about a minute", `in ${waitWords(retryAfterSeconds)}`) : words.body;
+  return page(words.title, body, { tag: REVIEW_FRAME_TAG, v: 1, kind: "failed", reason }, panelOrigins);
 }
 
 /** A link or redirect to another site: names its host, offers no link to it. */
@@ -51,12 +68,17 @@ export function topLevelPage(): string {
   return page("Open this from its review link", "This address only works inside a Critiqs review page.", null, []);
 }
 
-/** The Content-Security-Policy for documents on a frame host. */
+/**
+ * The Content-Security-Policy for documents on a frame host. A prototype's
+ * own scripts run, and so may its WebAssembly (`'wasm-unsafe-eval'`): it
+ * reaches nothing a script can't, through the same `connect-src`. JavaScript
+ * `eval`, workers, frames, objects and other sites stay refused.
+ */
 export function frameCsp(webOrigins: readonly string[]): string {
   return [
     `frame-ancestors ${webOrigins.join(" ")}`,
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' blob:",
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",

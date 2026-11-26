@@ -162,7 +162,12 @@ export function lowercaseHeaders(raw: Readonly<Record<string, string | readonly 
 export interface ContentType {
   essence: string;
   charset: string | null;
+  /** A multipart type's boundary, which its parts can't be read without; no other parameter is kept. */
+  boundary?: string;
 }
+
+/** The characters RFC 2046 allows in a multipart boundary, which never need escaping inside quotes. */
+const BOUNDARY = /^[0-9A-Za-z'()+_,\-./:=? ]{0,69}[0-9A-Za-z'()+_,\-./:=?]$/;
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
@@ -197,17 +202,20 @@ function parseMimeType(text: string): ContentType | null {
   const subtype = (semicolon === -1 ? value.slice(slash + 1) : value.slice(slash + 1, semicolon)).trimEnd();
   if (!TOKEN.test(type) || subtype === "" || !TOKEN.test(subtype)) return null;
   let charset: string | null = null;
+  let boundary: string | null = null;
+  const essence = `${type}/${subtype}`.toLowerCase();
   if (semicolon !== -1) {
     for (const parameter of value.slice(semicolon + 1).split(";")) {
       const equals = parameter.indexOf("=");
       if (equals === -1) continue;
-      if (parameter.slice(0, equals).trim().toLowerCase() !== "charset" || charset !== null) continue;
+      const name = parameter.slice(0, equals).trim().toLowerCase();
       const raw = parameter.slice(equals + 1).trim();
       const unquoted = raw.startsWith('"') ? raw.slice(1, raw.indexOf('"', 1) === -1 ? undefined : raw.indexOf('"', 1)).replace(/\\(.)/g, "$1") : raw;
-      if (unquoted !== "") charset = unquoted.toLowerCase();
+      if (name === "charset" && charset === null && unquoted !== "") charset = unquoted.toLowerCase();
+      else if (name === "boundary" && boundary === null && essence.startsWith("multipart/") && BOUNDARY.test(unquoted)) boundary = unquoted;
     }
   }
-  return { essence: `${type}/${subtype}`.toLowerCase(), charset };
+  return boundary === null ? { essence, charset } : { essence, charset, boundary };
 }
 
 /**
@@ -225,7 +233,7 @@ export function contentType(header: string | undefined | null): ContentType | nu
     const parsed = parseMimeType(value);
     if (parsed === null || parsed.essence === "*/*") continue;
     if (result === null || parsed.essence !== result.essence) result = parsed;
-    else if (parsed.charset === null) result = { essence: parsed.essence, charset: result.charset };
+    else if (parsed.charset === null) result = { ...parsed, charset: result.charset };
     else result = parsed;
   }
   return result;
@@ -241,9 +249,10 @@ export function charsetOf(header: string | undefined | null): string | null {
   return contentType(header)?.charset ?? null;
 }
 
-/** The Content-Type the proxy sends for a type it read: the essence and charset only. */
+/** The Content-Type the proxy sends for a type it read: the essence, its charset, and a multipart type's boundary. */
 export function contentTypeHeader(type: ContentType): string {
-  return type.charset === null ? type.essence : `${type.essence}; charset=${type.charset}`;
+  const charset = type.charset === null ? "" : `; charset=${type.charset}`;
+  return `${type.essence}${charset}${type.boundary === undefined ? "" : `; boundary="${type.boundary}"`}`;
 }
 
 /**

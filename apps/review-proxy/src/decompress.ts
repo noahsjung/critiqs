@@ -39,8 +39,10 @@ export function decoderFor(encoding: string | undefined): (() => zlib.Gunzip | z
 
 /**
  * The chunks of `body`, ending it (and so the connection) as soon as it
- * passes `wireBytes`, goes `idleMs` without a chunk, runs past `totalMs`, or
- * `signal` aborts. `onBytes` hears every chunk's size, for usage counters.
+ * passes `wireBytes`, goes `idleMs` without a chunk, has spent `totalMs`
+ * waiting for the upstream, or `signal` aborts. Time the caller takes
+ * between chunks (a browser reading slowly) isn't the upstream's and doesn't
+ * count. `onBytes` hears every chunk's size, for usage counters.
  */
 export async function* boundedChunks(
   body: AsyncIterable<Uint8Array>,
@@ -49,14 +51,16 @@ export async function* boundedChunks(
   onBytes: (bytes: number) => void = () => undefined,
 ): AsyncGenerator<Uint8Array> {
   const chunks = body[Symbol.asyncIterator]();
-  const deadline = Date.now() + limits.totalMs;
+  let waited = 0;
   let size = 0;
   let finished = false;
   try {
     for (;;) {
-      const wait = Math.min(limits.idleMs, deadline - Date.now());
+      const wait = Math.min(limits.idleMs, limits.totalMs - waited);
       if (wait <= 0) throw new BodyError("timeout");
+      const asked = Date.now();
       const step = await within(chunks.next(), wait, signal);
+      waited += Date.now() - asked;
       if (step.done) {
         finished = true;
         return;

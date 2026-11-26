@@ -11,7 +11,7 @@
 // Third-party addresses can't be signed in the browser, so they are left as
 // they are and the frame's Content-Security-Policy refuses them.
 
-import { REVIEW_FRAME_MARK, REVIEW_FRAME_TAG, REVIEW_REFUSED_TIMING, type ReviewFrameMessage, type ReviewUnsupported } from "@critiqs/core";
+import { REVIEW_FILE_TIMING, REVIEW_FRAME_MARK, REVIEW_FRAME_TAG, REVIEW_LIMITED_TIMING, REVIEW_REFUSED_TIMING, type ReviewFrameMessage, type ReviewUnsupported } from "@critiqs/core";
 import { framePath } from "../src/paths.ts";
 
 export interface RuntimeMap {
@@ -70,6 +70,21 @@ export function refusedByProxy(entry: { serverTiming?: readonly { name: string }
   return entry.serverTiming?.some((timing) => timing.name === REVIEW_REFUSED_TIMING) ?? false;
 }
 
+/** Whether the proxy refused it only because the viewer's budget ran out for now (`REVIEW_LIMITED_TIMING`). */
+export function limitedByProxy(entry: { serverTiming?: readonly { name: string }[] }): boolean {
+  return entry.serverTiming?.some((timing) => timing.name === REVIEW_LIMITED_TIMING) ?? false;
+}
+
+/** Whether the proxy passed it on as a success (`REVIEW_FILE_TIMING`): an element that then fails got a body cut on the way. */
+export function passedByProxy(entry: { serverTiming?: readonly { name: string }[] }): boolean {
+  return entry.serverTiming?.some((timing) => timing.name === REVIEW_FILE_TIMING) ?? false;
+}
+
+/** Whether a navigation of the frame stays in it: blob: and data: documents carry no runtime, so they never load in the frame. */
+export function staysInFrame(destination: URL, here: string): boolean {
+  return destination.origin === here && destination.protocol !== "blob:" && destination.protocol !== "data:";
+}
+
 function install(script: HTMLScriptElement): void {
   const map = JSON.parse(script.dataset.critiqsMap ?? "null") as RuntimeMap | null;
   if (map === null) return;
@@ -89,12 +104,14 @@ function install(script: HTMLScriptElement): void {
   const unsupported = (feature: ReviewUnsupported) => tell({ tag: REVIEW_FRAME_TAG, v: 1, kind: "unsupported", feature });
 
   // Part of the page couldn't load through the review link: the review page
-  // hears it once per page, whatever and however many things failed.
-  let missed = false;
-  const missing = () => {
-    if (missed) return;
-    missed = true;
-    unsupported("load");
+  // hears it once per page, whatever and however many things failed; and
+  // once more if files were held back only for the viewer's budget, which
+  // waiting fixes.
+  const told = new Set<ReviewUnsupported>();
+  const missing = (feature: "load" | "limit" = "load") => {
+    if (told.has(feature)) return;
+    told.add(feature);
+    unsupported(feature);
   };
   // Another site, a data: script, a worker or a frame the frame's policy refused.
   document.addEventListener("securitypolicyviolation", (event) => {
@@ -112,14 +129,15 @@ function install(script: HTMLScriptElement): void {
   // A file the proxy refused, marked by its Server-Timing entry.
   try {
     new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) if (refusedByProxy(entry as PerformanceResourceTiming)) missing();
+      for (const entry of list.getEntries()) if (refusedByProxy(entry as PerformanceResourceTiming)) missing(limitedByProxy(entry as PerformanceResourceTiming) ? "limit" : "load");
     }).observe({ type: "resource", buffered: true });
   } catch {
     // No resource timing: refused files go unnoticed.
   }
-  // A file that got no answer the browser could use: a connection cut, or a
-  // body that isn't what its encoding says. The prototype's own errors (a 404)
-  // have an answer and are left alone.
+  // A file that got no answer the browser could use: a connection cut, a
+  // body cut on the way (the proxy passed it on as a success, see
+  // `passedByProxy`), or a body that isn't what its encoding says. The
+  // prototype's own errors (a 404) have an answer and are left alone.
   window.addEventListener(
     "error",
     (event) => {
@@ -138,7 +156,8 @@ function install(script: HTMLScriptElement): void {
       setTimeout(() => {
         const entries = performance.getEntriesByName(address.href, "resource") as PerformanceResourceTiming[];
         const last = entries.at(-1) as (PerformanceResourceTiming & { responseStatus?: number }) | undefined;
-        if (last === undefined || refusedByProxy(last) || last.responseStatus === 0) missing();
+        if (last === undefined || last.responseStatus === 0 || passedByProxy(last)) missing();
+        else if (refusedByProxy(last)) missing(limitedByProxy(last) ? "limit" : "load");
       }, 100);
     },
     true,
@@ -230,7 +249,8 @@ function install(script: HTMLScriptElement): void {
   }
 
   // Navigations: to the prototype's absolute address, repeated through the frame
-  // host; to another site, stopped, and the review page told.
+  // host; to another site, stopped, and the review page told; to a blob: or
+  // data: document, stopped (the review page's frame-src refuses those too).
   const navigation = (window as { navigation?: EventTarget }).navigation;
   navigation?.addEventListener("navigate", (event) => {
     const navigate = event as Event & { destination: { url: string }; cancelable: boolean; hashChange: boolean; downloadRequest: string | null };
@@ -240,8 +260,10 @@ function install(script: HTMLScriptElement): void {
     } catch {
       return;
     }
-    if (destination.origin === here || !navigate.cancelable) return;
+    if (staysInFrame(destination, here) || !navigate.cancelable) return;
     navigate.preventDefault();
+    // A blob: or data: document the page made would have no runtime: it stays where it is.
+    if (destination.protocol === "blob:" || destination.protocol === "data:") return;
     if (destination.origin === map.primary) location.assign(mapped(destination.href));
     else if (destination.protocol === "http:" || destination.protocol === "https:") tell({ tag: REVIEW_FRAME_TAG, v: 1, kind: "left", url: destination.origin, signIn: false });
   });

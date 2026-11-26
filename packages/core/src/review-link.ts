@@ -30,16 +30,38 @@ export function inReviewFrame(scope: object = globalThis): boolean {
  */
 export const REVIEW_REFUSED_TIMING = "critiqs-refused";
 
-/** Why the proxy couldn't show a page. */
-export type ReviewFailure = "unreachable" | "blocked" | "needs-sign-in" | "too-large" | "timeout" | "unsafe" | "unsupported" | "busy" | "not-found";
+/**
+ * Put beside `REVIEW_REFUSED_TIMING` when a file was refused only because
+ * the viewer's request budget ran out for now: waiting and reloading loads
+ * it, so the review page says that instead of pointing elsewhere.
+ */
+export const REVIEW_LIMITED_TIMING = "critiqs-limit";
+
+/**
+ * The Server-Timing entry on a file the proxy passes through with a success
+ * status: if the browser then can't use it, the body was cut on the way (a
+ * file over the size cap, a site that stopped sending), not an error of the
+ * prototype's own.
+ */
+export const REVIEW_FILE_TIMING = "critiqs-file";
+
+/**
+ * Why the proxy couldn't show a page. `busy`: the page waited its turn
+ * behind other reads of its site or link and got none in time; `limited`:
+ * this viewer's request budget is used up for now and refills as time
+ * passes; `offline`: Critiqs couldn't reach its own backend to check the
+ * link.
+ */
+export type ReviewFailure = "unreachable" | "blocked" | "needs-sign-in" | "too-large" | "timeout" | "unsafe" | "unsupported" | "busy" | "limited" | "offline" | "not-found";
 
 /**
  * Something the prototype tried that review links don't support: a form, a
  * password field, or `load`: part of the page couldn't load through the
  * review link (a web socket, another site the frame's policy refuses, a file
- * the proxy refused or the browser couldn't read).
+ * the proxy refused or the browser couldn't read). `limit`: files were held
+ * back only because the viewer's request budget ran out for now.
  */
-export type ReviewUnsupported = "form" | "password" | "load";
+export type ReviewUnsupported = "form" | "password" | "load" | "limit";
 
 export type ReviewFrameMessage =
   | { tag: typeof REVIEW_FRAME_TAG; v: 1; kind: "failed"; reason: ReviewFailure }
@@ -47,8 +69,8 @@ export type ReviewFrameMessage =
   | { tag: typeof REVIEW_FRAME_TAG; v: 1; kind: "left"; url: string; signIn: boolean }
   | { tag: typeof REVIEW_FRAME_TAG; v: 1; kind: "unsupported"; feature: ReviewUnsupported };
 
-const FAILURES: readonly ReviewFailure[] = ["unreachable", "blocked", "needs-sign-in", "too-large", "timeout", "unsafe", "unsupported", "busy", "not-found"];
-const UNSUPPORTED: readonly ReviewUnsupported[] = ["form", "password", "load"];
+const FAILURES: readonly ReviewFailure[] = ["unreachable", "blocked", "needs-sign-in", "too-large", "timeout", "unsafe", "unsupported", "busy", "limited", "offline", "not-found"];
+const UNSUPPORTED: readonly ReviewUnsupported[] = ["form", "password", "load", "limit"];
 
 /** An `http:` or `https:` origin, at most 512 characters, or null. */
 function webOrigin(value: unknown): string | null {

@@ -1,4 +1,5 @@
-import { canonicalHost, classifyAddress, REVIEW_REFUSED_TIMING, type ReviewFailure } from "@critiqs/core";
+import { canonicalHost, classifyAddress, REVIEW_FILE_TIMING, REVIEW_LIMITED_TIMING, REVIEW_REFUSED_TIMING, type ReviewFailure } from "@critiqs/core";
+import { clientKey } from "./clients.ts";
 import type { ProxyConfig } from "./config.ts";
 import { rewriteCss } from "./css.ts";
 import { BodyError, boundedChunks, readDecoded } from "./decompress.ts";
@@ -6,7 +7,7 @@ import { FRAME_LABEL, type ReviewDirectory, type ReviewResolution, type ReviewUs
 import type { Egress, EgressOutcome } from "./egress.ts";
 import { type ContentType, charsetOf, contentType, contentTypeHeader, frameworkHeaders, inboundHeaders, isPrefetch, type RequestClass, requestHeaderBytes } from "./headers.ts";
 import { decodeHtml, rewriteHtml } from "./html.ts";
-import { type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
+import { budget, type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
 import { failurePage, frameCsp, inertCsp, leavePage, topLevelPage } from "./pages.ts";
 import { framePath } from "./paths.ts";
 import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from "./urls.ts";
@@ -18,9 +19,11 @@ import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from 
 // (cookies aside, which are never read); only GET and HEAD, never an upgrade
 // or a service worker; a top-level open gets a notice, not the prototype;
 // the lease must resolve now (a client asking about hosts that serve nothing
-// is bounded before the backend is asked, except for hosts it has seen live);
-// and the lease's request window must have room, and a read slot of its own,
-// its link's and its upstream host's, waited for briefly when there is none.
+// is bounded before the backend is asked, except for hosts it has seen live;
+// a backend that can't be asked is said so, never taken for "nothing here");
+// and the lease's request budget must have room (pages and data, or files),
+// and a read slot of its own, its link's and its upstream host's, waited for
+// briefly when there is none.
 // Then the path picks the route (urls.ts), and every upstream read goes
 // through an egress (egress.ts) within the body limits. How a response is
 // served is decided by `handlingOf`, from the route and the response's type
@@ -113,11 +116,15 @@ function destination(request: Request): string {
  */
 type Handling = { kind: "page" } | { kind: "style"; imports: "style" | "import" | null } | { kind: "pass"; cap: number } | { kind: "refuse"; status: number };
 
-function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }>, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
+/** What the browser says a page's own file is for: these count against the files' budget, not the pages'. */
+const FILE_HINTS: ReadonlySet<RequestClass> = new Set(["image", "font", "style", "script", "media"]);
+
+function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }>, hint: RequestClass, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
   const ok = status >= 200 && status < 300;
   const type = parsed?.essence ?? "";
   if (route.kind === "primary") {
-    if (HTML_TYPES.has(type)) return { kind: "page" };
+    // A request that said it was for a file got a page: served as a file that can't be a document, never rewritten, so the files' budget can't open pages.
+    if (HTML_TYPES.has(type)) return FILE_HINTS.has(hint) ? { kind: "pass", cap: limits.assetBytes } : { kind: "page" };
     if (type === "text/css" && ok) return { kind: "style", imports: "style" };
     return { kind: "pass", cap: limits.assetBytes };
   }
@@ -129,21 +136,12 @@ function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "ass
   return { kind: "pass", cap: limits.assetBytes };
 }
 
-/** A client's key for per-client limits: its IPv4 address, or its IPv6 /64, which one subscriber usually holds whole. */
-function clientKey(address: string): string {
-  const host = canonicalHost(address) ?? address;
-  if (!host.includes(":")) return host;
-  const groups = host.split("::");
-  const head = groups[0]!.split(":").filter((group) => group !== "");
-  const tail = groups.length > 1 ? groups[1]!.split(":").filter((group) => group !== "") : [];
-  const full = [...head, ...new Array<string>(Math.max(0, 8 - head.length - tail.length)).fill("0"), ...tail];
-  return `${full.slice(0, 4).join(":")}::/64`;
-}
-
 /** What the listener knows about a request that the request itself doesn't say. */
 export interface RequestInfo {
-  /** The viewer's address, from the connection or the trusted header the server in front sets. */
+  /** The viewer's address as the trusted header the server in front sets it (a list's last entry counts), or else the connection's. */
   client: string;
+  /** The connection's own address, used when `client` isn't an address. */
+  peer?: string;
 }
 
 const STATUS: Record<ReviewFailure, number> = {
@@ -155,6 +153,8 @@ const STATUS: Record<ReviewFailure, number> = {
   unsafe: 403,
   unsupported: 502,
   busy: 503,
+  limited: 429,
+  offline: 503,
   "not-found": 404,
 };
 
@@ -169,10 +169,16 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   const lookupMisses = windowCounter({ windowMs: limits.lookupWindowMs, requests: limits.lookupMissesPerClient, bytes: Number.POSITIVE_INFINITY }, now);
   const prefetchSlots = keyedSlots(Math.min(limits.concurrentPrefetchPerLease, limits.concurrentPerLease));
   const line = slotLine({ maxWaiting: limits.queuedPerProcess, maxPerLine: limits.queuedPerLease });
-  const windows = windowCounter({ windowMs: limits.windowMs, requests: limits.requestsPerWindow, bytes: limits.bytesPerWindow }, now);
-  // Prefetches have their own count, so a framework prefetching every link
-  // can't use up what the reviewer opens; their bytes count in `windows`.
-  const prefetchWindows = windowCounter({ windowMs: limits.windowMs, requests: limits.prefetchRequestsPerWindow, bytes: Number.POSITIVE_INFINITY }, now);
+  // Per lease: pages and data, a page's own files, prefetches (so a framework
+  // prefetching every link can't use up what the reviewer opens), and bytes
+  // of all three. Each refills evenly over the window.
+  const pageBudget = budget({ capacity: limits.requestsPerWindow, windowMs: limits.windowMs }, now);
+  const fileBudget = budget({ capacity: limits.fileRequestsPerWindow, windowMs: limits.windowMs }, now);
+  const prefetchBudget = budget({ capacity: limits.prefetchRequestsPerWindow, windowMs: limits.windowMs }, now);
+  const byteBudget = budget({ capacity: limits.bytesPerWindow, windowMs: limits.windowMs }, now);
+  /** Slow reads going on without a slot (see `stream`), in all and per lease. */
+  let slowReads = 0;
+  const slowPerLease = new Map<string, number>();
   const usage = new Map<string, { requests: number; bytes: number }>();
 
   /** Headers every response carries; anything that isn't one of the proxy's documents is inert and may be framed only by the website. */
@@ -191,23 +197,41 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
    * prototype's own errors and say that part of the page didn't load.
    */
   const refusedFile = (status: number, extra: Record<string, string> = {}) => plain(status, "", { "server-timing": REVIEW_REFUSED_TIMING, ...extra });
+  /** A file held back only by the viewer's budget: says when it would be served, so the review page can say to wait. */
+  const limitedFile = (waitMs: number) => plain(429, "", { "server-timing": `${REVIEW_REFUSED_TIMING}, ${REVIEW_LIMITED_TIMING}`, "retry-after": String(Math.max(1, Math.ceil(waitMs / 1000))) });
   const document = (status: number, html: string, head = false) =>
     new Response(head ? null : html, {
       status,
       headers: common(new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", "content-security-policy": frameCsp(config.webOrigins) })),
     });
   const failure = (reason: ReviewFailure, head = false) => document(STATUS[reason], failurePage(reason, config.webOrigins), head);
+  /** A page held back by the viewer's budget, saying when pages open again. */
+  const limitedPage = (waitMs: number, head: boolean) => {
+    const seconds = Math.max(1, Math.ceil(waitMs / 1000));
+    const response = document(STATUS.limited, failurePage("limited", config.webOrigins, seconds), head);
+    response.headers.set("retry-after", String(seconds));
+    return response;
+  };
   /** One answer for every host that serves nothing, so none can be told apart. */
   const notFound = () => plain(404, "Not found");
 
   const count = (lease: ReviewResolution, bytes: number) => {
-    windows.addBytes(lease.leaseId, bytes);
+    byteBudget.spend(lease.leaseId, bytes);
     const entry = usage.get(lease.linkId) ?? { requests: 0, bytes: 0 };
     entry.bytes += bytes;
     usage.set(lease.linkId, entry);
   };
 
-  /** A response streaming `body` within `wireBytes`, releasing `release` however it ends. */
+  /**
+   * A response streaming `body` within `wireBytes`, releasing `release` (its
+   * read slots) however it ends. A browser that leaves a chunk untaken for
+   * `clientStallMs` gives its slots back and carries on as a slow read, so a
+   * slow connection still gets the whole file without holding its link's and
+   * site's shares; one that then goes longer than that plus a second per
+   * `slowReaderBytesPerSecond` bytes sent without taking anything has
+   * stopped, and is ended. Past the slow reads a lease or the process may
+   * have, a stalled read is ended at once.
+   */
   const stream = (status: number, headers: Headers, body: AsyncIterable<Uint8Array>, wireBytes: number, signal: AbortSignal, lease: ReviewResolution, release: () => void, head: boolean) => {
     if (head) {
       void body[Symbol.asyncIterator]().return?.()?.catch(() => undefined);
@@ -216,20 +240,40 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     }
     const chunks = boundedChunks(body, { wireBytes, idleMs: limits.idleTimeoutMs, totalMs: limits.bodyTimeoutMs }, signal, (bytes) => count(lease, bytes))[Symbol.asyncIterator]();
     let done = false;
-    // Armed while a chunk waits for the browser to read it: a browser that
-    // stops reading gives its read back after `clientStallMs`, not at the
-    // body's own deadline.
+    let holding = true;
+    let slow = false;
+    let sent = 0;
     let stall: ReturnType<typeof setTimeout> | undefined;
+    let stop: ReturnType<typeof setTimeout> | undefined;
+    const giveBack = () => {
+      if (!holding) return;
+      holding = false;
+      release();
+    };
     const finish = () => {
       clearTimeout(stall);
+      clearTimeout(stop);
       if (done) return;
       done = true;
-      release();
+      giveBack();
+      if (slow) {
+        slowReads--;
+        const left = (slowPerLease.get(lease.leaseId) ?? 1) - 1;
+        if (left > 0) slowPerLease.set(lease.leaseId, left);
+        else slowPerLease.delete(lease.leaseId);
+      }
+    };
+    const end = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+      if (done) return;
+      finish();
+      void chunks.return?.(undefined)?.catch(() => undefined);
+      controller.error(new Error("The browser stopped reading."));
     };
     return new Response(
       new ReadableStream<Uint8Array>({
         async pull(controller) {
           clearTimeout(stall);
+          clearTimeout(stop);
           try {
             const step = await chunks.next();
             if (step.done) {
@@ -238,12 +282,16 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
               return;
             }
             controller.enqueue(step.value);
+            sent += step.value.byteLength;
             stall = setTimeout(() => {
-              if (done) return;
-              finish();
-              void chunks.return?.(undefined)?.catch(() => undefined);
-              controller.error(new Error("The browser stopped reading."));
+              if (done || slow) return;
+              if (slowReads >= limits.slowReadsPerProcess || (slowPerLease.get(lease.leaseId) ?? 0) >= limits.slowReadsPerLease) return end(controller);
+              slow = true;
+              slowReads++;
+              slowPerLease.set(lease.leaseId, (slowPerLease.get(lease.leaseId) ?? 0) + 1);
+              giveBack();
             }, limits.clientStallMs);
+            stop = setTimeout(() => end(controller), limits.clientStallMs + Math.ceil((sent / limits.slowReaderBytesPerSecond) * 1000));
           } catch (error) {
             finish();
             controller.error(error);
@@ -275,6 +323,12 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const encoding = upstream["content-encoding"];
     if (encoding !== undefined && /^(?:gzip|br)$/i.test(encoding.trim())) headers.set("content-encoding", encoding.trim().toLowerCase());
     return headers;
+  };
+
+  /** The length an upstream body says it has on the wire, which the proxy sends unchanged; null when it doesn't say. */
+  const wireLength = (upstream: Record<string, string>): number | null => {
+    const text = upstream["content-length"]?.trim() ?? "";
+    return /^[0-9]{1,15}$/.test(text) ? Number(text) : null;
   };
 
   const bodyFailure = (error: unknown): ReviewFailure => (error instanceof BodyError ? (error.reason === "too-large" ? "too-large" : error.reason === "timeout" ? "timeout" : "unsupported") : "unreachable");
@@ -362,13 +416,15 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   };
 
   /**
-   * Frame hosts that resolved to a live lease, until that lease's end: their
-   * lookups never count against a client's misses, so a viewer whose address
-   * someone else uses up (a shared office or carrier address) keeps the
-   * frames it has open. They are still asked about every time, so a revoked
-   * lease stops serving as soon as the directory says so.
+   * Frame hosts that resolved to a live lease, with the directory's last
+   * answer, until that lease's end: their lookups never count against a
+   * client's misses, so a viewer whose address someone else uses up (a
+   * shared office or carrier address) keeps the frames it has open. They are
+   * still asked about every time, so a revoked lease stops serving as soon
+   * as the directory says so; only while the directory can't be asked is the
+   * last answer served, until its `cacheUntil` (at most 5 seconds after it).
    */
-  const live = new Map<string, number>();
+  const live = new Map<string, ReviewResolution>();
   const MAX_LIVE = 100_000;
   /**
    * Frame hosts each client key is asking about now, with how many requests
@@ -378,30 +434,47 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
    * count once.
    */
   const pending = new Map<string, Map<string, number>>();
+  /** Until when the directory is taken to be unreachable: a host not seen live isn't asked about meanwhile. */
+  let unreachableUntil = 0;
 
-  /** The lease a frame host stands for. The backend is asked about a host not seen live only while this client's misses, with the hosts it is asking about, are within their limit. */
-  const leaseFor = async (label: string, client: string, signal: AbortSignal): Promise<ReviewResolution | null> => {
-    const seenUntil = live.get(label);
-    const known = seenUntil !== undefined && seenUntil > now();
-    const key = clientKey(client);
+  type Lookup = { kind: "lease"; lease: ReviewResolution } | { kind: "none" } | { kind: "unavailable" };
+
+  /**
+   * The lease a frame host stands for. The backend is asked about a host not
+   * seen live only while this client's misses, with the hosts it is asking
+   * about, are within their limit. A directory that can't be asked is
+   * `unavailable`, never a miss: a known host serves its last answer until
+   * that answer's `cacheUntil`, and every other host is told to try again.
+   */
+  const leaseFor = async (label: string, key: string, signal: AbortSignal): Promise<Lookup> => {
+    const seen = live.get(label);
+    const known = seen !== undefined && seen.expiresAt > now();
     const asking = pending.get(key) ?? new Map<string, number>();
     const first = !asking.has(label);
     if (!known) {
-      if (first && lookupMisses.usage(key).requests + asking.size >= limits.lookupMissesPerClient) return null;
+      if (now() < unreachableUntil) return { kind: "unavailable" };
+      if (first && lookupMisses.usage(key).requests + asking.size >= limits.lookupMissesPerClient) return { kind: "none" };
       asking.set(label, (asking.get(label) ?? 0) + 1);
       pending.set(key, asking);
     }
     try {
-      const lease = await deps.directory.resolve(label, signal);
+      let lease: ReviewResolution | null;
+      try {
+        lease = await deps.directory.resolve(label, signal);
+      } catch {
+        if (signal.aborted) return { kind: "unavailable" };
+        unreachableUntil = now() + 1_000;
+        return known && seen.cacheUntil > now() ? { kind: "lease", lease: seen } : { kind: "unavailable" };
+      }
       if (lease === null) {
         live.delete(label);
         if (!known && first) lookupMisses.admit(key);
-      } else {
-        live.delete(label);
-        live.set(label, lease.expiresAt);
-        if (live.size > MAX_LIVE) live.delete(live.keys().next().value!);
+        return { kind: "none" };
       }
-      return lease;
+      live.delete(label);
+      live.set(label, lease);
+      if (live.size > MAX_LIVE) live.delete(live.keys().next().value!);
+      return { kind: "lease", lease };
     } finally {
       if (!known) {
         const left = (asking.get(label) ?? 1) - 1;
@@ -437,7 +510,10 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     // Opened on its own, a frame host shows a notice: never the prototype outside a review page.
     if (dest === "document") return document(403, topLevelPage(), request.method === "HEAD");
 
-    const lease = await leaseFor(label, info.client, request.signal);
+    const found = await leaseFor(label, clientKey(info.client) ?? clientKey(info.peer) ?? "unknown", request.signal);
+    // Critiqs couldn't check the link: said as that, to try again, never as a host that serves nothing.
+    if (found.kind === "unavailable") return hintOf(request) === "document" ? failure("offline", request.method === "HEAD") : refusedFile(503, { "retry-after": "5" });
+    const lease = found.kind === "lease" ? found.lease : null;
     if (lease === null || lease.expiresAt <= now()) return notFound();
     const ctx: UrlContext = { primary: lease.origin, slots: lease.assetOrigins, leaseId: lease.leaseId, secret: config.signingKey, previousSecret: config.previousSigningKey };
     const route = routeRequest(ctx, url);
@@ -460,10 +536,14 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
 
     // A page is never a prefetch here: the frame's own navigation is what the reviewer opened.
     const prefetch = !asPage && isPrefetch(request.headers);
-    if (prefetch) {
-      // Out of prefetches, or out of bytes: refused without fetching; the framework fetches again when the reviewer navigates.
-      if (windows.usage(lease.leaseId).bytes >= limits.bytesPerWindow || !prefetchWindows.admit(lease.leaseId)) return refusedFile(429);
-    } else if (!windows.admit(lease.leaseId)) return asPage ? failure("busy", head) : refusedFile(429);
+    // Out of a budget: refused without fetching, saying when there is room again. A framework prefetches again when the reviewer navigates.
+    const pages = FILE_HINTS.has(hint) ? fileBudget : pageBudget;
+    const spent = prefetch ? prefetchBudget : pages;
+    if (byteBudget.left(lease.leaseId) <= 0) {
+      const wait = byteBudget.waitMs(lease.leaseId, limits.bytesPerWindow / 20);
+      return asPage ? limitedPage(wait, head) : limitedFile(wait);
+    }
+    if (!spent.take(lease.leaseId)) return asPage ? limitedPage(spent.waitMs(lease.leaseId), head) : limitedFile(spent.waitMs(lease.leaseId));
     const entry = usage.get(lease.linkId) ?? { requests: 0, bytes: 0 };
     entry.requests++;
     usage.set(lease.linkId, entry);
@@ -481,7 +561,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       const outcome = await egress.fetch({ url: route.upstream, method, class: hint, origin, framework, signal });
       if (outcome.kind !== "response") return refused(outcome, asPage, head);
       const type = contentType(outcome.headers["content-type"]);
-      const handling = handlingOf(route, outcome.status, type, limits);
+      const handling = handlingOf(route, hint, outcome.status, type, limits);
       if (handling.kind === "page") return await servePage(ctx, lease, outcome, framePath(new URL(`${url.pathname}${url.search}`, url)), signal, head);
       if (handling.kind === "style") return await serveStyle(ctx, lease, outcome, handling.imports, signal, head);
       if (handling.kind === "refuse") {
@@ -489,8 +569,18 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
         void outcome.body[Symbol.asyncIterator]().return?.()?.catch(() => undefined);
         return refusedFile(handling.status);
       }
+      const length = wireLength(outcome.headers);
+      if (length !== null && length > handling.cap) {
+        // Over the size cap: refused before any of it is sent, marked, so the review page says part of the page couldn't load.
+        void outcome.body[Symbol.asyncIterator]().return?.()?.catch(() => undefined);
+        return refusedFile(502);
+      }
+      const headers = passHeaders(outcome.headers, type);
+      if (length !== null) headers.set("content-length", String(length));
+      // A success the browser then can't use was cut on its way here (see REVIEW_FILE_TIMING).
+      if (outcome.status >= 200 && outcome.status < 300) headers.set("server-timing", REVIEW_FILE_TIMING);
       streaming = true;
-      return stream(outcome.status, passHeaders(outcome.headers, type), outcome.body, handling.cap, signal, lease, release, head);
+      return stream(outcome.status, headers, outcome.body, handling.cap, signal, lease, release, head);
     } catch (error) {
       return asPage ? failure(bodyFailure(error), head) : refusedFile(502);
     } finally {

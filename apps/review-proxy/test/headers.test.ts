@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { DEFAULT_LIMITS, parseProxyConfig, proxyPolicy } from "../src/config.ts";
 import { createEgress } from "../src/egress.ts";
-import { inboundHeaders, outboundHeaders, requestHeaderBytes, type RequestClass } from "../src/headers.ts";
+import { contentType, contentTypeHeader, inboundHeaders, outboundHeaders, requestHeaderBytes, type RequestClass } from "../src/headers.ts";
 import { cachedReputation, fixtureReputation } from "../src/reputation.ts";
 import { close, listen, PUBLIC_A, recordingServer, testWeb, text, v4 } from "./fixtures.ts";
 
@@ -122,4 +122,26 @@ describe("AT-7: inbound headers are an allow list", () => {
 test("request header size leaves Cookie out", () => {
   const headers = new Headers({ "user-agent": "x".repeat(100), cookie: "c=".concat("y".repeat(32 * 1024)) });
   expect(requestHeaderBytes(headers)).toBeLessThan(200);
+});
+
+describe("a multipart type keeps its boundary, and nothing else does", () => {
+  test("multipart boundaries are kept, quoted, when they are valid", () => {
+    expect(contentTypeHeader(contentType('multipart/x-mixed-replace; boundary="frame 1"; foo=bar')!)).toBe('multipart/x-mixed-replace; boundary="frame 1"');
+    expect(contentTypeHeader(contentType("multipart/byteranges; boundary=THIS_STRING_SEPARATES")!)).toBe('multipart/byteranges; boundary="THIS_STRING_SEPARATES"');
+  });
+  test("a boundary that isn't one, or on a type that isn't multipart, is dropped", () => {
+    expect(contentTypeHeader(contentType('multipart/mixed; boundary="a\\"b"')!)).toBe("multipart/mixed");
+    expect(contentTypeHeader(contentType(`multipart/mixed; boundary=${"x".repeat(71)}`)!)).toBe("multipart/mixed");
+    expect(contentTypeHeader(contentType("text/html; boundary=x")!)).toBe("text/html");
+  });
+});
+
+describe("of a list of types, the last valid one wins", () => {
+  test("as a browser reads it", () => {
+    expect(contentType("text/html, image/png")?.essence).toBe("image/png");
+    expect(contentType("image/png, text/html")?.essence).toBe("text/html");
+    expect(contentType("image/png, text/html, nonsense, */*")?.essence).toBe("text/html");
+    expect(contentType("text/html; charset=latin1, text/html")).toEqual({ essence: "text/html", charset: "latin1" });
+    expect(contentType("text/html; charset=latin1, text/plain")).toEqual({ essence: "text/plain", charset: null });
+  });
 });

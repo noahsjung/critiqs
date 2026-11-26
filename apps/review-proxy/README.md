@@ -19,12 +19,23 @@ are read-only and credential-free (GET and HEAD only, no cookies or
   top-level open (a notice, never the prototype), the lease (a client whose
   lookups keep finding nothing stops reaching the backend for a minute; hosts
   in flight count as misses until they answer, and a host the proxy has seen
-  live is always asked about), the lease's request window, and read slots for
+  live is always asked about), the lease's request budget, and read slots for
   the lease, its link and the upstream host, each a share of the process so
   one slow site can't hold every read. A read with no room waits its turn
   for up to 8 seconds (a browser over HTTP/2 asks for every image of a page
-  at once), and a browser that stops reading gives its read back after 3
-  seconds.
+  at once); a freed slot goes to the viewer holding the fewest, so one
+  viewer's queued reads can't keep another waiting. A browser that takes
+  nothing for 3 seconds gives its read slot back and keeps its download as a
+  slow read; one that then takes nothing for 3 seconds plus a second per
+  4 KiB already sent has stopped, and is ended.
+- When the backend can't be asked (down, or answering with an error), that
+  is never taken for a host that serves nothing and never counts as a miss.
+  A host the proxy saw live keeps serving its last answer until that
+  answer's `cacheUntil` (at most 5 seconds, the same bound as a revoked
+  link); after that, and for any other host, a page says Critiqs can't check
+  the link right now and a file gets 503 with `Retry-After`. While the
+  backend is unreachable, hosts not seen live are asked about once a second
+  at most.
 - How a response is served is decided in one place, `handlingOf`, from the
   route and the response's own type and status, never from what the browser
   says a request is for. The type is read as a browser reads it (the last
@@ -39,8 +50,15 @@ are read-only and credential-free (GET and HEAD only, no cookies or
 - Every response carries `X-Content-Type-Options: nosniff` and
   `frame-ancestors` with the website's origins: pages get the frame policy,
   everything else an inert one. A file the proxy refuses carries
-  `Server-Timing: critiqs-refused`, which the runtime reads to tell the review
-  page that part of the page couldn't load.
+  `Server-Timing: critiqs-refused` (and `critiqs-limit` when only the
+  viewer's budget held it back), and a file it passes on as a success carries
+  `critiqs-file`; the runtime reads these to tell the review page that part
+  of the page couldn't load, or that waiting loads the rest. A file whose
+  `Content-Length` is over the size cap is refused before any of it is sent;
+  a file within it is sent with its length.
+- The frame's policy allows WebAssembly (`'wasm-unsafe-eval'`), which reaches
+  nothing a script can't; JavaScript `eval`, workers, frames, objects and
+  other sites stay refused.
 - Signed addresses use `CRITIQS_PROXY_SIGNING_KEY`, which only the proxy
   holds (required on a public domain; derived from the shared secret on
   `.localhost`), and still accept `CRITIQS_PROXY_SIGNING_KEY_PREVIOUS` during
@@ -48,7 +66,13 @@ are read-only and credential-free (GET and HEAD only, no cookies or
 - `CRITIQS_PROXY_CLIENT_IP_HEADER` names the header the server in front
   overwrites with the viewer's address. It is required on a public domain:
   without it every viewer is one client to the lookup limit. Set it to
-  `connection` when viewers connect to the proxy directly.
+  `connection` when viewers connect to the proxy directly. Only a header
+  front servers use for that is accepted (`cf-connecting-ip`,
+  `x-forwarded-for`, `x-real-ip`, `true-client-ip` and the others in
+  `src/clients.ts`), never one a client writes, such as `host`. Every
+  address, from the header or the connection, is keyed by `clientKey`: an
+  IPv4 address as itself, also in its IPv4-mapped IPv6 form (a listener on
+  `::` sees IPv4 viewers that way), and an IPv6 address by its /64.
 - `src/html.ts` parses pages with parse5, maps every address, removes
   `<base>`, CSP and refresh `<meta>` tags, nested frames, `srcdoc`, `ping` and
   `download`, and puts the runtime shim and the page layer first in `<head>`.
@@ -110,11 +134,15 @@ sibling frame host planted can't make it refuse requests).
   and owner-approved origins checks every path, the one for third-party
   static files checks each host.
 - `src/limits.ts` caps reads in flight per lease and per process, keeps the
-  bounded line reads wait in (`slotLine`), and counts requests and bytes per
-  lease per window. Prefetches (Next.js's router, the
-  browser's own) have a window of their own and at most half the reads in
-  flight, so a page prefetching every link never locks the reviewer out of
-  what they open; their bytes count in the lease's byte window.
+  bounded line reads wait in (`slotLine`), and keeps each lease's budgets
+  (`budget`), which refill evenly over 10 minutes: 300 pages and data
+  requests, 1,200 of a page's own files (images, scripts, styles, fonts,
+  media), 600 prefetches and 80 MiB. A file request answered with a page is
+  served as a file, never rewritten, so the files' budget can't open pages.
+  Past a budget a page says when pages open again, and a file carries
+  `Retry-After`. Prefetches (Next.js's router, the browser's own) also have
+  at most half the reads in flight, so a page prefetching every link never
+  locks the reviewer out of what they open.
 
 `bun test` runs the unit tests and the attack tests against local servers;
 no test reaches the internet.

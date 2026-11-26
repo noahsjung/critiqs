@@ -191,10 +191,12 @@ describe("a response is a page if a browser would show it as one", () => {
     expect(response.headers.get("content-type")).toBe("image/svg+xml");
     expect(await response.text()).toBe(SVG);
   });
-  test("a charset is kept, other parameters are not", async () => {
+  test("a charset and a multipart boundary are kept, other parameters are not", async () => {
     const { proxy } = setup();
     const response = await ask(proxy, "/mixed", { dest: "empty" });
-    expect(response.headers.get("content-type")).toBe("multipart/x-mixed-replace");
+    // An MJPEG stream in an <img> can't be read without its boundary; a navigation to it is still a download.
+    expect(response.headers.get("content-type")).toBe('multipart/x-mixed-replace; boundary="x"');
+    expect(response.headers.get("content-disposition")).toBe("attachment");
   });
 });
 
@@ -365,10 +367,10 @@ describe("a file the proxy refuses says so", () => {
     held.abort();
     await holding.body?.cancel().catch(() => undefined);
   });
-  test("a file the prototype itself answers with an error doesn't", async () => {
+  test("a file the prototype itself answers doesn't", async () => {
     const { proxy } = setup();
     const response = await ask(proxy, "/img/1.png", { dest: "image" });
-    expect(response.headers.get("server-timing")).toBeNull();
+    expect(response.headers.get("server-timing") ?? "").not.toContain("critiqs-refused");
     await response.arrayBuffer();
   });
 });

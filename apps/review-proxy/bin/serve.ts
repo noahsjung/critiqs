@@ -60,9 +60,10 @@ try {
     development: false,
     error: () => new Response("", { status: 500, headers: { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" } }),
     fetch: (request, bunServer) => {
-      // The header the server in front sets; in a list, the last entry is the one it added.
+      // The header the server in front sets (read by `clientKey`, a list by its last entry), else the connection's own address.
+      const peer = bunServer.requestIP(request)?.address ?? "";
       const forwarded = config.clientIpHeader === null ? null : request.headers.get(config.clientIpHeader);
-      return proxy.fetch(request, { client: forwarded?.split(",").at(-1)?.trim() || bunServer.requestIP(request)?.address || "" });
+      return proxy.fetch(request, { client: forwarded ?? peer, peer });
     },
   });
   if (!(await headersAccepted(port, hostname))) {
