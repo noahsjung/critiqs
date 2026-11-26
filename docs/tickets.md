@@ -390,9 +390,14 @@ Critiqs keeps each linked ticket's status and when it last changed:
   account, can no longer see the ticket, or may no longer review the project
   (such as when they leave its organization), the status stays, Critiqs stops
   using their token for it, and the chip
-  adds "· last known"; hovering says when it was last read and why. A webhook
-  or a later check that works clears it, and a check refused after a webhook
-  saved a newer status while it ran leaves that status current.
+  adds "· last known"; hovering says when it was last read and why. It says
+  so from the moment the person disconnects or loses access, before anything
+  checks: whether a status is current is decided in one place, as Critiqs
+  reads it, for every place that shows it. A webhook still updates the
+  status, which stays marked while Critiqs can't check it as that person. A
+  check that finds the ticket hidden marks it too; a webhook or a later check
+  that works clears that, and a check refused after a webhook saved a newer
+  status while it ran leaves that status current.
 
 **Resolve when done:** a project setting that resolves a thread when every
 ticket linked to it reaches the tracker's done state. **Built:** off by

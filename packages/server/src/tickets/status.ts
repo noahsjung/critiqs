@@ -1,9 +1,10 @@
 import { type TicketSettingsView, type TicketStatus, ticketFinished, type TrackerId } from "@critiqs/core";
 import { CritiqsError, fail } from "../errors.ts";
 import { currentReviewer, MAX_THREAD_TICKET_ROWS, requireProject, requireThread, requireUser } from "../operations.ts";
-import { canReview, projectAccess } from "../organizations.ts";
+import { projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketLinkChanges, TicketLinkRecord } from "../store.ts";
 import { type TicketsDeployment, ticketStore, type TokenUse, trackerAdapter } from "./accounts.ts";
+import { linkerAccount } from "./current.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
 import { checkedStatus, type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken, trackerId } from "./trackers/index.ts";
 
@@ -251,21 +252,13 @@ export async function prepareStatusCheck(store: Store, args: { linkId: string },
   const tickets = ticketStore(store);
   const link = await tickets.links.get(args.linkId);
   if (link === null || link.state !== "linked") return { status: "skip" };
-  // Someone who may no longer review the project, such as a member removed from its organization, isn't asked on its behalf.
-  const project = await store.projects.get(link.projectId);
-  if (project === null || !(await canReview(store, project, link.linkedBy))) {
-    await tickets.links.patch(link._id, { statusStale: true });
-    return { status: "stale" };
-  }
-  const account = await tickets.accounts.find(link.linkedBy, link.tracker);
-  // Tickets created before links recorded `accountId` have only the account their creator submitted them with.
-  const accountId = link.accountId ?? link.creatorAccountId;
-  if (accountId === undefined || account === null || account.accountId !== accountId) {
+  const person = await linkerAccount(store, link);
+  if (person === null) {
     await tickets.links.patch(link._id, { statusStale: true });
     return { status: "stale" };
   }
   const { tracker, externalId, key, url, title } = link;
-  return { status: "check", person: { userId: link.linkedBy, accountId }, projectId: link.projectId, tracker, ticket: { tracker, externalId, key, url, title, site: link.site ?? null }, startedAt: now };
+  return { status: "check", person, projectId: link.projectId, tracker, ticket: { tracker, externalId, key, url, title, site: link.site ?? null }, startedAt: now };
 }
 
 /**

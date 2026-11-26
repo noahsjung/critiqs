@@ -432,6 +432,27 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     expect(linear.tokens.every((token) => token === "lin_api_lee")).toBe(true);
   });
 
+  test(`${name}: the moment the linker disconnects, connects another account, or may no longer review the project, the status reads as last known, before anything checks it`, async () => {
+    const backend = fresh();
+    const { projectId, threadId, linear } = await setup(backend);
+    await connect(backend, lee);
+    await link(backend, lee, linear, threadId, "issue-1");
+    const leeId = await userId(backend, lee);
+    expect((await shown(backend, sam, threadId))[0]).toMatchObject({ status: STARTED, statusStale: false });
+
+    await backend.run((store) => disconnectTracker(store, lee, { tracker: "linear" }));
+    expect((await shown(backend, sam, threadId))[0]).toMatchObject({ status: STARTED, statusStale: true });
+    await connect(backend, lee, "u-other-account");
+    expect((await shown(backend, sam, threadId))[0]?.statusStale).toBe(true);
+    // Back on the account they linked it with, and nothing found it hidden: current again.
+    await connect(backend, lee, `u-${leeId}`);
+    expect((await shown(backend, sam, threadId))[0]?.statusStale).toBe(false);
+    // The project now takes reviews only from its organization, which Lee isn't in.
+    await backend.run((store) => store.projects.patch(projectId, { reviewAccess: "organization" }));
+    expect((await shown(backend, dana, threadId))[0]?.statusStale).toBe(true);
+    expect(linear.tokens.every((token) => token === "lin_api_lee")).toBe(true);
+  });
+
   test(`${name}: a check refused after a newer webhook was saved leaves that status current, not last known`, async () => {
     const backend = fresh();
     const { threadId, linear } = await setup(backend);

@@ -48,6 +48,7 @@ import {
   validateMentions,
   checkMentionReach,
 } from "./notify.ts";
+import { lastKnownStatus } from "./tickets/current.ts";
 import type { Identity, ProjectOnboarding, ProjectRecord, StoredCapture, StoredMention, Store, ThreadRecord, TicketLinkRecord, UserRecord } from "./store.ts";
 import {
   explicitTags,
@@ -577,11 +578,17 @@ async function ticketViews(store: Store, tickets: NonNullable<Store["tickets"]>,
   const links = await linkedTickets(tickets, threadId);
   // Project owners may unlink anyone's; read only when someone else linked one.
   const owner = user !== null && links.some((link) => link.linkedBy !== user._id) && (await projectAccess(store, project, user._id)) === "manage";
-  return await Promise.all(links.map((link) => ticketView(store, link, { userId: user?._id ?? null, owner })));
+  const lastKnown = lastKnownStatus(store);
+  return await Promise.all(links.map((link) => ticketView(store, link, { userId: user?._id ?? null, owner }, lastKnown)));
 }
 
 /** A linked ticket as the thread window shows it, to `viewer`: the person asking, and whether they own the project. */
-export async function ticketView(store: Store, link: TicketLinkRecord, viewer: { userId: string | null; owner: boolean }): Promise<TicketLinkView> {
+export async function ticketView(
+  store: Store,
+  link: TicketLinkRecord,
+  viewer: { userId: string | null; owner: boolean },
+  lastKnown: (link: TicketLinkRecord) => Promise<boolean> = lastKnownStatus(store),
+): Promise<TicketLinkView> {
   const mine = viewer.userId !== null && link.linkedBy === viewer.userId;
   return {
     _id: link._id,
@@ -593,7 +600,7 @@ export async function ticketView(store: Store, link: TicketLinkRecord, viewer: {
     title: link.title,
     status: link.status ?? null,
     statusCheckedAt: link.statusCheckedAt ?? null,
-    statusStale: link.statusStale === true,
+    statusStale: await lastKnown(link),
     createdFromCritiqs: link.createdFromCritiqs,
     linkedByName: (await store.users.get(link.linkedBy))?.name ?? "Unknown",
     linkedAt: link.linkedAt,

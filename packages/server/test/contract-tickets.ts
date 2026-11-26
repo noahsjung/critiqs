@@ -332,7 +332,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
         title: "Ticket ENG-1",
         status: { label: "In Progress", category: "started" },
         statusCheckedAt: 2_100,
-        statusStale: false,
+        // Neither linker is connected as the account they linked with, so Critiqs can't check either: last known.
+        statusStale: true,
         createdFromCritiqs: true,
         linkedByName: "Dana",
         linkedAt: 2_000,
@@ -350,7 +351,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
         title: "Ticket ENG-2",
         status: null,
         statusCheckedAt: null,
-        statusStale: false,
+        statusStale: true,
         createdFromCritiqs: false,
         linkedByName: "Lee",
         linkedAt: 3_000,

@@ -187,7 +187,7 @@ test("opening a thread schedules a check with the linker's token once its status
   await expect(t.mutation(api.ticketStatus.checkStatus, { threadId })).rejects.toThrow("Sign in");
 });
 
-test("after the linker disconnects Linear, the chip keeps the last status, marked stale, until a webhook updates it", async () => {
+test("after the linker disconnects Linear, the chip keeps the last status, marked last known; a webhook still updates it, still marked, since Critiqs can't check it as them", async () => {
   const { t, lee, sam, threadId, link } = await project();
   await lee.action(api.trackers.disconnect, { tracker: "linear" });
   await t.run(async (ctx) => ctx.db.patch(link._id as never, { statusCheckedAt: Date.now() - STATUS_CHECK_MS - 1 }));
@@ -197,7 +197,7 @@ test("after the linker disconnects Linear, the chip keeps the last status, marke
   expect(linear.tokens).toEqual([]);
   expect((await getThread(sam, { threadId })).tickets?.[0]).toMatchObject({ status: { label: "In Progress" }, statusStale: true });
   expect((await deliver(t, await done())).status).toBe(200);
-  expect((await getThread(sam, { threadId })).tickets?.[0]).toMatchObject({ status: { label: "Done" }, statusStale: false });
+  expect((await getThread(sam, { threadId })).tickets?.[0]).toMatchObject({ status: { label: "Done" }, statusStale: true });
 });
 
 test("opening a thread checks only its own links: another thread's link to the same issue, whose linker disconnected, keeps its last-known status and stays open", async () => {
