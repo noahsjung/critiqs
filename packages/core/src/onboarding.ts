@@ -505,10 +505,30 @@ export interface Recommendation {
 /**
  * The ways Critiqs offers today. `install` is always offered, whatever the set:
  * every other way leads back to it. Review links, shared builds, and Allow
- * Critiqs stay off until they are built; adding one here offers it wherever
- * the recommendation places it.
+ * Critiqs are added by `availableWays` only where the deployment serves them.
  */
 export const AVAILABLE_WAYS: ReadonlySet<Way> = new Set<Way>(["install", "send-to-developer", "extension"]);
+
+/** What a deployment's `/critiqs/config` reports as `reviewLinks`, as far as the ways in care. */
+export interface ReviewLinksOffer {
+  live: boolean;
+  builds: boolean;
+  allowCritiqs: boolean;
+}
+
+/**
+ * The ways this deployment offers: `AVAILABLE_WAYS`, with a review link where
+ * it serves live links, sharing a build where it serves shared builds, and
+ * Allow Critiqs where it serves both live links and Allow Critiqs. A
+ * deployment that reports no review links offers none of them.
+ */
+export function availableWays(reviewLinks: ReviewLinksOffer | null | undefined): ReadonlySet<Way> {
+  const ways = new Set<Way>(AVAILABLE_WAYS);
+  if (reviewLinks?.live === true) ways.add("review-link");
+  if (reviewLinks?.builds === true) ways.add("share-build");
+  if (reviewLinks?.live === true && reviewLinks.allowCritiqs === true) ways.add("allow-critiqs");
+  return ways;
+}
 
 /**
  * Ways that work without installing, by what the address check found. The
@@ -521,11 +541,11 @@ const WAYS_TODAY: Record<AddressCheck["kind"], readonly Way[]> = {
   local: ["extension", "share-build"],
   blocked: ["allow-critiqs", "extension"],
   unreachable: ["extension", "share-build"],
-  none: [],
+  none: ["share-build"],
 };
 
-/** Ways that work only on a prototype at an address, so never before it has one. */
-const NEEDS_AN_ADDRESS: ReadonlySet<Way> = new Set<Way>(["extension", "share-build", "review-link", "allow-critiqs"]);
+/** Ways that work only on a prototype at an address, so never before it has one. Sharing a build needs only the build. */
+const NEEDS_AN_ADDRESS: ReadonlySet<Way> = new Set<Way>(["extension", "review-link", "allow-critiqs"]);
 
 /** Each answer to "Can you change the prototype's code?", with its ways in order. */
 const RECOMMENDATIONS: Record<CodeAccess | "skipped", (today: readonly Way[]) => { ways: readonly Way[]; reason: RecommendationReason }> = {

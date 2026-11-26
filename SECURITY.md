@@ -47,6 +47,13 @@ In scope:
 - **The CLI:** the `critiqs` command (`critiqs init`, sign-in, setup).
 - **MCP:** the stdio MCP server started with `npx critiqs mcp` (`npx critiqs-react mcp` runs the same one).
 - **Critiqs Cloud:** the hosted backend and sign-in service at critiqs.app.
+- **Review links:** the review proxy (`apps/review-proxy`), the review page
+  at `/r/<key>` on the website, shared builds (`critiqs share`), and Allow
+  Critiqs. The proxy fetches addresses people give it and serves other sites'
+  pages under its own domain, so reports of it reaching a private or
+  Critiqs-owned address, serving one project's prototype to someone its
+  review access refuses, a frame reading the review page, or one project's
+  Allow Critiqs token reaching another site are especially welcome.
 
 Out of scope:
 

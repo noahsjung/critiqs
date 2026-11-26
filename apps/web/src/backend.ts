@@ -46,6 +46,10 @@ export type ReviewLeaseState = FunctionReturnType<typeof api.reviewLinks.leaseSt
 export type ReviewAdoption = FunctionReturnType<typeof api.reviewLinks.adopt>;
 export type ReviewLinkSummary = FunctionReturnType<typeof api.reviewLinks.list>[number];
 export type CreatedReviewLink = FunctionReturnType<typeof api.reviewLinks.createLive>;
+/** A project's Allow Critiqs token, proof and last check for one origin (`reviewAllow:issue`). */
+export type AllowCritiqsSetup = FunctionReturnType<typeof api.reviewAllow.issue>;
+/** What **Check again** found through the review proxy, coarsely (`reviewAllow:check`). */
+export type AllowCheck = FunctionReturnType<typeof api.reviewAllow.check>;
 
 /** Review links as `/critiqs/config` reports them. */
 export interface ReviewLinksCapability {
@@ -147,6 +151,14 @@ export interface Backend {
   /** A link's address again, for its owners. */
   copyReviewLink(linkId: string): Promise<string>;
   revokeReviewLink(linkId: string): Promise<void>;
+  /** Allow Critiqs for one of a project's origins, made on first use; owners only. */
+  issueAllowCritiqs(projectId: string, origin: string): Promise<AllowCritiqsSetup>;
+  /** Replaces the token and proof with new ones. */
+  rotateAllowCritiqs(projectId: string, origin: string): Promise<AllowCritiqsSetup>;
+  /** **Check again**: whether the site lets the review proxy in now, with the project's token and proof. */
+  checkAllowCritiqs(projectId: string, origin: string): Promise<AllowCheck>;
+  /** The review link that opens a thread page's comment in the frame, when the project has one for its address; null skips it. */
+  useThreadReviewLink(key: string | null): QueryState<string | null>;
 }
 
 /** What reading a thread page's image needs: the deployment's HTTP address and the signed-in person's token. */
@@ -266,6 +278,10 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
     useReviewLinks: (projectId) => useQueryState(api.reviewLinks.list, projectId === null ? "skip" : { projectId }),
     createReviewLink: (projectId, address, requestKey) => client.mutation(api.reviewLinks.createLive, { projectId, address, requestKey }),
     copyReviewLink: async (linkId) => (await client.query(api.reviewLinks.copy, { linkId })).url,
+    issueAllowCritiqs: (projectId, origin) => client.mutation(api.reviewAllow.issue, { projectId, origin }),
+    rotateAllowCritiqs: (projectId, origin) => client.mutation(api.reviewAllow.rotate, { projectId, origin }),
+    checkAllowCritiqs: (projectId, origin) => client.action(api.reviewAllow.check, { projectId, origin }),
+    useThreadReviewLink: (key) => useQueryState(api.reviewLinks.forThreadPage, key === null ? "skip" : { key }),
     revokeReviewLink: async (linkId) => {
       await client.mutation(api.reviewLinks.revoke, { linkId });
     },

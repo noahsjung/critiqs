@@ -1337,6 +1337,54 @@ the web, so it needs no reputation provider.
   or expiry stop it at once; cleanup then removes its stored files. Its
   comments stay in the project.
 
+### Allow Critiqs
+
+A prototype behind a bot wall or firewall refuses the proxy. Its site's owner
+can let one project's review links in. The proxy's user agent
+(`Critiqs-Review/1`) and egress addresses are the same for every customer, so
+a rule on them alone would let any Critiqs customer's links read the site;
+Allow Critiqs is a per-project, per-origin token instead.
+
+- **Token.** `reviewAllow:issue` gives a project's owners a token for one
+  exact origin of theirs (which joins the address list): an HMAC under a key
+  the deployment keeps to itself over the project, the origin and a version,
+  never stored. `rotate` replaces it. The site's rule lets in requests whose
+  `Critiqs-Allow` header equals it; it may also require the proxy's egress
+  addresses from `<proxy>/.well-known/critiqs-review.json`.
+- **Proof.** The site publishes the project's proof line at
+  `/.well-known/critiqs-allow.txt`, so a token can't be minted for someone
+  else's site and handed to them as theirs.
+- **Check again.** `reviewAllow:check` (owners, 20 an hour per project) asks
+  the proxy (`POST /__critiqs/probe` with the shared secret) to fetch the
+  site's root from its own egress with the token, through every check a
+  review link's request passes, and to read the proof file. It answers only
+  `public`, `blocked`, `sign-in`, `unreachable`, `unsafe` or `busy`, and
+  whether the proof was there. Only `public` with the proof verifies the
+  origin; any later check that doesn't, or a rotation, undoes it.
+- **Leases.** Once verified, a lease's resolution carries the token for that
+  origin (`allow`), and the proxy sends it only on requests to that exact
+  origin, on the primary egress, while every redirect stays there. Other
+  sites' files never get it, and another project's link to the same site
+  never gets this project's token.
+- **Where it is offered.** `/critiqs/config` reports
+  `reviewLinks.allowCritiqs` where live links are served. Onboarding offers
+  it for a prototype its address check found blocked, with **Check again**
+  in place; `/allow-critiqs?project=<id>&origin=<origin>` holds the token,
+  example rules, the proof file and the check. Cloudflare's free Bot Fight
+  Mode can't be skipped by any rule: those sites use the extension or a
+  shared build.
+
+### The ways in, on the website
+
+Onboarding offers the ways that need nothing installed through `recommend()`
+in `@critiqs/core`, with `availableWays()` built from what the deployment's
+`/critiqs/config` reports: a review link where it serves live links, sharing a
+build where it serves shared builds (even before the prototype has an
+address), and Allow Critiqs where it serves both live links and Allow
+Critiqs. A thread page's **Open in prototype** also offers the project's
+review link for the address the comment was left on
+(`reviewLinks:forThreadPage`), at that page's path.
+
 ## Private R2 screenshot storage
 
 **Agreed:** screenshots may live in a private Cloudflare R2 bucket while Convex

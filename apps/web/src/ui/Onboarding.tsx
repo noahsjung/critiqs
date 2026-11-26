@@ -1,4 +1,4 @@
-import { type AddressCheck, isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
+import { type AddressCheck, availableWays, isLocalAddress, type OrganizationSummary, recommend, type StackId, type Way } from "@critiqs/core";
 import { type Dispatch, useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
 import { type Backend, failureCode, failureMessage, type NewProject, useAcceptInvites, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
@@ -28,7 +28,7 @@ import { AboutYou, SuggestedPlan } from "./AboutYou.tsx";
 import { InviteTeam } from "./Invite.tsx";
 import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
 import { Preview } from "./Preview.tsx";
-import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
+import { ExtensionPanel, InstallPanel, SendPanel, ShareBuildPanel } from "./Ways.tsx";
 
 /**
  * Onboarding at /start, in three screens: the prototype's link, who adds
@@ -125,7 +125,7 @@ export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispat
         <Progress step={STEPS.indexOf(state.step) + 1} count={STEPS.length} />
         {state.step === "address" && <AddressScreen state={state} dispatch={dispatch} />}
         {state.step === "who" && <WhoScreen state={state} dispatch={dispatch} stackOf={stackOf} check={check} />}
-        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} check={check} />}
+        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} check={check} checkOf={checkOf} />}
       </section>
       <Preview host={host} live={state.step === "setup"} />
     </div>
@@ -449,10 +449,21 @@ function WhoScreen({
 
 /**
  * The chosen way: the command, the email, or the browser extension, with the
- * other ways below it, best first, then the "while you're here" questions
- * once the person has done it.
+ * other ways below it, best first, then the ways to review without installing
+ * this deployment offers, then the "while you're here" questions once the
+ * person has done it.
  */
-function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: Dispatch<FlowAction>; check: AddressCheck }) {
+function SetupScreen({
+  state,
+  dispatch,
+  check,
+  checkOf,
+}: {
+  state: FlowState;
+  dispatch: Dispatch<FlowAction>;
+  check: AddressCheck;
+  checkOf: (reviewerId: string, url: string) => Promise<AddressCheck | null>;
+}) {
   // Once shown, the email panel stays mounted while another way shows, so a send in flight, its answer, an error, or a field being added
   // are all still there when the person switches back.
   const [sendOpened, setSendOpened] = useState(state.who === "developer");
@@ -501,6 +512,7 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
           ))}
         </div>
       )}
+      {state.reviewer !== null && <FreeWays projectId={project.id} who={state.who} url={typeof state.address.url === "string" ? state.address.url : null} reviewerId={state.reviewer.id} checkOf={checkOf} />}
       {/* The first question arrives while focus stays on what the person just used, so it's announced. */}
       <div aria-live="polite">
         {state.about.shown && (
@@ -523,6 +535,91 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
 /** Whether Critiqs has loaded with the new project yet, live. */
 function ProjectConnection({ projectId, host }: { projectId: string; host: string | null }) {
   return <ConnectionStatus setup={useBackend().useProjectSetup(projectId)} host={host} />;
+}
+
+/** The ways in that need nothing installed. */
+const FREE_WAYS: readonly Way[] = ["review-link", "share-build", "allow-critiqs"];
+
+/**
+ * Ways to review without installing, as `recommend()` orders them for the
+ * person's answer and the address check, among those the deployment offers
+ * (`availableWays` from `/critiqs/config`). None show where it offers none.
+ */
+export function FreeWays({ projectId, who, url, reviewerId, checkOf }: { projectId: string; who: NonNullable<FlowState["who"]>; url: string | null; reviewerId: string; checkOf: (reviewerId: string, url: string) => Promise<AddressCheck | null> }) {
+  const backend = useBackend();
+  const [check, setCheck] = useState<AddressCheck | null | undefined>(url === null ? { kind: "none" } : undefined);
+  useEffect(() => {
+    if (url === null) return setCheck({ kind: "none" });
+    let current = true;
+    void checkOf(reviewerId, url).then((found) => current && setCheck(found ?? { kind: "unreachable" }));
+    return () => void (current = false);
+  }, [url, reviewerId, checkOf]);
+  if (check === undefined || check === null || backend.reviewLinks === null) return null;
+  const { primary, others } = recommend({ codeAccess: CODE_ACCESS_OF[who] }, check, availableWays(backend.reviewLinks));
+  const ways = [primary, ...others].filter((way) => FREE_WAYS.includes(way));
+  if (ways.length === 0) return null;
+  return (
+    <section className="stacked ways-free" aria-labelledby="ways-free-title">
+      <h2 id="ways-free-title">{copy.ways.title}</h2>
+      <p className="note">{copy.ways.lead}</p>
+      <ul className="way-cards">
+        {ways.map((way) => (
+          <li key={way} className="way-card" data-way={way}>
+            {way === "review-link" && (
+              <>
+                <h3>{copy.ways.reviewLink.title}</h3>
+                <p>{copy.ways.reviewLink.text}</p>
+                <div>
+                  <a className="btn" href={`/review-links/${encodeURIComponent(projectId)}`}>
+                    {copy.ways.reviewLink.action}
+                  </a>
+                </div>
+              </>
+            )}
+            {way === "share-build" && <ShareBuildPanel projectId={projectId} />}
+            {way === "allow-critiqs" && url !== null && <AllowCritiqsWay projectId={projectId} url={url} onAllowed={() => setCheck({ kind: "public", stack: null })} />}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** A prototype that refuses Critiqs's server: set up Allow Critiqs, then Check again from here. Allowed, the review link takes its place. */
+function AllowCritiqsWay({ projectId, url, onAllowed }: { projectId: string; url: string; onAllowed: () => void }) {
+  const backend = useBackend();
+  const origin = new URL(url).origin;
+  const [state, setState] = useState<{ status: "idle" | "checking" } | { status: "said"; text: string }>({ status: "idle" });
+  const check = async () => {
+    setState({ status: "checking" });
+    try {
+      await backend.issueAllowCritiqs(projectId, origin);
+      const found = await backend.checkAllowCritiqs(projectId, origin);
+      if (found.verified) onAllowed();
+      else setState({ status: "said", text: copy.allowCritiqs.results[found.result] ?? copy.allowCritiqs.failed });
+    } catch (failure) {
+      setState({ status: "said", text: failureMessage(failure, copy.allowCritiqs.failed) });
+    }
+  };
+  return (
+    <>
+      <h3>{copy.ways.allowCritiqs.title}</h3>
+      <p>{copy.ways.allowCritiqs.text(shownHost(url))}</p>
+      <div className="actions">
+        <a className="btn" href={`/allow-critiqs?project=${encodeURIComponent(projectId)}&origin=${encodeURIComponent(origin)}`}>
+          {copy.ways.allowCritiqs.action}
+        </a>
+        <button type="button" className="btn quiet" disabled={state.status === "checking"} onClick={() => void check()}>
+          {state.status === "checking" ? copy.allowCritiqs.checking : copy.allowCritiqs.check}
+        </button>
+      </div>
+      {state.status === "said" && (
+        <p className="note" role="status">
+          {state.text}
+        </p>
+      )}
+    </>
+  );
 }
 
 function BackGlyph() {

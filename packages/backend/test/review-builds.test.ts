@@ -113,7 +113,7 @@ async function openLease(who: Fixture["t"] | Fixture["dana"], key: string) {
 test("/critiqs/config reports shared builds wherever the review proxy is set up, with or without a reputation provider", async () => {
   const f = await fixture();
   const config = async () => ((await (await f.t.fetch("/critiqs/config")).json()) as { reviewLinks?: unknown }).reviewLinks;
-  expect(await config()).toEqual({ version: 1, live: true, builds: true, allowCritiqs: false });
+  expect(await config()).toEqual({ version: 1, live: true, builds: true, allowCritiqs: true });
   delete process.env.CRITIQS_PROXY_SECRET;
   expect(await config()).toBeUndefined();
   expect(await outcome(f.dana.mutation(api.reviewBuilds.begin, { projectId: f.projectId, files: await manifestOf(SITE), spa: false }))).toBe("Review links aren't set up on this deployment.");

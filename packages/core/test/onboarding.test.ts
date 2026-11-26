@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AVAILABLE_WAYS,
+  availableWays,
   backendSetting,
   type AddressCheck,
   type BillingPlan,
@@ -667,17 +668,34 @@ describe("recommendation", () => {
     for (const [name, answers, check, available, expected] of cases) expect([name, recommend(answers, check, available)]).toEqual([name, expected]);
   });
 
-  test("offers no way that needs an address before there is one", () => {
+  test("offers no way that needs an address before there is one, and a shared build, which needs only the build", () => {
     const none: AddressCheck = { kind: "none" };
     const cases: [string, OnboardingAnswers, ReturnType<typeof recommend>][] = [
-      ["a teammate", { codeAccess: "teammate" }, { primary: "send-to-developer", others: ["install"], reason: "someone-else-changes-code" }],
-      ["nobody", { codeAccess: "nobody" }, { primary: "send-to-developer", others: ["install"], reason: "no-code-access" }],
-      ["nobody, clients reviewing", { codeAccess: "nobody", feedbackFrom: ["clients"] }, { primary: "send-to-developer", others: ["install"], reason: "no-code-access" }],
-      ["can change the code", { codeAccess: "self" }, { primary: "install", others: ["send-to-developer"], reason: "can-change-code" }],
-      ["an engineer who skipped the question", { role: "engineer" }, { primary: "install", others: ["send-to-developer"], reason: "can-change-code" }],
-      ["skipped", {}, { primary: "install", others: ["send-to-developer"], reason: "install-is-default" }],
+      ["a teammate", { codeAccess: "teammate" }, { primary: "send-to-developer", others: ["share-build", "install"], reason: "someone-else-changes-code" }],
+      ["nobody", { codeAccess: "nobody" }, { primary: "send-to-developer", others: ["share-build", "install"], reason: "no-code-access" }],
+      ["nobody, clients reviewing", { codeAccess: "nobody", feedbackFrom: ["clients"] }, { primary: "send-to-developer", others: ["share-build", "install"], reason: "no-code-access" }],
+      ["can change the code", { codeAccess: "self" }, { primary: "install", others: ["share-build", "send-to-developer"], reason: "can-change-code" }],
+      ["an engineer who skipped the question", { role: "engineer" }, { primary: "install", others: ["share-build", "send-to-developer"], reason: "can-change-code" }],
+      ["skipped", {}, { primary: "install", others: ["send-to-developer", "share-build"], reason: "install-is-default" }],
     ];
     for (const [name, answers, expected] of cases) expect([name, recommend(answers, none, ALL)]).toEqual([name, expected]);
+    // Without shared builds, nothing but the two that need nothing.
+    expect(recommend({ codeAccess: "teammate" }, none, AVAILABLE_WAYS)).toEqual({ primary: "send-to-developer", others: ["install"], reason: "someone-else-changes-code" });
+  });
+
+  test("the ways a deployment offers follow what its /critiqs/config reports", () => {
+    const sorted = (ways: ReadonlySet<Way>) => [...ways].sort();
+    expect(sorted(availableWays(null))).toEqual(sorted(AVAILABLE_WAYS));
+    expect(sorted(availableWays(undefined))).toEqual(sorted(AVAILABLE_WAYS));
+    expect(sorted(availableWays({ live: false, builds: false, allowCritiqs: false }))).toEqual(sorted(AVAILABLE_WAYS));
+    expect(sorted(availableWays({ live: true, builds: true, allowCritiqs: true }))).toEqual(sorted(new Set<Way>([...AVAILABLE_WAYS, "review-link", "share-build", "allow-critiqs"])));
+    expect(sorted(availableWays({ live: false, builds: true, allowCritiqs: true }))).toEqual(sorted(new Set<Way>([...AVAILABLE_WAYS, "share-build"])));
+    expect(sorted(availableWays({ live: true, builds: false, allowCritiqs: false }))).toEqual(sorted(new Set<Way>([...AVAILABLE_WAYS, "review-link"])));
+    // A public prototype on a deployment with review links: the review link is offered; without them, it isn't.
+    const publicCheck: AddressCheck = { kind: "public", stack: null };
+    expect(recommend({ codeAccess: "teammate" }, publicCheck, availableWays({ live: true, builds: true, allowCritiqs: true })).others).toContain("review-link");
+    expect(recommend({ codeAccess: "teammate" }, publicCheck, availableWays(null)).others).not.toContain("review-link");
+    expect(recommend({ codeAccess: "nobody" }, { kind: "blocked" }, availableWays({ live: true, builds: true, allowCritiqs: true })).others).toContain("allow-critiqs");
   });
 
   test("puts a shared build before the extension when people outside the team review", () => {

@@ -7,6 +7,7 @@ import { buildAssets } from "../scripts/build-assets.ts";
 import { ConfigError, parseProxyConfig, proxyPolicy } from "../src/config.ts";
 import { directoryFor } from "../src/directory.ts";
 import { createEgress } from "../src/egress.ts";
+import { createProbe } from "../src/probe.ts";
 import { cachedReputation, fixtureReputation, webRiskProvider } from "../src/reputation.ts";
 import { createReviewProxy } from "../src/server.ts";
 
@@ -40,7 +41,9 @@ try {
     primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits, reputationScope: "path", sendsAllowTokens: true }),
     asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits, reputationScope: "origin" }),
   };
-  const proxy = createReviewProxy(config, { directory: directoryFor(config, env), egress, assets: await buildAssets() });
+  // Allow Critiqs' check goes out the same way a link's own requests do.
+  const probe = createProbe(config, { egress: egress.primary });
+  const proxy = createReviewProxy(config, { directory: directoryFor(config, env), egress, assets: await buildAssets(), probe });
   const hostname = env.CRITIQS_PROXY_LISTEN ?? "127.0.0.1";
   const port = Number(env.PORT ?? (config.domain.port || 5120));
   const server = Bun.serve({

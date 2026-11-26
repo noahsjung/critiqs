@@ -8,7 +8,9 @@ export type Route =
   | { page: "setup"; id: string }
   | { page: "thread"; key: string }
   | { page: "review"; key: string }
-  | { page: "review-links"; projectId: string };
+  | { page: "review-links"; projectId: string }
+  /** Allow Critiqs: how a site behind a bot wall lets review links in; for a project's origin when both are named (`?project=<id>&origin=<origin>`). */
+  | { page: "allow-critiqs"; projectId: string | null; origin: string | null };
 
 /** A review link's key: 26 base32 characters. Anything else opens nothing, the same as an unknown key. */
 export const REVIEW_KEY = /^[a-z2-7]{26}$/;
@@ -16,9 +18,16 @@ export const REVIEW_KEY = /^[a-z2-7]{26}$/;
 /**
  * The page for a path. /t/<key> is a thread page, /setup/<id> a setup page,
  * /r/<key> a review link, /review-links/<project ID> a project's review links,
- * and anything else onboarding, at /start.
+ * /allow-critiqs how to let review links past a firewall, and anything else
+ * onboarding, at /start.
  */
-export function routeOf(pathname: string): Route {
+export function routeOf(pathname: string, search = ""): Route {
+  if (/^\/allow-critiqs\/?$/.test(pathname)) {
+    const params = new URLSearchParams(search);
+    const projectId = params.get("project");
+    const origin = params.get("origin");
+    return { page: "allow-critiqs", projectId: projectId !== null && projectId !== "" ? projectId : null, origin: origin !== null && origin !== "" ? origin : null };
+  }
   const thread = /^\/t\/([^/]+)\/?$/.exec(pathname);
   if (thread !== null) return { page: "thread", key: thread[1]! };
   const review = /^\/r\/([^/]+)\/?$/.exec(pathname);

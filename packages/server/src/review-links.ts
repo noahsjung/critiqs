@@ -458,5 +458,83 @@ export interface ReviewLinksCapability {
   version: 1;
   live: boolean;
   builds: boolean;
+  /** Allow Critiqs: per-project tokens a site's firewall can let the proxy in with (`reviewAllow:*`). */
   allowCritiqs: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Allow Critiqs: a site behind a bot wall lets the proxy in for one project
+
+/**
+ * The header the proxy sends a site's own Allow Critiqs token in. A site's
+ * firewall rule matches this header's exact value: the review user agent and
+ * the proxy's egress addresses are the same for every Critiqs customer, so
+ * they only say the request is Critiqs, never which project it is for.
+ */
+export const ALLOW_HEADER = "Critiqs-Allow";
+/** Where a site proves its owner set up Allow Critiqs for this project: a text file with the proof line. */
+export const ALLOW_PROOF_PATH = "/.well-known/critiqs-allow.txt";
+/** Checks of a project's Allow Critiqs rules through the proxy, per hour. */
+export const ALLOW_CHECKS_PER_PROJECT_PER_HOUR = 20;
+
+/**
+ * A project's token for one exact origin: an HMAC under the deployment's
+ * Allow Critiqs key over the project, the origin and the token's version, so
+ * it is good for that project and origin only, and a new version replaces it.
+ */
+export async function allowToken(secret: string, projectId: string, origin: string, version: number): Promise<string> {
+  return base64url(await hmac(secret, `critiqs-allow\n${projectId}\n${origin}\n${version}`));
+}
+
+/**
+ * What the site publishes at `ALLOW_PROOF_PATH` to show its owner chose this
+ * project: public, and useless as a token. Until the proxy finds it there,
+ * no lease carries the token, so a token can't be minted for someone else's
+ * site and handed to them as theirs.
+ */
+export async function allowProof(secret: string, projectId: string, origin: string, version: number): Promise<string> {
+  return base64url(await hmac(secret, `critiqs-allow-proof\n${projectId}\n${origin}\n${version}`)).slice(0, 32);
+}
+
+/** The line the proof file holds. */
+export function allowProofLine(proof: string): string {
+  return `critiqs-allow-proof=${proof}`;
+}
+
+/** Whether a proof file's text holds exactly this proof on a line of its own. */
+export function hasAllowProof(text: string, proof: string): boolean {
+  return text.split(/\r?\n/).some((line) => line.trim() === allowProofLine(proof));
+}
+
+/**
+ * What a check through the proxy found, and nothing more: never a status
+ * code, a header, an address or an error. `busy`: the proxy's own limit on
+ * checks; try again in a minute.
+ */
+export type AllowCheckResult = "public" | "blocked" | "sign-in" | "unreachable" | "unsafe" | "busy";
+const ALLOW_CHECK_RESULTS: readonly AllowCheckResult[] = ["public", "blocked", "sign-in", "unreachable", "unsafe", "busy"];
+
+/** The proxy's answer to a check, or null for anything else. */
+export function parseAllowProbe(raw: unknown): { result: AllowCheckResult; proof: boolean } | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const { result, proof } = raw as Record<string, unknown>;
+  if (typeof result !== "string" || !(ALLOW_CHECK_RESULTS as readonly string[]).includes(result) || typeof proof !== "boolean") return null;
+  return { result: result as AllowCheckResult, proof };
+}
+
+/** A project's Allow Critiqs setup for one origin, as its owners see it on the Allow Critiqs page. */
+export interface AllowCritiqsSetup {
+  projectId: string;
+  origin: string;
+  header: typeof ALLOW_HEADER;
+  token: string;
+  proofPath: typeof ALLOW_PROOF_PATH;
+  proofLine: string;
+  /** The user agent's token, for a bot wall that can only match user agents alongside the header. */
+  userAgent: "Critiqs-Review/1";
+  /** Where the proxy publishes its egress addresses: `<proxy>/.well-known/critiqs-review.json`. */
+  wellKnownUrl: string;
+  /** When a check last found the site letting the proxy in, with the proof; null until then. Leases carry the token only after it. */
+  verifiedAt: number | null;
+  lastCheck: { result: AllowCheckResult; proof: boolean; at: number } | null;
 }

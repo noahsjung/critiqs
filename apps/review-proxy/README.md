@@ -193,9 +193,47 @@ The rule for Allow Critiqs, which the proxy's side already follows:
   while every redirect hop stays on that origin. The asset egress never sends
   one. A project that names another customer's origin therefore sends that
   origin nothing it would accept.
-- Before a token is issued for an origin, the owner should prove control of
-  it (a DNS TXT record or a well-known file), so a token can't be minted for
+- Before a lease carries an origin's token, the site proves its owner chose
+  this project: the backend's **Check again** asks the proxy
+  (`POST /__critiqs/probe`, `src/probe.ts`, with the shared secret) to fetch
+  the site through `egress.primary` with the token, and to find the
+  project's proof line at `/.well-known/critiqs-allow.txt`. Only then does
+  the backend put the token in leases' `allow`. A token can't be minted for
   someone else's site and handed to them as if it were theirs.
+- The probe answers only `{ result, proof }` (`public`, `blocked`, `sign-in`,
+  `unreachable`, `unsafe`, or `busy` past its limits: 60 checks a minute, 6
+  per origin), never a status, header, address or error; without the secret
+  it is the same 404 as any unknown path.
+- The domain itself serves `/.well-known/critiqs-review.json`
+  (`src/wellKnown.ts`): the user agent token, the header, the proof path, and
+  `CRITIQS_PROXY_EGRESS`. Nothing in it lets anyone in.
+
+## Deploying
+
+Nothing here deploys anything; these are the steps when Noah chooses a host.
+
+1. A domain of its own (not under the website's or the backend's site), with
+   wildcard DNS (`*.<domain>` and `<domain>`) to the host, and a wildcard
+   certificate (DNS-01) terminated by the server in front.
+2. One small container or VM running `bun run serve` on `127.0.0.1`, with
+   fixed outbound addresses, and a host firewall that refuses private,
+   link-local and metadata ranges on the way out.
+3. The proxy's settings: `CRITIQS_PROXY_DOMAIN`, `CRITIQS_WEB_ORIGINS`,
+   `CRITIQS_PROXY_BACKEND` (the deployment's `.convex.site`),
+   `CRITIQS_PROXY_SECRET`, `CRITIQS_PROXY_SIGNING_KEY`,
+   `CRITIQS_PROXY_EGRESS` (the host's outbound blocks, published for Allow
+   Critiqs), `CRITIQS_WEB_RISK_API_KEY`, `CRITIQS_PROXY_CLIENT_IP_HEADER`
+   and `CRITIQS_PROXY_COOKIE_ISOLATION` (below).
+4. The backend's settings: `CRITIQS_REVIEW_PROXY_URL` (the domain as an
+   origin), the same `CRITIQS_PROXY_SECRET`, `CRITIQS_WEB_URL`, and
+   `CRITIQS_WEB_RISK_API_KEY`. `CRITIQS_PROXY_PROBE_URL` only when the
+   backend must reach the proxy's probe at another address than the domain.
+5. The website's host sends, for `/r/*`, the headers in
+   `docs/technical-direction.md` ("The review page"), with
+   `CRITIQS_REVIEW_FRAMES=https://*.<domain>`.
+6. Check: `/critiqs/config` reports `reviewLinks`, the domain serves
+   `/.well-known/critiqs-review.json`, and a review link to a public page and
+   a shared build both open.
 
 ## Before a public domain
 
