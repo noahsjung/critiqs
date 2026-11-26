@@ -133,6 +133,14 @@ export const APP_STYLES = `
 .pulse { flex: none; width: 8px; height: 8px; margin: 7px 4px 0; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+/* The thread page: the extension's way beside Open in prototype, and @ suggestions. */
+.extension-way { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 14px; }
+.extension-way a { color: var(--accent); }
+.mention-field { position: relative; }
+.mention-list { position: absolute; z-index: 2; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  box-shadow: 0 8px 24px rgb(17 17 17 / 0.08); max-height: 240px; overflow: auto; }
+.mention-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.mention-list li[aria-selected="true"] { background: var(--surface-2); }
 /* A project's setup emails, for its owners. */
 .section-title { margin: 8px 0 0; font-size: 15px; line-height: 22px; font-weight: 600; }
 .send-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }

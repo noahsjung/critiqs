@@ -833,7 +833,7 @@ export async function getThreadPage(
   const { user, thread, project } = await requireThreadPage(store, identity, args.key);
   return {
     ...(await threadDetail(store, user, project, thread, request)),
-    project: { name: project.name, reviewUrl: project.reviewUrl ?? null },
+    project: { name: project.name, reviewUrl: project.reviewUrl ?? null, connectedAt: project.connectedAt ?? null },
     prototype: { pageUrl: thread.anchor.evidence.url, screen: thread.anchor.screen },
   };
 }
@@ -877,6 +877,12 @@ export async function reply(
   const user = await requireUser(store, identity);
   const { thread, project } = args.threadPage === true ? await openThreadPage(store, user, await threadById(store, args.threadId)) : await requireThread(store, user, args.threadId);
   const mentions = await validateMentions(store, project._id, args.mentions ?? []);
+  // A thread page can be opened by people outside the project's organization, so from it only people already in the thread can be mentioned.
+  if (args.threadPage === true && thread.followersReady === true) {
+    for (const mention of mentions) {
+      if ((await store.followers.find(thread._id, mention.userId)) === null) fail("invalid", "From a thread page, you can only mention people in this thread.");
+    }
+  }
   if (thread.messageCount >= MAX_MESSAGES) fail("invalid", "This thread has reached its reply limit; start a new thread.");
   const body = validateBody(args.body);
   const hashtags = threadHashtags(body, thread.mockup !== undefined);

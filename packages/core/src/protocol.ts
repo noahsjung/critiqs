@@ -389,8 +389,13 @@ export type ExportPage = { projectName: string; thread: Omit<ExportedThread, "me
  * open the thread page.
  */
 export type ThreadPageDetail = ThreadDetailPage & {
-  /** The thread's project: its name, and its review address, where **Open in prototype** goes when it is installed there. */
-  project: { name: string; reviewUrl: string | null };
+  /**
+   * The thread's project: its name, its review address, where **Open in
+   * prototype** goes when it is installed there, and when Critiqs first
+   * loaded with its ID (null: never, so it isn't installed yet; absent from
+   * older backends).
+   */
+  project: { name: string; reviewUrl: string | null; connectedAt?: number | null };
   /** Where the thread was left: the saved page and its logical screen, for **Open in prototype**. */
   prototype: { pageUrl: string; screen: string };
 };

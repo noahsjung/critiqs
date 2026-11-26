@@ -7,6 +7,7 @@ import { MAX_EMAIL_BYTES } from "../src/mention-email.ts";
 import * as notify from "../src/notify.ts";
 import * as ops from "../src/operations.ts";
 import * as organizations from "../src/organizations.ts";
+import { reportConnected } from "../src/onboarding.ts";
 import { claimPlanAlerts, completePlanAlerts, planAlertEmails, sendPlanAlert } from "../src/plan-alerts.ts";
 import { MailError, type Mailer, type MailMessage, preparedMessage, resendMailer } from "../src/signin.ts";
 import type { Identity, Store } from "../src/store.ts";
@@ -3262,6 +3263,25 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(await outcome(backend.run((store) => ops.reply(store, sam, { threadId, body: "From the prototype", revision: null })))).toBe("allowed");
     // Once Sam replied, Sam is in the thread, and the page opens.
     expect(await outcome(fromPage(sam, "Now from the page"))).toBe("allowed");
+  });
+
+  test(`${name}: from a thread page, only people in the thread can be mentioned; the page says whether the project is installed`, async () => {
+    const backend = fresh();
+    const { projectId, threadId, key, sam } = await pagedThread(backend);
+    // Sam commented elsewhere in the project, so the installed panel may mention Sam, but Sam isn't in this thread.
+    await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Another page", tags: [], capture: failed }));
+    const [leeId, samId] = [await idOf(backend, lee), await idOf(backend, sam)];
+    const fromPage = (mentions: { userId: string; label: string }[]) =>
+      backend.run((store) => ops.reply(store, dana, { threadId, body: mentions.map((each) => `@${each.label}`).join(" "), revision: null, threadPage: true, mentions }));
+    expect(await outcome(fromPage([mention(leeId, "Lee")]))).toBe("allowed");
+    expect(await outcome(fromPage([mention(samId, "Sam")]))).toBe("invalid: From a thread page, you can only mention people in this thread.");
+    expect(await outcome(backend.run((store) => ops.reply(store, dana, { threadId, body: "@Sam", revision: null, mentions: [mention(samId, "Sam")] })))).toBe("allowed");
+    // Once mentioned there, Sam is in the thread.
+    expect(await outcome(fromPage([mention(samId, "Sam")]))).toBe("allowed");
+    // Not installed yet: Critiqs never loaded with the project's ID.
+    expect((await openPage(backend, dana, key)).project.connectedAt).toBeNull();
+    await backend.run((store) => reportConnected(store, { projectId, origin: "https://proto.example" }, 5_000));
+    expect((await openPage(backend, dana, key)).project.connectedAt).toBe(5_000);
   });
 
   test(`${name}: a thread from before people in threads were recorded opens for those its discussion names`, async () => {

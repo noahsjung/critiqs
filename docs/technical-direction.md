@@ -473,11 +473,12 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   draws them (its `MessageBody`, `Avatar`, and time format, imported from
   `packages/react/src` as the rest of `apps/web` is), the thread's tags, its
   resolved state, a reply box (`threadPage: true`), and **Copy link**, which
-  copies the page's own address. The reply box is a plain text box: hashtags
-  tag the thread as usual, but `@` doesn't suggest people, since the panel's
-  suggestions list everyone in the project, and the page shows only the
-  thread. The browser tab's title names no project, since browsers keep
-  titles in history.
+  copies the page's own address. In the reply box hashtags tag the thread as
+  usual, and `@` suggests only the people in the thread (who wrote in it or
+  were mentioned in it), whom the page already shows, never everyone in the
+  project. The server holds replies from the page to the same rule: they may
+  mention only people already in the thread. The browser tab's title names
+  no project, since browsers keep titles in history.
 - **Open in prototype.** It opens the page the thread was left on at the
   project's review address (`buildLink`: the review address's origin, the
   saved page's path), with `?critiqs=<threadId>` so installed Critiqs opens
@@ -488,7 +489,11 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   organization, `requireThread` refuses outsiders. A saved page address that
   can't be read opens the review address itself, as email links do. Without
   a review address it isn't offered, and the page says the comment was left on its saved
-  address.
+  address. The page also offers the browser extension when the project isn't
+  installed yet (`connectedAt` null: Critiqs never loaded with its ID), or the
+  thread was left before it first did, so with the extension. The extension
+  doesn't read `?critiqs=`, so the page says to click Critiqs on the opened
+  page. Review links, once built, add their own way here.
 - **Where pages are served.** A page link names no deployment, so the website
   at the configured address must reach the backend that holds the thread.
   Critiqs Cloud's website serves Critiqs Cloud's threads. Not decided yet:
