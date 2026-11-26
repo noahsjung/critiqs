@@ -61,12 +61,12 @@ const MAX_REPOSITORY_PAGES = 5;
 const MAX_SEARCH_REPOSITORIES = 20;
 const MAX_SEARCH_WORDS = 10;
 
-/** A repository's full name, `owner/name`, as a destination's ID. */
-const REPOSITORY = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})$/;
+/** A repository's full name, `owner/name`, as a destination's ID. GitHub forbids the names `.` and `..`, which an address would collapse. */
+const REPOSITORY = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/(?!\.{1,2}$)([A-Za-z0-9._-]{1,100})$/;
 /** An issue's key as people write it: `owner/repo#12`, `repo#12`, or `#12`. */
-const KEY = /^(?:(?:([A-Za-z0-9-]{1,39})\/)?([A-Za-z0-9._-]{1,100}))?#(\d{1,9})$/;
+const KEY = /^(?:(?:([A-Za-z0-9-]{1,39})\/)?(?!\.{1,2}#)([A-Za-z0-9._-]{1,100}))?#(\d{1,9})$/;
 /** A template's ID: the repository's full name and the file's name in its template folder. */
-const TEMPLATE_ID = /^([A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}):([A-Za-z0-9._ -]{1,200})$/;
+const TEMPLATE_ID = /^([A-Za-z0-9-]{1,39}\/(?!\.{1,2}:)[A-Za-z0-9._-]{1,100}):([A-Za-z0-9._ -]{1,200})$/;
 /** Template files GitHub reads: Markdown templates and issue forms. `config.yml` configures the chooser and isn't one. */
 const TEMPLATE_FILE = /\.(?:md|ya?ml)$/i;
 const CONFIG_FILE = /^config\.ya?ml$/i;
@@ -311,7 +311,7 @@ function nameOf(value: unknown): { fullName: string; name: string } | null {
 /** An issue's repository and number, from its key (`repo#12`) and its site (`owner/repo`); null when they don't agree. */
 function issueIn(ticket: { key: string; site: string | null }): { repository: { owner: string; name: string }; number: number } | null {
   const site = ticket.site === null ? null : REPOSITORY.exec(ticket.site);
-  const key = /^([A-Za-z0-9._-]{1,100})#(\d{1,9})$/.exec(ticket.key);
+  const key = /^(?!\.{1,2}#)([A-Za-z0-9._-]{1,100})#(\d{1,9})$/.exec(ticket.key);
   if (site === null || key === null || key[1]!.toLowerCase() !== site[2]!.toLowerCase()) return null;
   return { repository: { owner: site[1]!, name: site[2]! }, number: Number(key[2]) };
 }

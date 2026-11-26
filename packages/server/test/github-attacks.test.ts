@@ -267,3 +267,16 @@ test("GitHub attack: a signed delivery about another repository names that repos
   expect(read.status === "update" ? read.update.site : "ignored").not.toBeNull();
   expect(read.status === "update" ? read.update.site : "ignored").not.toBe("acme/web");
 });
+
+test("GitHub attack: a repository named . or .., which GitHub forbids, is never asked about, so no address collapses into another", async () => {
+  const { sent, github } = recorded();
+  for (const name of ["acme/..", "acme/.", "../.."]) {
+    expect((await outcome(github.labels!(PAT, name))).ok).toBe(false);
+    expect((await outcome(github.search(PAT, "label", name))).ok).toBe(false);
+    expect(await outcome(github.template!(PAT, `${name}:bug.md`))).toMatchObject({ ok: true, value: null });
+  }
+  // An issue key naming one isn't looked up as one either.
+  await outcome(github.search(PAT, "acme/..#1"));
+  expect(sent.map((request) => new URL(request.url).pathname).filter((path) => path.startsWith("/repos/") && !path.startsWith("/repos/acme/web") && !path.startsWith("/repos/acme/api"))).toEqual([]);
+  expect(sent.map((request) => new URL(request.url).pathname)).not.toContain("/repos/labels");
+});
