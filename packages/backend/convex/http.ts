@@ -89,6 +89,8 @@ http.route({
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`organizations:setOverageCap`).
       // `reviewAccess`: projects report who can review them (`reviewAccess` on projects), and their owners
       // limit them to their organization's members (`projects:setReviewAccess`).
+      // `threadPages`: thread pages (`threads:page`, `threads:pageKey`, `threadPage` on `threads:reply`, and
+      // `/capture?threadPage=<key>`).
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
@@ -110,6 +112,7 @@ http.route({
         organizationMembers: true,
         overageCap: true,
         reviewAccess: true,
+        threadPages: true,
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,

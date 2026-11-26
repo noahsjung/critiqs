@@ -1,7 +1,7 @@
 import { Resolver } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
-import type { AiModelListDraft, AiSettingsInput, PageRequest, PersonalAiSettingsInput, ReactionRow, SearchScope, ThreadDetail, ThreadDetailPage } from "@critiqs/core";
+import type { AiModelListDraft, AiSettingsInput, PageRequest, PersonalAiSettingsInput, ReactionRow, SearchScope, ThreadDetail, ThreadDetailPage, ThreadPageView } from "@critiqs/core";
 import {
   applyAiSettings,
   applyPersonalAiSettings,
@@ -465,6 +465,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     organization: (args) => (s, id) => getOrganization(s, id, args),
     threads: (args) => (s, id) => all((page) => ops.listThreads(s, id, args, page)),
     thread: (args) => (s, id) => loadThread(s, id, args),
+    threadPage: (args) => (s, id) => loadThreadPage(s, id, args),
     participants: (args) => (s, id) => ops.listParticipants(s, id, args),
     participantsNamed: (args) => (s, id) => ops.listParticipantsNamed(s, id, args),
     notificationSettings: (args) => (s, id) => ops.getNotificationSettings(s, id, args),
@@ -490,6 +491,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // This server doesn't store mockups yet; its /critiqs/config doesn't offer them.
       args.mockup === undefined ? ops.createThread(s, id, args) : fail("unavailable", "Mockups aren't available on this Critiqs server."),
     reply: (args) => (s, id) => ops.reply(s, id, args),
+    threadPageKey: (args) => (s, id) => ops.threadPageKey(s, id, args),
     editMessage: (args) => (s, id) => ops.editMessage(s, id, args),
     toggleReaction: (args) => (s, id) => ops.toggleReaction(s, id, args),
     setStatus: (args) => (s, id) => ops.setStatus(s, id, args),
@@ -620,16 +622,30 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
   };
 
   async function loadThread(s: Store, identity: Identity | null, args: { threadId: string }): Promise<ThreadDetail> {
-    const pages: ThreadDetailPage[] = [];
+    return await wholeThread(s, identity, (page) => ops.getThread(s, identity, args, page));
+  }
+
+  /** A thread page, only for those who may open it; it records nothing, never an opened project. */
+  async function loadThreadPage(s: Store, identity: Identity | null, args: { key: string }): Promise<ThreadPageView> {
+    return await wholeThread(s, identity, (page) => ops.getThreadPage(s, identity, args, page));
+  }
+
+  /** Every page of a thread's discussion, with its reactions, in one transaction. */
+  async function wholeThread<P extends ThreadDetailPage>(
+    s: Store,
+    identity: Identity | null,
+    load: (page: PageRequest) => Promise<P>,
+  ): Promise<Omit<P, "page" | "isDone" | "continueCursor"> & Pick<ThreadDetail, "messages">> {
+    const pages: P[] = [];
     let cursor: string | null = null;
     for (;;) {
-      const page: ThreadDetailPage = await ops.getThread(s, identity, args, { numItems: ops.PAGE_SIZE, cursor });
+      const page: P = await load({ numItems: ops.PAGE_SIZE, cursor });
       pages.push(page);
       if (page.isDone) break;
       cursor = page.continueCursor;
     }
-    const reactions: ReactionRow[] = await all((page) => ops.listReactions(s, identity, args, page));
     const { page: _page, isDone: _done, continueCursor: _cursor, ...thread } = pages[0]!;
+    const reactions: ReactionRow[] = await all((page) => ops.listReactions(s, identity, { threadId: thread._id }, page));
     return {
       ...thread,
       messages: pages
@@ -704,12 +720,18 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     }
   }
 
+  /** A thread's image by its thread's ID, or by its thread page's key (`threadPage`), after the same checks as reading either. */
   async function capture(request: Request): Promise<Response> {
-    const threadId = new URL(request.url).searchParams.get("threadId") ?? "";
+    const params = new URL(request.url).searchParams;
+    const key = params.get("threadPage");
+    const threadId = params.get("threadId") ?? "";
     const identity = await identityOf(request);
     try {
-      const fileId = await store.transaction((s) => ops.authorizedCapture(s, identity, { threadId }));
-      const file = fileId === null ? null : store.readFile(fileId);
+      // Read in the transaction that checks access, so no change to access can come between them.
+      const file = await store.transaction(async (s) => {
+        const fileId = key === null ? await ops.authorizedCapture(s, identity, { threadId }) : await ops.authorizedPageCapture(s, identity, { key });
+        return fileId === null ? null : store.readFile(fileId);
+      });
       if (file === null) return new Response("No capture", { status: 404 });
       return new Response(file.data as Uint8Array<ArrayBuffer>, {
         headers: {
@@ -1158,6 +1180,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         onboardingAnswers: true,
         developerEmails: developerEmails !== null,
         reviewAccess: true,
+        threadPages: true,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);

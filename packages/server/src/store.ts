@@ -177,6 +177,12 @@ export interface ThreadRecord {
   textTags?: TextTag[];
   /** Set on a mockup thread: a discussion of a mockup, kept out of the thread list, search, and export. */
   mockup?: ThreadMockup;
+  /**
+   * The key in the thread page's link (`/t/<key>`), which never carries the
+   * thread's ID. New threads get one; older threads get one the first time
+   * someone shares them.
+   */
+  pageKey?: string;
 }
 
 /** A hashtag some of a thread's messages use. */
@@ -343,7 +349,11 @@ export interface ReplyEmailJobRecord {
   messageId: string;
   authorId: string;
   createdAt: number;
-  /** The reply's number in its thread (its message count once written): people who joined before it are told. */
+  /**
+   * The reply's number in its thread (its message count once written): people
+   * who joined before it are told. 0 for a job that only records who is in an
+   * older thread (`queueFollowerScan`) and emails no one.
+   */
   position: number;
   stage: "scan" | "notify";
   cursor: string | null;
@@ -491,6 +501,7 @@ export type ThreadChanges = Partial<
     | "reattachment"
     | "textTags"
     | "followersReady"
+    | "pageKey"
   >
 >;
 export type MessageChanges = Partial<Pick<MessageRecord, "body" | "editedAt" | "mentions" | "projectId" | "hashtags">>;
@@ -587,6 +598,8 @@ export interface Store {
     listVisible(projectId: string, request: PageRequest): Promise<PageResult<ThreadRecord>>;
     /** The thread whose image is this file, if any. */
     byCaptureFile(fileId: string): Promise<ThreadRecord | null>;
+    /** The thread whose page key this is, if any. */
+    byPageKey(key: string): Promise<ThreadRecord | null>;
     /** A project's threads that are not deleted and not about a mockup, newest activity first; at most `limit`. */
     recent(projectId: string, limit: number): Promise<ThreadRecord[]>;
   };

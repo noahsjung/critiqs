@@ -97,6 +97,31 @@ export async function follow(store: Store, threadId: string, people: string[], s
   }
 }
 
+/** The position of a job that only records who is in an older thread: before every message, so no one is owed its email. */
+const FOLLOWERS_ONLY = 0;
+
+/**
+ * Has the email worker record who is in a thread from before that was
+ * recorded, a page of its discussion at a time, emailing no one. A thread
+ * page's access check reads that record, never the whole discussion, which
+ * one Convex transaction can't always read.
+ */
+export async function queueFollowerScan(store: Store, thread: ThreadRecord, now: number): Promise<void> {
+  if (thread.followersReady === true) return;
+  const first = await store.messages.first(thread._id);
+  if (first === null) return;
+  await store.replyEmailJobs.insert({
+    projectId: thread.projectId,
+    threadId: thread._id,
+    messageId: first._id,
+    authorId: thread.createdBy,
+    createdAt: now,
+    position: FOLLOWERS_ONLY,
+    stage: "scan",
+    cursor: null,
+  });
+}
+
 /**
  * Queues a reply's emails to everyone else in its thread, which the email
  * worker owes before sending (`advanceReplyEmails`): a thread may have any
@@ -138,7 +163,8 @@ export async function advanceReplyEmails(store: Store, now: number): Promise<boo
   }
   if (job.stage === "scan") {
     if (thread.followersReady === true) {
-      await store.replyEmailJobs.patch(job._id, { stage: "notify", cursor: null });
+      if (job.position === FOLLOWERS_ONLY) await store.replyEmailJobs.delete(job._id);
+      else await store.replyEmailJobs.patch(job._id, { stage: "notify", cursor: null });
       return true;
     }
     const result = await store.messages.list(thread._id, { numItems: DISCUSSION_PAGE, cursor: job.cursor === null ? null : job.cursor.slice(job.cursor.indexOf("|") + 1) });
@@ -153,7 +179,9 @@ export async function advanceReplyEmails(store: Store, now: number): Promise<boo
     }
     if (result.isDone) {
       await store.threads.patch(thread._id, { followersReady: true });
-      await store.replyEmailJobs.patch(job._id, { stage: "notify", cursor: null });
+      // A job that only records who is in the thread owes no email.
+      if (job.position === FOLLOWERS_ONLY) await store.replyEmailJobs.delete(job._id);
+      else await store.replyEmailJobs.patch(job._id, { stage: "notify", cursor: null });
     } else {
       // The scan's cursor carries how many messages it has passed, then the store's own cursor.
       await store.replyEmailJobs.patch(job._id, { cursor: `${at}|${result.continueCursor}` });

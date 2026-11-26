@@ -100,6 +100,7 @@ test("reports itself as a server in the host app, current with the component", a
     onboardingAnswers: true,
     developerEmails: false,
     reviewAccess: true,
+    threadPages: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -263,6 +264,49 @@ test("stores uploaded images and serves them after the same checks as the thread
   expect(image.headers.get("Content-Type")).toBe("image/png");
   expect(new Uint8Array(await image.arrayBuffer())).toEqual(png);
   expect((await browser(handler).request(`/critiqs/capture?threadId=${threadId}`)).status).toBe(401);
+});
+
+test("a thread page, its image, and replies from it reach the people in the thread, and give anyone else the answer for a page that doesn't exist", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const projectId = (await dana.api("createProject", { name: "Pilot", reviewUrl: "https://proto.example/app" })).body.value;
+  const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+  const uploaded = await dana.request(`/critiqs/upload?projectId=${projectId}`, {
+    method: "POST",
+    headers: { "X-Critiqs-Request": "1", "Content-Type": "image/png", Origin: SITE },
+    body: png,
+  });
+  const { fileId } = await uploaded.json();
+  const threadId = (await dana.api("createThread", { projectId, anchor, body: "Look", tags: [], capture: { status: "captured", fileId } })).body.value;
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  await lee.api("reply", { threadId, body: "Agreed", revision: null });
+  const key = (await dana.api("threadPageKey", { threadId })).body.value;
+  expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
+
+  const shown = await lee.api("threadPage", { key });
+  expect(shown.status).toBe(200);
+  expect(shown.body.value).toMatchObject({
+    _id: threadId,
+    project: { name: "Pilot", reviewUrl: "https://proto.example/app" },
+    prototype: { pageUrl: anchor.evidence.url, screen: anchor.screen },
+  });
+  expect(shown.body.value.messages.map((message: { body: string }) => message.body)).toEqual(["Look", "Agreed"]);
+  expect(new Uint8Array(await (await lee.request(`/critiqs/capture?threadPage=${key}`)).arrayBuffer())).toEqual(png);
+  expect((await lee.api("reply", { threadId, body: "From the page", revision: null, threadPage: true })).status).toBe(200);
+
+  const sam = await signIn(handler, sent, "sam@example.com", "Sam");
+  await sam.api("sync");
+  const signedOut = browser(handler);
+  const nothing = { code: "not-found", message: "This thread doesn't exist, or you can't open it." };
+  for (const [who, pageKey] of [[sam, key], [signedOut, key], [sam, "AAAAAAAAAAAAAAAAAAAAAA"], [dana, threadId]] as const) {
+    const response = await who.api("threadPage", { key: pageKey });
+    expect([response.status, response.body.error]).toEqual([404, nothing]);
+    const image = await who.request(`/critiqs/capture?threadPage=${encodeURIComponent(pageKey)}`);
+    expect([image.status, await image.text()]).toEqual([404, nothing.message]);
+  }
+  const refusedReply = await sam.api("reply", { threadId, body: "From Sam", revision: null, threadPage: true });
+  expect([refusedReply.status, refusedReply.body.error]).toEqual([404, nothing]);
+  expect((await dana.api("thread", { threadId })).body.value.messages.map((message: { body: string }) => message.body)).toEqual(["Look", "Agreed", "From the page"]);
 });
 
 test("a project limited to its organization serves its feedback, captures, and uploads only to members; only its owners change that", async () => {

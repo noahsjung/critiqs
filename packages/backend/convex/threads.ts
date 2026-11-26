@@ -62,6 +62,24 @@ export const get = query({
     run(async () => operations.getThread(convexStore(ctx), await identityOf(ctx), args, paginationOpts)),
 });
 
+/**
+ * A thread page by its key (`/t/<key>`): only for those in the project's
+ * organization or already in the thread, after the project's own check;
+ * anyone else, signed in or not, gets the answer for a page that doesn't
+ * exist. A query, so it records nothing, never an opened project.
+ */
+export const page = query({
+  args: { key: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts, ...args }) =>
+    run(async () => operations.getThreadPage(convexStore(ctx), await identityOf(ctx), args, paginationOpts)),
+});
+
+/** The key for a thread page's link, for **Share**; an older thread gets one the first time it is shared. */
+export const pageKey = mutation({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args) => run(async () => operations.threadPageKey(convexStore(ctx), await identityOf(ctx), args)),
+});
+
 /** Reactions paginate independently; a busy discussion cannot overflow a query. */
 export const listReactions = query({
   args: { threadId: v.id("threads"), paginationOpts: paginationOptsValidator },
@@ -129,7 +147,10 @@ export const attachScreenshot = mutation({
     }),
 });
 
-/** A reply; `via: "agent"` when a coding agent wrote it for the signed-in reviewer (`critiqs_reply`). */
+/**
+ * A reply; `via: "agent"` when a coding agent wrote it for the signed-in
+ * reviewer (`critiqs_reply`), and `threadPage: true` from a thread page.
+ */
 export const reply = mutation({
   args: {
     threadId: v.id("threads"),
@@ -137,6 +158,8 @@ export const reply = mutation({
     revision: revisionValidator,
     mentions: v.optional(v.array(mentionValidator)),
     via: v.optional(v.literal("agent")),
+    /** Sent from the thread page: only those who may open that page may reply this way. */
+    threadPage: v.optional(v.boolean()),
   },
   handler: async (ctx, args) =>
     run(async () => {

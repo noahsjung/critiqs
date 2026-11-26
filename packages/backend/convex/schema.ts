@@ -228,12 +228,15 @@ export default defineSchema({
     followersReady: v.optional(v.boolean()),
     /** Set on a mockup thread, which the thread list, search, and export leave out. */
     mockup: v.optional(threadMockupValidator),
+    /** The key in the thread page's link (`/t/<key>`); absent on older threads until someone shares them. */
+    pageKey: v.optional(v.string()),
   })
     .index("by_project_status", ["projectId", "status"])
     .index("by_project", ["projectId"])
     .index("by_project_activity", ["projectId", "lastMessageAt"])
     .index("by_capture_storage", ["capture.storageId"])
-    .index("by_mockup", ["mockup.mockupId"]),
+    .index("by_mockup", ["mockup.mockupId"])
+    .index("by_page_key", ["pageKey"]),
 
   messages: defineTable({
     threadId: v.id("threads"),

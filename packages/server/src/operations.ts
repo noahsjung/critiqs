@@ -6,6 +6,7 @@ import {
   type ParticipantInfo,
   type ProjectUsage,
   type ExportPage,
+  isThreadPageKey,
   isUnread,
   type Page,
   type PageRequest,
@@ -19,6 +20,7 @@ import {
   type TargetLocation,
   type ThreadDetailPage,
   type ThreadMockup,
+  type ThreadPageDetail,
   type ThreadSummary,
   parseOnboardingAnswers,
   parseStack,
@@ -28,11 +30,12 @@ import {
 import { fail } from "./errors.ts";
 import { planFor, requireRoom, usageDay, usageSummary, useQuota } from "./limits.ts";
 import { checkThreadMockup } from "./mockups.ts";
-import { acceptInvites, canReview, homeOrganization, ORGANIZATION_ONLY, projectAccess, projectQuota, projectRole } from "./organizations.ts";
+import { acceptInvites, canReview, homeOrganization, inProjectOrganization, ORGANIZATION_ONLY, projectAccess, projectQuota, projectRole } from "./organizations.ts";
 import {
   changePreferences,
   enqueueMentions,
   follow,
+  queueFollowerScan,
   queueReplyEmails,
   type MentionInput,
   listParticipants as participantsMatching,
@@ -155,14 +158,19 @@ export async function requireProject(store: Store, viewer: Viewer, projectId: st
   return project;
 }
 
+/** A thread by its own ID, unchecked; null when there is none. */
+async function threadById(store: Store, threadId: string): Promise<ThreadRecord | null> {
+  const id = store.normalizeId("threads", threadId);
+  return id === null ? null : await store.threads.get(id);
+}
+
 /**
  * A thread by its own ID, after the same check as its project. Deleted
  * threads are reported unavailable rather than returned (F10), and only to
  * those who may review the project.
  */
 export async function requireThread(store: Store, viewer: Viewer, threadId: string) {
-  const id = store.normalizeId("threads", threadId);
-  const thread = id === null ? null : await store.threads.get(id);
+  const thread = await threadById(store, threadId);
   if (thread === null) fail("not-found", "This thread does not exist.");
   const project = await requireProject(store, viewer, thread.projectId);
   if (thread.status === "deleted") fail("unavailable", "This thread was deleted.");
@@ -448,6 +456,7 @@ export async function createThread(
     textTags,
     // Who is in the thread is recorded from its first message on.
     followersReady: true,
+    pageKey: newThreadPageKey(),
     ...(args.mockup === undefined ? {} : { mockup: args.mockup }),
   });
   const messageId = await store.messages.insert({
@@ -515,6 +524,17 @@ export async function getThread(
 ): Promise<ThreadDetailPage> {
   const { user } = await currentReviewer(store, identity);
   const { thread, project } = await requireThread(store, user, args.threadId);
+  return await threadDetail(store, user, project, thread, request);
+}
+
+/** A page of a thread already checked readable by `user`, with its fields and their read state. */
+async function threadDetail(
+  store: Store,
+  user: UserRecord | null,
+  project: ProjectRecord,
+  thread: ThreadRecord,
+  request: PageRequest,
+): Promise<ThreadDetailPage> {
   const result = await store.messages.list(thread._id, boundedPage(request));
   const nameOf = async (id: string | undefined) => (id === undefined ? null : ((await store.users.get(id))?.name ?? "Unknown"));
   const readState = user === null ? null : await store.readStates.find(user._id, thread._id);
@@ -735,22 +755,133 @@ export async function authorizedCapture(store: Store, identity: Identity | null,
 }
 
 // ---------------------------------------------------------------------------
+// Thread pages
+//
+// A thread page shows one thread on Critiqs's website, outside the
+// prototype that guards access to it, and its link can be forwarded to
+// anyone. It is found by its page key (`/t/<key>`), never by the thread's ID:
+// in a project anyone may review, a thread ID alone lets components from
+// 0.3.x and earlier read the thread and its project.
+//
+// Opening a thread page never counts as opening the project. When address
+// lists record the projects each person opened, nothing here may record one:
+// whoever combines the two keeps every thread page operation free of that
+// record.
+
+/** The one answer for a thread page that doesn't exist, or that this person may not open, signed in or not. */
+const NO_THREAD_PAGE = "This thread doesn't exist, or you can't open it.";
+
+/** A new page key: 128 random bits, as 22 base64url characters. */
+export function newThreadPageKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * Who may open a thread page: someone signed in who may review its project
+ * (`canReview`, so the project's **Who can review** applies first) and who
+ * either belongs to the project's organization or is already in the thread:
+ * started it, replied in it, or was mentioned in it.
+ */
+export async function canOpenThreadPage(store: Store, project: ProjectRecord, thread: ThreadRecord, userId: string | null): Promise<boolean> {
+  if (userId === null || !(await canReview(store, project, userId))) return false;
+  return (await inProjectOrganization(store, project, userId)) || (await inThread(store, thread, userId));
+}
+
+/**
+ * Whether someone started the thread, replied in it, or was mentioned in it,
+ * as its followers record: one indexed read, never the discussion, which can
+ * be larger than one Convex transaction may read. In a thread from before
+ * followers were recorded, the email worker records them once someone shares
+ * it (`threadPageKey`); until then, earlier people in it are refused.
+ */
+async function inThread(store: Store, thread: ThreadRecord, userId: string): Promise<boolean> {
+  return thread.createdBy === userId || (await store.followers.find(thread._id, userId)) !== null;
+}
+
+/**
+ * A thread someone may open as a thread page, with its project. Anyone who
+ * may not, including someone signed out, gets the same `not-found` as for a
+ * thread that doesn't exist. A deleted thread is reported deleted only to
+ * those who may open its page.
+ */
+async function openThreadPage(store: Store, user: UserRecord | null, thread: ThreadRecord | null): Promise<{ thread: ThreadRecord; project: ProjectRecord }> {
+  const project = thread === null ? null : await store.projects.get(thread.projectId);
+  if (thread === null || project === null || !(await canOpenThreadPage(store, project, thread, user?._id ?? null))) fail("not-found", NO_THREAD_PAGE);
+  if (thread.status === "deleted") fail("unavailable", "This thread was deleted.");
+  return { thread, project };
+}
+
+/** The thread page a key opens, for the signed-in person; signed out, they get the same answer as for a key that opens nothing. */
+async function requireThreadPage(store: Store, identity: Identity | null, key: string) {
+  const user = identity === null || !identity.emailVerified || !identity.email ? null : await store.users.byToken(identity.tokenIdentifier);
+  const thread = user === null || !isThreadPageKey(key) ? null : await store.threads.byPageKey(key);
+  return { user, ...(await openThreadPage(store, user, thread)) };
+}
+
+/**
+ * A page of a thread page's discussion, with the project's name, its review
+ * address, and where the thread was left, for **Open in prototype**. Replies
+ * from the page go through `reply` with `threadPage: true`, and its capture
+ * through the capture download with the page key, each checked the same way.
+ * Records nothing: never an opened project (see above), and not read state.
+ */
+export async function getThreadPage(
+  store: Store,
+  identity: Identity | null,
+  args: { key: string },
+  request: PageRequest,
+): Promise<ThreadPageDetail> {
+  const { user, thread, project } = await requireThreadPage(store, identity, args.key);
+  return {
+    ...(await threadDetail(store, user, project, thread, request)),
+    project: { name: project.name, reviewUrl: project.reviewUrl ?? null },
+    prototype: { pageUrl: thread.anchor.evidence.url, screen: thread.anchor.screen },
+  };
+}
+
+/** File ID of a thread page's image, after the same checks as opening the page. */
+export async function authorizedPageCapture(store: Store, identity: Identity | null, args: { key: string }): Promise<string | null> {
+  const { thread } = await requireThreadPage(store, identity, args.key);
+  return thread.capture.status === "failed" ? null : thread.capture.fileId;
+}
+
+/**
+ * The key for a thread page's link, for **Share**: anyone who may review the
+ * thread may share it, and the link opens only for those who may open the
+ * page. A thread from before thread pages gets its key here, once, and if it
+ * is also from before followers were recorded, the email worker records them.
+ */
+export async function threadPageKey(store: Store, identity: Identity | null, args: { threadId: string }): Promise<string> {
+  const user = await requireUser(store, identity);
+  const { thread } = await requireThread(store, user, args.threadId);
+  if (thread.pageKey !== undefined) return thread.pageKey;
+  const pageKey = newThreadPageKey();
+  await store.threads.patch(thread._id, { pageKey });
+  await queueFollowerScan(store, thread, Date.now());
+  return pageKey;
+}
+
+// ---------------------------------------------------------------------------
 // Messages
 
 /**
  * Adds a reply. Everyone else in the thread is emailed about it (unless they
  * turned that off), and people it mentions get a mention email instead. With
  * `via: "agent"`, a coding agent wrote it for the signed-in reviewer, and
- * Critiqs shows that beside their name.
+ * Critiqs shows that beside their name. With `threadPage: true`, it comes
+ * from the thread page, and only those who may open that page may send it.
  */
 export async function reply(
   store: Store,
   identity: Identity | null,
-  args: { threadId: string; body: string; revision: Revision; mentions?: MentionInput[]; via?: "agent" },
+  args: { threadId: string; body: string; revision: Revision; mentions?: MentionInput[]; via?: "agent"; threadPage?: boolean },
 ): Promise<string> {
   if (args.via !== undefined && args.via !== "agent") fail("invalid", "Unknown author kind.");
+  // From a thread page, someone signed out gets the page's one answer too.
+  if (args.threadPage === true && (identity === null || !identity.emailVerified || !identity.email)) fail("not-found", NO_THREAD_PAGE);
   const user = await requireUser(store, identity);
-  const { thread, project } = await requireThread(store, user, args.threadId);
+  const { thread, project } = args.threadPage === true ? await openThreadPage(store, user, await threadById(store, args.threadId)) : await requireThread(store, user, args.threadId);
   const mentions = await validateMentions(store, project._id, args.mentions ?? []);
   if (thread.messageCount >= MAX_MESSAGES) fail("invalid", "This thread has reached its reply limit; start a new thread.");
   const body = validateBody(args.body);
@@ -855,6 +986,13 @@ export async function editMessage(
   await enqueueMentions(store, { project, threadId: message.threadId, messageId: message._id, authorId: user._id, recipients: added, now });
   // Newly mentioned people are in the thread from now on: for replies after its current messages.
   await follow(store, thread._id, added, thread.messageCount);
+  // In a thread whose people aren't recorded yet, someone whose mention this edit removes was still in it, and the
+  // scan that records them reads messages as they are now, so it would miss them. Mentions kept are left to the scan,
+  // which records them from their message's place, so replies already waiting still email them.
+  if (thread.followersReady !== true) {
+    const removed = before.map((mention) => mention.userId).filter((id) => !mentions.some((mention) => mention.userId === id));
+    await follow(store, thread._id, removed, thread.messageCount);
+  }
 }
 
 export async function toggleReaction(

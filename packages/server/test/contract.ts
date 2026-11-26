@@ -2917,4 +2917,246 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     await finish(backend, retry, now);
     expect(await backend.readFile(fileId)).toBeNull();
   });
+
+  // -------------------------------------------------------------------------
+  // Thread pages
+
+  const noThreadPage = "not-found: This thread doesn't exist, or you can't open it.";
+
+  /**
+   * Dana's thread in her project, open to anyone who signs in: Riley belongs
+   * to Dana's organization, Lee replied, Mo was mentioned (after commenting
+   * on another thread), and Sam has signed in but is none of these.
+   */
+  async function pagedThread(backend: ContractBackend) {
+    const riley = reviewer("Riley");
+    const mo = reviewer("Mo");
+    const sam = reviewer("Sam");
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype", reviewUrl: "https://proto.example/app" }));
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    const image = await backend.saveFile("image/png");
+    const threadId = await backend.run((store) =>
+      ops.createThread(store, dana, { projectId, anchor, body: "Department is wrong", tags: [], capture: { status: "captured", fileId: image } }),
+    );
+    await backend.run((store) => ops.reply(store, lee, { threadId, body: "Agreed", revision: null }));
+    await backend.run((store) => ops.createThread(store, mo, { projectId, anchor, body: "Elsewhere", tags: [], capture: failed }));
+    const moId = await idOf(backend, mo);
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "@Mo can you check?", revision: null, mentions: [mention(moId, "Mo")] }));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: "riley@example.com", role: "member" }, Date.now()));
+    await backend.run((store) => ops.syncReviewer(store, riley));
+    await backend.run((store) => ops.syncReviewer(store, sam));
+    const key = await backend.run((store) => ops.threadPageKey(store, dana, { threadId }));
+    return { projectId, organizationId, threadId, image, key, riley, mo, sam };
+  }
+
+  async function openPage(backend: ContractBackend, who: Identity | null, key: string) {
+    return await backend.run((store) => ops.getThreadPage(store, who, { key }, page));
+  }
+
+  test(`${name}: a thread page opens for the project's organization and the people in the thread, with what the page shows`, async () => {
+    const backend = fresh();
+    const { projectId, threadId, key, riley, mo } = await pagedThread(backend);
+    for (const who of [dana, lee, mo, riley]) expect(await outcome(openPage(backend, who, key))).toBe("allowed");
+    const shown = await openPage(backend, riley, key);
+    expect(shown).toMatchObject({
+      _id: threadId,
+      projectId,
+      status: "open",
+      messageCount: 3,
+      project: { name: "Admin prototype", reviewUrl: "https://proto.example/app" },
+      prototype: { pageUrl: "https://proto.example/users/alex", screen: "user-details" },
+      capture: { status: "captured" },
+      isDone: true,
+    });
+    expect(shown.page.map((message) => [message.author.name, message.body])).toEqual([
+      ["Dana", "Department is wrong"],
+      ["Lee", "Agreed"],
+      ["Dana", "@Mo can you check?"],
+    ]);
+    // The page shows the discussion as the thread window does.
+    const { project: _project, prototype: _prototype, ...thread } = shown;
+    expect(thread).toEqual(await backend.run((store) => ops.getThread(store, riley, { threadId }, page)));
+  });
+
+  test(`${name}: anyone else, signed in or not, gets the same answer as for a thread page that doesn't exist`, async () => {
+    const backend = fresh();
+    const { threadId, key, riley, sam } = await pagedThread(backend);
+    // Riley belongs to the organization, but this sign-in hasn't verified her address.
+    const unverified = { ...riley, emailVerified: false };
+    // Sam has the link and could review the project, but is neither in its organization nor in the thread.
+    expect(await outcome(openPage(backend, sam, key))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, null, key))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, unverified, key))).toBe(noThreadPage);
+    // Someone who has never signed in here, and keys that open nothing.
+    expect(await outcome(openPage(backend, reviewer("Newcomer"), key))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, dana, "AAAAAAAAAAAAAAAAAAAAAA"))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, null, "AAAAAAAAAAAAAAAAAAAAAA"))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, dana, "not a key"))).toBe(noThreadPage);
+    // A thread ID is not a page key, even to the thread's author.
+    expect(await outcome(openPage(backend, dana, threadId))).toBe(noThreadPage);
+    // The page's image follows the same rule.
+    expect(await outcome(backend.run((store) => ops.authorizedPageCapture(store, sam, { key })))).toBe(noThreadPage);
+    expect(await outcome(backend.run((store) => ops.authorizedPageCapture(store, null, { key })))).toBe(noThreadPage);
+  });
+
+  test(`${name}: a thread page's image downloads for those who may open the page, through the page key`, async () => {
+    const backend = fresh();
+    const { image, key, riley, mo } = await pagedThread(backend);
+    for (const who of [dana, lee, mo, riley]) expect(await backend.run((store) => ops.authorizedPageCapture(store, who, { key }))).toBe(image);
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Second" }));
+    const failedThread = await backend.run((store) => ops.createThread(store, dana, { projectId, anchor, body: "No image", tags: [], capture: failed }));
+    const failedKey = await backend.run((store) => ops.threadPageKey(store, dana, { threadId: failedThread }));
+    expect(await backend.run((store) => ops.authorizedPageCapture(store, dana, { key: failedKey }))).toBeNull();
+  });
+
+  test(`${name}: in a project limited to its organization, a thread page opens only for members; someone in the thread who left is refused`, async () => {
+    const backend = fresh();
+    const { projectId, organizationId, threadId, key, riley } = await pagedThread(backend);
+    await backend.run((store) => ops.reply(store, riley, { threadId, body: "On it", revision: null }));
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    // Lee and Mo are in the thread but outside the organization.
+    for (const who of [lee, reviewer("Mo")]) expect(await outcome(openPage(backend, who, key))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, riley, key))).toBe("allowed");
+    // Riley replied in the thread, then left the organization.
+    const rileyId = await idOf(backend, riley);
+    await backend.run((store) => organizations.removeMember(store, dana, { organizationId, userId: rileyId }));
+    expect(await outcome(openPage(backend, riley, key))).toBe(noThreadPage);
+    expect(await outcome(backend.run((store) => ops.authorizedPageCapture(store, riley, { key })))).toBe(noThreadPage);
+    expect(await outcome(backend.run((store) => ops.reply(store, riley, { threadId, body: "Still here?", revision: null, threadPage: true })))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, dana, key))).toBe("allowed");
+  });
+
+  test(`${name}: a deleted thread's page is refused: reported deleted only to those who could open it`, async () => {
+    const backend = fresh();
+    const { threadId, key, riley, sam } = await pagedThread(backend);
+    await backend.run((store) => ops.removeThread(store, dana, { threadId }));
+    for (const who of [dana, lee, riley]) expect(await outcome(openPage(backend, who, key))).toBe("unavailable: This thread was deleted.");
+    expect(await outcome(openPage(backend, sam, key))).toBe(noThreadPage);
+    expect(await outcome(openPage(backend, null, key))).toBe(noThreadPage);
+    expect(await outcome(backend.run((store) => ops.authorizedPageCapture(store, dana, { key })))).toBe("unavailable: This thread was deleted.");
+    expect(await outcome(backend.run((store) => ops.reply(store, lee, { threadId, body: "Gone?", revision: null, threadPage: true })))).toBe(
+      "unavailable: This thread was deleted.",
+    );
+  });
+
+  test(`${name}: replies from a thread page follow the page's rule; the installed component's replies keep the project's`, async () => {
+    const backend = fresh();
+    const { threadId, riley, mo, sam } = await pagedThread(backend);
+    const fromPage = (who: Identity | null, body: string) => backend.run((store) => ops.reply(store, who, { threadId, body, revision: null, threadPage: true }));
+    for (const [who, body] of [[dana, "From Dana"], [lee, "From Lee"], [mo, "From Mo"], [riley, "From Riley"]] as const) {
+      expect(await outcome(fromPage(who, body))).toBe("allowed");
+    }
+    expect(await outcome(fromPage(sam, "From Sam"))).toBe(noThreadPage);
+    expect(await outcome(fromPage(null, "Signed out"))).toBe(noThreadPage);
+    expect(await outcome(fromPage({ ...riley, emailVerified: false }, "Unverified"))).toBe(noThreadPage);
+    expect(await outcome(backend.run((store) => ops.reply(store, sam, { threadId: "not-an-id", body: "?", revision: null, threadPage: true })))).toBe(noThreadPage);
+    const bodies = (await allMessages(backend, dana, threadId)).map((message) => message.body);
+    expect(bodies.slice(3)).toEqual(["From Dana", "From Lee", "From Mo", "From Riley"]);
+    // Anyone may review this project, so without the page, Sam's reply is accepted as before.
+    expect(await outcome(backend.run((store) => ops.reply(store, sam, { threadId, body: "From the prototype", revision: null })))).toBe("allowed");
+    // Once Sam replied, Sam is in the thread, and the page opens.
+    expect(await outcome(fromPage(sam, "Now from the page"))).toBe("allowed");
+  });
+
+  test(`${name}: a thread from before people in threads were recorded opens for those its discussion names`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Old prototype" }));
+    const mo = reviewer("Mo");
+    const sam = reviewer("Sam");
+    for (const who of [lee, mo, sam]) await backend.run((store) => ops.syncReviewer(store, who));
+    const [danaId, leeId, moId] = [await idOf(backend, dana), await idOf(backend, lee), await idOf(backend, mo)];
+    // Written as an older Critiqs stored it: no followers, no page key, and 45 messages, more than one page.
+    const threadId = await backend.run(async (store) => {
+      const id = await store.threads.insert({
+        projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: 1, lastMessageAt: 46, messageCount: 46,
+      });
+      const write = (authorId: string, at: number, mentions?: { userId: string; label: string }[]) =>
+        store.messages.insert({ threadId: id, authorId, body: `Message ${at}`, createdAt: at, editedAt: null, revision: null, ...(mentions === undefined ? {} : { mentions }) });
+      await write(danaId, 1);
+      for (let at = 2; at <= 45; at++) await write(danaId, at);
+      await write(leeId, 46, [{ userId: moId, label: "Mo" }]);
+      return id;
+    });
+    const key = await backend.run((store) => ops.threadPageKey(store, sam, { threadId }));
+    // Until the email worker records who is in it, only whoever started it gets in: the check never reads the discussion.
+    expect(await outcome(openPage(backend, dana, key))).toBe("allowed");
+    for (const who of [lee, mo, sam]) expect(await outcome(openPage(backend, who, key))).toBe(noThreadPage);
+    // Sharing it queued that record; it emails no one.
+    expect(await owed(backend)).toEqual([]);
+    for (const who of [dana, lee, mo]) expect(await outcome(openPage(backend, who, key))).toBe("allowed");
+    expect(await outcome(openPage(backend, sam, key))).toBe(noThreadPage);
+    // Sharing again queues nothing more.
+    await backend.run((store) => ops.threadPageKey(store, lee, { threadId }));
+    expect(await backend.run((store) => store.replyEmailJobs.next())).toBeNull();
+  });
+
+  test(`${name}: editing an older thread's message, keeping its mentions, before its people are recorded still emails them a waiting reply`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Old prototype" }));
+    const mo = reviewer("Mo");
+    for (const who of [lee, mo]) await backend.run((store) => ops.syncReviewer(store, who));
+    const [danaId, moId] = [await idOf(backend, dana), await idOf(backend, mo)];
+    const { threadId, messageId } = await backend.run(async (store) => {
+      const id = await store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: 1, lastMessageAt: 1, messageCount: 1 });
+      const first = await store.messages.insert({ threadId: id, authorId: danaId, body: "@Mo look", createdAt: 1, editedAt: null, revision: null, mentions: [{ userId: moId, label: "Mo" }] });
+      return { threadId: id, messageId: first };
+    });
+    // Lee's reply waits for the email worker to record who is in the thread; Dana fixes a typo meanwhile.
+    await backend.run((store) => ops.reply(store, lee, { threadId, body: "Agreed", revision: null }));
+    await backend.run((store) => ops.editMessage(store, dana, { messageId, body: "@Mo, look" }));
+    const recipients = (await owed(backend)).filter((delivery) => delivery.notifications.some((notice) => notice.kind === "reply")).map((delivery) => delivery.recipientId);
+    expect(recipients.sort()).toEqual([danaId, moId].sort());
+  });
+
+  test(`${name}: someone whose mention is edited out of an older thread before its people are recorded can still open its page`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Old prototype" }));
+    const mo = reviewer("Mo");
+    for (const who of [lee, mo]) await backend.run((store) => ops.syncReviewer(store, who));
+    const [danaId, leeId, moId] = [await idOf(backend, dana), await idOf(backend, lee), await idOf(backend, mo)];
+    const { threadId, messageId } = await backend.run(async (store) => {
+      const id = await store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: 1, lastMessageAt: 2, messageCount: 2 });
+      await store.messages.insert({ threadId: id, authorId: danaId, body: "Old", createdAt: 1, editedAt: null, revision: null });
+      const reply = await store.messages.insert({ threadId: id, authorId: leeId, body: "@Mo look", createdAt: 2, editedAt: null, revision: null, mentions: [{ userId: moId, label: "Mo" }] });
+      return { threadId: id, messageId: reply };
+    });
+    const key = await backend.run((store) => ops.threadPageKey(store, dana, { threadId }));
+    // Lee takes the mention out before the email worker has recorded who is in the thread.
+    await backend.run((store) => ops.editMessage(store, lee, { messageId, body: "Never mind", mentions: [] }));
+    await settle(backend);
+    for (const who of [dana, lee, mo]) expect(await outcome(openPage(backend, who, key))).toBe("allowed");
+  });
+
+  test(`${name}: new threads have a page key; older ones get one the first time anyone who may review them shares them`, async () => {
+    const backend = fresh();
+    const { projectId, threadId, key, sam } = await pagedThread(backend);
+    // Every request returns the same key, whoever asks.
+    expect(await backend.run((store) => ops.threadPageKey(store, sam, { threadId }))).toBe(key);
+    expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    const danaId = await idOf(backend, dana);
+    const older = await backend.run((store) =>
+      store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: 1, lastMessageAt: 1, messageCount: 0, followersReady: true }),
+    );
+    const first = await backend.run((store) => ops.threadPageKey(store, lee, { threadId: older }));
+    expect(first).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(first).not.toBe(key);
+    expect(await backend.run((store) => ops.threadPageKey(store, dana, { threadId: older }))).toBe(first);
+    expect(await outcome(openPage(backend, dana, first))).toBe("allowed");
+    // Sharing is refused like the thread itself: signed out, limited to the organization, or deleted.
+    expect(await outcome(backend.run((store) => ops.threadPageKey(store, null, { threadId })))).toBe("unauthenticated: Sign in to view feedback.");
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    expect(await outcome(backend.run((store) => ops.threadPageKey(store, sam, { threadId })))).toBe(refusedOutsideOrganization);
+    await backend.run((store) => ops.removeThread(store, dana, { threadId }));
+    expect(await outcome(backend.run((store) => ops.threadPageKey(store, dana, { threadId })))).toBe("unavailable: This thread was deleted.");
+  });
+
+  test(`${name}: opening a thread page records nothing: not read state, and not the person as in the thread or the project`, async () => {
+    const backend = fresh();
+    const { projectId, key, riley } = await pagedThread(backend);
+    const rileyId = await idOf(backend, riley);
+    await openPage(backend, riley, key);
+    expect((await backend.run((store) => ops.listThreads(store, riley, { projectId }, page))).page.map((thread) => thread.unread)).toEqual([true, true]);
+    expect(await backend.run((store) => store.participants.find(projectId, rileyId))).toBeNull();
+    expect((await backend.run((store) => ops.listParticipants(store, dana, { projectId, query: "Riley" }))).map((person) => person.name)).toEqual([]);
+  });
 }

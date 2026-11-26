@@ -22,8 +22,8 @@ async function fixture() {
   const objects = new Map<string, ArrayBuffer>();
   const methods: string[] = [];
   const failures = { put: false, get: false, remove: false };
-  /** Runs while R2 stores an object, as someone else acts meanwhile. */
-  const during: { put: (() => Promise<unknown>) | null } = { put: null };
+  /** Runs while R2 stores or returns an object, as someone else acts meanwhile. */
+  const during: { put: (() => Promise<unknown>) | null; get: (() => Promise<unknown>) | null } = { put: null, get: null };
   // Private in-process S3 fixture; the actual aws4fetch signer generates every request.
   globalThis.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
     const request = new Request(input, options);
@@ -49,6 +49,7 @@ async function fixture() {
       return new Response(null, { status: 204 });
     }
     if (failures.get) return new Response("sensitive provider diagnostics", { status: 503 });
+    await during.get?.();
     const bytes = objects.get(key);
     return bytes ? new Response(bytes) : new Response(null, { status: 404 });
   }) as typeof fetch;
@@ -77,6 +78,24 @@ test("R2 roundtrip stores exact bytes outside Convex and checks every read", asy
   await f.dana.mutation(api.threads.remove, { threadId });
   expect((await f.lee.fetch(`/capture?threadId=${threadId}`)).status).toBe(404);
   expect(f.objects.size).toBe(1);
+});
+
+test("a thread page's image from R2 is withheld from someone who stops being able to open the page while R2 answers", async () => {
+  const f = await fixture();
+  const threadId = await f.create(await f.ready());
+  const key = await f.dana.mutation(api.threads.pageKey, { threadId });
+  const [organization] = await f.dana.query(api.organizations.mine, {});
+  await f.dana.mutation(api.organizations.invite, { organizationId: organization!.id, email: "riley@example.com", role: "member" });
+  const riley = f.t.withIdentity(reviewer("Riley"));
+  await riley.mutation(api.users.sync, {});
+  const opened = await riley.fetch(`/capture?threadPage=${key}`);
+  expect([opened.status, await opened.text()]).toEqual([200, "original screenshot"]);
+  // Riley, in the organization but not in the thread, is removed from it while R2 returns the image.
+  const rileyId = (await f.t.run((ctx) => ctx.db.query("users").collect())).find((user) => user.name === "Riley")!._id;
+  f.during.get = () => f.dana.mutation(api.organizations.removeMember, { organizationId: organization!.id, userId: rileyId });
+  const late = await riley.fetch(`/capture?threadPage=${key}`);
+  expect(late.status).toBe(404);
+  expect(await late.text()).not.toContain("original screenshot");
 });
 
 test("a screenshot stored after its project was limited to the organization is never attachable, and is cleaned up", async () => {
