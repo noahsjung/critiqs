@@ -1,58 +1,45 @@
-import {
-  type AddressCheck,
-  type CodeAccess,
-  inboxOf,
-  isPrivateHost,
-  MAX_DEVELOPER_INVITES_PER_PROJECT,
-  type OnboardingAnswers,
-  type StackId,
-  validReviewUrl,
-} from "@critiqs/core";
+import { type CodeAccess, inboxOf, isPrivateHost, MAX_DEVELOPER_INVITES_PER_PROJECT, type Role, type StackId, type TeamSize, validReviewUrl } from "@critiqs/core";
 import { copy } from "./copy.ts";
 
-// Onboarding as data: a typed list of steps and one reducer over them. Each
-// step after sign-in asks one question; Skip removes that one answer, Back
-// keeps every answer until the project exists, and nothing here talks to the
-// backend: the page runs the address check and project creation and reports
-// their results as actions. A flow belongs to one signed-in reviewer, and
-// each flow has its own number, so a result that arrives after the reviewer
-// changed or started over is dropped.
+// Onboarding as data: three screens and one reducer over them.
+//
+//   address  What should your team review? (a link, or "It's not online yet")
+//   who      Who will add Critiqs to it? Choosing creates the project.
+//   setup    The command to run, or the email to a developer.
+//
+// Sign-in happens between the first two, when the person continues. The
+// address check runs quietly after sign-in; its only use is the stack saved
+// with the project, so it never blocks or shows a result. Nothing here talks
+// to the backend: the page does, and reports results as actions. Each flow
+// has its own number, so a result that arrives after the reviewer changed or
+// the flow restarted is dropped.
 
-export const STEPS = ["sign-in", "address", "role", "team-size", "code-access", "feedback-from", "purpose", "create", "recommendation"] as const;
+export const STEPS = ["address", "who", "setup"] as const;
 export type StepId = (typeof STEPS)[number];
 
-/** Steps that ask a question, so they offer Skip. Sign-in, creating the project, and the recommendation ask none. */
-export const SKIPPABLE: ReadonlySet<StepId> = new Set<StepId>(["address", "role", "team-size", "code-access", "feedback-from", "purpose"]);
+/** Who adds Critiqs to the prototype: the person, or a developer they send the steps to. */
+export type Who = "me" | "developer";
 
-/** A framework someone picked, or "I'm not sure". */
-export type StackChoice = StackId | "unsure";
+/** The code-access answer saved with the project for each choice. */
+export const CODE_ACCESS_OF: Record<Who, CodeAccess> = { me: "self", developer: "teammate" };
 
 /**
- * The address step. `checked` holds what Critiqs found, or what the person
- * said ("It's only on my computer", "I don't have one yet"), with the
- * address to save as the review address when it is one.
+ * The prototype's address as the person gives it. `url` is set once they
+ * continue: the address with https:// added where needed, or null for "It's
+ * not online yet".
  */
-export type AddressState =
-  | { status: "editing"; text: string; error: string | null }
-  | { status: "checking"; text: string; url: string }
-  | { status: "checked"; text: string; url: string | null; check: AddressCheck };
-
-export interface StackState {
-  /** What the address check found, which the person confirms with "Use …". */
-  detected: StackId | null;
-  chosen: StackChoice | null;
-  /** The framework picker is open: nothing was detected, or the person chose Change. */
-  picking: boolean;
+export interface AddressState {
+  text: string;
+  error: string | null;
+  url: string | null | undefined;
 }
 
-/** The project as created, with the answers it was created with: the recommendation and the copied message match what the server keeps. */
+/** The project as created: what the setup screen and the developer message need. */
 export interface CreatedProject {
   id: string;
   name: string;
   reviewUrl: string | null;
-  answers: OnboardingAnswers;
   stack: StackId | null;
-  check: AddressCheck;
 }
 
 /** The signed-in reviewer a flow belongs to: their ID, and their address for the developer emails' own-address check. */
@@ -64,220 +51,131 @@ export interface FlowReviewer {
 /** Creating the project: the request is pending, or failed with the server's message; `limit` is a plan's project limit. */
 export type CreateState = { status: "idle" } | { status: "creating" } | { status: "failed"; message: string; limit: boolean };
 
+/** The two "while you're here" questions, asked one at a time after setup. */
+export const ABOUT_QUESTIONS = ["team-size", "role"] as const;
+export type AboutQuestion = (typeof ABOUT_QUESTIONS)[number];
+
+export interface AboutState {
+  /** The question showing, or null once both were answered or skipped. */
+  asking: AboutQuestion | null;
+  /** Shown once the person has done the setup step's action: copied the command, or sent or copied the message. */
+  shown: boolean;
+}
+
 export interface FlowState {
   step: StepId;
   reviewer: FlowReviewer | null;
-  /** This flow's number. Sign-in changes, sign-out, and Start over begin a new one; results for an earlier one are dropped. */
+  /** This flow's number. Sign-in changes and sign-out begin a new one; results for an earlier one are dropped. */
   flow: number;
   address: AddressState;
-  stack: StackState;
-  answers: OnboardingAnswers;
+  who: Who | null;
   /** The developer email fields as typed; empty fields are ignored. */
   developers: string[];
-  /** Errors show once Continue was refused, then update as the person types. */
-  showDeveloperErrors: boolean;
-  /** How many times Continue was refused for the developer emails; each time, focus moves to the first invalid field. */
-  developerCheck: number;
-  /** Null until the person edits it; then the name field shows `defaultProjectName`. */
-  projectName: string | null;
-  /** The organization to create in: the one shown first, or one the person chose; null until the create step sets it. */
+  /** The organization to create in: the one shown first, or one the person chose; null until the organizations load. */
   organizationId: string | null;
   create: CreateState;
   project: CreatedProject | null;
+  about: AboutState;
 }
 
 export type FlowAction =
   | { type: "signed-in"; reviewer: FlowReviewer }
   | { type: "signed-out" }
-  | { type: "next" }
-  | { type: "back" }
-  | { type: "skip" }
   | { type: "address-text"; text: string }
-  | { type: "address-invalid" }
-  | { type: "address-check-started"; url: string }
-  | { type: "address-checked"; flow: number; url: string; check: AddressCheck }
-  | { type: "address-check-failed"; flow: number; url: string; error: string }
-  | { type: "address-only-local" }
+  | { type: "address-continue" }
   | { type: "address-none" }
-  | { type: "stack-use" }
-  | { type: "stack-change" }
-  | { type: "stack-pick"; stack: StackChoice | null }
-  | { type: "answer"; answer: Partial<OnboardingAnswers> }
+  | { type: "back" }
+  | { type: "choose"; who: Who }
+  | { type: "switch-who" }
   | { type: "developers"; developers: string[] }
-  | { type: "project-name"; name: string }
   | { type: "organization"; organizationId: string }
-  | { type: "create-started" }
   | { type: "created"; flow: number; project: CreatedProject }
   | { type: "create-failed"; flow: number; message: string; limit: boolean }
-  | { type: "start-over" };
+  /** The create was called off before it was sent, such as when the chosen organization left the list. */
+  | { type: "create-cancelled"; flow: number }
+  | { type: "setup-done"; flow: number }
+  | { type: "about-answered" }
+  | { type: "about-skip" };
 
-const EMPTY_ADDRESS: AddressState = { status: "editing", text: "", error: null };
-const NO_STACK: StackState = { detected: null, chosen: null, picking: false };
+const EMPTY_ADDRESS: AddressState = { text: "", error: null, url: undefined };
 
 export function initialFlow(reviewer: FlowReviewer | null = null, flow = 0): FlowState {
   return {
-    step: reviewer === null ? "sign-in" : "address",
+    step: "address",
     reviewer,
     flow,
     address: EMPTY_ADDRESS,
-    stack: NO_STACK,
-    answers: {},
+    who: null,
     developers: [""],
-    showDeveloperErrors: false,
-    developerCheck: 0,
-    projectName: null,
     organizationId: null,
     create: { status: "idle" },
     project: null,
+    about: { asking: ABOUT_QUESTIONS[0], shown: false },
   };
 }
 
-/** Whether Back is offered: not on the first step, not while the project is being created, and not once it exists, since answers can't change it then. */
+/** Whether the address is given (a link, or "not online yet") and someone is signed in, so the flow can leave the first screen. */
+function addressDone(state: FlowState): boolean {
+  return state.address.url !== undefined && state.reviewer !== null;
+}
+
+/** Back is offered only on the second screen, and not while the project is being created. */
 export function canGoBack(state: FlowState): boolean {
-  return state.step !== STEPS[0] && state.create.status !== "creating" && state.project === null;
-}
-
-function stepAfter(step: StepId): StepId {
-  return STEPS[Math.min(STEPS.indexOf(step) + 1, STEPS.length - 1)]!;
-}
-
-function stepBefore(step: StepId): StepId {
-  return STEPS[Math.max(STEPS.indexOf(step) - 1, 0)]!;
-}
-
-/** "Can you change the prototype's code?" as shown: the answer, or Yes already chosen for an engineer. */
-export function shownCodeAccess(answers: OnboardingAnswers): CodeAccess | undefined {
-  return answers.codeAccess ?? (answers.role === "engineer" ? "self" : undefined);
-}
-
-/** Whether the code-access step shows the developer email fields. */
-export function asksForDevelopers(access: CodeAccess | undefined): boolean {
-  return access === "teammate" || access === "nobody";
-}
-
-/** Whether the current step has an answer to continue with. Without one, Skip is the way on. */
-export function canContinue(state: FlowState): boolean {
-  switch (state.step) {
-    case "sign-in":
-      return state.reviewer !== null;
-    case "address":
-      return state.address.status === "checked";
-    case "role":
-      return state.answers.role !== undefined;
-    case "team-size":
-      return state.answers.teamSize !== undefined;
-    case "code-access":
-      return shownCodeAccess(state.answers) !== undefined;
-    case "feedback-from":
-      return (state.answers.feedbackFrom?.length ?? 0) > 0;
-    case "purpose":
-      return state.answers.purpose !== undefined;
-    case "create":
-      return state.project !== null;
-    case "recommendation":
-      return false;
-    default: {
-      const exhaustive: never = state.step;
-      return exhaustive;
-    }
-  }
-}
-
-/** The answer each question step asks for. The address step's answer is its own state. */
-const ANSWER_OF: Partial<Record<StepId, keyof OnboardingAnswers>> = {
-  role: "role",
-  "team-size": "teamSize",
-  "code-access": "codeAccess",
-  "feedback-from": "feedbackFrom",
-  purpose: "purpose",
-};
-
-/** The current step's answer, removed: Skip leaves it absent. */
-function withoutAnswer(state: FlowState): FlowState {
-  if (state.step === "address") return { ...state, address: EMPTY_ADDRESS, stack: NO_STACK };
-  const key = ANSWER_OF[state.step];
-  return key === undefined ? state : { ...state, answers: clean({ ...state.answers, [key]: undefined }), showDeveloperErrors: false };
-}
-
-/** Answers without fields that hold `undefined` or an empty list, so a skipped answer is absent, not present and empty. */
-function clean(answers: OnboardingAnswers): OnboardingAnswers {
-  return Object.fromEntries(Object.entries(answers).filter(([, value]) => value !== undefined && !(Array.isArray(value) && value.length === 0))) as OnboardingAnswers;
+  return state.step === "who" && state.create.status !== "creating";
 }
 
 export function flowReducer(state: FlowState, action: FlowAction): FlowState {
-  // A result for an earlier flow, such as another reviewer's or one started over, changes nothing.
+  // A result for an earlier flow, such as another reviewer's, changes nothing.
   if ("flow" in action && action.flow !== state.flow) return state;
   switch (action.type) {
-    case "signed-in":
-      // Another reviewer's flow is theirs: the new one starts fresh.
-      if (state.reviewer !== null && state.reviewer.id !== action.reviewer.id) return initialFlow(action.reviewer, state.flow + 1);
-      return { ...state, reviewer: action.reviewer, step: state.step === "sign-in" ? "address" : state.step };
+    case "signed-in": {
+      // Another reviewer's flow is theirs: the new one starts fresh. Someone signing in for the first time keeps what they typed.
+      const base: FlowState = state.reviewer !== null && state.reviewer.id !== action.reviewer.id ? initialFlow(action.reviewer, state.flow + 1) : { ...state, reviewer: action.reviewer };
+      return base.step === "address" && base.address.url !== undefined ? { ...base, step: "who" } : base;
+    }
     case "signed-out":
       return initialFlow(null, state.flow + 1);
-    case "next": {
-      if (!canContinue(state)) return state;
-      if (state.step === "code-access") {
-        const access = shownCodeAccess(state.answers)!;
-        if (asksForDevelopers(access) && developerErrors(state.developers, state.reviewer?.email ?? null).some((error) => error !== null)) {
-          return { ...state, showDeveloperErrors: true, developerCheck: state.developerCheck + 1 };
-        }
-        return { ...state, answers: { ...state.answers, codeAccess: access }, showDeveloperErrors: false, step: stepAfter(state.step) };
-      }
-      return { ...state, step: stepAfter(state.step) };
+    case "address-text":
+      return state.step === "address" ? { ...state, address: { text: action.text, error: null, url: undefined } } : state;
+    case "address-continue": {
+      if (state.step !== "address") return state;
+      const url = addressToCheck(state.address.text);
+      if (url === null) return { ...state, address: { ...state.address, error: state.address.text.trim() === "" ? copy.address.empty : copy.address.invalid, url: undefined } };
+      const next = { ...state, address: { ...state.address, error: null, url: url.href } };
+      return addressDone(next) ? { ...next, step: "who" } : next;
+    }
+    case "address-none": {
+      if (state.step !== "address") return state;
+      const next = { ...state, address: { text: "", error: null, url: null } };
+      return addressDone(next) ? { ...next, step: "who" } : next;
     }
     case "back":
-      return canGoBack(state) ? { ...state, step: stepBefore(state.step) } : state;
-    case "skip":
-      return SKIPPABLE.has(state.step) ? { ...withoutAnswer(state), step: stepAfter(state.step) } : state;
-    case "address-text":
-      // Changing the address drops what was found at the old one.
-      return { ...state, address: { status: "editing", text: action.text, error: null }, stack: NO_STACK };
-    case "address-invalid":
-      return state.address.status === "editing" ? { ...state, address: { ...state.address, error: copy.address.invalid } } : state;
-    case "address-check-started":
-      return { ...state, address: { status: "checking", text: state.address.text, url: action.url }, stack: NO_STACK };
-    case "address-checked": {
-      // A result for an address the person has since changed is ignored.
-      if (state.address.status !== "checking" || state.address.url !== action.url) return state;
-      const detected = "stack" in action.check ? action.check.stack : null;
-      return {
-        ...state,
-        address: { status: "checked", text: state.address.text, url: action.url, check: action.check },
-        stack: { detected, chosen: null, picking: detected === null },
-      };
-    }
-    case "address-check-failed":
-      if (state.address.status !== "checking" || state.address.url !== action.url) return state;
-      return { ...state, address: { status: "editing", text: state.address.text, error: action.error } };
-    case "address-only-local":
-      return { ...state, address: { status: "checked", text: "", url: null, check: { kind: "local" } }, stack: { ...NO_STACK, picking: true } };
-    case "address-none":
-      return { ...state, address: { status: "checked", text: "", url: null, check: { kind: "none" } }, stack: { ...NO_STACK, picking: true } };
-    case "stack-use":
-      if (state.stack.detected === null || state.address.status !== "checked") return state;
-      return { ...state, stack: { ...state.stack, chosen: state.stack.detected, picking: false }, step: stepAfter(state.step) };
-    case "stack-change":
-      // The picker starts on what was found, so Continue without a new choice keeps it.
-      return { ...state, stack: { ...state.stack, picking: true, chosen: state.stack.chosen ?? state.stack.detected } };
-    case "stack-pick":
-      return { ...state, stack: { ...state.stack, chosen: action.stack } };
-    case "answer":
-      return { ...state, answers: clean({ ...state.answers, ...action.answer }) };
+      // Going back keeps the address, but it must be confirmed again with Continue.
+      return canGoBack(state) ? { ...state, step: "address", address: { ...state.address, url: undefined }, create: { status: "idle" } } : state;
+    case "choose":
+      // One request at a time; the page creates the project when it sees `creating`.
+      if (state.step !== "who" || state.create.status === "creating") return state;
+      return { ...state, who: action.who, create: { status: "creating" } };
+    case "switch-who":
+      return state.step === "setup" && state.who !== null ? { ...state, who: state.who === "me" ? "developer" : "me" } : state;
     case "developers":
       return { ...state, developers: action.developers.slice(0, MAX_DEVELOPER_INVITES_PER_PROJECT) };
-    case "project-name":
-      return state.create.status === "creating" ? state : { ...state, projectName: action.name };
     case "organization":
       return state.create.status === "creating" ? state : { ...state, organizationId: action.organizationId };
-    case "create-started":
-      // One request at a time: the step stays, and Back and Create wait for its answer.
-      return state.step !== "create" || state.project !== null || state.create.status === "creating" ? state : { ...state, create: { status: "creating" } };
     case "created":
-      return state.create.status === "creating" ? { ...state, create: { status: "idle" }, project: action.project, step: "recommendation" } : state;
+      return state.create.status === "creating" ? { ...state, create: { status: "idle" }, project: action.project, step: "setup" } : state;
     case "create-failed":
       return state.create.status === "creating" ? { ...state, create: { status: "failed", message: action.message, limit: action.limit } } : state;
-    case "start-over":
-      return initialFlow(state.reviewer, state.flow + 1);
+    case "create-cancelled":
+      return state.create.status === "creating" ? { ...state, create: { status: "idle" } } : state;
+    case "setup-done":
+      return state.step === "setup" && !state.about.shown ? { ...state, about: { ...state.about, shown: true } } : state;
+    case "about-answered":
+    case "about-skip": {
+      if (state.about.asking === null) return state;
+      const next = ABOUT_QUESTIONS[ABOUT_QUESTIONS.indexOf(state.about.asking) + 1] ?? null;
+      return { ...state, about: { ...state.about, asking: next } };
+    }
     default: {
       const exhaustive: never = action;
       return exhaustive;
@@ -285,38 +183,32 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
   }
 }
 
-// What the steps hand to the backend.
+/** The answer each "while you're here" question saves. */
+export type AboutAnswer = { role: Role } | { teamSize: TeamSize };
 
-/** The stack to save with the project: a framework picked or confirmed; "I'm not sure" or none is no stack. */
-export function savedStack(stack: StackState): StackId | null {
-  return stack.chosen === null || stack.chosen === "unsure" ? null : stack.chosen;
-}
+// What the screens hand to the backend.
 
-/** What the recommendation reads: the check, or no address when the step was skipped. */
-export function addressCheckOf(address: AddressState): AddressCheck {
-  return address.status === "checked" ? address.check : { kind: "none" };
-}
-
-/** The review address to save: the checked address when it is a valid one (HTTPS, or HTTP on this computer). */
+/** The review address to save: the given address when it is a valid one (HTTPS, or HTTP on this computer). */
 export function reviewUrlOf(address: AddressState): string | null {
-  return address.status === "checked" && address.url !== null ? validReviewUrl(address.url) : null;
+  return typeof address.url === "string" ? validReviewUrl(address.url) : null;
 }
 
 /**
- * The name field's starting value: the first part of the address's host,
- * such as "acme-proto" for acme-proto.vercel.app, or "My prototype". Not the
- * whole host: Critiqs won't email setup steps for a project whose name
- * contains a web address.
+ * The project's name: the first part of the address's host, such as
+ * "acme-proto" for acme-proto.vercel.app, or "My prototype". Not the whole
+ * host: Critiqs won't email setup steps for a project whose name contains a
+ * web address. It can be renamed later in Critiqs.
  */
 export function defaultProjectName(address: AddressState): string {
-  if (address.status !== "checked" || address.url === null) return copy.create.defaultName;
+  if (typeof address.url !== "string") return copy.defaultProjectName;
   const host = new URL(address.url).hostname;
-  if (host.startsWith("[") || /^\d+(\.\d+){3}$/.test(host)) return copy.create.defaultName;
-  return host.split(".").find((label) => label !== "" && label !== "www") ?? copy.create.defaultName;
+  if (host.startsWith("[") || /^\d+(\.\d+){3}$/.test(host)) return copy.defaultProjectName;
+  return host.split(".").find((label) => label !== "" && label !== "www") ?? copy.defaultProjectName;
 }
 
-export function projectNameOf(state: FlowState): string {
-  return state.projectName ?? defaultProjectName(state.address);
+/** The host to show for the prototype: what's typed, without https:// or a trailing slash. */
+export function shownHost(text: string): string {
+  return text.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
 }
 
 // Addresses.
@@ -324,8 +216,8 @@ export function projectNameOf(state: FlowState): string {
 /**
  * The address to check from what the person typed, with `https://` added to
  * a bare host (`http://` for one on this computer or a private network,
- * except Tailscale's `*.ts.net`), or null when it isn't an
- * http or https address without a username or password.
+ * except Tailscale's `*.ts.net`), or null when it isn't an http or https
+ * address without a username or password.
  */
 export function addressToCheck(text: string): URL | null {
   const trimmed = text.trim();
@@ -340,6 +232,10 @@ export function addressToCheck(text: string): URL | null {
     const url = new URL(candidate);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     if (url.username !== "" || url.password !== "" || url.hostname === "") return null;
+    // Browsers differ on what a host may hold: Chrome keeps a space as %20. A host is letters, digits, dots, and hyphens (IDNs arrive as xn--), or an IP literal.
+    if (!/^([a-z0-9-]+\.)*[a-z0-9-]+\.?$|^\[[0-9a-f:.]+\]$/i.test(url.hostname)) return null;
+    // A host needs a dot, or must be one on this computer or a private network: "hello" is a typo, not a prototype.
+    if (!url.hostname.includes(".") && !url.hostname.includes(":") && !isPrivateHost(url.hostname)) return null;
     return url;
   } catch {
     return null;
@@ -383,7 +279,9 @@ export function filledDevelopers(fields: readonly string[]): string[] {
 // Keeping the flow across a reload of the page, in this tab only, for the
 // reviewer it belongs to.
 
-const STORAGE_KEY = "critiqs:onboarding:v2";
+const STORAGE_KEY = "critiqs:onboarding:v3";
+/** Drafts saved by earlier versions of this page, removed with the current one. */
+const OLD_STORAGE_KEYS = ["critiqs:onboarding:v2"];
 
 /** Saves a signed-in reviewer's flow; with no one signed in, removes any saved one. */
 export function saveFlow(storage: Storage | null, state: FlowState): void {
@@ -398,9 +296,9 @@ export function saveFlow(storage: Storage | null, state: FlowState): void {
 /**
  * The saved flow for the signed-in reviewer, or a new one. Another
  * reviewer's saved flow, or one saved with nobody signed in, is removed. A
- * check that was running when the page closed starts over. So does a create:
- * its request may have finished, and nothing ties a new request to it, so
- * creating again after a reload during a create can make a second project.
+ * create that was pending when the page closed goes back to the choice: its
+ * request may have finished, and nothing ties a new request to it, so
+ * choosing again after a reload during a create can make a second project.
  */
 export function restoreFlow(storage: Storage | null, reviewer: FlowReviewer | null): FlowState {
   try {
@@ -411,9 +309,8 @@ export function restoreFlow(storage: Storage | null, reviewer: FlowReviewer | nu
       clearFlow(storage);
       return initialFlow(reviewer);
     }
-    const address: AddressState = saved.address.status === "checking" ? { status: "editing", text: saved.address.text, error: null } : saved.address;
     const create: CreateState = saved.create?.status === "creating" ? { status: "idle" } : (saved.create ?? { status: "idle" });
-    return { ...initialFlow(reviewer), ...saved, reviewer, address, create, step: saved.step === "sign-in" ? "address" : saved.step };
+    return { ...initialFlow(reviewer), ...saved, reviewer, create };
   } catch {
     return initialFlow(reviewer);
   }
@@ -443,7 +340,7 @@ export function clearFlowOnSignOut(session: { subscribe(listener: () => void): (
 
 export function clearFlow(storage: Storage | null): void {
   try {
-    storage?.removeItem(STORAGE_KEY);
+    for (const key of [STORAGE_KEY, ...OLD_STORAGE_KEYS]) storage?.removeItem(key);
   } catch {
     // Nothing to clear.
   }

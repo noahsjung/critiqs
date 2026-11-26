@@ -1,47 +1,42 @@
-import { isLocalAddress, type OrganizationSummary, STACKS } from "@critiqs/core";
-import { type Dispatch, type ReactNode, useEffect, useId, useReducer, useRef, useState } from "react";
-import { failureCode, failureMessage, type NewProject, useAuth, useBackend } from "../backend.ts";
-import { checkResult, copy } from "../copy.ts";
+import { isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
+import { type Dispatch, useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
+import { type Backend, failureCode, failureMessage, useAuth, useBackend } from "../backend.ts";
+import { copy } from "../copy.ts";
 import {
-  addressCheckOf,
-  addressToCheck,
-  asksForDevelopers,
-  canContinue,
-  developerErrors,
+  CODE_ACCESS_OF,
+  defaultProjectName,
   type FlowAction,
   flowReducer,
   type FlowReviewer,
   type FlowState,
-  projectNameOf,
   restoreFlow,
   reviewUrlOf,
   saveFlow,
-  savedStack,
   sessionStore,
-  shownCodeAccess,
-  SKIPPABLE,
-  type StackChoice,
+  shownHost,
   STEPS,
+  type Who,
 } from "../flow.ts";
 import { Select } from "../shared.ts";
-import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { Actions, CheckList, PageHeader, RadioList, SignInButton } from "./parts.tsx";
-import { Recommendation } from "./Recommendation.tsx";
+import { AboutYou } from "./AboutYou.tsx";
+import { Heading, Progress } from "./parts.tsx";
+import { Preview } from "./Preview.tsx";
+import { InstallPanel, SendPanel } from "./Ways.tsx";
 
 /**
- * Onboarding at /start: sign in, the prototype's address, a question per
- * step, the project, then one recommendation. The flow and its saved draft
- * belong to the signed-in reviewer: another reviewer starts fresh, and
- * signing out removes the draft.
+ * Onboarding at /start, in three screens: the prototype's link, who adds
+ * Critiqs, then the command or the email. Signing in happens when the person
+ * leaves the first screen. The flow and its saved draft belong to the
+ * signed-in reviewer: another reviewer starts fresh, and signing out removes
+ * the draft.
  */
 export function Onboarding() {
   const auth = useAuth();
-  const backend = useBackend();
   const reviewer: FlowReviewer | null = auth.reviewer === null ? null : { id: auth.reviewer.id, email: auth.reviewer.email };
   const [state, dispatch] = useReducer(flowReducer, reviewer, (signedIn) => restoreFlow(sessionStore(), signedIn));
   useEffect(() => saveFlow(sessionStore(), state), [state]);
 
-  // Finishing sign-in moves past the sign-in step, and another reviewer gets a fresh flow; signing out starts over.
+  // Finishing sign-in moves on from the first screen, and another reviewer gets a fresh flow; signing out starts over.
   useEffect(() => {
     if (reviewer === null) {
       if (state.reviewer !== null) dispatch({ type: "signed-out" });
@@ -50,294 +45,148 @@ export function Onboarding() {
     }
   }, [reviewer?.id, reviewer?.email, auth.ready]);
 
-  // "About you" is saved as the person leaves the team-size step, whether they answered or skipped.
-  const act: Dispatch<FlowAction> = (action) => {
-    if (state.step === "team-size" && (action.type === "next" || action.type === "skip")) {
-      const { role, teamSize } = flowReducer(state, action).answers;
-      if (role !== undefined || teamSize !== undefined) {
-        backend.saveAboutYou({ ...(role === undefined ? {} : { role }), ...(teamSize === undefined ? {} : { teamSize }) }).catch((error) => console.warn("Critiqs couldn't save the About you answers.", error));
-      }
-    }
-    dispatch(action);
-  };
-
   // A stored sign-in is still being accepted by the backend, or the flow is still another reviewer's for a moment.
-  if (state.step !== "sign-in" && (!auth.ready || state.reviewer?.id !== reviewer?.id)) return <p className="note">{copy.loading}</p>;
-  return <OnboardingStep state={state} dispatch={act} />;
+  if (state.step !== "address" && (!auth.ready || state.reviewer?.id !== reviewer?.id)) return <p className="note">{copy.loading}</p>;
+  return <OnboardingScreen state={state} dispatch={dispatch} />;
 }
 
-/** The current step's page. Exported for tests, which drive it with a fake backend. */
-export function OnboardingStep({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
-  const titleId = useId();
-  const index = STEPS.indexOf(state.step);
-  const frame = (title: string, body: ReactNode, primary?: ReactNode) => (
-    <>
-      <PageHeader
-        id={titleId}
-        title={title}
-        // No Back once the project exists: the answers before it can't change it. It waits while the project is created.
-        onBack={index > 0 && state.project === null ? () => dispatch({ type: "back" }) : undefined}
-        backDisabled={state.create.status === "creating"}
-        step={{ current: index + 1, count: STEPS.length }}
-      />
-      {body}
-      {primary !== undefined && <Actions onSkip={SKIPPABLE.has(state.step) ? () => dispatch({ type: "skip" }) : undefined}>{primary}</Actions>}
-    </>
+/**
+ * The stack found at an address, checked once per reviewer and address: the
+ * check runs as the person signed in, so another reviewer's is never reused.
+ * The check only names the stack saved with the project, so a failed one is
+ * no stack, and an address on this computer or a private network is never
+ * sent to the server.
+ */
+export function useStackCheck(backend: Backend): (reviewerId: string, url: string) => Promise<StackId | null> {
+  const checks = useRef(new Map<string, Promise<StackId | null>>());
+  return useCallback(
+    (reviewerId: string, url: string) => {
+      const key = `${reviewerId} ${url}`;
+      let found = checks.current.get(key);
+      if (found === undefined) {
+        found = isLocalAddress(new URL(url))
+          ? Promise.resolve(null)
+          : backend.checkAddress(url).then(
+              (check) => ("stack" in check ? check.stack : null),
+              () => null,
+            );
+        checks.current.set(key, found);
+      }
+      return found;
+    },
+    [backend],
   );
-  const next = (
-    <button type="button" className="btn primary" disabled={!canContinue(state)} onClick={() => dispatch({ type: "next" })}>
-      {copy.continue}
-    </button>
-  );
-
-  switch (state.step) {
-    case "sign-in":
-      return frame(copy.signIn.title, <SignInBody state={state} dispatch={dispatch} />);
-    case "address":
-      return <AddressStep state={state} dispatch={dispatch} frame={frame} />;
-    case "role":
-      return frame(
-        copy.role.title,
-        <>
-          <p className="lead">{copy.role.lead}</p>
-          <RadioList labelledBy={titleId} options={copy.role.options} value={state.answers.role} onChange={(role) => dispatch({ type: "answer", answer: { role } })} />
-        </>,
-        next,
-      );
-    case "team-size":
-      return frame(
-        copy.teamSize.title,
-        <RadioList labelledBy={titleId} options={copy.teamSize.options} value={state.answers.teamSize} onChange={(teamSize) => dispatch({ type: "answer", answer: { teamSize } })} />,
-        next,
-      );
-    case "code-access": {
-      const access = shownCodeAccess(state.answers);
-      return frame(
-        copy.codeAccess.title,
-        <>
-          <p className="lead">{copy.codeAccess.lead}</p>
-          <RadioList labelledBy={titleId} options={copy.codeAccess.options} value={access} onChange={(codeAccess) => dispatch({ type: "answer", answer: { codeAccess } })} />
-          {asksForDevelopers(access) && (
-            <DeveloperEmails
-              fields={state.developers}
-              onChange={(developers) => dispatch({ type: "developers", developers })}
-              errors={state.showDeveloperErrors ? developerErrors(state.developers, state.reviewer?.email ?? null) : null}
-              refused={state.developerCheck}
-              note={copy.developers.note}
-            />
-          )}
-        </>,
-        next,
-      );
-    }
-    case "feedback-from":
-      return frame(
-        copy.feedbackFrom.title,
-        <>
-          <p className="lead">{copy.feedbackFrom.lead}</p>
-          <CheckList
-            labelledBy={titleId}
-            options={copy.feedbackFrom.options}
-            value={state.answers.feedbackFrom ?? []}
-            onChange={(feedbackFrom) => dispatch({ type: "answer", answer: { feedbackFrom } })}
-          />
-        </>,
-        next,
-      );
-    case "purpose":
-      return frame(
-        copy.purpose.title,
-        <>
-          <p className="lead">{copy.purpose.lead}</p>
-          <RadioList labelledBy={titleId} options={copy.purpose.options} value={state.answers.purpose} onChange={(purpose) => dispatch({ type: "answer", answer: { purpose } })} />
-        </>,
-        next,
-      );
-    case "create":
-      return <CreateStep state={state} dispatch={dispatch} frame={frame} />;
-    case "recommendation": {
-      const project = state.project;
-      // The flow reaches the recommendation only by creating the project.
-      if (project === null) return frame(copy.create.title, null, next);
-      return frame(
-        copy.recommendation.title(project.name),
-        <>
-          <Recommendation project={project} developers={state.developers} onDevelopers={(developers) => dispatch({ type: "developers", developers })} email={state.reviewer?.email ?? null} />
-          <div className="ds-actions start-over">
-            <button type="button" className="btn ghost" onClick={() => dispatch({ type: "start-over" })}>
-              {copy.startOver}
-            </button>
-          </div>
-        </>,
-      );
-    }
-    default: {
-      const exhaustive: never = state.step;
-      return exhaustive;
-    }
-  }
 }
 
-type Frame = (title: string, body: ReactNode, primary?: ReactNode) => ReactNode;
+/** The current screen beside the preview. Exported for tests, which drive it with a fake backend. */
+export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
+  const backend = useBackend();
+  const stackOf = useStackCheck(backend);
+  const url = state.address.url;
+  // The check starts as soon as someone signed in has given a link, so it's usually done before they choose.
+  useEffect(() => {
+    if (state.reviewer !== null && typeof url === "string" && state.project === null) void stackOf(state.reviewer.id, url);
+  }, [state.reviewer?.id, url, state.project === null]);
 
-function SignInBody({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
+  const host = state.project?.reviewUrl != null ? shownHost(state.project.reviewUrl) : state.address.text.trim() === "" ? null : shownHost(state.address.text);
+  return (
+    <div className="flow">
+      <section className="flow-main" aria-live="off">
+        <Progress step={STEPS.indexOf(state.step) + 1} count={STEPS.length} />
+        {state.step === "address" && <AddressScreen state={state} dispatch={dispatch} />}
+        {state.step === "who" && <WhoScreen state={state} dispatch={dispatch} stackOf={stackOf} />}
+        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} />}
+      </section>
+      <Preview host={host} live={state.step === "setup"} />
+    </div>
+  );
+}
+
+/** What should your team review? A link, or "It's not online yet". Leaving it signs the person in when they aren't. */
+function AddressScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
   const auth = useAuth();
-  if (state.reviewer !== null && auth.ready) {
-    return (
-      <>
-        <p className="lead">{copy.signIn.signedInAs(state.reviewer.email)}</p>
-        <div>
-          <button type="button" className="link-btn" onClick={() => void auth.signOut()}>
-            {copy.signIn.useAnother}
-          </button>
-        </div>
-        <Actions>
-          <button type="button" className="btn primary" onClick={() => dispatch({ type: "next" })}>
-            {copy.continue}
-          </button>
-        </Actions>
-      </>
-    );
-  }
+  const fieldId = useId();
+  const [signIn, setSignIn] = useState<{ status: "idle" | "waiting" } | { status: "failed"; message: string }>({ status: "idle" });
+  const { address } = state;
+  const signedIn = state.reviewer !== null;
+  const field = useRef<HTMLInputElement>(null);
+
+  // The sign-in window opens from the click itself, or browsers block it.
+  const signInIfNeeded = async () => {
+    if (signedIn) return;
+    setSignIn({ status: "waiting" });
+    try {
+      await auth.signIn();
+      setSignIn({ status: "idle" });
+    } catch (error) {
+      setSignIn({ status: "failed", message: error instanceof Error ? error.message : String(error) });
+    }
+  };
+  const go = (action: FlowAction, valid: boolean) => {
+    dispatch(action);
+    if (valid) void signInIfNeeded();
+  };
+  const waiting = signIn.status === "waiting" || (auth.reviewer !== null && !auth.ready);
+
   return (
     <>
-      <p className="lead">{copy.signIn.lead}</p>
-      <SignInButton />
-    </>
-  );
-}
-
-const STACK_OPTIONS = [...STACKS.map((stack) => ({ value: stack.id as string, label: stack.label })), { value: "unsure", label: copy.stack.unsure }];
-
-function AddressStep({ state, dispatch, frame }: { state: FlowState; dispatch: Dispatch<FlowAction>; frame: Frame }) {
-  const backend = useBackend();
-  const fieldId = useId();
-  const pickerId = useId();
-  const { address, stack } = state;
-
-  const check = async () => {
-    const url = addressToCheck(address.text);
-    if (url === null) return dispatch({ type: "address-invalid" });
-    const flow = state.flow;
-    dispatch({ type: "address-check-started", url: url.href });
-    // An address on this computer or a private network is never fetched; the server would answer the same.
-    if (isLocalAddress(url)) return dispatch({ type: "address-checked", flow, url: url.href, check: { kind: "local" } });
-    try {
-      dispatch({ type: "address-checked", flow, url: url.href, check: await backend.checkAddress(url.href) });
-    } catch (error) {
-      dispatch({ type: "address-check-failed", flow, url: url.href, error: failureMessage(error, copy.address.checkFailed) });
-    }
-  };
-
-  const error = address.status === "editing" ? address.error : null;
-  const chosen = stack.chosen === null ? null : STACKS.find((candidate) => candidate.id === stack.chosen) ?? null;
-  const detected = stack.detected === null ? null : STACKS.find((candidate) => candidate.id === stack.detected)!;
-
-  let primary: ReactNode;
-  if (address.status !== "checked") {
-    primary = (
-      <button type="submit" form={fieldId + "-form"} className="btn primary" disabled={address.text.trim() === "" || address.status === "checking"}>
-        {copy.address.check}
-      </button>
-    );
-  } else if (detected !== null && !stack.picking) {
-    primary = (
-      <button type="button" className="btn primary" onClick={() => dispatch({ type: "stack-use" })}>
-        {copy.stack.use(detected.label)}
-      </button>
-    );
-  } else {
-    primary = (
-      <button type="button" className="btn primary" onClick={() => dispatch({ type: "next" })}>
-        {copy.continue}
-      </button>
-    );
-  }
-
-  return frame(
-    copy.address.title,
-    <>
-      <p className="lead">{copy.address.lead}</p>
+      <Heading title={copy.address.title} lead={copy.address.lead} />
       <form
-        id={fieldId + "-form"}
-        className="stacked address-form"
+        className="stacked"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (address.status === "editing") void check();
+          const valid = flowReducer(state, { type: "address-continue" }).address.error === null;
+          go({ type: "address-continue" }, valid);
+          // A refused link keeps focus on the field, whose description is the error.
+          if (!valid) field.current?.focus();
         }}
       >
-        <label className="field-label" htmlFor={fieldId}>
+        <label className="visually-hidden" htmlFor={fieldId}>
           {copy.address.field}
         </label>
         <input
+          ref={field}
           id={fieldId}
-          className="field"
+          className="field large"
           type="text"
           inputMode="url"
           autoComplete="url"
           autoCapitalize="off"
+          autoFocus
           spellCheck={false}
           placeholder={copy.address.placeholder}
           value={address.text}
-          aria-invalid={error !== null}
-          aria-describedby={error === null ? undefined : `${fieldId}-error`}
+          aria-invalid={address.error !== null}
+          aria-describedby={address.error === null ? undefined : `${fieldId}-error`}
           onChange={(event) => dispatch({ type: "address-text", text: event.target.value })}
         />
-        {error !== null && (
-          <p className="error" id={`${fieldId}-error`}>
-            {error}
+        {address.error !== null && (
+          <p className="error" id={`${fieldId}-error`} role="alert">
+            {address.error}
           </p>
         )}
+        <div className="actions">
+          <button type="submit" className="btn primary large" disabled={waiting}>
+            {copy.continue}
+          </button>
+          <button type="button" className="quiet" disabled={waiting} onClick={() => go({ type: "address-none" }, true)}>
+            {copy.address.notOnline}
+          </button>
+        </div>
       </form>
-      <div className="row wrap quiet-choices">
-        <button type="button" className="link-btn" onClick={() => dispatch({ type: "address-only-local" })}>
-          {copy.address.onlyOnMyComputer}
-        </button>
-        <button type="button" className="link-btn" onClick={() => dispatch({ type: "address-none" })}>
-          {copy.address.noAddressYet}
-        </button>
-      </div>
-      <div role="status" className="check-status">
-        {address.status === "checking" && <p className="note">{copy.address.checking(new URL(address.url).host)}</p>}
-        {address.status === "checked" && <CheckResult {...checkResult(address.check, address.url === null ? null : new URL(address.url))} />}
-      </div>
-      {address.status === "checked" &&
-        (detected !== null && !stack.picking ? (
-          <div className="row wrap stack-found">
-            <span>{copy.stack.detected(detected.label)}</span>
-            <button type="button" className="link-btn" onClick={() => dispatch({ type: "stack-change" })}>
-              {copy.stack.change}
-            </button>
-          </div>
-        ) : (
-          <div className="stacked stack-picker">
-            <p className="field-label" id={pickerId}>
-              {copy.stack.pickerTitle}
-            </p>
-            <p className="note">{copy.stack.pickerLead}</p>
-            <div>
-              <Select
-                value={stack.chosen ?? ""}
-                options={STACK_OPTIONS}
-                labelledBy={pickerId}
-                onChange={(value) => dispatch({ type: "stack-pick", stack: value as StackChoice })}
-              />
-            </div>
-            {chosen !== null && !chosen.installable && <p className="caution">{copy.stack.notInstallable(chosen.label)}</p>}
-          </div>
-        ))}
-    </>,
-    primary,
-  );
-}
-
-function CheckResult({ heading, detail }: { heading: string; detail: string }) {
-  return (
-    <p className="check-result">
-      <strong>{heading}</strong>
-      <span className="note">{detail}</span>
-    </p>
+      {!signedIn && signIn.status === "idle" && <p className="note">{copy.signIn.next}</p>}
+      {waiting && (
+        <p className="note" role="status">
+          {copy.signIn.waiting}
+        </p>
+      )}
+      {signIn.status === "failed" && (
+        <p className="error" role="alert">
+          {signIn.message}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -347,165 +196,161 @@ export function defaultOrganization(choices: readonly OrganizationSummary[]): Or
 }
 
 /**
- * Creating the project. Create waits for the organizations, and stays
- * disabled with their error when they can't be loaded: the project never
- * goes to an organization the person didn't see. The one shown first (the
- * home one, else the first) becomes the choice; if the chosen one leaves the
- * person's list while the form is open, the choice is cleared and Create
- * waits until they choose again, even with one left. While the request is
- * pending, Create and Back wait. A plan's project limit offers the projects
- * the person created and, for an admin of the organization, the deployment's
- * upgrade page.
+ * Who will add Critiqs to it? Choosing creates the project, named after the
+ * link, in the person's organization, with the stack the check found. The
+ * choices wait for the organizations: a project never goes to one the person
+ * didn't see. With several, the one it goes in is shown and can be changed;
+ * if the chosen one leaves the list, nothing is chosen until the person
+ * picks again. A plan's project limit offers the projects the person created
+ * and, for an admin, the deployment's upgrade page.
  */
-function CreateStep({ state, dispatch, frame }: { state: FlowState; dispatch: Dispatch<FlowAction>; frame: Frame }) {
+function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: Dispatch<FlowAction>; stackOf: (reviewerId: string, url: string) => Promise<StackId | null> }) {
   const backend = useBackend();
-  const organizations = backend.useOrganizations(true);
-  const nameId = useId();
+  const titleId = useId();
   const organizationLabel = useId();
   const existingLabel = useId();
-  const [nameMissing, setNameMissing] = useState(false);
+  const organizations = backend.useOrganizations(true);
   const creating = state.create.status === "creating";
   const limited = state.create.status === "failed" && state.create.limit;
   const choices = organizations.status === "ready" ? organizations.data : [];
   const fallback = defaultOrganization(choices) ?? null;
   const chosen = state.organizationId === null ? fallback : (choices.find((organization) => organization.id === state.organizationId) ?? null);
-  // The chosen organization left the list: nothing is chosen until the person picks again. With none left, the server picks.
   const lost = organizations.status === "ready" && state.organizationId !== null && chosen === null && choices.length > 0;
-  // Names of the organizations shown, to say which one left.
   const names = useRef(new Map<string, string>());
   for (const organization of choices) names.current.set(organization.id, organization.name);
-  // The organization shown first is the one chosen, so its leaving is noticed too.
   useEffect(() => {
     if (organizations.status === "ready" && state.organizationId === null && fallback !== null) dispatch({ type: "organization", organizationId: fallback.id });
   }, [organizations.status, state.organizationId, fallback?.id]);
   const mine = backend.useMyProjects(limited);
   const upgradeUrl = backend.useUpgradeUrl(limited && chosen?.role === "admin");
-  const name = projectNameOf(state);
+  const ready = organizations.status === "ready" && !lost;
+  // The flow on screen now, for a create that waited on the address check.
+  const now = useRef(state.flow);
+  now.current = state.flow;
+  // A reviewer change, sign-out, or sign-in still being accepted replaces this screen.
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => void (shown.current = false);
+  }, []);
 
-  const create = async () => {
-    if (creating || organizations.status !== "ready" || lost) return;
-    const trimmed = name.trim();
-    setNameMissing(trimmed === "");
-    if (trimmed === "") return;
+  const choose = async (who: Who) => {
+    if (creating || !ready) return;
     const flow = state.flow;
-    dispatch({ type: "create-started" });
-    const { codeAccess, feedbackFrom, purpose } = state.answers;
-    const project: NewProject = {
-      name: trimmed,
-      reviewUrl: reviewUrlOf(state.address),
-      organizationId: chosen?.id ?? null,
-      answers: { ...(codeAccess === undefined ? {} : { codeAccess }), ...(feedbackFrom === undefined ? {} : { feedbackFrom }), ...(purpose === undefined ? {} : { purpose }) },
-      stack: savedStack(state.stack),
-    };
+    dispatch({ type: "choose", who });
+    const name = defaultProjectName(state.address);
+    const reviewUrl = reviewUrlOf(state.address);
+    // The organization the person saw when they chose. If it's gone by the time the request is sent, the server refuses it, and that's shown.
+    const organizationId = chosen?.id ?? null;
     try {
-      const id = await backend.createProject(project);
-      dispatch({ type: "created", flow, project: { id, name: trimmed, reviewUrl: project.reviewUrl, answers: state.answers, stack: project.stack, check: addressCheckOf(state.address) } });
+      const stack = typeof state.address.url === "string" && state.reviewer !== null ? await stackOf(state.reviewer.id, state.address.url) : null;
+      // While the check ran, the screen may have gone, or the flow changed: nothing is created, and the choice is open again if this flow comes back.
+      if (!shown.current || now.current !== flow) return dispatch({ type: "create-cancelled", flow });
+      const id = await backend.createProject({ name, reviewUrl, organizationId, answers: { codeAccess: CODE_ACCESS_OF[who] }, stack });
+      dispatch({ type: "created", flow, project: { id, name, reviewUrl, stack } });
     } catch (failure) {
-      // A plan's project limit, among others: the server's message says which, and the person stays here.
-      dispatch({ type: "create-failed", flow, message: failureMessage(failure, copy.create.failed), limit: failureCode(failure) === "limit" });
+      dispatch({ type: "create-failed", flow, message: failureMessage(failure, copy.who.failed), limit: failureCode(failure) === "limit" });
     }
   };
 
   /** Uses a project the person created, with its own name, address, and saved stack, in place of a new one. */
   const chooseExisting = async (projectId: string) => {
-    if (creating) return;
+    if (creating || state.who === null) return;
     const flow = state.flow;
-    dispatch({ type: "create-started" });
+    dispatch({ type: "choose", who: state.who });
     try {
       const setup = await backend.projectSetup(projectId);
-      dispatch({
-        type: "created",
-        flow,
-        project: { id: setup.projectId, name: setup.projectName, reviewUrl: setup.address, answers: state.answers, stack: setup.stack?.id ?? null, check: addressCheckOf(state.address) },
-      });
+      dispatch({ type: "created", flow, project: { id: setup.projectId, name: setup.projectName, reviewUrl: setup.address, stack: setup.stack?.id ?? null } });
     } catch (failure) {
-      dispatch({ type: "create-failed", flow, message: failureMessage(failure, copy.create.useFailed), limit: true });
+      dispatch({ type: "create-failed", flow, message: failureMessage(failure, copy.who.useFailed), limit: true });
     }
   };
 
   const failure = state.create.status === "failed" ? state.create.message : null;
-  // A checked address Critiqs can't save, such as HTTP on a private network, is said before Create, not dropped quietly.
-  const unsaved = state.address.status === "checked" && state.address.url !== null && reviewUrlOf(state.address) === null ? state.address.url : null;
-  return frame(
-    copy.create.title,
+  // An address Critiqs can't save, such as HTTP on a private network, is said before choosing, not dropped quietly.
+  const unsaved = typeof state.address.url === "string" && reviewUrlOf(state.address) === null ? shownHost(state.address.url) : null;
+  const option = (who: Who) => {
+    const { label, detail } = copy.who[who];
+    const busy = creating && state.who === who;
+    return (
+      <button type="button" className="choice" aria-busy={busy} disabled={creating || !ready} onClick={() => void choose(who)}>
+        <span className="choice-icon" aria-hidden="true">
+          {who === "me" ? <CodeGlyph /> : <MailGlyph />}
+        </span>
+        <span className="choice-text">
+          <span className="choice-label">{label}</span>
+          <span className="choice-detail">{busy ? copy.who.creating : detail}</span>
+        </span>
+        {busy && <span className="spinner" aria-hidden="true" />}
+      </button>
+    );
+  };
+
+  return (
     <>
-      <form
-        id={nameId + "-form"}
-        className="stacked create-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void create();
-        }}
-      >
-        <p className="lead">{copy.create.lead}</p>
-        <label className="field-label" htmlFor={nameId}>
-          {copy.create.name}
-        </label>
-        <input
-          id={nameId}
-          className="field"
-          value={name}
-          maxLength={200}
-          disabled={creating}
-          aria-invalid={nameMissing}
-          aria-describedby={nameMissing ? `${nameId}-error` : undefined}
-          onChange={(event) => dispatch({ type: "project-name", name: event.target.value })}
-        />
-        {nameMissing && (
-          <p className="error" id={`${nameId}-error`}>
-            {copy.create.nameRequired}
-          </p>
-        )}
-        {unsaved !== null && <p className="note">{copy.create.addressNotSaved(unsaved)}</p>}
-        {(choices.length > 1 || lost) && (
-          <div className="ds-row">
-            <span className="field-label" id={organizationLabel}>
-              {copy.create.organization}
-            </span>
-            <Select
-              value={chosen?.id ?? ""}
-              options={choices.map((organization) => ({ value: organization.id, label: organization.name }))}
-              labelledBy={organizationLabel}
-              disabled={creating}
-              onChange={(value) => dispatch({ type: "organization", organizationId: value })}
-            />
-          </div>
-        )}
-        {lost && (
-          <p className="error" role="alert">
-            {copy.create.organizationLost(names.current.get(state.organizationId!) ?? null)}
-          </p>
-        )}
-        {organizations.status === "error" && (
-          <p className="error" role="alert">
-            {copy.create.organizationsFailed(organizations.message)}
-          </p>
-        )}
-        {failure !== null && (
-          <p className="error" role="alert">
-            {failure}
-          </p>
-        )}
-      </form>
+      <button type="button" className="quiet back" disabled={creating} onClick={() => dispatch({ type: "back" })}>
+        <BackGlyph />
+        {copy.back}
+      </button>
+      <Heading id={titleId} title={copy.who.title} lead={copy.who.lead} />
+      <div className="choices" role="group" aria-labelledby={titleId}>
+        {option("me")}
+        {option("developer")}
+      </div>
+      {creating && (
+        <p className="visually-hidden" role="status">
+          {copy.who.creating}
+        </p>
+      )}
+      {(choices.length > 1 || lost) && (
+        <div className="row organization">
+          <span className="note" id={organizationLabel}>
+            {copy.who.organization}
+          </span>
+          <Select
+            value={chosen?.id ?? ""}
+            options={choices.map((organization) => ({ value: organization.id, label: organization.name }))}
+            labelledBy={organizationLabel}
+            disabled={creating}
+            onChange={(value) => dispatch({ type: "organization", organizationId: value })}
+          />
+        </div>
+      )}
+      {unsaved !== null && <p className="note">{copy.who.addressNotSaved(unsaved)}</p>}
+      {lost && (
+        <p className="error" role="alert">
+          {copy.who.organizationLost(names.current.get(state.organizationId!) ?? null)}
+        </p>
+      )}
+      {organizations.status === "error" && (
+        <p className="error" role="alert">
+          {copy.who.organizationsFailed(organizations.message)}
+        </p>
+      )}
+      {failure !== null && (
+        <p className="error" role="alert">
+          {failure}
+        </p>
+      )}
       {limited && (
         <div className="stacked limit-recovery">
           {upgradeUrl.status === "ready" && upgradeUrl.data !== null && (
             <div>
               <a className="btn" href={upgradeUrl.data} target="_blank" rel="noreferrer noopener">
-                {copy.create.upgrade}
+                {copy.who.upgrade}
               </a>
             </div>
           )}
           {mine.status === "ready" && mine.data.length > 0 && (
             <div className="stacked">
-              <p className="field-label" id={existingLabel}>
-                {copy.create.useExisting}
+              <p className="note" id={existingLabel}>
+                {copy.who.useExisting}
               </p>
               <div className="project-list" role="group" aria-labelledby={existingLabel}>
                 {mine.data.map((project) => (
                   <button key={project._id} type="button" disabled={creating} onClick={() => void chooseExisting(project._id)}>
                     <span className="project-name">{project.name}</span>
-                    <span className="note">{copy.create.projectDetail(project.organization?.name ?? null, project.reviewUrl, project.createdAt)}</span>
+                    <span className="note">{copy.who.projectDetail(project.organization?.name ?? null, project.reviewUrl, project.createdAt)}</span>
                   </button>
                 ))}
               </div>
@@ -513,9 +358,77 @@ function CreateStep({ state, dispatch, frame }: { state: FlowState; dispatch: Di
           )}
         </div>
       )}
-    </>,
-    <button type="submit" form={nameId + "-form"} className="btn primary" disabled={creating || organizations.status !== "ready" || lost}>
-      {creating ? copy.create.creating : copy.create.button}
-    </button>,
+    </>
+  );
+}
+
+/** The command or the email, then the "while you're here" questions once the person has done it. */
+function SetupScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
+  // Once shown, the email panel stays mounted while the command shows, so a send in flight, its answer, an error, or a field being added
+  // are all still there when the person switches back.
+  const [sendOpened, setSendOpened] = useState(state.who === "developer");
+  if (state.who === "developer" && !sendOpened) setSendOpened(true);
+  // Switching panels moves focus to the shown panel's heading, as a new screen does.
+  const panels = useRef<HTMLDivElement>(null);
+  const shownWho = useRef(state.who);
+  useEffect(() => {
+    if (shownWho.current === state.who) return;
+    shownWho.current = state.who;
+    panels.current?.querySelector<HTMLElement>(".panel:not([hidden]) h1")?.focus();
+  }, [state.who]);
+  const project = state.project;
+  // The flow reaches this screen only by creating the project.
+  if (project === null || state.who === null) return null;
+  const flow = state.flow;
+  const done = () => dispatch({ type: "setup-done", flow });
+  return (
+    <>
+      <div ref={panels} className="panels">
+        {state.who === "me" && (
+          <div className="panel">
+            <InstallPanel project={project} onDone={done} />
+          </div>
+        )}
+        {sendOpened && (
+          <div className="panel" hidden={state.who !== "developer"}>
+            <SendPanel project={project} developers={state.developers} onDevelopers={(developers) => dispatch({ type: "developers", developers })} email={state.reviewer?.email ?? null} onDone={done} />
+          </div>
+        )}
+      </div>
+      <div>
+        <button type="button" className="quiet" onClick={() => dispatch({ type: "switch-who" })}>
+          {state.who === "me" ? copy.install.switch : copy.send.switch}
+        </button>
+      </div>
+      {/* The first question arrives while focus stays on what the person just used, so it's announced. */}
+      <div aria-live="polite">
+        {state.about.shown && <AboutYou asking={state.about.asking} onAnswered={() => dispatch({ type: "about-answered" })} onSkip={() => dispatch({ type: "about-skip" })} />}
+      </div>
+    </>
+  );
+}
+
+function BackGlyph() {
+  return (
+    <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CodeGlyph() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <path d="m8.5 7.5-5 4.5 5 4.5M15.5 7.5l5 4.5-5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MailGlyph() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m4.5 7 7.5 6 7.5-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
