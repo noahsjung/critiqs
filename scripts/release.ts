@@ -199,7 +199,7 @@ type Change = { status: string; path: string };
 async function changes(cwd: string, from: string, to: string): Promise<Change[]> {
   const fields = (await run(["git", "diff", "--name-status", "--no-renames", "-z", from, to], cwd)).split("\0");
   const found: Change[] = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) found.push({ status: fields[index], path: fields[index + 1] });
+  for (let index = 0; index + 1 < fields.length; index += 2) found.push({ status: fields[index]!, path: fields[index + 1]! });
   return found;
 }
 

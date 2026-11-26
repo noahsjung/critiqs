@@ -51,7 +51,7 @@ the ID instead: `<Critiqs projectId="<project ID>" />`.
 `<Critiqs />` takes the shared `critiqs` package's settings as properties:
 `projectId`, `requireProjectId`, `backend` (a team's own backend),
 `version`, `getContext`, and `restoreContext`. See the
-[`critiqs` package](https://github.com/noahsjung/Critiqs/tree/main/packages/critiqs)
+[`critiqs` package](https://github.com/noahsjung/critiqs/tree/main/packages/critiqs)
 for what each one does. Changing a property updates Critiqs; removing the
 component removes Critiqs from the page.
 

@@ -1,0 +1,17 @@
+name: Conduct contact request (public)
+description: "Public: ask a maintainer to contact you about a conduct concern. To report privately, use the private reporting form instead."
+title: Conduct contact request
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This issue is public.** Anyone can see it and that you opened it.
+
+        To report a code of conduct problem privately, don't use this form: use the [private reporting form](https://github.com/noahsjung/critiqs/security/advisories/new), which only you and the maintainers can see, and start the title with "Conduct report:". See [CODE_OF_CONDUCT.md](https://github.com/noahsjung/critiqs/blob/main/CODE_OF_CONDUCT.md#enforcement).
+
+        Use this form only to ask a maintainer to get in touch. Don't describe the incident or name anyone here.
+  - type: textarea
+    id: request
+    attributes:
+      label: Request
+      description: Optional. How you'd like to be contacted, without details of the incident.

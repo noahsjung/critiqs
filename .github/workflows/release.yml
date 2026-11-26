@@ -27,14 +27,14 @@ jobs:
       BRANCH: changeset-release/main
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -47,7 +47,9 @@ jobs:
           # fork's branch can have the same name.
           pr=$(gh pr list --head "$BRANCH" --base main --state open --limit 100 --json number,isCrossRepository \
             | jq -r '[.[] | select(.isCrossRepository == false)][0].number // empty')
-          if [ -z "$(git status --porcelain)" ]; then
+          # Assigned first so a failing git stops the job instead of reading as "no changes".
+          changes=$(git status --porcelain)
+          if [ -z "$changes" ]; then
             if [ -n "$pr" ]; then
               gh pr close "$pr" --comment "main has no unreleased release notes, so this release is no longer needed."
             fi
@@ -64,13 +66,39 @@ jobs:
           bun scripts/release.ts pr-body > "$RUNNER_TEMP/release-body.md"
 
           # Push only when the generated release differs from the current one.
-          if git fetch --quiet origin "$BRANCH" 2>/dev/null \
-            && [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse 'HEAD^{tree}')" ] \
-            && [ "$(git rev-parse 'FETCH_HEAD^')" = "$(git rev-parse 'HEAD^')" ]; then
-            echo "The release branch already holds this release."
-            head=$(git rev-parse FETCH_HEAD)
+          # A missing branch (ls-remote exit 2) is created; any other failure
+          # to read or fetch it stops the job, so an outage never reads as "no
+          # branch yet". Each commit is resolved outside the comparison, so a
+          # failing git stops the job instead of two empty values reading as
+          # equal. The push is leased on the commit observed here, so a branch
+          # that moved meanwhile is never overwritten.
+          listed=0
+          git ls-remote --exit-code origin "refs/heads/$BRANCH" > /dev/null || listed=$?
+          if [ "$listed" = 2 ]; then
+            observed=""
+          elif [ "$listed" = 0 ]; then
+            git fetch --quiet origin "refs/heads/$BRANCH"
+            observed=$(git rev-parse FETCH_HEAD)
           else
-            git push --force origin "HEAD:refs/heads/$BRANCH"
+            echo "::error::Couldn't read $BRANCH from origin (git ls-remote exited $listed)."
+            exit 1
+          fi
+          same=false
+          if [ -n "$observed" ]; then
+            fetched_tree=$(git rev-parse "$observed^{tree}")
+            fetched_parent=$(git rev-parse "$observed^")
+            tree=$(git rev-parse 'HEAD^{tree}')
+            parent=$(git rev-parse 'HEAD^')
+            if [ "$fetched_tree" = "$tree" ] && [ "$fetched_parent" = "$parent" ]; then
+              same=true
+            fi
+          fi
+          if [ "$same" = true ]; then
+            echo "The release branch already holds this release."
+            head=$observed
+          else
+            # An empty lease value means the branch must still not exist.
+            git push --force-with-lease="refs/heads/$BRANCH:$observed" origin "HEAD:refs/heads/$BRANCH"
             head=$(git rev-parse HEAD)
           fi
 

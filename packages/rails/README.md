@@ -1,6 +1,6 @@
 # critiqs-rails
 
-[Critiqs](https://github.com/noahsjung/Critiqs) for Ruby on Rails apps:
+[Critiqs](https://github.com/noahsjung/critiqs) for Ruby on Rails apps:
 reviewers comment on your running prototype, discuss feedback, and find the
 screen and state each comment was made in.
 
@@ -70,7 +70,7 @@ Critiqs draws above your page in its own shadow root and reads the page only
 through the DOM. To report more of the view than the route, such as an open
 tab, or to show a thread's view again without a page load, set `getContext`
 and `restoreContext` on the element from your JavaScript; the
-[critiqs package](https://github.com/noahsjung/Critiqs/tree/main/packages/critiqs)
+[critiqs package](https://github.com/noahsjung/critiqs/tree/main/packages/critiqs)
 describes them and how they combine with the reported route.
 
 ## Routes

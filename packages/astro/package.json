@@ -13,9 +13,9 @@
     "prototype",
     "design review"
   ],
-  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/astro#readme",
+  "homepage": "https://github.com/noahsjung/critiqs/tree/main/packages/astro#readme",
   "bugs": {
-    "url": "https://github.com/noahsjung/Critiqs/issues"
+    "url": "https://github.com/noahsjung/critiqs/issues"
   },
   "type": "module",
   "exports": {
@@ -42,7 +42,7 @@
     "astro": "^5.0.0 || ^6.0.0 || ^7.0.0"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.14.6",
+    "@happy-dom/global-registrator": "^21.0.4",
     "@types/bun": "^1.4.2",
     "astro": "^7.4.13"
   },
@@ -53,7 +53,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/noahsjung/Critiqs.git",
+    "url": "https://github.com/noahsjung/critiqs.git",
     "directory": "packages/astro"
   },
   "engines": {

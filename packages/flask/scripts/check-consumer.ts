@@ -10,10 +10,12 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { FRAMEWORKS } from "../../critiqs/bin/frameworks/index.mjs";
 import { expectToolbar, fakeBackend, PROJECT, scratch, waitForServer } from "../../../scripts/consumer-kit.ts";
-import { release, venv } from "./tasks.ts";
+import { packedFile } from "../../../scripts/package-tarball.ts";
+import { PACKAGE, release, venv } from "./tasks.ts";
 
 const flask = FRAMEWORKS.find((adapter) => adapter.id === "flask")!;
-const wheel = await release();
+// The release's built wheel when CRITIQS_PACKED is set; otherwise one built here.
+const wheel = packedFile("pypi", "flask-critiqs", (await Bun.file(join(PACKAGE, "package.json")).json()).version) ?? await release();
 const dir = await scratch("flask");
 await venv(join(dir, "venv"), [wheel, "waitress"]);
 const root = join(dir, "app");

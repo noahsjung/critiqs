@@ -14,9 +14,9 @@
     "prototype",
     "design review"
   ],
-  "homepage": "https://github.com/noahsjung/Critiqs/tree/main/packages/solid#readme",
+  "homepage": "https://github.com/noahsjung/critiqs/tree/main/packages/solid#readme",
   "bugs": {
-    "url": "https://github.com/noahsjung/Critiqs/issues"
+    "url": "https://github.com/noahsjung/critiqs/issues"
   },
   "type": "module",
   "exports": {
@@ -57,7 +57,7 @@
     "solid-js-1": "npm:solid-js@1.9.20",
     "@solidjs/router": "^2.0.1",
     "solid-router-1": "npm:@solidjs/router@1.0.3",
-    "@happy-dom/global-registrator": "^20.14.6",
+    "@happy-dom/global-registrator": "^21.0.4",
     "@solidjs/web": "^2.0.4"
   },
   "files": [
@@ -67,7 +67,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/noahsjung/Critiqs.git",
+    "url": "https://github.com/noahsjung/critiqs.git",
     "directory": "packages/solid"
   },
   "engines": {

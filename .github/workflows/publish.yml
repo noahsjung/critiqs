@@ -2,16 +2,29 @@ name: Publish
 
 # Publishes every Critiqs package at the version recorded on main: npm
 # packages (each after the ones it depends on), the gem to RubyGems, and the
-# Python packages to PyPI. Only a maintainer starts it, naming the version; it never runs on
-# pushes or pull requests. Each registry's job waits for a reviewer's approval
-# in its own environment and uses that registry's trusted publishing (OpenID
-# Connect) instead of stored tokens. A package version a registry already has
-# is skipped, so a partly failed run can be rerun. See docs/releasing.md.
+# Python packages to PyPI. Only a maintainer starts it, naming the version and
+# the main commit that records it; it never runs on pushes or pull requests.
+# It builds and publishes exactly the commit main pointed to when it was
+# started, never a later main. See docs/releasing.md.
+#
+# The publishing identities stay away from code they don't need to run.
+# `build` runs every check, which installs and runs registry dependencies,
+# with read-only access and no OpenID Connect token. It packs every package
+# once, runs the package and consumer checks on those files, and uploads the
+# same files with SHA256SUMS, whose own sha256 it records. Each registry's job
+# waits for a reviewer in its own environment, checks out and installs no
+# project code, confirms the files are the ones `build` checked, skips a
+# version its registry already has (so a partly failed run can be rerun), and
+# publishes with that registry's trusted publishing instead of stored tokens.
 on:
   workflow_dispatch:
     inputs:
       version:
         description: The Critiqs version on main to publish, such as 0.4.0
+        required: true
+        type: string
+      commit:
+        description: The full commit SHA of main that records that version (main must still point to it when you start this)
         required: true
         type: string
 
@@ -21,32 +34,76 @@ concurrency:
   group: publish
   cancel-in-progress: false
 
-env:
-  VERSION: ${{ inputs.version }}
-
 jobs:
   # Every check, with no publishing rights.
-  verify:
+  build:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.inputs.outputs.version }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    env:
+      # The commit main pointed to when the run was started. It stays fixed for
+      # the whole run, however long approval takes or however main moves.
+      DISPATCH_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the requested version and commit
+        id: inputs
+        # The inputs are read from the event file, never through an inputs
+        # expression or an env block, which Actions prints before the script
+        # runs. jq -c prints each as one JSON line, so a newline or control
+        # character arrives escaped and fails the pattern; nothing is printed
+        # or passed on until it matches.
+        run: |
+          set -euo pipefail
+          version_json=$(jq -c '.inputs.version' "$GITHUB_EVENT_PATH")
+          commit_json=$(jq -c '.inputs.commit' "$GITHUB_EVENT_PATH")
+          if ! [[ "$version_json" =~ ^\"((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?)\"$ ]]; then
+            echo "::error::version must be a version number such as 0.4.0 or 1.0.0-beta.1."
+            exit 1
+          fi
+          requested_version=${BASH_REMATCH[1]}
+          if ! [[ "$commit_json" =~ ^\"([0-9a-f]{40})\"$ ]]; then
+            echo "::error::commit must be a full 40-character lowercase SHA."
+            exit 1
+          fi
+          requested_commit=${BASH_REMATCH[1]}
+          if [ "$requested_commit" != "$DISPATCH_SHA" ]; then
+            echo "::error::main was at $DISPATCH_SHA when this run started, not the requested $requested_commit. Start it again once main points to the commit you mean to publish."
+            exit 1
+          fi
+          echo "Publishing Critiqs $requested_version from $DISPATCH_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "VERSION=$requested_version" >> "$GITHUB_ENV"
+          echo "version=$requested_version" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - name: Check the checkout is that commit and is on main
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          if [ "$head" != "$DISPATCH_SHA" ]; then
+            echo "::error::Checked out $head, not $DISPATCH_SHA."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$DISPATCH_SHA" origin/main; then
+            echo "::error::$DISPATCH_SHA is no longer on main."
+            exit 1
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@78c62f2208e480ce3d5ae4dfd9b9e181acf48b63 # v1.344.0
         with:
           ruby-version: "3.4"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
       - run: bun install --frozen-lockfile
@@ -55,104 +112,295 @@ jobs:
       - name: Check this version may be published
         run: bun scripts/publish.ts verify --version "$VERSION"
       - run: bun run typecheck
-      - run: bun run test
-      - run: bun run check:consumers
+      - run: bun run test:unit
+      # Packed once: the package and consumer checks install these files
+      # (CRITIQS_PACKED), and the same files, unchanged, are uploaded and published.
+      - name: Pack every package
+        id: pack
+        run: |
+          set -euo pipefail
+          release="$RUNNER_TEMP/release"
+          bun scripts/publish.ts pack --version "$VERSION" --out "$release"
+          sha256=$(sha256sum "$release/SHA256SUMS" | cut -d ' ' -f 1)
+          {
+            echo "SHA256SUMS sha256 $sha256:"
+            echo '```'
+            cat "$release/SHA256SUMS"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "CRITIQS_PACKED=$release" >> "$GITHUB_ENV"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+      - name: Check the packed npm packages
+        run: bun scripts/check-package.ts
+      - name: Check apps built with the packed packages
+        run: bun scripts/check-consumers.ts
+      - name: Check each framework's app built with the packed packages
+        run: bun run --filter './packages/*' check:consumer
+      - name: Check nothing moved before uploading
+        env:
+          SHA256: ${{ steps.pack.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          version=$(jq -r .version packages/critiqs/package.json)
+          if [ "$head" != "$DISPATCH_SHA" ] || [ "$version" != "$VERSION" ]; then
+            echo "::error::About to upload $version from $head; requested $VERSION from $DISPATCH_SHA."
+            exit 1
+          fi
+          # Assigned first so a failing git stops the job instead of reading as "no changes".
+          changes=$(git status --porcelain --untracked-files=no)
+          if [ -n "$changes" ]; then
+            echo "::error::The checks changed tracked files, so the packages would not match $DISPATCH_SHA:"
+            echo "$changes"
+            exit 1
+          fi
+          # The files to upload are still the ones packed and checked, and nothing else.
+          if [ "$CRITIQS_PACKED" != "$RUNNER_TEMP/release" ] || ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::The pack step recorded no release folder or sha256."
+            exit 1
+          fi
+          cd "$CRITIQS_PACKED"
+          echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict --quiet SHA256SUMS
+          listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
+          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          if [ "$listed" != "$present" ]; then
+            echo "::error::The release folder holds files SHA256SUMS doesn't list."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: critiqs-release
+          path: ${{ steps.pack.outputs.release }}
+          if-no-files-found: error
 
   npm:
-    needs: [verify]
+    needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: npm
     permissions:
-      contents: read
-      id-token: write # npm trusted publishing
+      contents: read # confirm the commit is still on main
+      id-token: write # npm trusted publishing and provenance
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      SHA256: ${{ needs.build.outputs.sha256 }}
+      DISPATCH_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the commit is still on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # "identical" or "ahead": main is the commit or descends from it.
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DISPATCH_SHA...main" --jq .status)
+          if [ "$status" != identical ] && [ "$status" != ahead ]; then
+            echo "::error::$DISPATCH_SHA is no longer on main (main is $status)."
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - uses: actions/setup-node@v4
+          name: critiqs-release
+          path: release
+      - name: Check the files are the ones that were built and checked
+        run: |
+          set -euo pipefail
+          cd release
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::The build job recorded no sha256 for SHA256SUMS."
+            exit 1
+          fi
+          echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
+          listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
+          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          if [ "$listed" != "$present" ]; then
+            echo "::error::The artifact doesn't hold exactly the files SHA256SUMS lists."
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - run: bun install --frozen-lockfile
-      - run: bun run build
       - name: Publish to npm
-        # Runs `npm publish --access public` in each package npm doesn't have
-        # yet, each after the ones it depends on. Trusted publishing adds provenance
-        # automatically when the source repository is public.
-        run: bun scripts/publish.ts publish --registry npm --version "$VERSION"
+        # In npm/order, each package after the Critiqs packages it depends on.
+        # Trusted publishing adds provenance automatically because the source
+        # repository and the packages are public. --ignore-scripts: nothing
+        # from a package runs while this job holds the publishing identity.
+        run: |
+          set -euo pipefail
+          cd release/npm
+          ordered=$(LC_ALL=C sort order)
+          packed=$(find . -type f -name '*.tgz' | sed 's|^\./||' | LC_ALL=C sort)
+          if [ -z "$packed" ] || [ "$ordered" != "$packed" ]; then
+            echo "::error::npm/order doesn't list exactly the packed tarballs."
+            exit 1
+          fi
+          while IFS= read -r tarball; do
+            manifest=$(tar -xzOf "$tarball" package/package.json)
+            name=$(jq -r .name <<< "$manifest")
+            version=$(jq -r .version <<< "$manifest")
+            if [ "$version" != "$VERSION" ] || [ "$tarball" != "$name-$VERSION.tgz" ]; then
+              echo "::error::$tarball is $name@$version, not a package at $VERSION."
+              exit 1
+            fi
+            # Exit 0 with the version: npm has it. E404: npm has no such package yet.
+            if found=$(npm view "$name@$VERSION" version --registry https://registry.npmjs.org/ 2> "$RUNNER_TEMP/npm-view.log"); then
+              if [ "$found" = "$VERSION" ]; then
+                echo "$name@$VERSION is already on npm; skipped."
+                continue
+              fi
+            elif ! grep -q E404 "$RUNNER_TEMP/npm-view.log"; then
+              cat "$RUNNER_TEMP/npm-view.log"
+              echo "::error::Couldn't ask npm whether it has $name@$VERSION."
+              exit 1
+            fi
+            npm publish "./$tarball" --access public --ignore-scripts
+          done < order
 
   rubygems:
-    needs: [npm]
+    needs: [build, npm]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: rubygems
     permissions:
-      contents: read
+      contents: read # confirm the commit is still on main
       id-token: write # RubyGems trusted publishing
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      SHA256: ${{ needs.build.outputs.sha256 }}
+      DISPATCH_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the commit is still on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # "identical" or "ahead": main is the commit or descends from it.
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DISPATCH_SHA...main" --jq .status)
+          if [ "$status" != identical ] && [ "$status" != ahead ]; then
+            echo "::error::$DISPATCH_SHA is no longer on main (main is $status)."
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - name: Build the gems RubyGems doesn't have yet
-        run: bun scripts/publish.ts stage --registry rubygems --version "$VERSION" --out rubygems-dist
+          name: critiqs-release
+          path: release
+      - name: Check the files are the ones that were built and checked
+        run: |
+          set -euo pipefail
+          cd release
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::The build job recorded no sha256 for SHA256SUMS."
+            exit 1
+          fi
+          echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
+          listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
+          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          if [ "$listed" != "$present" ]; then
+            echo "::error::The artifact doesn't hold exactly the files SHA256SUMS lists."
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
+      - name: Find the gems RubyGems doesn't have yet
+        id: gems
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gems"
+          found=0
+          for gem in release/rubygems/*.gem; do
+            [ -e "$gem" ] || continue
+            found=$((found + 1))
+            file=$(basename "$gem")
+            name=${file%-"$VERSION".gem}
+            if [ "$name" = "$file" ] || ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+              echo "::error::$file is not a gem at $VERSION."
+              exit 1
+            fi
+            status=$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' \
+              "https://rubygems.org/api/v2/rubygems/$name/versions/$VERSION.json")
+            case "$status" in
+              200) echo "$name $VERSION is already on RubyGems; skipped." ;;
+              404) cp "$gem" "$RUNNER_TEMP/gems/" ;;
+              *)
+                echo "::error::RubyGems answered $status for $name $VERSION."
+                exit 1
+                ;;
+            esac
+          done
+          if [ "$found" = 0 ]; then
+            echo "::error::The artifact holds no gem."
+            exit 1
+          fi
+          if compgen -G "$RUNNER_TEMP/gems/*.gem" > /dev/null; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Get a short-lived RubyGems key
-        if: hashFiles('rubygems-dist/*.gem') != ''
-        uses: rubygems/configure-rubygems-credentials@v2.2.0
+        if: steps.gems.outputs.push == 'true'
+        uses: rubygems/configure-rubygems-credentials@c6ca7f4bac0e29c9bde8eeae0a0a986b27efa05f # v2.2.0
         with:
           # Needed only for a gem's first push through a pending trusted publisher.
           owner: ${{ vars.RUBYGEMS_OWNER }}
       - name: Push to RubyGems
-        if: hashFiles('rubygems-dist/*.gem') != ''
+        if: steps.gems.outputs.push == 'true'
+        # The runner's own Ruby: gem push uploads the file and runs nothing from it.
         run: |
           set -euo pipefail
-          for gem in rubygems-dist/*.gem; do gem push "$gem"; done
+          for gem in "$RUNNER_TEMP/gems/"*.gem; do gem push "$gem"; done
 
   pypi:
-    needs: [npm]
+    needs: [build, npm]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: read # confirm the commit is still on main
       id-token: write # PyPI trusted publishing
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      SHA256: ${{ needs.build.outputs.sha256 }}
+      DISPATCH_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check the commit is still on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # "identical" or "ahead": main is the commit or descends from it.
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DISPATCH_SHA...main" --jq .status)
+          if [ "$status" != identical ] && [ "$status" != ahead ]; then
+            echo "::error::$DISPATCH_SHA is no longer on main (main is $status)."
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - name: Build the Python packages PyPI doesn't have yet
-        run: bun scripts/publish.ts stage --registry pypi --version "$VERSION" --out pypi-dist
+          name: critiqs-release
+          path: release
+      - name: Check the files are the ones that were built and checked
+        run: |
+          set -euo pipefail
+          cd release
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::The build job recorded no sha256 for SHA256SUMS."
+            exit 1
+          fi
+          echo "$SHA256  SHA256SUMS" | sha256sum --check --strict
+          listed=$(sed -E 's/^[0-9a-f]{64}  //' SHA256SUMS | LC_ALL=C sort)
+          present=$(find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+          if [ "$listed" != "$present" ]; then
+            echo "::error::The artifact doesn't hold exactly the files SHA256SUMS lists."
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
       - name: Upload to PyPI
-        if: hashFiles('pypi-dist/*') != ''
-        uses: pypa/gh-action-pypi-publish@v1.14.3
+        # skip-existing: a file PyPI already has is skipped, so a rerun uploads only what is missing.
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
-          packages-dir: pypi-dist/
+          packages-dir: release/pypi/
           skip-existing: true
-          # Attestations name the source repository publicly; turn them on
-          # once the repository is public.
-          attestations: false
+          # The source repository is public, so each file gets a signed
+          # attestation of the workflow that built it.
+          attestations: true

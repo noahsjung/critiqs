@@ -11,7 +11,7 @@ import { describeProjectId, readText } from "./shared.mjs";
 
 const VARIABLE = "CRITIQS_PROJECT_ID";
 const APP = "django_critiqs";
-const README = "https://github.com/noahsjung/Critiqs/tree/main/packages/django#readme";
+const README = "https://github.com/noahsjung/critiqs/tree/main/packages/django#readme";
 const TAG = /\{%-?\s*critiqs(?:\s[^%]*)?-?%\}/g;
 const LOAD = /\{%-?\s*load\s+(?:[\w.]+\s+)*critiqs(?:\s+[\w.]+)*\s*-?%\}/;
 

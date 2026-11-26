@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://critiqs.app/docs
+    about: Install, set up, and use Critiqs; check troubleshooting and the FAQ first.
+  - name: Report a code of conduct problem privately
+    url: https://github.com/noahsjung/critiqs/security/advisories/new
+    about: Only you and the maintainers see it. Start the title with "Conduct report:". See CODE_OF_CONDUCT.md.
+  - name: Report a security vulnerability
+    url: https://github.com/noahsjung/critiqs/security/advisories/new
+    about: Report security problems privately, never in a public issue. See SECURITY.md.

@@ -2071,11 +2071,11 @@ The pilot's data is test data and is not migrated.
    deployment. Remaining, each after owner approval: deploy the
    current backend there (it still runs an earlier one), with
    `CRITIQS_PLANS=enabled`, Resend's key, and a verified sending domain; then
-   publish the npm package with the manual Publish workflow
-   ([releasing](releasing.md#publishing-to-npm)). The owner approved public
+   publish the packages with the manual Publish workflow
+   ([releasing](releasing.md#publishing)). The owner approved public
    publication under the MIT license, and the name was unused on npm when
    checked. The release candidate builds ES modules and declarations, includes
-   the Node `critiqs` CLI, and is checked with `npm pack --dry-run`, isolated
+   the Node `critiqs` CLI, and is checked as a packed tarball, with isolated
    React 18 and 19 consumers, and Vite and Next.js builds in CI. Private
    workspace code is bundled, so those packages do not need separate
    publication. Long lists are paginated.

@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "typecheck": "bun run build && bun run --filter '*' typecheck",
-    "test": "bun run --filter '*' test && bun run test:release && bun run check:package",
+    "test": "bun run test:unit && bun run check:package",
+    "test:unit": "bun run --filter '*' test && bun run test:release",
     "check": "bun run typecheck && bun run test",
     "build": "bun run --filter './packages/*' build",
     "check:package": "bun scripts/check-package.ts",

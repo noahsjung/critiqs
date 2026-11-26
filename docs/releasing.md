@@ -86,6 +86,13 @@ decision. Under Semantic Versioning, `^0.2.0` accepts only 0.2.x, so a
 breaking change is released as a `minor` note. It still needs the owner's
 approval and migration instructions first; 0.x permits breaking no host app.
 
+Dependabot's pull requests arrive without a note, so `release-notes` fails on
+them until a maintainer pushes one to the branch: a `patch` note naming the
+packages the updated dependency ships in, or a short no-release note when it
+ships in none. Any change under `packages/` other than tests counts as shipped
+to the check, so a `package.json` change there needs a `patch` note even for a
+development dependency.
+
 Several notes in one pull request are fine; the largest type across all notes
 sets the shared version. Do not edit
 or remove another pull request's note, and do not change any `version` field
@@ -160,39 +167,73 @@ Release workflow never do.
 1. Merge the release pull request, so `main` records the version and no
    release note waits.
 2. Start the [Publish workflow](../.github/workflows/publish.yml) on `main`,
-   naming that version. Its jobs run in order:
-   - **verify**, with no publishing rights:
-     `bun scripts/publish.ts verify --version <version>` refuses a version
-     other than `main`'s, unversioned release notes (they would ship under an
-     older version), a package in the group with no registry, an npm manifest
-     that is unlicensed, not public, or depends on another Critiqs package at
-     a different version, and gem or Python files built at a different
-     version. It lists each package as "to publish" or "already published,
-     skipped". Then every check runs, including `check:consumers`.
-   - **npm**, after approval in the `npm` environment: `npm publish --access
-     public` in each package npm doesn't have yet, each after the Critiqs
-     packages it depends on (`critiqs` first).
-   - **rubygems** and **pypi**, after npm, each after approval in its own
-     environment: the packages are built, files the registry doesn't have yet
-     are staged, and `gem push` (with a short-lived key from
-     `rubygems/configure-rubygems-credentials`) or
-     `pypa/gh-action-pypi-publish` uploads them.
+   naming that version and the full SHA of the `main` commit that records it
+   (`git rev-parse origin/main` after fetching). It builds and publishes that
+   commit, never a later `main`, however long approval takes. Its jobs run in
+   order:
+   - **build**, with read-only repository access and no publishing identity,
+     since its checks install and run registry dependencies. It reads the
+     version and commit from the run's event file, never from a workflow
+     expression or step environment that Actions would print first, and
+     refuses a version that isn't a plain version number (without printing
+     it), a commit that isn't a full SHA, or a commit other than the one
+     `main` pointed to when the run started. It checks out the commit,
+     confirms it is on `main`, builds, and runs
+     `bun scripts/publish.ts verify --version <version>`, which refuses a
+     version other than that commit's, unversioned release notes (they would
+     ship under an older version), a package in the group with no registry,
+     an npm manifest that is unlicensed, not public, or depends on another
+     Critiqs package at a different version, and gem or Python files built at
+     a different version. It lists each package as "to publish" or "already
+     published, skipped". It runs the typecheck and unit tests
+     (`bun run test:unit`), then packs every package once with
+     `bun scripts/publish.ts pack --version <version> --out <folder>`: each
+     npm package with `npm pack` into `npm/`, with `npm/order` listing them
+     each after the Critiqs packages it depends on (`critiqs` first); the gem
+     into `rubygems/`; the wheels and source distributions into `pypi/`; and
+     `SHA256SUMS`, the sha256 of every file. The workflow records the sha256
+     of `SHA256SUMS`. With `CRITIQS_PACKED` set to that folder, the package
+     check (`bun scripts/check-package.ts`), the React consumer apps
+     (`bun scripts/check-consumers.ts`), and each framework's consumer app
+     (`check:consumer` in each package) install those files instead of
+     packing or building their own, so nothing is packed again after them.
+     It confirms the commit, the version, and the tracked files are unchanged
+     and that every file still has its recorded sha256, then uploads the
+     folder as the run's `critiqs-release` artifact.
+   - **npm**, after approval in the `npm` environment, then **rubygems** and
+     **pypi**, each after approval in its own environment. These are the only
+     jobs that can request a publishing identity, each only its own
+     registry's. None checks out or installs project code. Each confirms the
+     commit is still on `main`, downloads the artifact, and checks that
+     `SHA256SUMS` has the sha256 `build` recorded, that the artifact holds
+     exactly the files it lists, and that each file matches its sha256.
+     - **npm** checks that `npm/order` lists exactly the tarballs and that
+       each tarball's `package.json` names the package and version its file
+       name gives, skips a version npm already has, and runs
+       `npm publish ./<file>.tgz --access public --ignore-scripts` for the
+       rest, in that order.
+     - **rubygems** asks RubyGems which gems it doesn't have yet, gets a
+       short-lived key from `rubygems/configure-rubygems-credentials`, and
+       runs `gem push` on those with the runner's Ruby.
+     - **pypi** uploads `pypi/` with `pypa/gh-action-pypi-publish`, skipping
+       files PyPI already has.
 3. Check each package page, and install the packages in a new app.
 
-Each job skips what its registry already has, so after a partial failure,
-start the workflow again with the same version: only what is missing is
-published. To see what a run would do, run the same commands locally on a
-clean checkout of `main`:
+Each publishing job skips what its registry already has. After a partial
+failure, use **Re-run failed jobs** on the same workflow run: it keeps the
+commit and the files the build job packed, and only what is missing is
+published. A new run works only while `main` is still at the release commit;
+once anything else has merged, a new run is refused. To see what a run would
+check and publish, run
+the same commands locally on a clean checkout of `main`:
 
 ```sh
 bun scripts/publish.ts verify --version <version>
-bun scripts/publish.ts publish --registry npm --version <version> --dry-run
-bun scripts/publish.ts stage --registry rubygems --version <version> --out .local/rubygems
-bun scripts/publish.ts stage --registry pypi --version <version> --out .local/pypi
+bun scripts/publish.ts pack --version <version> --out .local/release
+CRITIQS_PACKED="$PWD/.local/release" bun scripts/check-package.ts
 ```
 
-`--dry-run` runs `npm publish --dry-run`, and `stage` only builds and copies
-files, so none of these upload anything.
+`pack` only builds and copies files, so none of these upload anything.
 
 ### Trusted publishing setup
 
@@ -201,31 +242,43 @@ stored. The owner sets each one up before the packages it covers are first
 published:
 
 - **Environments:** create `npm`, `rubygems`, and `pypi` in the repository's
-  settings, each with required reviewers and `main` as its only deployment
-  branch.
+  settings, each with required reviewers, `main` as its only deployment
+  branch, and **Allow administrators to bypass configured protection rules**
+  turned off, so no one can start a publishing job without a reviewer's
+  approval.
 - **npm, for each npm package:** npm can trust a workflow only for a package
   that exists, so publish its first version by hand: on a clean checkout of
   `main`, run `bun install --frozen-lockfile`, `bun run check`,
-  `bun scripts/publish.ts verify --version <version>`, and then
-  `npm publish --access public` in the package's folder, `critiqs` before the
-  others, with the owner's npm account and two-factor authentication. Then add
-  this repository, workflow `publish.yml`, and environment `npm` as the
-  package's trusted publisher in its npm settings, and disallow token-based
-  publishing there. `critiqs-react` was first published this way.
+  `bun scripts/publish.ts verify --version <version>`, and
+  `bun scripts/publish.ts pack --version <version> --out .local/release`, then
+  `npm publish .local/release/npm/<file>.tgz --access public --ignore-scripts`,
+  `critiqs` before the others, with the maintainer's own npm account and
+  two-factor authentication. `critiqs-react` was first published this way: an
+  earlier `0.0.0-stage` pre-release and then 0.3.0, the first regular
+  release. Then, in the package's npm settings (**Settings** → **Trusted
+  publishing**), add this repository and `publish.yml`, with environment
+  `npm`, as the trusted publisher. npm creates new trusted publishers for
+  staged publishing only: they may run `npm stage publish`, which holds the
+  version until a maintainer approves it with two-factor authentication, but
+  not `npm publish`. This workflow runs `npm publish` after its own reviewer
+  approval, so under **Allowed actions** also allow direct publishing with
+  `npm publish`; without that, npm doesn't accept the workflow's publish. npm
+  expires a new trusted publisher that hasn't published within two days, so
+  add it shortly before the first workflow release. Then, under **Publishing
+  access**, disallow token-based publishing.
 - **RubyGems:** add a trusted publisher for `critiqs-rails` (repository
-  `noahsjung/Critiqs`, workflow `publish.yml`, environment `rubygems`). Before
+  `noahsjung/critiqs`, workflow `publish.yml`, environment `rubygems`). Before
   the gem exists, add it as a pending trusted publisher in the account's
   RubyGems settings and set the repository variable `RUBYGEMS_OWNER` to the
   owning account's ID; the workflow's first push then creates the gem.
 - **PyPI:** add a trusted publisher for `django-critiqs` and `flask-critiqs`
-  (owner `noahsjung`, repository `Critiqs`, workflow `publish.yml`,
+  (owner `noahsjung`, repository `critiqs`, workflow `publish.yml`,
   environment `pypi`). Before a project exists, add it as a pending publisher
   in the account's PyPI publishing settings; the first upload creates it.
 
-npm adds provenance automatically when the source repository and package are
-both public, and does not support it for private source repositories, so the
-workflow does not force `--provenance`. For the same reason the PyPI upload
-turns off attestations until the repository is public. See
+The source repository and the packages are public, so npm adds provenance
+automatically (the workflow does not pass `--provenance` itself), and the
+PyPI upload attaches attestations. See
 [npm's trusted-publishing requirements](https://docs.npmjs.com/trusted-publishers/),
 [RubyGems trusted publishing](https://guides.rubygems.org/trusted-publishing/),
 and [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/).
@@ -251,9 +304,12 @@ it on RubyGems (`gem yank`) or PyPI, and release a fix.
 
 ## Limits
 
-- The repository's plan does not allow branch protection or rulesets, so a
-  failing check does not block merging. Whoever merges must see every check
-  pass on the pull request's latest commit.
+- An active ruleset protects `main`: changes arrive only through pull
+  requests, which merge by squash once the `check`, `consumers`,
+  `release-notes`, and `site-pages` checks pass; force-pushes and deleting
+  the branch are blocked; and repository admins may bypass it only through a
+  pull request. The release pull request needs those checks too, from the CI
+  run the Release workflow starts.
 - The check runs from the pull request's own code. Review changes to
   `scripts/release.ts`, `scripts/publish.ts`, `.changeset/config.json`, and
   the workflows closely.

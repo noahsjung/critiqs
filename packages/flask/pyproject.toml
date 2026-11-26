@@ -22,9 +22,9 @@ classifiers = [
 test = ["pytest>=8"]
 
 [project.urls]
-Homepage = "https://github.com/noahsjung/Critiqs/tree/main/packages/flask#readme"
-Issues = "https://github.com/noahsjung/Critiqs/issues"
-Source = "https://github.com/noahsjung/Critiqs"
+Homepage = "https://github.com/noahsjung/critiqs/tree/main/packages/flask#readme"
+Issues = "https://github.com/noahsjung/critiqs/issues"
+Source = "https://github.com/noahsjung/critiqs"
 
 # The version lives in package.json, which Changesets bumps with every other
 # Critiqs package; hatchling's built-in regex source reads it.

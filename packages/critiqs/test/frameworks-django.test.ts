@@ -233,7 +233,7 @@ test("writes a project ID and backend into a CRITIQS dict in the settings' own q
   apply(django.plan(root, settings, options));
   expect(read(root, "mysite/settings.py")).toEndWith(
     `MAILERS = {\n    'default': {\n        'BACKEND': 'django.core.mail.backends.console.EmailBackend',\n    },\n}\n\n\n` +
-      `# Critiqs\n# https://github.com/noahsjung/Critiqs/tree/main/packages/django#readme\n\n` +
+      `# Critiqs\n# https://github.com/noahsjung/critiqs/tree/main/packages/django#readme\n\n` +
       `CRITIQS = {\n    'PROJECT_ID': '${PROJECT}',\n    'BACKEND': 'https://example.convex.cloud',\n}\n`,
   );
   expect(django.find(root)).toMatchObject([{ projectId: { kind: "literal", value: PROJECT }, backend: { kind: "literal", value: "https://example.convex.cloud" }, requireProjectId: true }]);
