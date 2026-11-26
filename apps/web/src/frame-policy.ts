@@ -2,7 +2,7 @@
 // own scripts; nothing the proxy's runtime does can keep it from moving its
 // frame to a document the runtime isn't in (a blob: or data: one it made, or
 // another site), so the one wall is the review page's Content-Security-Policy
-// `frame-src`, which only the website's host can send (vercel.json, and
+// `frame-src`, which only the website's host can send (site/vercel.json, and
 // vite.config.ts for `vite` and `vite preview`). The page checks it before
 // it shows a frame, and shows none without it.
 

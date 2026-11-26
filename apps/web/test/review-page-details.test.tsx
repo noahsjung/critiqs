@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import type { PanelSignIn } from "@critiqs/core";
 import { act, type ReactNode } from "react";
 import type { ReviewLinkSummary, ReviewOpen } from "../src/backend.ts";
 import type { PanelOptions } from "../src/shared.ts";
 import { ReviewLinksPage } from "../src/ui/ReviewLinks.tsx";
 import { type ReviewHost, ReviewHostContext, ReviewPage } from "../src/ui/ReviewPage.tsx";
-import { REVIEW_PATHS, reviewHeadersFor, reviewPageHeaders } from "../vite.config.ts";
+import { headerRules, readHostConfig, rewriteFor } from "../../../site-src/host-rules.ts";
+import { reviewHeadersFor, reviewPageHeaders } from "../vite.config.ts";
 import { button, click, fakeAuth, fakeBackend, render, settle, text } from "./render.tsx";
 
 // The review page's smaller promises: what someone signed out is told, Copy
@@ -203,18 +203,27 @@ describe("a page that only partly loads", () => {
 });
 
 describe("the website's host sends the review pages' headers", () => {
-  const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8")) as { headers: { source: string; headers: { key: string; value: string }[] }[] };
-  const hostHeaders = (source: string) => Object.fromEntries((vercel.headers.find((rule) => rule.source === source)?.headers ?? []).map(({ key, value }) => [key, value]));
+  // The app is served from the landing site's host, on its origin: site/vercel.json is the one host file.
+  const host = readHostConfig();
   test("the dev server covers /r/ and /review-links/, nothing else", () => {
     for (const path of [`/r/${KEY}`, "/review-links/p1"]) expect(reviewHeadersFor(path, undefined)).toEqual(reviewPageHeaders(undefined));
     for (const path of ["/start", "/t/abc", "/setup/p1"]) expect(reviewHeadersFor(path, undefined)).toBeNull();
   });
-  for (const prefix of REVIEW_PATHS) {
-    test(`vercel.json sends ${prefix}* the same headers, frames from the review proxy only`, () => {
-      const sent = hostHeaders(`${prefix}(.*)`);
-      const frames = /frame-src ([^;]+)/.exec(sent["Content-Security-Policy"] ?? "")?.[1];
+  for (const path of [`/r/${KEY}`, "/review-links/p1"]) {
+    test(`site/vercel.json serves ${path} from the app with the same headers, frames from the review proxy only, each set by one rule`, () => {
+      expect(rewriteFor(host, path)).toBe("/app/index.html");
+      const sent = headerRules(host, path);
+      const frames = /frame-src ([^;]+)/.exec(sent.get("content-security-policy")?.value ?? "")?.[1];
       expect(frames).toMatch(/^https:\/\/\*\.[a-z0-9.-]+$/);
-      expect(sent).toEqual(reviewPageHeaders(frames));
+      for (const [key, value] of Object.entries(reviewPageHeaders(frames))) expect(sent.get(key.toLowerCase())?.value).toBe(value);
+      // Two rules setting one header would leave which one the host sends to its own order.
+      expect([...sent].filter(([, { sources }]) => sources.length > 1).map(([key]) => key)).toEqual([]);
     });
   }
+  test("the rest of the site keeps its own referrer rule", () => {
+    for (const path of ["/", "/start", "/t/abc", "/docs/install", "/r", "/review-linksx/p1"]) {
+      expect(headerRules(host, path).get("referrer-policy")?.value).toBe("strict-origin-when-cross-origin");
+      expect(headerRules(host, path).has("content-security-policy")).toBe(false);
+    }
+  });
 });

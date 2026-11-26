@@ -1,35 +1,25 @@
 // Serves site/ on one local server the way site/vercel.json tells the host
-// to: its rewrites (so /start, /setup/<id> and /t/<key> load the website app
-// built into site/app/), clean URLs (a `.html` address redirects to its clean
-// one, as the host does), no trailing slashes, and its headers.
+// to: its rewrites (so /start, /setup/<id>, /t/<key>, /r/<key> and
+// /review-links/<id> load the website app built into site/app/), clean URLs
+// (a `.html` address redirects to its clean one, as the host does), no
+// trailing slashes, and its headers (host-rules.ts).
 // It reads the same file the host does, so a change there shows here.
 //
 //   bun --cwd apps/web run build:site      # the app, into site/app/
 //   bun site-src/preview-site.ts [port]    # default 6560
 //
-// It covers only what site/vercel.json uses: `:name` segments and `(.*)`.
+// With CRITIQS_REVIEW_FRAMES set, such as `http://*.review.localhost:5120`, the
+// review pages' `frame-src` names those frame hosts in place of the
+// deployed review proxy's, as `vite` does, so a local review proxy's frames
+// show.
 
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
+import { headerRules, readHostConfig, rewriteFor } from "./host-rules.ts";
 
 const SITE = join(import.meta.dir, "..", "site");
-const config = JSON.parse(readFileSync(join(SITE, "vercel.json"), "utf8")) as {
-  cleanUrls?: boolean;
-  rewrites?: { source: string; destination: string }[];
-  headers?: { source: string; headers: { key: string; value: string }[] }[];
-};
-
-/** A source pattern as the host reads it: `:name` is one segment, `(.*)` anything. */
-function pattern(source: string): RegExp {
-  const body = source
-    .split(/(\(\.\*\)|:[A-Za-z]+)/)
-    .map((part) => (part === "(.*)" ? "(.*)" : part.startsWith(":") ? "([^/]+)" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
-    .join("");
-  return new RegExp(`^${body}$`);
-}
-
-const rewrites = (config.rewrites ?? []).map((rule) => ({ match: pattern(rule.source), destination: rule.destination }));
-const headers = (config.headers ?? []).map((rule) => ({ match: pattern(rule.source), headers: rule.headers }));
+const config = readHostConfig(SITE);
+const frames = process.env.CRITIQS_REVIEW_FRAMES?.trim() || null;
 
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -78,11 +68,13 @@ Bun.serve({
     // A file wins over a rewrite, as on the host.
     let file = fileFor(url.pathname);
     if (file === null) {
-      const rule = rewrites.find(({ match }) => match.test(url.pathname));
-      if (rule !== undefined) file = fileFor(rule.destination);
+      const destination = rewriteFor(config, url.pathname);
+      if (destination !== null) file = fileFor(destination);
     }
     const extra = new Headers();
-    for (const rule of headers) if (rule.match.test(url.pathname)) for (const { key, value } of rule.headers) extra.set(key, value);
+    for (const [name, { value }] of headerRules(config, url.pathname)) {
+      extra.set(name, frames !== null && name === "content-security-policy" ? value.replace(/frame-src [^;]+/, `frame-src ${frames}`) : value);
+    }
     if (file === null) {
       const missing = fileFor("/404.html");
       return new Response(missing === null ? "Not found" : Bun.file(missing), { status: 404, headers: { ...Object.fromEntries(extra), "Content-Type": TYPES[".html"]! } });

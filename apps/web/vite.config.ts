@@ -7,8 +7,9 @@ import { defineConfig, type Plugin } from "vite";
  * another site, no referrer, kept out of search engines, and frames only from
  * the review proxy's lease hosts when CRITIQS_REVIEW_FRAMES (such as
  * `https://*.critiqs-review.net`) names them. Set here for `vite` and
- * `vite preview`; the website's host sets the same (vercel.json, checked
- * against this function by test/review-headers.test.ts).
+ * `vite preview`; the website's host sets the same (site/vercel.json, which
+ * serves the app on the landing site's origin, checked against this function
+ * by test/review-page-details.test.tsx).
  */
 export function reviewPageHeaders(frames: string | undefined): Record<string, string> {
   const policy = ["frame-ancestors 'none'", ...(frames ? [`frame-src ${frames}`] : [])].join("; ");

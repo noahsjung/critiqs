@@ -1281,10 +1281,11 @@ page's address, with the prototype's path after `#`), and the account.
   frame-src <lease hosts>`, `Referrer-Policy: no-referrer` and
   `X-Robots-Tag: noindex, nofollow`. `apps/web/vite.config.ts` sets them for
   `vite` and `vite preview` (with `CRITIQS_REVIEW_FRAMES` such as
-  `https://*.critiqs-review.net`), and `apps/web/vercel.json` for the
-  website's host, where `frame-src` names the proxy's domain; a test keeps the
-  two the same. The `frame-src` is the only wall that keeps a frame on the
-  proxy: a prototype's own scripts can move its frame to a `blob:` document,
+  `https://*.critiqs-review.net`), and `site/vercel.json` for the
+  website's host, which serves the app on the landing site's origin (see
+  `site-src/README.md`) and where `frame-src` names the proxy's domain; a
+  test keeps the two the same. The `frame-src` is the only wall that keeps a
+  frame on the proxy: a prototype's own scripts can move its frame to a `blob:` document,
   which carries no runtime, or to another site. So before it shows a frame
   the page reads its own headers again and shows no frame, with a line for
   the operator, unless some policy allows frames only from host sources that
