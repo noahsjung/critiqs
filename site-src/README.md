@@ -151,3 +151,15 @@ At the host, the Vercel project that serves `site/` needs:
   to another backend's Convex URL.
 - On that backend, `CRITIQS_WEB_URL=https://critiqs.app`, so setup emails and
   thread links point here.
+
+## Deploy this host first
+
+Deploy this host configuration before, or together with, the backend that
+sends setup emails. Critiqs Cloud's backend already links setup emails to
+`https://critiqs.app/setup/<id>` when `CRITIQS_WEB_URL` is unset, and that
+address exists only once this configuration is live: a developer who opens
+an email sent before then gets the site's 404 page, and nothing sends the
+email again. Thread page links (`/t/<key>`) need `CRITIQS_WEB_URL` set, so
+they wait for it. To check, open `https://critiqs.app/start` and a made-up
+`https://critiqs.app/setup/x` after the host deploys: both load the website
+app, not the 404 page.

@@ -1,6 +1,7 @@
 // Serves site/ on one local server the way site/vercel.json tells the host
 // to: its rewrites (so /start, /setup/<id> and /t/<key> load the website app
-// built into site/app/), clean URLs, no trailing slashes, and its headers.
+// built into site/app/), clean URLs (a `.html` address redirects to its clean
+// one, as the host does), no trailing slashes, and its headers.
 // It reads the same file the host does, so a change there shows here.
 //
 //   bun --cwd apps/web run build:site      # the app, into site/app/
@@ -13,6 +14,7 @@ import { extname, join, normalize } from "node:path";
 
 const SITE = join(import.meta.dir, "..", "site");
 const config = JSON.parse(readFileSync(join(SITE, "vercel.json"), "utf8")) as {
+  cleanUrls?: boolean;
   rewrites?: { source: string; destination: string }[];
   headers?: { source: string; headers: { key: string; value: string }[] }[];
 };
@@ -68,6 +70,11 @@ Bun.serve({
     const url = new URL(request.url);
     // No trailing slashes, as `"trailingSlash": false` redirects them.
     if (url.pathname !== "/" && url.pathname.endsWith("/")) return Response.redirect(`${url.origin}${url.pathname.replace(/\/+$/, "")}${url.search}`, 308);
+    // With clean URLs the host redirects an address ending in .html to its clean one: /docs/x.html to /docs/x, /x/index.html to /x.
+    if (config.cleanUrls === true && url.pathname.endsWith(".html")) {
+      const clean = url.pathname.replace(/(?:\/index)?\.html$/, "") || "/";
+      return Response.redirect(`${url.origin}${clean}${url.search}`, 308);
+    }
     // A file wins over a rewrite, as on the host.
     let file = fileFor(url.pathname);
     if (file === null) {
