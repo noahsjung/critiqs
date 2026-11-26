@@ -137,3 +137,12 @@ describe("the bar on a phone", () => {
     expect(container.querySelector(".review-comments")?.textContent).toBe("Project");
   });
 });
+
+describe("the bar on a phone", () => {
+  test("the site's name may wrap only after a dot, never inside a word", async () => {
+    const container = await openReview(fakeHost());
+    const name = container.querySelector(".review-source strong")!;
+    expect([name.textContent, name.querySelectorAll("wbr").length]).toEqual(["shop.example.com", 2]);
+    expect(name.innerHTML).toBe("shop.<wbr>example.<wbr>com");
+  });
+});

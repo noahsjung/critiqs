@@ -1,5 +1,5 @@
 import { type PanelSignedIn, type PanelSignIn, panelSignIn, parseReviewFrameMessage, type ReviewFrameMessage, windowTransport } from "@critiqs/core";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, Fragment, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { failureMessage, type ReviewReady, useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
@@ -254,6 +254,20 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
   );
 }
 
+/** A host name that wraps after its dots on a narrow bar (`acme.` / `example.com`), never inside a word. */
+function breakableHost(host: string): ReactNode {
+  return host.split(".").map((part, index, parts) => (
+    <Fragment key={index}>
+      {part}
+      {index < parts.length - 1 && (
+        <>
+          .<wbr />
+        </>
+      )}
+    </Fragment>
+  ));
+}
+
 function Message({ title, line, children }: { title: string; line: string; children?: ReactNode }) {
   return (
     <div className="review-message">
@@ -504,7 +518,7 @@ function ReviewCanvas({
 
   const source_ = (
     <span className="review-source" title={`${source.origin}${path}`}>
-      <strong>{sourceHost}</strong>
+      <strong>{breakableHost(sourceHost)}</strong>
       <span>{path}</span>
     </span>
   );
