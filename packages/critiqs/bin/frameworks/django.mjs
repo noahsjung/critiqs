@@ -35,7 +35,7 @@ export const django = {
   find(root) {
     const settings = settingsFile(root);
     const config = settings === null || "problem" in settings ? new Map() : readDict(settings.source, "CRITIQS");
-    return templateFiles(root).flatMap((template) =>
+    return templateFiles(root, templateDirs(root, settings)).flatMap((template) =>
       [...template.source.matchAll(TAG)].map((match) => ({
         file: template.file,
         line: lineAt(template.source, match.index),
@@ -69,7 +69,7 @@ export const django = {
         ? { template: { file: entry, source: readText(entry) } }
         : usages.length === 1
           ? { template: { file: usages[0].file, source: readText(usages[0].file) } }
-          : chooseBase(templateFiles(root), join(root, "templates", "base.html"));
+          : chooseBase(templateFiles(root, templateDirs(root, found)), join(root, "templates", "base.html"));
     if ("problem" in chosen) return refuse(chosen.reason, chosen.problem);
     const { template } = chosen;
     const placed = placeTemplateTag(template.source, "{% critiqs %}", TAG, (source) => (LOAD.test(source) ? source : addDjangoLoad(source)));
@@ -137,6 +137,71 @@ function settingsFile(root) {
     if (source !== null) return { file, source };
   }
   return { problem: `manage.py names the settings module ${module}, but neither ${relative(root, base)}.py nor ${relative(root, base)}/__init__.py exists, so nothing was changed.` };
+}
+
+/**
+ * The folders `TEMPLATES[...]["DIRS"]` lists in the settings, where Django
+ * also looks for templates: each entry written as a path from `BASE_DIR`
+ * (`BASE_DIR / "a" / "b"`, `os.path.join(BASE_DIR, "a", "b")`) or as a
+ * string. Entries setup can't read are left out, as before.
+ */
+export function templateDirs(root, settings) {
+  if (settings === null || "problem" in settings || settings.source === null) return [];
+  const { source, file } = settings;
+  const templates = findAssignment(source, "TEMPLATES");
+  if (templates === null || "expression" in templates) return [];
+  const baseDir = baseDirOf(source, file);
+  const dirs = [];
+  // Comments blanked out, so a commented-out DIRS isn't read.
+  const text = withoutComments(source);
+  const key = /["']DIRS["'][ \t]*:[ \t]*/g;
+  key.lastIndex = templates.open;
+  for (let match; (match = key.exec(text)) !== null && match.index < templates.close; ) {
+    const open = match.index + match[0].length;
+    if (!"[(".includes(source[open])) continue;
+    const close = matchBracket(source, open);
+    if (close === -1) continue;
+    for (const item of splitItems(source, open, close)) {
+      const dir = templateDir(item.text.trim(), baseDir, root);
+      if (dir !== null) dirs.push(dir);
+    }
+  }
+  return dirs;
+}
+
+const PY_STRING = /^(["'])([^"'\\]*)\1$/;
+
+/** One `DIRS` entry as a folder, or null when it isn't written in a form setup reads. */
+function templateDir(text, baseDir, root) {
+  const literal = PY_STRING.exec(text);
+  if (literal !== null) return resolve(root, literal[2]);
+  if (baseDir === null) return null;
+  const parts = (list) => (list.every((part) => PY_STRING.test(part)) ? list.map((part) => PY_STRING.exec(part)[2]) : null);
+  const divided = text.split(/\s*\/\s*/);
+  if (divided[0] === "BASE_DIR" && divided.length > 1) {
+    const names = parts(divided.slice(1));
+    return names === null ? null : join(baseDir, ...names);
+  }
+  const joined = /^os\.path\.join\(\s*BASE_DIR\s*,([^()]*)\)$/.exec(text);
+  if (joined !== null) {
+    const names = parts(joined[1].split(",").map((part) => part.trim()).filter((part) => part !== ""));
+    return names === null ? null : join(baseDir, ...names);
+  }
+  return null;
+}
+
+/** The folder `BASE_DIR` names, when the settings set it the way Django's template does, or null. */
+function baseDirOf(source, file) {
+  const line = /^BASE_DIR[ \t]*=[ \t]*(.+)$/m.exec(source)?.[1]?.trim() ?? null;
+  if (line === null) return null;
+  const pathlib = /^Path\(__file__\)\.resolve\(\)((?:\.parent)+)$/.exec(line);
+  const ospath = /^((?:os\.path\.dirname\()+)os\.path\.abspath\(__file__\)(\)+)$/.exec(line);
+  const calls = ospath === null ? 0 : ospath[1].split("(").length - 1;
+  const levels = pathlib !== null ? pathlib[1].split(".parent").length - 1 : ospath !== null && ospath[2].length === calls ? calls : 0;
+  if (levels === 0) return null;
+  let dir = file;
+  for (let i = 0; i < levels; i++) dir = dirname(dir);
+  return dir;
 }
 
 /** Adds APP to the INSTALLED_APPS list or tuple, keeping its layout. */

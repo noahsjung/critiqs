@@ -528,3 +528,21 @@ test("init leaves a hand-written default inside an if block alone, sets the ID b
   );
   expect(output).not.toContain("Warning:");
 });
+
+test("templates in a folder TEMPLATES[\"DIRS\"] lists are read, so a run without --entry after one with it adds no second tag", () => {
+  const settings = SETTINGS.replace("'DIRS': [],", "'DIRS': [BASE_DIR / 'site_templates'],");
+  expect(settings).not.toBe(SETTINGS);
+  const root = starter({ "mysite/settings.py": settings, "site_templates/layout.html": BASE });
+  const run = (args: string[]) => {
+    const messages: string[] = [];
+    const code = runInit(["init", PROJECT, ...args], { cwd: root, print: (message) => messages.push(message), env: {} });
+    return { code, output: messages.join("\n") };
+  };
+  expect(run(["--entry", "site_templates/layout.html"]).code).toBe(0);
+  expect(read(root, "site_templates/layout.html")).toContain("{% critiqs %}");
+  const again = run([]);
+  expect(read(root, "templates/base.html")).not.toContain("{% critiqs %}");
+  expect(again.code).toBe(0);
+  expect(again.output).toContain("site_templates/layout.html");
+  expect(django.find(root).map((usage) => usage.file)).toEqual([join(root, "site_templates/layout.html")]);
+});
