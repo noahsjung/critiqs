@@ -289,8 +289,9 @@ Release workflow never do.
        `critiqs-*`), skips a version npm already has, and runs
        `npm publish ./<file>.tgz --access public --ignore-scripts` for the
        rest, in that order.
-     - **rubygems** asks RubyGems which gems it doesn't have yet, gets a
-       short-lived key from `rubygems/configure-rubygems-credentials`, and
+     - **rubygems** checks that each gem's name is in the release group
+       (`critiqs` or `critiqs-*`) before anything else, asks RubyGems which
+       gems it doesn't have yet, gets a short-lived key from `rubygems/configure-rubygems-credentials`, and
        runs `gem push` on those with the runner's Ruby.
      - **pypi** checks that `pypi/` holds only a non-empty wheel and source
        archive of each `<framework>_critiqs` project at the version, both

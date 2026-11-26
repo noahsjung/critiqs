@@ -314,15 +314,26 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/gems"
           found=0
+          # Every name is checked before RubyGems is asked about any: only the release group's names (critiqs,
+          # critiqs-*), whatever the build packed, as for npm and PyPI.
           for gem in release/rubygems/*.gem; do
             [ -e "$gem" ] || continue
             found=$((found + 1))
             file=$(basename "$gem")
             name=${file%-"$VERSION".gem}
-            if [ "$name" = "$file" ] || ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+            if [ "$name" = "$file" ]; then
               echo "::error::$file is not a gem at $VERSION."
               exit 1
             fi
+            if ! [[ "$name" =~ ^critiqs(-[a-z0-9]+)*$ ]]; then
+              echo "::error::$file holds $name, which isn't a Critiqs gem."
+              exit 1
+            fi
+          done
+          for gem in release/rubygems/*.gem; do
+            [ -e "$gem" ] || continue
+            file=$(basename "$gem")
+            name=${file%-"$VERSION".gem}
             status=$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' \
               "https://rubygems.org/api/v2/rubygems/$name/versions/$VERSION.json")
             case "$status" in

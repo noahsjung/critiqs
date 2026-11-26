@@ -768,6 +768,21 @@ echo "$PWD $*" >> "${calls}"
       expect(other.status).toBe(1);
       expect(other.output).toContain("critiqs-rails-0.4.0.gem is not a gem at 0.5.0");
     });
+
+    test("refuses a gem outside the release group, before asking RubyGems or pushing anything", async () => {
+      const { work, out } = await downloaded();
+      for (const name of ["rails", "critiqs_rails", "Critiqs-rails", "critiqs-"]) {
+        await rm(join(scratch, "curl-calls"), { force: true });
+        await rm(join(work, "..", "runner", "gems"), { recursive: true, force: true });
+        await Bun.write(join(out, `rubygems/${name}-0.4.0.gem`), "gem");
+        const result = await runStep(workflow.jobs.rubygems, find, work, { VERSION: "0.4.0" }, { bin: await curl("404") });
+        expect([name, result.status]).toEqual([name, 1]);
+        expect(result.output).toContain(`${name}-0.4.0.gem holds ${name}, which isn't a Critiqs gem.`);
+        expect(result.outputs).toBe("");
+        expect(await Bun.file(join(scratch, "curl-calls")).exists()).toBe(false);
+        await rm(join(out, `rubygems/${name}-0.4.0.gem`));
+      }
+    });
   });
 });
 
