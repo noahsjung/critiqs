@@ -950,9 +950,34 @@ interface sets a list yet; the owner's settings come with the extension.
   review address; recording it also lets them confirm whether that project
   lists an origin they guess. Once projects can limit who reviews them, the
   lookup applies that check too.
+- **Changing one address.** `addProjectAddress` and `removeProjectAddress`
+  change one address in one transaction, so two people adding at once keep
+  both. Adding validates as the whole list does, an address already listed
+  changes nothing, and the 20-address cap applies. Owners only, as for the
+  whole list.
+- **Projects a person can add a site to** (`manageableProjects`). Every
+  project in an organization the person is an admin of, and the projects
+  they created while still a member: exactly who `projectAccess` lets change
+  a list. Admins are included because they already manage every project in
+  their organization (its settings, tags, usage, and "Who can review"). At
+  most 200 projects by name, with `complete: false` when there may be more.
+  A project from before organizations is listed only for its creator until
+  the backfill moves it into an organization, though an admin of the
+  creator's home organization may already change it.
+- **Retried creates.** `createProject` takes an optional `idempotencyKey` (8
+  to 100 letters, digits, `-` or `_`; clients use a random UUID). A retry with
+  the same key by the same person within a day returns the project the first
+  call created, without counting against the plan again; another person's
+  identical key is a separate request, and a create without a key behaves as
+  before. The day covers lost responses, reopened panels, and pages reloaded
+  while a create was pending. Keys past a day are removed as the person
+  creates more projects.
 - **Interface.** Additive calls under protocol 5; `/critiqs/config` reports
   `addressLists`, and the component records opened projects only where it
-  does.
+  does. It reports `addressEdits` for adding and removing one address and
+  the manageable list, and `createKeys` for `idempotencyKey`; clients send
+  those only where reported, since an older backend refuses arguments it
+  doesn't know.
 
 ## Sign-in and organizations
 

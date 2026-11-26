@@ -45,7 +45,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -535,6 +535,18 @@ export const MIGRATIONS: Migration[] = [
   );
   CREATE UNIQUE INDEX opened_projects_by_user_project ON opened_projects (user_id, project_id);
   CREATE INDEX opened_projects_by_user_time ON opened_projects (user_id, opened_at);
+  `,
+  // Projects created with an idempotency key, so a retried create returns the same project.
+  `
+  CREATE TABLE project_creations (
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  );
+  CREATE INDEX project_creations_by_user_time ON project_creations (user_id, created_at);
+  CREATE INDEX projects_by_creator_organization ON projects (created_by, organization_id, seq);
   `,
 ];
 
@@ -1317,6 +1329,30 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
       patch: async (id, changes) => patch("projects", id, { review_url: changes.reviewUrl, organization_id: changes.organizationId, review_access: changes.reviewAccess }),
       listByCreator: async (userId, request) =>
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),
+      createdIn: async (userId, organizationId, limit) =>
+        sql
+          .all<ProjectRow>("SELECT * FROM projects WHERE created_by = ? AND organization_id IS ? ORDER BY seq LIMIT ?", [userId, organizationId, limit])
+          .map(project),
+      inOrganization: async (organizationId, limit) =>
+        sql.all<ProjectRow>("SELECT * FROM projects WHERE organization_id = ? ORDER BY seq LIMIT ?", [organizationId, limit]).map(project),
+    },
+    projectCreations: {
+      find: async (userId, key) => {
+        const row = sql.get<ProjectCreationRow>("SELECT * FROM project_creations WHERE user_id = ? AND key = ?", [userId, key]);
+        return row === undefined ? null : { userId: row.user_id, key: row.key, projectId: row.project_id, createdAt: row.created_at };
+      },
+      put: async (record) =>
+        sql.run("INSERT OR REPLACE INTO project_creations (user_id, key, project_id, created_at) VALUES (?, ?, ?, ?)", [
+          record.userId,
+          record.key,
+          record.projectId,
+          record.createdAt,
+        ]),
+      removeBefore: async (userId, before, limit) =>
+        sql.run(
+          "DELETE FROM project_creations WHERE rowid IN (SELECT rowid FROM project_creations WHERE user_id = ? AND created_at < ? ORDER BY created_at LIMIT ?)",
+          [userId, before, limit],
+        ),
     },
 
     projectAddresses: {
@@ -2058,6 +2094,12 @@ interface ProjectAddressRow {
   address: string;
   key: string;
   position: number;
+}
+interface ProjectCreationRow {
+  user_id: string;
+  key: string;
+  project_id: string;
+  created_at: number;
 }
 interface OpenedProjectRow {
   seq: number;

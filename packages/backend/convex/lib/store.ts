@@ -26,6 +26,11 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
     if (!("insert" in db)) throw new Error("This Critiqs operation changes data and must run in a mutation.");
     return (ctx as MutationCtx).db;
   };
+  const creation = async (userId: string, key: string) =>
+    await db
+      .query("projectCreations")
+      .withIndex("by_user_key", (q) => q.eq("userId", userId as Id<"users">).eq("key", key))
+      .unique();
   const page = <T, R>(result: PaginationResult<T>, map: (row: T) => R): PageResult<R> => ({
     page: result.page.map(map),
     isDone: result.isDone,
@@ -187,6 +192,36 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .paginate(bounded(request)),
           (project) => project,
         ),
+      createdIn: async (userId, organizationId, limit) =>
+        await db
+          .query("projects")
+          .withIndex("by_creator_organization", (q) =>
+            q.eq("createdBy", userId as Id<"users">).eq("organizationId", organizationId === null ? undefined : (organizationId as Id<"organizations">)),
+          )
+          .take(limit),
+      inOrganization: async (organizationId, limit) =>
+        await db
+          .query("projects")
+          .withIndex("by_organization", (q) => q.eq("organizationId", organizationId as Id<"organizations">))
+          .take(limit),
+    },
+    projectCreations: {
+      find: async (userId, key) => {
+        const row = await creation(userId, key);
+        return row === null ? null : { userId: row.userId, key: row.key, projectId: row.projectId, createdAt: row.createdAt };
+      },
+      put: async ({ userId, key, projectId, createdAt }) => {
+        const row = await creation(userId, key);
+        if (row !== null) await writer().patch(row._id, { projectId: projectId as Id<"projects">, createdAt });
+        else await writer().insert("projectCreations", { userId: userId as Id<"users">, key, projectId: projectId as Id<"projects">, createdAt });
+      },
+      removeBefore: async (userId, before, limit) => {
+        const expired = await db
+          .query("projectCreations")
+          .withIndex("by_user_time", (q) => q.eq("userId", userId as Id<"users">).lt("createdAt", before))
+          .take(limit);
+        for (const row of expired) await writer().delete(row._id);
+      },
     },
     projectAddresses: {
       forProject: async (projectId, limit) =>

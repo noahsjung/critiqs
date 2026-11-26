@@ -1,4 +1,6 @@
 import {
+  type ManageableProjects,
+  MAX_MANAGEABLE_PROJECTS,
   MAX_PROJECT_ADDRESSES,
   originLookupKeys,
   parseProjectAddress,
@@ -32,6 +34,12 @@ const MAX_PATTERN_ROWS = 100;
 export const MAX_LOOKUP_CHOICES = 20;
 /** Matches checked in full, so one lookup stays within a transaction's reads however many projects list an origin. */
 const MAX_CANDIDATES = 50;
+/**
+ * Organizations the manageable list reads. A membership where the person
+ * manages nothing costs one indexed read that returns nothing, so this can be
+ * far above what the lookup searches.
+ */
+const MAX_MEMBERSHIPS_LISTED = 500;
 /** How often recording an opened project again updates when it was opened. */
 const OPENED_REFRESH_MS = 24 * 60 * 60 * 1000;
 
@@ -46,16 +54,84 @@ export async function setProjectAddresses(
   identity: Identity | null,
   args: { projectId: string; addresses: string[] },
 ): Promise<string[]> {
-  const user = await requireUser(store, identity);
-  let project = await requireProject(store, user, args.projectId);
-  if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", OWNERS_ONLY);
-  if (args.addresses.length > MAX_PROJECT_ADDRESSES) fail("invalid", `A project can list up to ${MAX_PROJECT_ADDRESSES} addresses.`);
-  const next: { address: string; key: string }[] = [];
+  const project = await managedProject(store, identity, args.projectId);
+  if (args.addresses.length > MAX_PROJECT_ADDRESSES) fail("invalid", TOO_MANY);
+  const next: ListedAddress[] = [];
   for (const value of args.addresses) {
-    const parsed = parseProjectAddress(value);
-    if ("error" in parsed) fail("invalid", parsed.error);
-    if (!next.some((known) => known.address === parsed.address)) next.push({ address: parsed.address, key: parsed.key });
+    const parsed = listedAddress(value);
+    if (!next.some((known) => known.address === parsed.address)) next.push(parsed);
   }
+  return await saveList(store, project, next);
+}
+
+/**
+ * Adds one address to a project's list, normalized, and returns the list. One
+ * transaction reads and writes the list, so people adding at the same time
+ * keep every address. An address already listed changes nothing. Only the
+ * project's owners may.
+ */
+export async function addProjectAddress(
+  store: Store,
+  identity: Identity | null,
+  args: { projectId: string; address: string },
+): Promise<string[]> {
+  const project = await managedProject(store, identity, args.projectId);
+  const added = listedAddress(args.address);
+  const current = await listed(store, project._id);
+  if (current.some((row) => row.address === added.address)) return current.map((row) => row.address);
+  if (current.length >= MAX_PROJECT_ADDRESSES) fail("invalid", TOO_MANY);
+  return await saveList(store, project, [...current, added]);
+}
+
+/**
+ * Removes one address from a project's list, matched once normalized, and
+ * returns the list. An address not listed changes nothing. Only the project's
+ * owners may.
+ */
+export async function removeProjectAddress(
+  store: Store,
+  identity: Identity | null,
+  args: { projectId: string; address: string },
+): Promise<string[]> {
+  const project = await managedProject(store, identity, args.projectId);
+  const removed = listedAddress(args.address);
+  const current = await listed(store, project._id);
+  if (!current.some((row) => row.address === removed.address)) return current.map((row) => row.address);
+  return await saveList(store, project, current.filter((row) => row.address !== removed.address));
+}
+
+/** An address as a list holds it: normalized, with the key the lookup searches by. */
+interface ListedAddress {
+  address: string;
+  key: string;
+}
+
+const TOO_MANY = `A project can list up to ${MAX_PROJECT_ADDRESSES} addresses.`;
+
+function listedAddress(value: string): ListedAddress {
+  const parsed = parseProjectAddress(value);
+  if ("error" in parsed) fail("invalid", parsed.error);
+  return { address: parsed.address, key: parsed.key };
+}
+
+async function listed(store: Store, projectId: string): Promise<ListedAddress[]> {
+  return (await store.projectAddresses.forProject(projectId, MAX_PROJECT_ADDRESSES)).map(({ address, key }) => ({ address, key }));
+}
+
+/** The project, for someone who may change its address list: its owners, as `projectAccess` decides. */
+async function managedProject(store: Store, identity: Identity | null, projectId: string): Promise<ProjectRecord> {
+  const user = await requireUser(store, identity);
+  const project = await requireProject(store, user, projectId);
+  if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", OWNERS_ONLY);
+  return project;
+}
+
+/**
+ * Saves a project's list as `next`, in order, and returns it. Rows already in
+ * their place are kept, so adding an address writes one row.
+ */
+async function saveList(store: Store, saved: ProjectRecord, next: ListedAddress[]): Promise<string[]> {
+  let project = saved;
   // The lookup searches by organization, so a project from before organizations moves into its creator's first.
   if (project.organizationId === undefined) {
     await adoptProject(store, project._id, Date.now());
@@ -64,16 +140,50 @@ export async function setProjectAddresses(
   const organizationId = project.organizationId;
   if (organizationId === undefined) fail("unavailable", "This project can't list addresses yet. Try again later.");
   const current = await store.projectAddresses.forProject(project._id, MAX_PROJECT_ADDRESSES);
-  const unchanged =
-    current.length === next.length &&
-    current.every((row, index) => row.address === next[index]!.address && row.organizationId === organizationId);
-  if (!unchanged) {
-    for (const row of current) await store.projectAddresses.delete(row._id);
-    for (const [position, { address, key }] of next.entries()) {
-      await store.projectAddresses.insert({ projectId: project._id, organizationId, address, key, position });
-    }
+  const inPlace = (index: number) => {
+    const row = current[index];
+    return row !== undefined && row.address === next[index]?.address && row.organizationId === organizationId && row.position === index;
+  };
+  for (const [index, row] of current.entries()) if (!inPlace(index)) await store.projectAddresses.delete(row._id);
+  for (const [position, { address, key }] of next.entries()) {
+    if (!inPlace(position)) await store.projectAddresses.insert({ projectId: project._id, organizationId, address, key, position });
   }
   return next.map((row) => row.address);
+}
+
+/**
+ * The projects whose address lists the signed-in person may change, by name:
+ * every project in an organization they're an admin of, and the projects they
+ * created while still a member, as `projectAccess` decides for
+ * `setProjectAddresses`. The extension's "Add to a project" offers these.
+ */
+export async function listManageableProjects(store: Store, identity: Identity | null): Promise<ManageableProjects> {
+  const { user } = await currentReviewer(store, identity);
+  if (user === null) return { projects: [], complete: true };
+  const found = new Map<string, ProjectRecord>();
+  // Reading one more than is returned tells whether there may be more.
+  const full = () => found.size > MAX_MANAGEABLE_PROJECTS;
+  let complete = true;
+  const memberships = await store.memberships.forUser(user._id, MAX_MEMBERSHIPS_LISTED + 1);
+  if (memberships.length > MAX_MEMBERSHIPS_LISTED) complete = false;
+  // Each read returns only projects the person manages: all of an organization's for its admins, and a member's own.
+  for (const membership of memberships.slice(0, MAX_MEMBERSHIPS_LISTED)) {
+    if (full()) break;
+    const projects =
+      membership.role === "admin"
+        ? await store.projects.inOrganization(membership.organizationId, MAX_MANAGEABLE_PROJECTS + 1)
+        : await store.projects.createdIn(user._id, membership.organizationId, MAX_MANAGEABLE_PROJECTS + 1);
+    for (const project of projects) found.set(project._id, project);
+  }
+  // Projects they created before organizations, until the backfill moves them into one.
+  if (!full()) {
+    for (const project of await store.projects.createdIn(user._id, null, MAX_MANAGEABLE_PROJECTS + 1)) {
+      if ((await projectAccess(store, project, user._id)) === "manage") found.set(project._id, project);
+    }
+  }
+  if (full()) complete = false;
+  const projects = [...found.values()].sort((a, b) => a.name.localeCompare(b.name) || (a._id < b._id ? -1 : 1)).slice(0, MAX_MANAGEABLE_PROJECTS);
+  return { projects: await Promise.all(projects.map((project) => projectInfo(store, project, user._id))), complete };
 }
 
 /** A project's address list, for its owners. */

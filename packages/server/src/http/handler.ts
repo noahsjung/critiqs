@@ -79,7 +79,15 @@ import {
 } from "../developer-setup.ts";
 import { claimAddressCheck, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
-import { findProjectsForOrigin, getProjectAddresses, recordProjectOpened, setProjectAddresses } from "../project-addresses.ts";
+import {
+  addProjectAddress,
+  findProjectsForOrigin,
+  getProjectAddresses,
+  listManageableProjects,
+  recordProjectOpened,
+  removeProjectAddress,
+  setProjectAddresses,
+} from "../project-addresses.ts";
 import {
   CODE_MINUTES,
   cleanCode,
@@ -484,6 +492,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     developerSends: (args) => (s, id) => listDeveloperSends(s, id, args),
     projectAddresses: (args) => (s, id) => getProjectAddresses(s, id, args),
     findProjectsForOrigin: (args) => (s, id) => findProjectsForOrigin(s, id, args),
+    manageableProjects: () => (s, id) => listManageableProjects(s, id),
   };
   const changes: Record<string, (args: any) => Run> = {
     sync: () => (s, id) => ops.syncReviewer(s, id),
@@ -492,6 +501,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     setReviewUrl: (args) => (s, id) => ops.setReviewUrl(s, id, args),
     setReviewAccess: (args) => (s, id) => ops.setReviewAccess(s, id, args),
     setProjectAddresses: (args) => (s, id) => setProjectAddresses(s, id, args),
+    addProjectAddress: (args) => (s, id) => addProjectAddress(s, id, args),
+    removeProjectAddress: (args) => (s, id) => removeProjectAddress(s, id, args),
     recordProjectOpened: (args) => (s, id) => recordProjectOpened(s, id, args),
     setOverageCap: (args) => (s, id) => setOverageCap(s, id, args),
     createThread: (args) => (s, id) =>
@@ -1182,6 +1193,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // limit them to their organization's members (`setReviewAccess`).
       // `addressLists`: projects' address lists (`projectAddresses`, `setProjectAddresses`), recording projects a
       // person opened (`recordProjectOpened`), and the browser extension's lookup (`findProjectsForOrigin`).
+      // `addressEdits`: adding or removing one address (`addProjectAddress`, `removeProjectAddress`), and the
+      // projects whose lists a person may change (`manageableProjects`).
+      // `createKeys`: `idempotencyKey` on `createProject`, so a retried create returns the same project.
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1199,6 +1213,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         reviewAccess: true,
         threadPages: true,
         addressLists: true,
+        addressEdits: true,
+        createKeys: true,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);

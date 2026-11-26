@@ -128,6 +128,7 @@ export default defineSchema({
     reviewAccess: v.optional(v.union(v.literal("anyone"), v.literal("organization"))),
   })
     .index("by_creator", ["createdBy"])
+    .index("by_creator_organization", ["createdBy", "organizationId"])
     .index("by_organization", ["organizationId"]),
 
   /**
@@ -147,6 +148,20 @@ export default defineSchema({
     .index("by_project", ["projectId", "position"])
     .index("by_project_key", ["projectId", "key"])
     .index("by_organization_key", ["organizationId", "key"]),
+
+  /**
+   * A project created with an idempotency key, so a retry of the same request
+   * by the same person returns it. Kept a day (`CREATE_KEY_MS`); removed as the
+   * person creates more.
+   */
+  projectCreations: defineTable({
+    userId: v.id("users"),
+    key: v.string(),
+    projectId: v.id("projects"),
+    createdAt: v.number(),
+  })
+    .index("by_user_key", ["userId", "key"])
+    .index("by_user_time", ["userId", "createdAt"]),
 
   /** That a person opened a project through an install (or later a review link); the lookup searches these too. */
   openedProjects: defineTable({
