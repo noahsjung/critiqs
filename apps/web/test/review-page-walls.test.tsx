@@ -68,7 +68,7 @@ describe("the frame policy is the only wall that keeps a frame on the review pro
   test("served without its frame policy, the review page shows no frame and says what is missing", async () => {
     for (const policy of [null, "frame-ancestors 'none'", "frame-ancestors 'none'; frame-src * blob:"]) {
       const container = await openReview(fakeHost(policy));
-      expect([policy, container.querySelector("iframe")]).toEqual([policy, null]);
+      expect([policy, container.querySelector("iframe") === null]).toEqual([policy, true]);
       expect(text(container)).toContain("can't show this prototype safely");
     }
   });
@@ -86,7 +86,7 @@ describe("a frame's notices", () => {
     await click(button(container, "Dismiss"));
     await tell(container, { kind: "unsupported", feature: "load" });
     expect(text(container)).toContain("Part of this page couldn't load");
-    expect(container.querySelector('.review-strip.problem[role="alert"]')).toBeNull();
+    expect(container.querySelector('.review-strip.problem[role="alert"]') === null).toBe(true);
     await click(button(container, "Dismiss"));
     expect(text(container)).not.toContain("Part of this page couldn't load");
   });
@@ -94,7 +94,7 @@ describe("a frame's notices", () => {
     const container = await openReview(fakeHost());
     await tell(container, { kind: "unsupported", feature: "limit" });
     expect(text(container)).toMatch(/reload in a minute/i);
-    expect(container.querySelector('a[href="https://extension.example/critiqs"]')).toBeNull();
+    expect(container.querySelector('a[href="https://extension.example/critiqs"]') === null).toBe(true);
   });
   test("each page the proxy can't show says what happened and what helps", async () => {
     const lines: Record<string, RegExp> = {
@@ -124,7 +124,7 @@ describe("a link that ends while its tab is open", () => {
     await click(button(container, "Browse"));
     await settle();
     expect(text(container)).toContain("This review session ended");
-    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("iframe") === null).toBe(true);
   });
 });
 

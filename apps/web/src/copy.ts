@@ -371,7 +371,7 @@ export const copy = {
       timeout: "The prototype took too long to answer.",
       unsafe: "Critiqs won't show this page: it was reported as unsafe.",
       unsupported: "This page uses something review links can't show.",
-      busy: "This page waited its turn behind other pages of this site or link and didn't get one. Reload it in a few seconds.",
+      busy: "This page waited its turn while other pages loaded through Critiqs (from this site, this link or other review links) and didn't get one. Reload it in a few seconds.",
       limited: "You opened many pages through this link in the last few minutes; more open as time passes. Reload in about a minute.",
       offline: "Critiqs couldn't reach its own service to check this link. Reload the page in a few seconds.",
       "not-found": "The prototype has no page at this address.",

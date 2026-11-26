@@ -185,7 +185,7 @@ describe("a narrow screen", () => {
     const { host, surface } = fakeHost();
     const container = await openReview(host);
     expect(surface().panel ?? { layout: "side" }).toMatchObject({ layout: "side" });
-    expect(container.querySelector(".review-comments")).toBeNull();
+    expect(container.querySelector(".review-comments") === null).toBe(true);
   });
 });
 

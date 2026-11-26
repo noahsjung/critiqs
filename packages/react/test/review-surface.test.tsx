@@ -140,7 +140,7 @@ async function reviewPanel(options: { backend?: Partial<FakeBackend>; signedIn?:
 test("signed out, the reviewer picks and writes; posting signs them in and keeps the draft, which is then posted", async () => {
   const panel = await reviewPanel();
   // No toolbar of the panel's own, and no sign-in popup on entering Comment mode.
-  expect(panel.shadow.querySelector('button[aria-label="Comment mode"]')).toBeNull();
+  expect(panel.shadow.querySelector('button[aria-label="Comment mode"]') === null).toBe(true);
   await panel.pick();
   const form = panel.shadow.querySelector<HTMLFormElement>('form[aria-label="New comment"]')!;
   expect(form.textContent).toContain("You'll sign in with your email when you post");
@@ -177,7 +177,7 @@ test("AT-25: the frame navigating during sign-in drops the selection, keeps the 
   await panel.navigate();
   await panel.signIn();
   expect(panel.created).toEqual([]);
-  expect(panel.shadow.querySelector('form[aria-label="New comment"]')).toBeNull();
+  expect(panel.shadow.querySelector('form[aria-label="New comment"]') === null).toBe(true);
   expect(panel.shadow.textContent).toContain("Your comment's text is kept");
   // Selecting again on the new page brings the text back with the new element.
   await panel.pick("page-b");
@@ -197,13 +197,13 @@ test("opening a thread from the list shows the frame at its width first", async 
 test("the sidebar stays open with no close button", async () => {
   const panel = await reviewPanel();
   expect(panel.shadow.querySelector("aside.sidebar")).not.toBeNull();
-  expect(panel.shadow.querySelector('button[aria-label="Close sidebar"]')).toBeNull();
+  expect(panel.shadow.querySelector('button[aria-label="Close sidebar"]') === null).toBe(true);
 });
 
 test("on a narrow screen the sidebar is a sheet: shown while the page opens it, closed by its own button", async () => {
   const closed: string[] = [];
   const shut = await reviewPanel({ panel: { layout: "sheet", open: false, onClose: () => void closed.push("close") } });
-  expect(shut.shadow.querySelector("aside.sidebar")).toBeNull();
+  expect(shut.shadow.querySelector("aside.sidebar") === null).toBe(true);
   await act(async () => root?.unmount());
   root = null;
   host?.remove();
@@ -212,7 +212,7 @@ test("on a narrow screen the sidebar is a sheet: shown while the page opens it, 
   expect(sheet).not.toBeNull();
   // The full width of the window, not the side panel's: no width of its own and no edge to drag.
   expect(sheet.style.width).toBe("");
-  expect(open.shadow.querySelector(".sidebar-resize")).toBeNull();
+  expect(open.shadow.querySelector(".sidebar-resize") === null).toBe(true);
   const close = open.shadow.querySelector<HTMLButtonElement>('button[aria-label="Close comments"]')!;
   await act(async () => close.click());
   expect(closed).toEqual(["close"]);

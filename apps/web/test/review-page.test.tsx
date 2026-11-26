@@ -95,7 +95,7 @@ describe("the review page", () => {
     const container = await render(page(host), { backend: fakeBackend({ openReviewLink: async () => ({ kind: "sign-in" }) }), auth: fakeAuth(null) });
     await settle();
     expect(text(container)).toContain("Sign in to open this review link");
-    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("iframe") === null).toBe(true);
   });
 
   test("ready: the sandboxed frame at the link's path, and the panel for it in Comment mode with no project yet", async () => {
@@ -145,7 +145,7 @@ describe("the review page", () => {
     expect(backend.calls.filter((call) => call.name === "adoptReviewLease").map((call) => call.args)).toEqual([["lease-1", "renewal-secret"]]);
     expect(signedIn).toBe(true);
     expect(mounted[0]!.updates.at(-1)?.projectId).toBe("project-1");
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="dialog"]') === null).toBe(true);
   });
 
   test("a cancelled sign-in resolves false and adopts nothing", async () => {
@@ -185,7 +185,7 @@ describe("the review page", () => {
     await settle();
     await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
     expect(text(container)).toContain("This review session ended");
-    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("iframe") === null).toBe(true);
     expect(mounted[0]!.destroyed).toBe(true);
   });
 });
