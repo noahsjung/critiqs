@@ -194,7 +194,7 @@ export interface TrackerSignInStart {
 export interface TicketTextOptions {
   /** Who is creating the ticket, for "Created from Critiqs by …"; null when they turned attribution off. */
   attribution: { name: string } | null;
-  /** The thread's link, on the project's review address; null when the project has none, and the ticket doesn't link to the thread. */
+  /** The thread's link: its website page, else on the project's review address; null with neither, and the ticket doesn't link to the thread. */
   link: WebAddress | null;
   /** `uploaded` when the tracker gets the capture as an image; `link` when it can't (GitHub), so the capture is viewed by opening the thread. */
   captureNote: "uploaded" | "link";
@@ -252,7 +252,7 @@ export interface TicketBodyOptions {
   capture: { url: WebAddress } | "missing" | null;
   /** Who is creating the ticket; null when they turned attribution off. */
   attribution: { name: string } | null;
-  /** The thread's link; null when the project has no review address. */
+  /** The thread's link; null with no website and no review address. */
   link: WebAddress | null;
 }
 

@@ -60,6 +60,8 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
   const dana = reviewer("Dana");
   const lee = reviewer("Lee");
   const sam = reviewer("Sam");
+  /** The deployment's website for thread pages, as a backend passes it with each ticket call; none unless a test sets one. */
+  let website: string | null = null;
 
   async function userId(backend: ContractBackend, who: Identity) {
     const user = await backend.run((store) => store.users.byToken(who.tokenIdentifier));
@@ -139,7 +141,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
       {
         requireCreator: () => backend.run((store) => requireTicketCreator(store, who, { threadId, tracker: "linear" })),
         token: tokens(backend),
-        claim: (claim) => backend.run((store) => claimTicketCreation(store, who, { threadId, tracker: "linear", ...claim }, clock.now)),
+        claim: (claim) => backend.run((store) => claimTicketCreation(store, who, { threadId, tracker: "linear", ...claim, website }, clock.now)),
         finish: ({ linkId, holder }, ticket, linkBackAdded) => backend.run((store) => finishTicketCreation(store, who, { linkId, threadId, holder, ticket, linkBackAdded }, clock.now)),
         release: ({ linkId, holder }, end) => backend.run((store) => releaseTicketHold(store, who, { linkId, holder, end }, clock.now)),
         capture: async (fileId) => {
@@ -158,7 +160,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
   /** The steps of linking a ticket as `who`, through the store steps around tracker calls, as Convex's actions run them. */
   function linkSteps(backend: ContractBackend, who: Identity, args: { threadId: string; tracker: TrackerId; externalId: string }, clock: Clock) {
     return {
-      claim: (holder: string) => backend.run((store) => claimTicketLink(store, who, { ...args, holder }, clock.now)),
+      claim: (holder: string) => backend.run((store) => claimTicketLink(store, who, { ...args, holder, website }, clock.now)),
       token: tokens(backend),
       finish: ({ linkId, holder }: { linkId: string; holder: string }, ticket: Parameters<typeof finishTicketLink>[2]["ticket"]) =>
         backend.run((store) => finishTicketLink(store, who, { linkId, holder, threadId: args.threadId, ticket }, clock.now)),
@@ -195,7 +197,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
   function draft(backend: ContractBackend, who: Identity, threadId: string) {
     return ticketDraft(
       {
-        prepare: () => backend.run((store) => prepareTicketDraft(store, who, { threadId, tracker: "linear" })),
+        prepare: () => backend.run((store) => prepareTicketDraft(store, who, { threadId, tracker: "linear", website }, 5_000)),
         loadPage: ({ paginationOpts, ...args }) => backend.run((store) => ops.exportThreads(store, who, args, paginationOpts)),
       },
       { tracker: "linear" },
@@ -989,6 +991,64 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
     expect(linear.comments.map((comment) => rendered(comment.body))).toEqual([[]]);
     expect(JSON.stringify({ issues: linear.issues, comments: linear.comments })).not.toContain("SECRET");
     expect(linear.issues.find((issue) => issue.title === "Department is wrong")!.description).toContain("Created from Critiqs by Dana.");
+  });
+
+  test(`${name}: on a deployment with a website, a ticket links to the thread's own page there, before the review address`, async () => {
+    const backend = fresh();
+    website = "https://critiqs.example";
+    try {
+      // A project with a review address, and one with none whose thread's author sent a hostile page.
+      const { threadId } = await setup(backend);
+      const bare = await threadOn(backend, "https://evil.example/critiqs-login?session=SECRET");
+      await connect(backend, dana);
+      const linear = linearStandIn("https://linear.test", [{ id: "issue-9", identifier: "ENG-9", title: "Existing", teamId: "team-eng", state: { name: "Todo", type: "unstarted" } }]);
+      for (const id of [threadId, bare.threadId]) {
+        const key = (await backend.run((store) => store.threads.get(id)))!.pageKey!;
+        const pageLink = `https://critiqs.example/t/${key}`;
+        const filled = await draft(backend, dana, id);
+        expect(rendered(filled.body)).toEqual([pageLink]);
+        linear.attachments.length = 0;
+        const view = await create(backend, dana, linear, { threadId: id, body: filled.body });
+        const issue = linear.issues.at(-1)!;
+        expect(rendered(issue.description)).toEqual([pageLink, pageLink]);
+        expect(linear.attachments.map((attachment) => attachment.url)).toEqual([pageLink]);
+        expect(view.canAddLinkBack).toBe(false);
+        await link(backend, dana, linear, { threadId: id, externalId: "issue-9", comment: true });
+        expect(linear.attachments.at(-1)!.url).toBe(pageLink);
+        expect(rendered(linear.comments.at(-1)!.body)).toEqual([pageLink]);
+      }
+      // The page the thread was left on shows only as text, without its query; never as a link.
+      expect(JSON.stringify({ issues: linear.issues, comments: linear.comments, attachments: linear.attachments })).not.toContain("SECRET");
+    } finally {
+      website = null;
+    }
+  });
+
+  test(`${name}: a thread older than thread pages gets its page key when a ticket links to it`, async () => {
+    const backend = fresh();
+    website = "https://critiqs.example/";
+    try {
+      const { threadId } = await setup(backend);
+      await backend.run((store) => store.threads.patch(threadId, { pageKey: undefined }));
+      await connect(backend, dana);
+      const filled = await draft(backend, dana, threadId);
+      const key = (await backend.run((store) => store.threads.get(threadId)))!.pageKey;
+      expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      expect(rendered(filled.body)).toEqual([`https://critiqs.example/t/${key}`]);
+    } finally {
+      website = null;
+    }
+  });
+
+  test(`${name}: without a website, a ticket links on the review address; with neither, it has no thread link`, async () => {
+    const backend = fresh();
+    const { threadId } = await setup(backend);
+    const bare = await threadOn(backend, "https://evil.example/critiqs-login?session=SECRET");
+    await connect(backend, dana);
+    expect(rendered((await draft(backend, dana, threadId)).body)).toEqual([`${REVIEW}&critiqs=${threadId}`]);
+    const none = await draft(backend, dana, bare.threadId);
+    expect(rendered(none.body)).toEqual([]);
+    expect(none.body).toContain("- Link: none");
   });
 
   test(`${name}: a thread whose page isn't a web address can still be drafted, created, and linked`, async () => {

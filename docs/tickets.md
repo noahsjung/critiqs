@@ -201,9 +201,12 @@ most 50 threads. Unlinking removes the link in Critiqs only; the ticket and
 its link back stay in the tracker.
 
 The thread's link in a ticket (in its text, its link back, and a link
-comment) is on the project's review address, as in emails. Without a review
-address, a ticket doesn't link to the thread: its text says so, and nothing is
-added to the ticket as a link back. Critiqs never links a ticket to the page a
+comment) is, as in emails and **Copy link**: the thread's own page on the
+Critiqs website (`/t/<key>`) when the deployment has a website (Critiqs Cloud
+always does), which a teammate can open with nothing installed; otherwise the
+thread on the project's review address. With neither, a ticket doesn't link to
+the thread: its text says so, and nothing is added to the ticket as a link
+back. Critiqs never links a ticket to the page a
 thread was left on, since the thread's author sends that address and it could
 name any site. Each person may search their tracker or list where tickets go
 60 times a minute, and create or link 20 tickets a minute.

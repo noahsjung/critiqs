@@ -84,7 +84,7 @@ export function contextLines(
     options.linkText === undefined
       ? options.link
       : options.link === null
-        ? "none; this project has no review address, so tickets don't link to its threads"
+        ? "none; this project has no review address and this Critiqs has no website, so tickets don't link to its threads"
         : markdownLink(options.linkText, options.link);
   const lines = [
     `- Link: ${link}`,

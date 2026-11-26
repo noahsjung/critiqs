@@ -28,6 +28,7 @@ import { r2Config, r2Storage } from "./lib/r2";
 import { convexStore, identityOf, run } from "./lib/store";
 import { ticketsDeployment, trackerToken } from "./lib/tickets";
 import { ticketStatusValidator, trackerValidator } from "./lib/validators";
+import { threadPageWebsite } from "./notifications";
 
 // Tickets linked to threads: drafting, creating, and linking tickets in the
 // person's own tracker, and unlinking. Calls to trackers run in actions, in
@@ -157,7 +158,7 @@ export const requireAccount = internalMutation({
 
 export const prepareDraft = internalMutation({
   args: { threadId: v.id("threads"), tracker: trackerValidator },
-  handler: async (ctx, args) => run(async () => prepareTicketDraft(convexStore(ctx), await identityOf(ctx), args)),
+  handler: async (ctx, args) => run(async () => prepareTicketDraft(convexStore(ctx), await identityOf(ctx), { ...args, website: threadPageWebsite() }, Date.now())),
 });
 
 export const requireCreator = internalMutation({
@@ -167,7 +168,7 @@ export const requireCreator = internalMutation({
 
 export const claimCreate = internalMutation({
   args: { threadId: v.id("threads"), tracker: trackerValidator, creationId: v.string(), holder: v.string(), accountId: v.string() },
-  handler: async (ctx, args) => run(async () => claimTicketCreation(convexStore(ctx), await identityOf(ctx), args, Date.now())),
+  handler: async (ctx, args) => run(async () => claimTicketCreation(convexStore(ctx), await identityOf(ctx), { ...args, website: threadPageWebsite() }, Date.now())),
 });
 
 export const finishCreate = internalMutation({
@@ -192,7 +193,7 @@ export const saveLinkBack = internalMutation({
 
 export const claimLink = internalMutation({
   args: { threadId: v.id("threads"), tracker: trackerValidator, externalId: v.string(), holder: v.string() },
-  handler: async (ctx, args) => run(async () => claimTicketLink(convexStore(ctx), await identityOf(ctx), args, Date.now())),
+  handler: async (ctx, args) => run(async () => claimTicketLink(convexStore(ctx), await identityOf(ctx), { ...args, website: threadPageWebsite() }, Date.now())),
 });
 
 export const finishLink = internalMutation({

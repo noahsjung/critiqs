@@ -12,12 +12,13 @@ import {
   ticketBody,
   ticketLinkComment,
   ticketText,
+  threadPageLink,
   type TrackerId,
   type WebAddress,
   webAddress,
 } from "@critiqs/core";
 import { fail } from "../errors.ts";
-import { reviewAddressLink } from "../notify.ts";
+import { ensureThreadPageKey, reviewAddressLink } from "../notify.ts";
 import { MAX_THREAD_TICKET_ROWS, MAX_THREAD_TICKETS, requireThread, requireUser, ticketView } from "../operations.ts";
 import { projectAccess } from "../organizations.ts";
 import type { Identity, ProjectRecord, Store, ThreadRecord, TicketLinkRecord, UserRecord } from "../store.ts";
@@ -38,14 +39,26 @@ export const MAX_TICKET_SEARCH_LENGTH = 200;
 type Tickets = NonNullable<Store["tickets"]>;
 
 /**
- * A thread's link for tickets: on the project's review address, which its
- * owner sets, as emails link; null without a usable one. Never the page the
- * thread was left on: its author sends that address, so it could name any
- * site, and its query can carry a prototype's sign-in token.
+ * A thread's link for tickets, in order: its page on the Critiqs website
+ * (`<website>/t/<key>`, as emails and **Copy link** link) when the deployment
+ * has one, so anyone the team sends there can open it with nothing installed;
+ * else on the project's review address, which its owner sets; else null.
+ * Never the page the thread was left on: its author sends that address, so it
+ * could name any site, and its query can carry a prototype's sign-in token.
+ * A thread older than thread pages gets its page key here.
  */
-export function ticketThreadLink(project: ProjectRecord, thread: ThreadRecord): WebAddress | null {
+export async function ticketThreadLink(store: Store, project: ProjectRecord, thread: ThreadRecord, website: string | null, now: number): Promise<WebAddress | null> {
+  if (website !== null) return webAddress(threadPageLink(website, await ensureThreadPageKey(store, thread, now)));
   const link = reviewAddressLink(project, { threadId: thread._id, messageId: null });
   return link === null ? null : webAddress(link);
+}
+
+/**
+ * The website for thread pages a backend passes with a ticket call: its
+ * `CRITIQS_WEB_URL` when that serves thread pages, else null (or left out).
+ */
+export interface ThreadPages {
+  website?: string | null;
 }
 
 /** How many times a minute one person may list where tickets go or search their tracker: each calls it. */
@@ -163,7 +176,7 @@ export async function searchTickets(steps: TrackerSteps, deployment: TicketsDepl
 export interface DraftContext {
   projectId: string;
   threadId: string;
-  /** The thread's link; null when the project has no review address. */
+  /** The thread's link (see `ticketThreadLink`); null when it has none. */
   link: WebAddress | null;
   createdFromCritiqs: boolean;
   resumeSubmissionId: string | null;
@@ -173,14 +186,14 @@ export interface DraftContext {
  * Checks the person may create a ticket from the thread in this tracker, for
  * its draft, with the ticket they started there and haven't finished, if any.
  */
-export async function prepareTicketDraft(store: Store, identity: Identity | null, args: { threadId: string; tracker: TrackerId }): Promise<DraftContext> {
+export async function prepareTicketDraft(store: Store, identity: Identity | null, args: { threadId: string; tracker: TrackerId } & ThreadPages, now = Date.now()): Promise<DraftContext> {
   const { tickets, user, account } = await requireAccount(store, identity, args.tracker);
   const { thread, project } = await ticketThread(store, user, args.threadId);
   const unfinished = await unfinishedCreation(tickets, { threadId: thread._id, userId: user._id, tracker: args.tracker, accountId: account.accountId });
   return {
     projectId: project._id,
     threadId: thread._id,
-    link: ticketThreadLink(project, thread),
+    link: await ticketThreadLink(store, project, thread, args.website ?? null, now),
     createdFromCritiqs: account.attribution,
     resumeSubmissionId: unfinished?.creationId ?? null,
   };
@@ -275,7 +288,7 @@ export interface TicketHold {
 export interface HeldCreation extends TicketHold {
   /** The ID the new ticket takes; the same across the creation's attempts. */
   creationId: string;
-  /** The link back to the thread, as recorded at submission; null when the project had no review address. */
+  /** The link back to the thread, as recorded at submission; null when the thread had no link then. */
   linkBack: { url: WebAddress; title: string } | null;
 }
 
@@ -340,7 +353,7 @@ function requireSameAccount(link: TicketLinkRecord, account: { accountId: string
 export async function claimTicketCreation(
   store: Store,
   identity: Identity | null,
-  args: { threadId: string; tracker: TrackerId; creationId: string; holder: string; accountId: string },
+  args: { threadId: string; tracker: TrackerId; creationId: string; holder: string; accountId: string } & ThreadPages,
   now: number,
 ): Promise<CreationClaim> {
   const { tickets, user, account } = await requireAccount(store, identity, args.tracker);
@@ -367,7 +380,7 @@ export async function claimTicketCreation(
     }
     requireSameAccount(earlier, account, args.tracker, "this ticket");
     await tickets.links.patch(earlier._id, { claimToken: args.holder, leaseUntil });
-    // Every creation records its link back when it is submitted, unless the project had no review address.
+    // Every creation records its link back when it is submitted, unless the thread had no link then.
     const url = earlier.linkBack === undefined ? null : webAddress(earlier.linkBack.url);
     return { status: "claimed", creation: { ...common, linkId: earlier._id, linkBack: url === null ? null : { url, title: earlier.linkBack!.title }, resumed: true } };
   }
@@ -375,7 +388,7 @@ export async function claimTicketCreation(
     fail("invalid", "You started a ticket on this thread that isn't finished yet. Close this dialog and choose Create ticket again to finish it.");
   }
   await requireRoom(tickets, thread._id, now);
-  const url = ticketThreadLink(project, thread);
+  const url = await ticketThreadLink(store, project, thread, args.website ?? null, now);
   const linkBack = url === null ? null : { url, title: threadTitle((await store.messages.first(thread._id))?.body) };
   const linkId = await tickets.links.insert({
     projectId: project._id,
@@ -488,7 +501,7 @@ function heldAdapter(steps: { now(): number }, tracker: TrackerId, deployment: T
  * ticket is linked either way, never created again.
  */
 async function linkCreated(steps: CreateSteps, adapter: TrackerAdapter, token: TrackerToken, hold: HeldCreation, ticket: CreatedTicket) {
-  // Without a review address there is no link back to add.
+  // Without a thread link there is no link back to add.
   if (hold.linkBack === null) return await steps.finish(hold, ticket, true);
   const added = await adapter.linkBack(token, ticket, hold.linkBack).then(
     () => true,
@@ -678,7 +691,7 @@ async function existingLink(tickets: Tickets, threadId: string, tracker: Tracker
 export async function claimTicketLink(
   store: Store,
   identity: Identity | null,
-  args: { threadId: string; tracker: TrackerId; externalId: string; holder: string },
+  args: { threadId: string; tracker: TrackerId; externalId: string; holder: string } & ThreadPages,
   now: number,
 ): Promise<LinkClaim> {
   const { tickets, user, account } = await requireAccount(store, identity, args.tracker);
@@ -717,7 +730,7 @@ export async function claimTicketLink(
     status: "claimed",
     hold: { linkId, threadId: thread._id, holder: args.holder, leaseUntil },
     person: { userId: user._id, accountId: account.accountId },
-    link: ticketThreadLink(project, thread),
+    link: await ticketThreadLink(store, project, thread, args.website ?? null, now),
     linkTitle: threadTitle(first?.body),
     summary: first?.body ?? "",
     attribution: account.attribution ? { name: user.name } : null,
@@ -809,7 +822,7 @@ export async function linkTicket(steps: LinkSteps, deployment: TicketsDeployment
     throw error;
   }
   try {
-    // Safe to repeat: the tracker keeps one link to the thread. Without a review address there is none to add.
+    // Safe to repeat: the tracker keeps one link to the thread. Without a thread link there is none to add.
     if (claim.link !== null) await adapter.linkBack(token, ticket, { url: claim.link, title: claim.linkTitle });
   } catch (error) {
     // A refusal added nothing; otherwise the link back may be there, and the place stays held for a retry.
