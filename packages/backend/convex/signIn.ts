@@ -34,34 +34,81 @@ const panelArg = { panel: v.optional(v.boolean()) };
 export const ATTEMPT_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLEANUP_BATCH = 500;
+// Limits on starting a sign-in. Every start counts toward the deployment's
+// ceiling. A popup start, from any site, Critiqs's own included, also shares
+// that site's allowance a minute: it starts before an address is known.
+// A panel start comes only from Critiqs's own origins (its website and
+// extension), which serve all of Critiqs's users and whose origin a script
+// can claim, so a shared allowance would let anyone lock everyone out. A panel
+// starts with an email address instead, and is refused while that address
+// can't receive another code (EMAIL_SEND_LIMIT), using the same counter as the
+// code it then sends, so the two limits never disagree. Convex reports a client
+// IP address, but documents no guarantee that a client can't set it through
+// forwarding headers, so nothing here counts by network address.
+
+/** The window for the per-site and deployment start limits. */
 export const START_WINDOW_MS = 60_000;
+/** Popup sign-ins one site may start a minute, shared by everyone on it. */
 export const START_ORIGIN_LIMIT = 20;
+/**
+ * Sign-ins the whole deployment may start a minute, from any site, to cap the
+ * attempts a script can store. Codes, not starts, limit how many people sign
+ * in: the deployment sends at most 300 an hour (GLOBAL_SEND_LIMIT), five a
+ * minute on average, and 200 starts a minute leaves room for bursts well
+ * above that.
+ */
 export const START_GLOBAL_LIMIT = 200;
 
+type StartLimit = { key: string; limit: number; windowMs: number; scope: "global" | "origin" | "email" | "codes"; counts: boolean };
 
+/**
+ * The limits a start must fit: always the deployment's, then the popup's
+ * site allowance, or for a panel start, whether its address and the
+ * deployment can send another code (checked here, counted when the code is
+ * sent).
+ */
+function startLimits(origin: string, email: string | undefined): StartLimit[] {
+  const limits: StartLimit[] = [{ key: "global", limit: START_GLOBAL_LIMIT, windowMs: START_WINDOW_MS, scope: "global", counts: true }];
+  if (email !== undefined && isPanelOrigin(origin)) {
+    limits.push({ key: `send:${email}`, limit: EMAIL_SEND_LIMIT, windowMs: EMAIL_SEND_WINDOW_MS, scope: "email", counts: false });
+    limits.push({ key: "send:global", limit: GLOBAL_SEND_LIMIT, windowMs: GLOBAL_SEND_WINDOW_MS, scope: "codes", counts: false });
+  } else {
+    limits.push({ key: `origin:${origin}`, limit: START_ORIGIN_LIMIT, windowMs: START_WINDOW_MS, scope: "origin", counts: true });
+  }
+  return limits;
+}
+
+/**
+ * Starts a sign-in attempt within the start limits. `email` is the normalized
+ * address a panel starts with; the popup asks for it later. A refused start
+ * stores and counts nothing, and says which limit refused it.
+ */
 export const startAttempt = internalMutation({
   args: {
     key: v.string(),
     origin: v.string(),
     clientState: v.string(),
     bindingHash: v.string(),
+    email: v.optional(v.string()),
     ...panelArg,
   },
-  handler: async (ctx, { panel, ...args }) => {
+  handler: async (ctx, { panel, email, ...args }) => {
     const now = Date.now();
-    const buckets = await Promise.all(["global", `origin:${args.origin}`].map(async (key) =>
-      ({ key, row: await ctx.db.query("signInLimits").withIndex("by_key", q => q.eq("key", key)).unique() })));
-    for (const { key, row } of buckets) {
-      const limit = key === "global" ? START_GLOBAL_LIMIT : START_ORIGIN_LIMIT;
-      if (row !== null && row.expiresAt > now && row.count >= limit) {
-        return { allowed: false, retryAfter: Math.ceil((row.expiresAt - now) / 1000) };
-      }
+    const buckets = await Promise.all(startLimits(args.origin, email).map(async (limit) =>
+      ({ ...limit, row: await ctx.db.query("signInLimits").withIndex("by_key", q => q.eq("key", limit.key)).unique() })));
+    const counted = [];
+    // Every limit that refuses is checked, so the answer names the longest wait.
+    let refused: { retryAfterMs: number; scope: StartLimit["scope"] } | null = null;
+    for (const { key, limit, windowMs, scope, counts, row } of buckets) {
+      const use = countUse(row === null ? null : { count: row.count, expiresAt: row.expiresAt }, limit, windowMs, now);
+      if (!use.allowed) {
+        if (refused === null || use.retryAfterMs > refused.retryAfterMs) refused = { retryAfterMs: use.retryAfterMs, scope };
+      } else if (counts) counted.push({ key, row, next: use.next });
     }
-    for (const { key, row } of buckets) {
-      const value = { key, count: row !== null && row.expiresAt > now ? row.count + 1 : 1,
-        expiresAt: row !== null && row.expiresAt > now ? row.expiresAt : now + START_WINDOW_MS };
-      if (row === null) await ctx.db.insert("signInLimits", value);
-      else await ctx.db.patch(row._id, value);
+    if (refused !== null) return { allowed: false, retryAfter: Math.ceil(refused.retryAfterMs / 1000), scope: refused.scope as StartLimit["scope"] | null };
+    for (const { key, row, next } of counted) {
+      if (row === null) await ctx.db.insert("signInLimits", { key, ...next });
+      else await ctx.db.patch(row._id, next);
     }
     await ctx.db.insert("signInAttempts", {
       ...args,
@@ -71,7 +118,7 @@ export const startAttempt = internalMutation({
       codeGeneration: 0,
       guessesLeft: MAX_GUESSES,
     });
-    return { allowed: true, retryAfter: 0 };
+    return { allowed: true, retryAfter: 0, scope: null as StartLimit["scope"] | null };
   },
 });
 

@@ -33,10 +33,10 @@ test("sign-in start counts origin and deployment limits, resets a window and sto
   });
   try {
     for (let i = 0; i < START_ORIGIN_LIMIT; i++) expect((await start(String(i))).allowed).toBe(true);
-    expect(await start("blocked")).toEqual({ allowed: false, retryAfter: 60 });
+    expect(await start("blocked")).toEqual({ allowed: false, retryAfter: 60, scope: "origin" });
     expect(await t.run(ctx => ctx.db.query("signInAttempts").withIndex("by_key", q => q.eq("key", "blocked")).unique())).toBeNull();
     for (let i = START_ORIGIN_LIMIT; i < START_GLOBAL_LIMIT; i++) await start(String(i), `https://site-${i}.example`);
-    expect((await start("global-blocked", "https://new.example")).allowed).toBe(false);
+    expect(await start("global-blocked", "https://new.example")).toMatchObject({ allowed: false, scope: "global" });
     now += START_WINDOW_MS;
     expect((await start("new-window")).allowed).toBe(true);
   } finally { clock.mockRestore(); }
