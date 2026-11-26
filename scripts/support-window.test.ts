@@ -1,6 +1,6 @@
 // The support window's rule and the registry answers it reads, without the network.
 import { describe, expect, test } from "bun:test";
-import { publishedVersions, supportedPackages, supportedVersions, type Published } from "./support-window.ts";
+import { type PackageSupport, publishedVersions, supportCheck, supportedPackages, supportedVersions, type Published } from "./support-window.ts";
 
 const at = (date: string) => new Date(`${date}T00:00:00Z`);
 const release = (version: string, date: string, withdrawn = false): Published => ({ version, time: at(date), withdrawn });
@@ -110,4 +110,41 @@ test("every released package is looked up under its registry name", async () => 
   expect(asked).toContain("https://rubygems.org/api/v1/versions/critiqs-rails.json");
   expect(asked).toContain("https://pypi.org/pypi/flask-critiqs/json");
   expect(packages.every((p) => p.supported.length === 0)).toBe(true);
+  // critiqs-react's changelog records 0.3.0, so a registry that answers 404 for it can't be right: the check refuses to pass.
+  expect(packages.find((p) => p.pkg.name === "critiqs-react")?.released).toBe("0.3.0");
+  expect(supportCheck(packages).problems).toEqual([
+    "critiqs-react: its CHANGELOG.md records 0.3.0 as released, but npm lists nothing (it answered as if the package was never published) for critiqs-react.",
+  ]);
+});
+
+describe("supportCheck", () => {
+  const pkg = (name: string, released: string | null, published: Published[], now = at("2027-01-01")): PackageSupport => ({
+    pkg: { name, dir: `packages/${name}`, version: "0.3.0", registry: "npm", manifest: {} },
+    registryName: name,
+    released,
+    published,
+    supported: supportedVersions(published, now),
+  });
+
+  test("a released version the registry doesn't list fails the check, whether it lists nothing or only prereleases", () => {
+    expect(supportCheck([pkg("critiqs-react", "0.3.0", [release("0.0.0-stage", "2026-10-30")]), pkg("critiqs", null, [])])).toEqual({
+      problems: ["critiqs-react: its CHANGELOG.md records 0.3.0 as released, but npm lists 0.0.0-stage for critiqs-react."],
+      nothingToTest: null,
+    });
+  });
+
+  test("nothing to test only when the policy says so: nothing released yet, or every released version withdrawn", () => {
+    expect(supportCheck([pkg("critiqs", null, [release("0.0.1-reserved.0", "2026-11-25")])])).toEqual({
+      problems: [],
+      nothingToTest: "nothing in the release group has been released yet (no CHANGELOG.md records a stable version).",
+    });
+    expect(supportCheck([pkg("critiqs-react", "0.3.0", [release("0.3.0", "2026-10-30", true)])])).toEqual({
+      problems: [],
+      nothingToTest: "every released version is withdrawn on its registry: critiqs-react@0.3.0.",
+    });
+  });
+
+  test("a supported version means there is something to test", () => {
+    expect(supportCheck([pkg("critiqs-react", "0.3.0", [release("0.3.0", "2026-10-30")])])).toEqual({ problems: [], nothingToTest: null });
+  });
 });

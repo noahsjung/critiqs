@@ -118,8 +118,16 @@ export async function publishedVersions(registry: Registry, name: string, fetche
 export interface PackageSupport {
   pkg: ReleasePackage;
   registryName: string;
+  /** The newest stable version its CHANGELOG.md records, which the release workflow writes when it releases one; null before its first release. */
+  released: string | null;
   published: Published[];
   supported: Supported[];
+}
+
+/** The newest stable version a package's CHANGELOG.md records, or null when it records none. */
+export async function releasedVersion(root: string, pkg: ReleasePackage): Promise<string | null> {
+  const changelog = await Bun.file(join(root, pkg.dir, "CHANGELOG.md")).text().catch(() => "");
+  return /^## (\d+\.\d+\.\d+)\s*$/m.exec(changelog)?.[1] ?? null;
 }
 
 export async function supportedPackages(root: string, now = new Date(), fetcher: typeof fetch = fetch): Promise<PackageSupport[]> {
@@ -128,9 +136,33 @@ export async function supportedPackages(root: string, now = new Date(), fetcher:
     if (pkg.registry === null) continue;
     const name = await registryName(root, pkg);
     const published = await publishedVersions(pkg.registry, name, fetcher);
-    result.push({ pkg, registryName: name, published, supported: supportedVersions(published, now) });
+    result.push({ pkg, registryName: name, released: await releasedVersion(root, pkg), published, supported: supportedVersions(published, now) });
   }
   return result;
+}
+
+/**
+ * What the registries' answers mean for the check, told apart by what this
+ * repository records as released. `problems`: a package whose changelog
+ * records a release the registry doesn't list (a 404, or only prereleases),
+ * so the answer is wrong or incomplete and the check can't trust it.
+ * `nothingToTest`: why no version is supported when that is the support
+ * policy's own answer: nothing in the release group was released yet, or
+ * every released version was withdrawn on its registry (deprecated or
+ * yanked, a deliberate act the log lists). Null when something is supported.
+ */
+export function supportCheck(packages: PackageSupport[]): { problems: string[]; nothingToTest: string | null } {
+  const problems: string[] = [];
+  for (const { pkg, registryName: name, released, published } of packages) {
+    if (released === null || published.some((p) => p.version === released)) continue;
+    const listed = published.length === 0 ? "nothing (it answered as if the package was never published)" : published.map((p) => p.version).join(", ");
+    problems.push(`${pkg.name}: its CHANGELOG.md records ${released} as released, but ${pkg.registry} lists ${listed} for ${name}.`);
+  }
+  if (problems.length > 0 || packages.some((p) => p.supported.length > 0)) return { problems, nothingToTest: null };
+  const released = packages.filter((p) => p.released !== null);
+  if (released.length === 0) return { problems, nothingToTest: "nothing in the release group has been released yet (no CHANGELOG.md records a stable version)." };
+  const withdrawn = released.flatMap((p) => p.published.filter((v) => v.withdrawn && /^\d+\.\d+\.\d+$/.test(v.version)).map((v) => `${p.registryName}@${v.version}`));
+  return { problems, nothingToTest: `every released version is withdrawn on its registry: ${withdrawn.join(", ")}.` };
 }
 
 if (import.meta.main) {

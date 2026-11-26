@@ -503,7 +503,8 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   reaches the thread and its project ID that way. Closing it means those
   operations also require the project ID, which breaks released components
   for reviewers who are neither members nor in the thread; that needs the
-  owner's decision and a deprecation policy.
+  owner's decision and a deprecation policy (proposed, not agreed: see the
+  support window under versioning and compatibility).
 
 **Agreed:** reviewers sign in with their email address and a one-time code
 Critiqs sends them; there is no password. Registration happens on first sign-in.
@@ -2034,8 +2035,9 @@ package versions can share a self-hosted backend.
   interface older versions use. When an incompatible change is required, serve
   a versioned interface alongside the older supported one, and publish
   migration instructions for host developers.
-- Remove an older interface only under the support window and deprecation
-  rules below. Support is not promised forever.
+- Support is not promised forever. When an older interface may be removed
+  is not agreed yet: a support window and deprecation rules are proposed
+  below for the owner to decide.
 - Stored feedback survives upgrades through compatible migrations, as the
   SQLite store already migrates forward on start.
 
@@ -2093,7 +2095,15 @@ every other package ships the `critiqs` element at the same version, so
 `critiqs@<version>` stands for them. A supported version that can't be
 installed fails the check. `--current` runs the same flows with the
 workspace's packed packages, which proves each flow works before a release
-needs it. Today it checks `critiqs-react` 0.3.0; the other names on npm hold
+needs it. The check knows what was released from each package's
+`CHANGELOG.md`, which the release workflow writes: when a registry doesn't
+list a version recorded there (a 404, or only prereleases), it fails and
+says which, instead of passing with nothing to test. It passes with nothing
+to test only when the support window really leaves nothing: no package was
+released yet, or every released version was withdrawn. It drives that main
+flow only, about eight of the backend calls 0.3.0 makes, not every call a
+supported version may make; the backend contract tests cover the rest of
+the interface, against today's clients. Today it checks `critiqs-react` 0.3.0; the other names on npm hold
 only prereleases, and nothing is on RubyGems or PyPI yet. The
 [Older packages workflow](../.github/workflows/older-packages.yml) runs it on
 pull requests and pushes that change backend code, daily, and on demand; it

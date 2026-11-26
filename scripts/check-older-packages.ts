@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { cp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chrome, pack, playwright, ROOT, run, scratch, waitForServer } from "./consumer-kit.ts";
-import { supportedPackages } from "./support-window.ts";
+import { supportCheck, supportedPackages } from "./support-window.ts";
 
 type Backend = "convex" | "self-hosted";
 
@@ -75,7 +75,13 @@ async function targets(): Promise<Target[]> {
   }
   const found: Target[] = [];
   const byClient = new Map<string, Target>();
-  for (const { pkg, registryName, supported } of await supportedPackages(ROOT)) {
+  const packages = await supportedPackages(ROOT);
+  const { problems, nothingToTest } = supportCheck(packages);
+  if (problems.length > 0) {
+    throw new Error(`The registries' answers don't match what this repository released, so the check can't tell what to test:\n${problems.map((p) => `- ${p}`).join("\n")}\nCheck that the registry is reachable and answers correctly, then run the check again.`);
+  }
+  if (nothingToTest !== null) console.log(`Nothing to test under the support window: ${nothingToTest}`);
+  for (const { pkg, registryName, supported } of packages) {
     for (const { version, line, until } of supported) {
       const client = clientOf(pkg.name);
       console.log(`${registryName}@${version} (${pkg.registry}) is supported: line ${line}, ${until === null ? "the newest line" : `until ${until.toISOString().slice(0, 10)}`}.`);
@@ -122,7 +128,9 @@ async function buildApp(target: Target): Promise<string> {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "package.json"), JSON.stringify({ name: "older-package-app", private: true, type: "module" }));
   const react = target.client === "react" ? ["react@19", "react-dom@19"] : [];
-  await run(["npm", "install", "--no-audit", "--no-fund", "--ignore-scripts", ...target.install, ...react], dir);
+  // The same registry the supported versions were read from, whatever this machine's npm setting says.
+  const registry = args.includes("--current") ? [] : ["--registry", "https://registry.npmjs.org/"];
+  await run(["npm", "install", "--no-audit", "--no-fund", "--ignore-scripts", ...registry, ...target.install, ...react], dir);
   await writeFile(join(dir, "entry.js"), ENTRY[target.client]);
   const built = await Bun.build({
     entrypoints: [join(dir, "entry.js")],
@@ -382,9 +390,8 @@ const capturesShown = (page: Page): Promise<boolean> =>
 
 try {
   const list = await targets();
-  if (list.length === 0) {
-    console.log("No supported published version to check: nothing in the release group has a stable release in its support window.");
-  }
+  // --only naming no supported version would otherwise pass with nothing run.
+  if (list.length === 0 && option("only") !== undefined) throw new Error(`--only ${option("only")} names no supported version.`);
   for (const target of list) {
     const dir = await buildApp(target);
     for (const backend of backends) {
