@@ -64,7 +64,9 @@ function summary(id: string, width: number): ThreadSummary {
 }
 
 /** The panel in a review page, signed out, over a scripted page layer. */
-async function reviewPanel(options: { backend?: Partial<FakeBackend>; signedIn?: boolean; answers?: Parameters<typeof scriptedPage>[0]; panel?: ReviewSurface["panel"] } = {}) {
+async function reviewPanel(
+  options: { backend?: Partial<FakeBackend>; signedIn?: boolean; answers?: Parameters<typeof scriptedPage>[0]; panel?: ReviewSurface["panel"]; connections?: boolean; withoutReview?: boolean } = {},
+) {
   let shown = pageState("page-a", 1);
   const page = scriptedPage({ display: async () => shown, measure: measured, capture: async () => ({ status: "captured", image: new Blob(["png"]) }), reveal: async () => ({ status: "failed", reason: "not here", keepOccurrence: false }), ...options.answers });
   const link = new PageLink(page.endpoint, { initial: shown });
@@ -104,7 +106,14 @@ async function reviewPanel(options: { backend?: Partial<FakeBackend>; signedIn?:
   const render = () =>
     root!.render(
       <TransportContext.Provider value={transport}>
-        <App props={{ projectId: projectId ?? undefined }} deployment={deployment} session={session} host={host!} page={link} review={{ ...review, mode }} />
+        <App
+          props={{ projectId: projectId ?? undefined }}
+          deployment={{ ...deployment, connections: options.connections === true }}
+          session={session}
+          host={host!}
+          page={link}
+          review={options.withoutReview === true ? undefined : { ...review, mode }}
+        />
       </TransportContext.Provider>,
     );
   await act(async () => render());
@@ -320,4 +329,33 @@ test("AT-16 in the review page: a review frame always gets the untrusted limits"
   // Installed limits take the host's 20,000-character screen; a review frame's are refused.
   expect(await connects(false)).toBe(true);
   expect(await connects(true)).toBe(false);
+});
+
+test("the review page's panel never reports Connected: the review page isn't the prototype's own page", async () => {
+  const asked: string[] = [];
+  const realFetch = globalThis.fetch;
+  const originalUrl = window.location.href;
+  const setUrl = (url: string) => (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(url);
+  // The review page is an https page, as a prototype is: only the panel's place tells them apart.
+  setUrl("https://critiqs.example/r/key");
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    asked.push(String(input));
+    return new Response(null, { status: 204 });
+  }) as typeof fetch;
+  try {
+    const reported = () => asked.filter((url) => url === `${deployment.siteUrl}/critiqs/connected`).length;
+    const review = await reviewPanel({ signedIn: true, connections: true });
+    await review.rerender();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(reported()).toBe(0);
+    // The same panel on a page of its own, as an install is, reports it.
+    await act(async () => root?.unmount());
+    host?.remove();
+    await reviewPanel({ signedIn: true, connections: true, withoutReview: true });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(reported()).toBe(1);
+  } finally {
+    globalThis.fetch = realFetch;
+    setUrl(originalUrl);
+  }
 });

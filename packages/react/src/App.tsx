@@ -482,7 +482,8 @@ function PanelApp({
   }, [signedIn, recordsOpens, projectReady, projectId, reviewerId, deployment.backendUrl, transport]);
 
   // Loading with a project tells the backend, so onboarding on the Critiqs website can say Connected, before anyone signs in.
-  const reportsConnections = deployment.connections === true;
+  // A review link's page isn't the prototype's own page, and the prototype's frame there reports nothing either.
+  const reportsConnections = deployment.connections === true && review === undefined;
   useEffect(() => {
     if (reportsConnections && projectId !== null) reportConnected(deployment.siteUrl, projectId);
   }, [reportsConnections, projectId, deployment.siteUrl]);
