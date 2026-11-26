@@ -59,18 +59,68 @@ test("keeps what people typed and chose in forms", async () => {
   expect(copy.documentElement.outerHTML).not.toContain("hunter2");
 });
 
-test("leaves out hidden form values and anti-forgery tokens, which the page never shows", async () => {
-  document.head.innerHTML = `<meta name="csrf-param" content="authenticity_token"><meta name="csrf-token" content="rails-secret-token"><meta name="description" content="Kept">`;
+test("leaves out hidden form values, and the content of every meta tag but the ones that change how the page looks", async () => {
+  // A browser's own stylesheet hides [hidden]; happy-dom has none.
+  document.head.innerHTML = `<style>[hidden] { display: none; }</style>
+    <meta charset="utf-8"><meta name="viewport" content="width=500"><meta name="color-scheme" content="dark">
+    <meta name="csrf-param" content="authenticity_token"><meta name="csrf-token" content="rails-secret-token">
+    <meta property="csrf-token" content="property-secret"><meta name="api-key" content="meta-secret"><meta name="description" content="description-secret">`;
   document.body.innerHTML = `
-    <form><input type="hidden" name="authenticity_token" value="form-secret-token"><input id="ticket" type="hidden" name="csrfmiddlewaretoken"><input id="shown" value="Visible"></form>`;
+    <form><input type="hidden" name="authenticity_token" value="form-secret-token"><input id="ticket" type="hidden" name="csrfmiddlewaretoken">
+    <input id="unshown" hidden name="q" value="hidden-attribute-secret"><input id="shown" value="Visible"></form>`;
   (document.getElementById("ticket") as HTMLInputElement).value = "set-by-script-secret";
 
   const copy = await frozen();
   const markup = copy.documentElement.outerHTML;
-  expect(["rails-secret-token", "form-secret-token", "set-by-script-secret"].filter((secret) => markup.includes(secret))).toEqual([]);
-  expect(copy.querySelectorAll('input[type="hidden"]').length).toBe(2);
+  const secrets = ["rails-secret-token", "property-secret", "meta-secret", "description-secret", "form-secret-token", "set-by-script-secret", "hidden-attribute-secret"];
+  expect(secrets.filter((secret) => markup.includes(secret))).toEqual([]);
+  expect(copy.querySelectorAll('input[type="hidden"], input[hidden]').length).toBe(3);
   expect((copy.getElementById("shown") as HTMLInputElement).value).toBe("Visible");
-  expect(copy.querySelector('meta[name="description"]')?.getAttribute("content")).toBe("Kept");
+  // The tags stay, so selectors that count siblings match as on the page.
+  expect(copy.querySelectorAll("meta").length).toBe(8);
+  expect(copy.querySelector('meta[name="viewport"]')?.getAttribute("content")).toBe("width=500");
+  expect(copy.querySelector('meta[name="color-scheme"]')?.getAttribute("content")).toBe("dark");
+  expect(copy.querySelector('meta[name="csrf-param"]')?.getAttribute("content")).toBe("");
+});
+
+test("leaves out framework state that only scripts read, keeping each attribute's name for selectors", async () => {
+  const opaque = `${"A1b2".repeat(30)}opaque-secret`;
+  const shownJson = JSON.stringify({ theme: "x".repeat(120) });
+  const sentence = "A tooltip long enough to pass the length rule, written in words with spaces, that CSS shows with attr() on hover.";
+  const path = `M0 0 ${"L10 10 ".repeat(30)}Z`;
+  document.head.innerHTML = `<style>#app[data-page] { border: 1px solid; } [data-theme-config] { color: red; } [data-tip]::after { content: attr(data-tip); }</style>`;
+  document.body.innerHTML = `
+    <div id="app" data-page='{"component":"Dashboard","props":{"apiToken":"inertia-secret"}}'>
+      <div id="phx-F1" data-phx-main data-phx-session="SFMyNTY.phx-session-secret" data-phx-static="SFMyNTY.phx-static-secret"></div>
+      <div id="wire" wire:id="abc" wire:snapshot='{"data":{"secret":"livewire-secret"},"checksum":"x"}' wire:effects='{"listeners":["livewire-effects-secret"]}'></div>
+      <div id="wire2" wire:initial-data='{"serverMemo":"livewire2-secret"}'></div>
+      <turbo-cable-stream-source channel="Turbo::StreamsChannel" signed-stream-name="turbo-signed-secret--abc"></turbo-cable-stream-source>
+      <astro-island id="island" uid="i1" component-url="/c.js" props='{"user":[0,{"email":[0,"astro-secret@example.com"]}]}'></astro-island>
+      <div id="token" data-csrf-token="attribute-csrf-secret" data-state="open"></div>
+      <div id="blob" data-blob="${opaque}" data-json='{"session":"${"j".repeat(100)}json-secret"}'></div>
+      <!--Blazor:{"type":"server","descriptor":"blazor-secret"}-->
+      <div id="themed" data-theme-config='${shownJson}'></div>
+      <p id="tip" data-tip="${sentence}">Hover me</p>
+      <svg><path id="path" d="${path}"></path></svg>
+    </div>`;
+
+  const copy = await frozen();
+  const markup = copy.documentElement.outerHTML;
+  const secrets = [
+    "inertia-secret", "phx-session-secret", "phx-static-secret", "livewire-secret", "livewire-effects-secret", "livewire2-secret",
+    "turbo-signed-secret", "astro-secret", "attribute-csrf-secret", "opaque-secret", "json-secret", "blazor-secret",
+  ];
+  expect(secrets.filter((secret) => markup.includes(secret))).toEqual([]);
+  // The names stay, so `#app[data-page]` still matches; short values a selector may use stay as they are.
+  expect(copy.getElementById("app")?.getAttribute("data-page")).toBe("");
+  expect(copy.getElementById("wire")?.getAttribute("wire:snapshot")).toBe("");
+  expect(copy.getElementById("wire")?.getAttribute("wire:id")).toBe("abc");
+  expect(copy.getElementById("token")?.getAttribute("data-state")).toBe("open");
+  expect(copy.getElementById("island")?.getAttribute("component-url")).toBe("/c.js");
+  // What the page shows, or its CSS names, stays: words, a path, an attribute a selector names.
+  expect(copy.getElementById("themed")?.getAttribute("data-theme-config")).toBe(shownJson);
+  expect(copy.getElementById("tip")?.getAttribute("data-tip")).toBe(sentence);
+  expect(copy.getElementById("path")?.getAttribute("d")).toBe(path);
 });
 
 test("numbers the body and every element in it in document order", async () => {
