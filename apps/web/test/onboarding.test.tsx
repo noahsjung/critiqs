@@ -482,6 +482,74 @@ describe("the suggested plan", () => {
   });
 });
 
+describe("inviting the team, at the end of setup", () => {
+  const project = (role: "admin" | "member") => ({ _id: PROJECT_ID, name: "acme-proto", tags: [], createdAt: 1, reviewUrl: "https://acme-proto.vercel.app/", isOwner: true, organization: { id: "o1", name: "Acme", role } });
+  const finish = async (backend: ReturnType<typeof fakeBackend>, size: string | null) => {
+    fakeClipboard();
+    const page = await render(<Flow from={atWho()} />, { backend });
+    await click(button(page, I_WILL));
+    await settle();
+    await click(button(page, "Copy command"));
+    await click(button(page, size ?? "Skip"));
+    await click(button(page, "Skip"));
+    return page;
+  };
+
+  test("after the questions, an admin invites teammates one at a time as members, with the organization's own invites", async () => {
+    const answers = [{ status: "invited" as const, email: "pending" as const }, { status: "member" as const }, { status: "invited" as const, email: "not-sent" as const }];
+    const backend = fakeBackend({ project: project("admin"), inviteMember: async () => answers.shift()! });
+    const page = await finish(backend, "6–20");
+    const card = page.querySelector(".invite")!;
+    expect(card.textContent).toContain("Invite your team");
+    expect(card.textContent).toContain("They'll get an email to join Acme and comment on acme-proto.vercel.app.");
+    // Optional: nothing stops the person from leaving, and nothing is sent until they ask.
+    expect(backend.calls.filter((call) => call.name === "inviteMember")).toEqual([]);
+    await type(labelled(page, "Teammate's email"), "Kim@Acme.com ");
+    await click(button(page, "Invite"));
+    await settle();
+    expect(backend.calls.filter((call) => call.name === "inviteMember").map((call) => call.args)).toEqual([["o1", "kim@acme.com", PROJECT_ID]]);
+    expect(labelled(page, "Teammate's email")?.value).toBe("");
+    await type(labelled(page, "Teammate's email"), "lee@acme.com");
+    await click(button(page, "Invite"));
+    await settle();
+    await type(labelled(page, "Teammate's email"), "ray@acme.com");
+    await click(button(page, "Invite"));
+    await settle();
+    expect([...card.querySelectorAll(".deliveries li")].map((line) => line.textContent)).toEqual([
+      "ray@acme.com is invited to Acme. This Critiqs deployment can't send email, so tell ray@acme.com to sign in to Critiqs with that address to join.",
+      "lee@acme.com is already in Acme.",
+      "kim@acme.com is invited to Acme.",
+    ]);
+  });
+
+  test("an invalid address, or the person's own, isn't sent; a refusal says why", async () => {
+    const backend = fakeBackend({
+      project: project("admin"),
+      inviteMember: async () => Promise.reject(Object.assign(new Error("x"), { data: { code: "limit", message: "Acme invited 50 people today. Try again tomorrow." } })),
+    });
+    const page = await finish(backend, null);
+    await type(labelled(page, "Teammate's email"), "kim");
+    await click(button(page, "Invite"));
+    expect(text(page)).toContain("Enter a valid email address.");
+    await type(labelled(page, "Teammate's email"), "Sam@acme.com");
+    await click(button(page, "Invite"));
+    expect(text(page)).toContain("That's your own address.");
+    expect(backend.calls.filter((call) => call.name === "inviteMember")).toEqual([]);
+    await type(labelled(page, "Teammate's email"), "kim@acme.com");
+    await click(button(page, "Invite"));
+    await settle();
+    expect(page.querySelector(".invite [role='alert']")?.textContent).toBe("Acme invited 50 people today. Try again tomorrow.");
+  });
+
+  test("Just me leaves inviting for later; a member who isn't an admin is told who can invite", async () => {
+    const alone = await finish(fakeBackend({ project: project("admin") }), "Just me");
+    expect(alone.querySelector(".invite")).toBeNull();
+    const member = await finish(fakeBackend({ project: project("member") }), "2–5");
+    expect(member.querySelector(".invite")?.textContent).toBe("Invite your teamTo invite your team, ask an admin of Acme.");
+    expect(labelled(member, "Teammate's email")).toBeFalsy();
+  });
+});
+
 describe("the page", () => {
   test("another reviewer signing in gets a fresh flow, and signing out removes the draft", async () => {
     sessionStorage.clear();

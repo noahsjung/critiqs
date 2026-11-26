@@ -170,6 +170,23 @@ export const copy = {
     resendFailed: "Couldn't send again. Try again later.",
   },
 
+  invite: {
+    heading: "Invite your team",
+    lead: (organization: string, host: string | null) => `They'll get an email to join ${organization} and comment on ${host ?? "the prototype"}.`,
+    field: "Teammate's email",
+    placeholder: "teammate@company.com",
+    button: "Invite",
+    inviting: "Inviting…",
+    invalid: "Enter a valid email address.",
+    own: "That's your own address.",
+    invited: (email: string, organization: string) => `${email} is invited to ${organization}.`,
+    notEmailed: (email: string) => `This Critiqs deployment can't send email, so tell ${email} to sign in to Critiqs with that address to join.`,
+    member: (email: string, organization: string) => `${email} is already in ${organization}.`,
+    pending: (email: string, organization: string) => `${email} was already invited to ${organization}.`,
+    failed: "The invite wasn't sent. Try again.",
+    askAdmin: (organization: string) => `To invite your team, ask an admin of ${organization}.`,
+  },
+
   ways: {
     /** The other ways in, under the one chosen. */
     switchTo: { me: "I'll add it myself", developer: "Someone else will add it", extension: "Review it with the extension instead" },

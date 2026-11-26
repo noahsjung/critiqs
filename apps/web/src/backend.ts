@@ -60,6 +60,12 @@ export interface Backend {
   createProject(project: NewProject): Promise<string>;
   /** Emails the steps to each address; `resend` sends them again to addresses whose email went out (only with `developerResends`). */
   sendDeveloperSetup(projectId: string, emails: string[], resend?: boolean): Promise<DeveloperSendResult[]>;
+  /**
+   * Invites someone to the organization as a member, for its admins; an
+   * invite email links to the project's review address. `email` says whether
+   * that email is on its way, or this deployment can't send it.
+   */
+  inviteMember(organizationId: string, email: string, projectId: string): Promise<InviteAnswer>;
   /** Adds an address to the project's address list, for its owners; returns the list. Only with `addressEdits`. */
   addProjectAddress(projectId: string, address: string): Promise<string[]>;
   /** A project's setup, read once: its name, address, saved stack, and commands. */
@@ -143,6 +149,9 @@ export function failureCode(error: unknown): string {
   return describeError(error).code;
 }
 
+/** What inviting someone did: invited (with whether the invite email is on its way), or nothing, as they're already a member or invited. */
+export type InviteAnswer = { status: "invited"; email?: "pending" | "not-sent" } | { status: "member" } | { status: "pending" };
+
 /** What a backend reports it can do, beyond what every backend the website works with does. */
 export type BackendFeatures = Pick<Backend, "createKeys" | "addressEdits" | "developerResends">;
 
@@ -184,6 +193,7 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
         ...(stack === null ? {} : { stack }),
       }),
     sendDeveloperSetup: (projectId, emails, resend) => client.mutation(api.onboarding.sendDeveloperSetup, { projectId, emails, ...(resend === true ? { resend } : {}) }),
+    inviteMember: (organizationId, email, projectId) => client.mutation(api.organizations.invite, { organizationId, email, role: "member", projectId }) as Promise<InviteAnswer>,
     addProjectAddress: (projectId, address) => client.mutation(api.projects.addAddress, { projectId: projectId as Id<"projects">, address }),
     projectSetup: (projectId) => client.query(api.onboarding.projectSetup, { projectId }),
     useOrganizations: (enabled) => useQueryState(api.organizations.mine, enabled ? {} : "skip"),

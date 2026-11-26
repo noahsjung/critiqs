@@ -25,6 +25,7 @@ import {
 } from "../flow.ts";
 import { Select } from "../shared.ts";
 import { AboutYou, SuggestedPlan } from "./AboutYou.tsx";
+import { InviteTeam } from "./Invite.tsx";
 import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
 import { Preview } from "./Preview.tsx";
 import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
@@ -509,6 +510,10 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
           />
         )}
         {state.about.teamSize !== undefined && <SuggestedPlan projectId={project.id} teamSize={state.about.teamSize} />}
+        {/* Once the questions are done, unless it's just them: "Just me" leaves inviting for later. */}
+        {state.about.shown && state.about.asking === null && state.about.teamSize !== "just-me" && (
+          <InviteTeam project={project} email={state.reviewer?.email ?? null} />
+        )}
       </div>
     </>
   );

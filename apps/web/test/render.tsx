@@ -104,6 +104,7 @@ export function fakeBackend(
     checkAddress: record("checkAddress", overrides.checkAddress ?? (async () => ({ kind: "public", stack: null }) as const)),
     saveAboutYou: record("saveAboutYou", overrides.saveAboutYou ?? (async () => {})),
     createProject: record("createProject", overrides.createProject ?? (async () => "k57abcdefghijklmnop")),
+    inviteMember: record("inviteMember", overrides.inviteMember ?? (async () => ({ status: "invited" as const, email: "pending" as const }))),
     addProjectAddress: record("addProjectAddress", overrides.addProjectAddress ?? (async (_projectId: string, address: string) => [address])),
     sendDeveloperSetup: record("sendDeveloperSetup", overrides.sendDeveloperSetup ?? (async (_projectId: string, emails: string[]) => emails.map((email) => ({ email, status: "sent" as const, sendId: "s1", invite: "none" as const })))),
     projectSetup: record("projectSetup", overrides.projectSetup ?? (async (projectId: string) => ({ projectId, projectName: "Old prototype", address: null, stack: null, installCommands: null }))),
