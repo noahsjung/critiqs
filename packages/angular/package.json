@@ -45,7 +45,7 @@
     "@angular/platform-browser": "^22.3.0",
     "@angular/router": "^22.3.0",
     "@happy-dom/global-registrator": "^21.0.4",
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.4",
     "rxjs": "^7.8.2",
     "zone.js": "^0.16.3"
   },

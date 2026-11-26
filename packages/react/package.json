@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "critiqs": "0.3.0",
-    "convex": "^1.46.0",
+    "convex": "^1.51.0",
     "modern-screenshot": "^4.6.0"
   },
   "peerDependencies": {
@@ -47,12 +47,12 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.4",
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "fake-indexeddb": "^6.2.5",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "fake-indexeddb": "^6.2.8",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "@critiqs/core": "workspace:*",
     "@critiqs/backend": "workspace:*",
     "@critiqs/server": "workspace:*"

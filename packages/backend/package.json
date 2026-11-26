@@ -15,11 +15,11 @@
     "@critiqs/core": "workspace:*",
     "@critiqs/server": "workspace:*",
     "aws4fetch": "^1.0.20",
-    "convex": "^1.46.0"
+    "convex": "^1.51.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2",
-    "convex-test": "^0.0.61",
+    "@types/bun": "^1.4.4",
+    "convex-test": "^0.0.73",
     "typescript": "^7.0.2",
     "@types/node": "^22.0.0"
   },

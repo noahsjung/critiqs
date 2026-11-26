@@ -19,16 +19,16 @@
     "test": "bun test && node --experimental-transform-types --no-warnings --test test/address-pinning.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.88",
-    "@ai-sdk/gateway": "4.0.126",
-    "@ai-sdk/google": "4.0.105",
-    "@ai-sdk/openai": "4.0.102",
-    "@ai-sdk/openai-compatible": "3.0.78",
+    "@ai-sdk/anthropic": "4.0.106",
+    "@ai-sdk/gateway": "4.0.150",
+    "@ai-sdk/google": "4.0.122",
+    "@ai-sdk/openai": "4.0.121",
+    "@ai-sdk/openai-compatible": "3.0.93",
     "@critiqs/core": "workspace:*",
-    "ai": "7.0.153",
+    "ai": "7.0.177",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2"
+    "@types/bun": "^1.4.4"
   }
 }

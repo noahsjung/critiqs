@@ -52,7 +52,7 @@
     }
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.4",
     "solid-js": "^2.0.4",
     "solid-js-1": "npm:solid-js@1.9.20",
     "@solidjs/router": "^2.0.1",
