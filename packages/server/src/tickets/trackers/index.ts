@@ -86,7 +86,9 @@ export function trackerEndpoint(options: TrackerEndpointOptions, defaultBaseUrl:
       else outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
     }
     // The person's token and cookies go only to the tracker's own address, never to an address it names, such as an upload's.
-    const headers = new Headers(init?.headers);
+    // A Request's own headers count, with those given in `init` on top, so none escapes the check below.
+    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+    new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
     if (url.origin !== base.origin) for (const name of ["authorization", "proxy-authorization", "cookie"]) headers.delete(name);
     try {
       const response = await send(input, { ...init, headers, redirect: "manual", signal: controller.signal });

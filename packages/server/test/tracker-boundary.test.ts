@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CritiqsError } from "../src/errors.ts";
-import { isCheckedAdapter } from "../src/tickets/trackers/index.ts";
+import { isCheckedAdapter, trackerEndpoint } from "../src/tickets/trackers/index.ts";
 import { linearAdapter } from "../src/tickets/trackers/linear.ts";
 
 // Everything a tracker answers is outside Critiqs's control: a broken or
@@ -140,4 +140,25 @@ test("an upload goes only to a public HTTPS address, with only the storage heade
   expect(put.headers.cookie).toBeUndefined();
   answers.push(upload("https://storage.example/put?sig=1", "javascript:alert(document.domain)"));
   expect((await refusal(linear.uploadImage!(key, image))).code).toBe("unavailable");
+});
+
+test("a request given as a Request never sends the person's token elsewhere, and keeps its own headers", async () => {
+  const seen: { url: string; headers: Record<string, string> }[] = [];
+  const record = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    seen.push({ url: request.url, headers: Object.fromEntries(request.headers) });
+    return Response.json({});
+  }) as typeof fetch;
+  const endpoint = trackerEndpoint({ fetch: record, baseUrl: "http://127.0.0.1:9" }, "https://api.linear.app");
+  // An address the tracker names elsewhere never gets the token or cookies, however the request was made.
+  await endpoint.fetch(new Request("https://uploads.example.com/file", { method: "PUT", headers: { Authorization: "Bearer secret", Cookie: "a=b", "Content-Type": "image/png" }, body: "x" }));
+  expect(seen[0]!.headers.authorization).toBeUndefined();
+  expect(seen[0]!.headers.cookie).toBeUndefined();
+  expect(seen[0]!.headers["content-type"]).toBe("image/png");
+  // The tracker's own address gets the Request's headers.
+  await endpoint.fetch(new Request("http://127.0.0.1:9/graphql", { method: "POST", headers: { "Content-Type": "application/json", "X-Critiqs-Test": "kept", Authorization: "Bearer secret" }, body: "{}" }));
+  expect(seen[1]!.headers).toMatchObject({ "content-type": "application/json", "x-critiqs-test": "kept", authorization: "Bearer secret" });
+  // Headers given with the call add to the Request's.
+  await endpoint.fetch(new Request("http://127.0.0.1:9/graphql", { headers: { "X-Critiqs-Test": "request" } }), { headers: { "X-Other": "init" } });
+  expect(seen[2]!.headers).toMatchObject({ "x-critiqs-test": "request", "x-other": "init" });
 });
