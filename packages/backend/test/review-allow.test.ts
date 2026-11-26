@@ -248,3 +248,26 @@ test("one person's checks are limited across their projects, so more projects ne
   for (let n = 0; n < ALLOW_CHECKS_PER_PERSON_PER_HOUR; n++) await f.dana.action(api.reviewAllow.check, { projectId: f.projectId, origin: "https://one.example" });
   expect(await outcome(f.dana.action(api.reviewAllow.check, { projectId: second, origin: "https://two.example" }))).toBe(`You can check Allow Critiqs rules ${ALLOW_CHECKS_PER_PERSON_PER_HOUR} times an hour, across your projects. Try again later.`);
 });
+
+test("a thread page offers a link only while it is served: one waiting for a fresh address check isn't offered", async () => {
+  const f = await fixture();
+  const link = await f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: "https://walled.example/" });
+  await f.t.finishAllScheduledFunctions(() => undefined);
+  const threadId = await f.dana.mutation(api.threads.create, { projectId: f.projectId, anchor: { ...anchor, evidence: { ...anchor.evidence, url: "https://walled.example/" } }, body: "hi", tags: [], capture: { status: "failed" as const, failureReason: "x" } });
+  const key = await f.dana.mutation(api.threads.pageKey, { threadId });
+  expect(await f.dana.query(api.reviewLinks.forThreadPage, { key })).toBe(link.url);
+  // Its last address check is too old: the link is active but not served until it is checked again.
+  await f.t.run(async (ctx) => await ctx.db.patch(link.linkId as never, { checkedAt: 1 }));
+  expect(await f.dana.query(api.reviewLinks.forThreadPage, { key })).toBeNull();
+});
+
+test("a check that a rotation overtook records nothing: the new token was never checked", async () => {
+  const f = await fixture();
+  const origin = "https://walled.example";
+  await f.dana.mutation(api.reviewAllow.issue, { projectId: f.projectId, origin });
+  // While the proxy is checking the site with the old token, an owner rotates it.
+  probeAnswer = (() => f.dana.mutation(api.reviewAllow.rotate, { projectId: f.projectId, origin }).then(() => Response.json({ result: "public", proof: true }))) as never;
+  await f.dana.action(api.reviewAllow.check, { projectId: f.projectId, origin });
+  const after = (await f.dana.query(api.reviewAllow.current, { projectId: f.projectId, origin }))!;
+  expect([after.verifiedAt, after.lastCheck]).toEqual([null, null]);
+});

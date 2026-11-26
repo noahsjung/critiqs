@@ -45,7 +45,17 @@ const guarded = recordingServer((request, response) => {
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   response.end("<!doctype html><title>Staging</title><h1>Acme staging</h1>");
 });
-const other = recordingServer((_request, response) => {
+/** What other.example answers at its proof path, and whether its pages are walled, for the proof's own tests. */
+const otherSite: { proof: { status: number; body: string } | null; walled: boolean } = { proof: null, walled: false };
+const other = recordingServer((request, response) => {
+  if (otherSite.proof !== null && request.url === "/.well-known/critiqs-allow.txt") {
+    response.writeHead(otherSite.proof.status, { "Content-Type": "text/plain" });
+    return response.end(otherSite.proof.body);
+  }
+  if (otherSite.walled) {
+    response.writeHead(403, { "Content-Type": "text/html" });
+    return response.end("<p>Blocked</p>");
+  }
   response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   response.end("<!doctype html><title>Other</title><h1>Other</h1>");
 });
@@ -214,4 +224,29 @@ test("the proxy's domain publishes how to recognize it, and nothing that lets an
   // On a lease host the same path is the prototype's own.
   const onLease = await proxy.fetch(new Request(`http://${LABEL}.review.localhost:5120/.well-known/critiqs-review.json`, { headers: { host: `${LABEL}.review.localhost:5120`, "sec-fetch-dest": "empty" } }));
   expect((await onLease.text()).includes("Critiqs-Allow")).toBe(false);
+});
+
+describe("what counts as the proof", () => {
+  const checkOther = async (proof: { status: number; body: string }, walled = false) => {
+    otherSite.proof = proof;
+    otherSite.walled = walled;
+    try {
+      const { proxy } = setup();
+      return await (await probeWith(proxy, { origin: "http://other.example", token: TOKEN, proof: PROOF })).json();
+    } finally {
+      otherSite.proof = null;
+      otherSite.walled = false;
+    }
+  };
+  test("only the proof line on a line of its own, never inside another line", async () => {
+    expect(await checkOther({ status: 200, body: `  ${allowProofLine(PROOF)}\r\nother-project=x\n` })).toEqual({ result: "public", proof: true });
+    expect(await checkOther({ status: 200, body: `see ${allowProofLine(PROOF)} here\n` })).toEqual({ result: "public", proof: false });
+    expect(await checkOther({ status: 200, body: `${allowProofLine(PROOF)}x\n` })).toEqual({ result: "public", proof: false });
+  });
+  test("only from a file the site serves with 200, not on an error page", async () => {
+    expect(await checkOther({ status: 404, body: `${allowProofLine(PROOF)}\n` })).toEqual({ result: "public", proof: false });
+  });
+  test("only when the site let the proxy in: a walled site's public proof file proves nothing", async () => {
+    expect(await checkOther({ status: 200, body: `${allowProofLine(PROOF)}\n` }, true)).toEqual({ result: "blocked", proof: false });
+  });
 });
