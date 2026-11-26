@@ -22,6 +22,7 @@ import type * as lib_ai from "../lib/ai.js";
 import type * as lib_autumn from "../lib/autumn.js";
 import type * as lib_billing from "../lib/billing.js";
 import type * as lib_links from "../lib/links.js";
+import type * as lib_origins from "../lib/origins.js";
 import type * as lib_pages from "../lib/pages.js";
 import type * as lib_r2 from "../lib/r2.js";
 import type * as lib_store from "../lib/store.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   "lib/autumn": typeof lib_autumn;
   "lib/billing": typeof lib_billing;
   "lib/links": typeof lib_links;
+  "lib/origins": typeof lib_origins;
   "lib/pages": typeof lib_pages;
   "lib/r2": typeof lib_r2;
   "lib/store": typeof lib_store;

@@ -35,6 +35,7 @@ import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadS
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
+import { isLoopback, isPanelOrigin, normalizeOrigin } from "./lib/origins";
 import { deployment } from "./lib/ai";
 import { billingConfig, billingHealth, verifyWebhook } from "./lib/billing";
 import { emailConfigured } from "./lib/email";
@@ -100,6 +101,10 @@ http.route({
       // `developerEmails`: a project's owners email its setup steps to developers (`onboarding:sendDeveloperSetup`,
       // `onboarding:developerSends`), and setup links show them (`onboarding:developerSetup`); false without email. A copied
       // message's setup page shows the project and its install commands (`onboarding:projectSetup`), with or without email.
+      // `panelSignIn`: this deployment's own sign-in service lets Critiqs's own panels sign in without a popup
+      // (`/auth/panel/email`, `/auth/panel/code`, `/auth/panel/name`), and its extension's origin may use
+      // `/auth/refresh`, `/auth/profile`, and `/auth/sign-out`. It describes this deployment, not `signInUrl`:
+      // a panel asks the sign-in service's own `/critiqs/config` before offering it.
       {
         signInUrl: signInUrl(),
         protocol: 5,
@@ -116,6 +121,7 @@ http.route({
         reviewAccess: true,
         threadPages: true,
         ...(threadPageWebsite() === null ? {} : { website: threadPageWebsite() }),
+        panelSignIn: true,
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,
@@ -319,8 +325,8 @@ http.route({
       if (origin === null) return expiredPage();
       return emailPage(key, origin, { development: mode === "development", error: "Enter a valid email address.", email: typed });
     }
-    const prepared = await ctx.runMutation(internal.signIn.prepareCode, { key, bindingHash: binding, email });
-    switch (prepared.status) {
+    const sent = await sendCode(ctx, { key, binding, email, mode, panel: false });
+    switch (sent.status) {
       case "expired":
         return expiredPage();
       case "locked":
@@ -333,47 +339,82 @@ http.route({
             development: mode === "development",
             canResend: false,
             error:
-              prepared.status === "too-many-codes"
+              sent.status === "too-many-codes"
                 ? "No more codes can be sent from this window. Use the latest code, or close this window and start again."
                 : "Too many codes were sent recently. Wait a few minutes before asking for another.",
           });
         }
         return withHeaders(
           messagePage("Try again shortly", "Too many codes were sent recently. Wait a few minutes, then close this window and start again.", 429),
-          prepared.status === "rate-limited" ? { "Retry-After": String(prepared.retryAfter) } : {},
+          sent.status === "rate-limited" ? { "Retry-After": String(sent.retryAfter) } : {},
         );
-    }
-    const code = generateCode();
-    const digest = await codeDigest(codeSecret(), { attempt: key, email, generation: prepared.generation, code });
-    const stored = await ctx.runMutation(internal.signIn.storeCode, {
-      key,
-      bindingHash: binding,
-      generation: prepared.generation,
-      digest,
-      expiresAt: Date.now() + CODE_MINUTES * 60 * 1000,
-    });
-    if (!stored) return expiredPage();
-    if (mode === "email") {
-      try {
-        await resendMailer({ apiKey: process.env.RESEND_API_KEY!, from: process.env.CRITIQS_EMAIL_FROM! }).send(
-          signInCodeMessage({ to: email, code, site: prepared.origin, idempotencyKey: `${key}:${prepared.generation}` }),
-        );
-      } catch (error) {
-        if (!(error instanceof MailError)) throw error;
-        return emailPage(key, prepared.origin, {
+      case "send-failed":
+        return emailPage(key, sent.origin, {
           development: false,
           email,
           error: "The code couldn't be sent. Check the address, or try again in a minute.",
         });
-      }
+      case "sent":
+        return codePage(key, sent.origin, email, {
+          development: mode === "development",
+          ...(mode === "development" ? { developmentCode: sent.code } : {}),
+          canResend: true,
+        });
     }
-    return codePage(key, prepared.origin, email, {
-      development: mode === "development",
-      ...(mode === "development" ? { developmentCode: code } : {}),
-      canResend: true,
-    });
   }),
 });
+
+type SendResult =
+  | { status: "expired" | "locked" | "too-many-codes" }
+  | { status: "rate-limited"; retryAfter: number }
+  | { status: "send-failed"; origin: string }
+  | { status: "sent"; origin: string; code: string };
+
+/**
+ * Sends a new code for an attempt to an address, within the attempt's and the
+ * address's limits; a new code replaces the attempt's previous one. Email
+ * sign-in emails it; development sign-in returns it to be shown instead.
+ */
+async function sendCode(
+  ctx: ActionCtx,
+  { key, binding, email, mode, panel }: { key: string; binding: string; email: string; mode: SignInMode; panel: boolean },
+): Promise<SendResult> {
+  const prepared = await ctx.runMutation(internal.signIn.prepareCode, { key, bindingHash: binding, email, panel });
+  if (prepared.status !== "ready") return prepared;
+  const code = generateCode();
+  const digest = await codeDigest(codeSecret(), { attempt: key, email, generation: prepared.generation, code });
+  const stored = await ctx.runMutation(internal.signIn.storeCode, {
+    key,
+    bindingHash: binding,
+    generation: prepared.generation,
+    digest,
+    expiresAt: Date.now() + CODE_MINUTES * 60 * 1000,
+    panel,
+  });
+  if (!stored) return { status: "expired" };
+  if (mode === "email") {
+    try {
+      await resendMailer({ apiKey: process.env.RESEND_API_KEY!, from: process.env.CRITIQS_EMAIL_FROM! }).send(
+        signInCodeMessage({
+          to: email,
+          code,
+          site: siteName(prepared.origin),
+          idempotencyKey: `${key}:${prepared.generation}`,
+          ...(panel ? { where: "panel" as const } : {}),
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof MailError)) throw error;
+      return { status: "send-failed", origin: prepared.origin };
+    }
+  }
+  return { status: "sent", origin: prepared.origin, code };
+}
+
+/** How the sign-in email names the site asking. */
+function siteName(origin: string): string {
+  return origin.startsWith("chrome-extension:") ? "pages with Critiqs's browser extension" : origin;
+}
 
 /** Checks a typed code. */
 http.route({
@@ -826,6 +867,8 @@ function sessionCors(origin: string | null): Record<string, string> {
     "Access-Control-Allow-Origin": origin ?? "null",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
+    // Lets a page on another origin read whether sign-out found the session.
+    "Access-Control-Expose-Headers": "Critiqs-Session-Ended",
     "Cache-Control": "no-store",
     Vary: "Origin",
   };
@@ -840,24 +883,265 @@ async function readRefreshToken(request: Request): Promise<string | null> {
   }
 }
 
-/**
- * Accepts only a bare origin, such as `https://proto.example`. Plain HTTP is
- * allowed only on this computer, where a network cannot tamper with the page.
- */
-function normalizeOrigin(value: string | null): string | null {
-  if (value === null) return null;
-  try {
-    const url = new URL(value);
-    if (url.origin !== value.replace(/\/$/, "")) return null;
-    if (url.protocol === "https:") return url.origin;
-    return url.protocol === "http:" && isLoopback(url.hostname) ? url.origin : null;
-  } catch {
-    return null;
-  }
+// ---------------------------------------------------------------------------
+// Signing in inside Critiqs's own panels, without a popup
+//
+// Critiqs's website and its browser extension's side panel (lib/origins.ts)
+// sign in with the same email codes and limits as the popup, as JSON. Every
+// request must come from one of those exact origins: any other gets no CORS
+// headers and is refused before anything happens. The attempt key travels in
+// the request body rather than a cookie, so it works across sites, and it is
+// bound to the origin that started it. These origins are Critiqs's own, so
+// there is no allow page and no site grant.
+//
+// 1. POST /auth/panel/email { email } starts an attempt and sends a code;
+//    the answer carries the attempt key. With { email, attempt }, it sends a
+//    new code for the same attempt, whose wrong-code count carries over.
+// 2. POST /auth/panel/code { attempt, code } checks the code. A returning
+//    reviewer receives the tokens; a new one is asked for a display name.
+// 3. POST /auth/panel/name { attempt, name } registers a new reviewer, then
+//    returns the tokens.
+// The session then renews and ends through /auth/refresh, /auth/profile, and
+// /auth/sign-out from the same origin, as a site's does.
+
+/** Largest panel request body, in bytes; the fields are an email, a code, a name, and an attempt token. */
+const PANEL_BODY_LIMIT = 4096;
+
+function panelHeaders(origin: string): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "600",
+    "Access-Control-Expose-Headers": "Retry-After",
+    "Cache-Control": "no-store",
+    Vary: "Origin",
+  };
 }
 
-function isLoopback(hostname: string): boolean {
-  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]";
+/** For an origin that isn't one of Critiqs's panels: no CORS headers, so a browser shows the page nothing. */
+function refusedOrigin(): Response {
+  return Response.json({ error: "origin-not-allowed" }, { status: 403, headers: { "Cache-Control": "no-store", Vary: "Origin" } });
+}
+
+function panelError(
+  origin: string,
+  status: number,
+  error: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+): Response {
+  return Response.json({ error, message, ...extra }, { status, headers: { ...panelHeaders(origin), ...headers } });
+}
+
+const panelExpired = (origin: string) =>
+  panelError(origin, 410, "expired", "This sign-in took too long or was already used. Start again.");
+
+/**
+ * The panel holds the attempt token; only digests of it are stored. The
+ * attempt's key (which code digests and the mail provider's idempotency key
+ * name) is one, and its binding, which also covers the panel's origin, is
+ * another: a request from another origin finds nothing.
+ */
+async function panelAttempt(origin: string, token: string): Promise<{ key: string; binding: string }> {
+  return { key: await hashSecret(`panel-attempt\n${token}`), binding: await hashSecret(`panel\n${origin}\n${token}`) };
+}
+
+function attemptToken(body: Record<string, unknown>): string | null {
+  const { attempt } = body;
+  return typeof attempt === "string" && attempt !== "" && attempt.length <= 200 ? attempt : null;
+}
+
+function panelRoute(
+  path: string,
+  handler: (ctx: ActionCtx, origin: string, body: Record<string, unknown>, mode: SignInMode) => Promise<Response>,
+) {
+  http.route({
+    path,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const origin = request.headers.get("Origin");
+      if (!isPanelOrigin(origin)) return refusedOrigin();
+      const mode = signInMode();
+      if (mode === "unavailable") return panelError(origin, 503, "unavailable", "This Critiqs deployment can't send sign-in codes yet.");
+      const text = await readLimited(request, PANEL_BODY_LIMIT);
+      let body: unknown = null;
+      try {
+        if (text !== null) body = JSON.parse(text);
+      } catch {}
+      if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        return panelError(origin, 400, "invalid-request", "This sign-in request is incomplete.");
+      }
+      return await handler(ctx, origin, body as Record<string, unknown>, mode);
+    }),
+  });
+  http.route({
+    path,
+    method: "OPTIONS",
+    handler: httpAction(async (_, request) => {
+      const origin = request.headers.get("Origin");
+      return isPanelOrigin(origin) ? new Response(null, { status: 204, headers: panelHeaders(origin) }) : refusedOrigin();
+    }),
+  });
+}
+
+
+/** The body as text, or null once it is longer than `limit` bytes; stops reading there. */
+async function readLimited(request: Request, limit: number): Promise<string | null> {
+  if (Number(request.headers.get("Content-Length") ?? 0) > limit) return null;
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Whether a panel can sign in from here: answered only to Critiqs's own
+ * origins (a browser hides it from any other page), and 503 where the service
+ * can't send codes. A POST, since browsers send `Origin` with every POST, even
+ * from the sign-in service's own origin.
+ */
+panelRoute("/auth/panel/status", async (_, origin) => Response.json({ ready: true }, { headers: panelHeaders(origin) }));
+
+panelRoute("/auth/panel/email", async (ctx, origin, body, mode) => {
+  const email = typeof body.email === "string" ? normalizeEmail(body.email.slice(0, 300)) : null;
+  if (email === null) return panelError(origin, 400, "invalid-email", "Enter a valid email address.");
+  let token: string;
+  if (body.attempt === undefined) {
+    token = randomSecret();
+    const { key, binding } = await panelAttempt(origin, token);
+    const start = await ctx.runMutation(internal.signIn.startAttempt, { key, origin, clientState: "panel", bindingHash: binding, panel: true });
+    if (!start.allowed) {
+      return panelError(origin, 429, "rate-limited", "Too many sign-in requests. Wait a minute and try again.",
+        { retryAfter: start.retryAfter }, { "Retry-After": String(start.retryAfter) });
+    }
+  } else {
+    const given = attemptToken(body);
+    if (given === null) return panelError(origin, 400, "invalid-request", "This sign-in request is incomplete.");
+    token = given;
+  }
+  const sent = await sendCode(ctx, { ...(await panelAttempt(origin, token)), email, mode, panel: true });
+  switch (sent.status) {
+    case "expired":
+      return panelExpired(origin);
+    case "locked":
+      return panelLocked(origin);
+    case "too-many-codes":
+      return panelError(origin, 429, "too-many-codes", "No more codes can be sent for this sign-in. Use the latest code, or start again.");
+    case "rate-limited":
+      return panelError(origin, 429, "rate-limited", "Too many codes were sent recently. Wait a few minutes before asking for another.",
+        { retryAfter: sent.retryAfter }, { "Retry-After": String(sent.retryAfter) });
+    case "send-failed":
+      return panelError(origin, 502, "send-failed", "The code couldn't be sent. Check the address, or try again in a minute.");
+    case "sent":
+      return Response.json(
+        { attempt: token, email, ...(mode === "development" ? { developmentCode: sent.code } : {}) },
+        { headers: panelHeaders(origin) },
+      );
+  }
+});
+
+panelRoute("/auth/panel/code", async (ctx, origin, body) => {
+  const token = attemptToken(body);
+  if (token === null) return panelError(origin, 400, "invalid-request", "This sign-in request is incomplete.");
+  const { key, binding } = await panelAttempt(origin, token);
+  const context = await ctx.runMutation(internal.signIn.codeContext, { key, bindingHash: binding, panel: true });
+  if (context === null) return panelExpired(origin);
+  const typed = typeof body.code === "string" ? cleanCode(body.code.slice(0, 20)) : "";
+  // A malformed code uses up no guess.
+  if (!/^\d{6}$/.test(typed)) return panelError(origin, 400, "invalid-code", "Enter the 6-digit code from the email.");
+  const digest = await codeDigest(codeSecret(), { attempt: key, email: context.email, generation: context.generation, code: typed });
+  const result = await ctx.runMutation(internal.signIn.verifyCode, {
+    key,
+    bindingHash: binding,
+    generation: context.generation,
+    digest,
+    // Panels have no allow page, so this token is never used.
+    consentHash: await hashSecret(randomSecret()),
+    panel: true,
+  });
+  switch (result.status) {
+    case "expired":
+      return panelExpired(origin);
+    case "locked":
+      return panelLocked(origin);
+    case "code-expired":
+      return panelError(origin, 400, "code-expired", "That code has expired. Send a new code.");
+    case "wrong":
+      return panelError(origin, 400, "wrong-code",
+        `That code doesn't match. ${result.guessesLeft} ${result.guessesLeft === 1 ? "try" : "tries"} left.`,
+        { guessesLeft: result.guessesLeft });
+    case "needs-name":
+      return Response.json({ status: "needs-name" }, { headers: panelHeaders(origin) });
+    case "verified":
+      return await finishPanelSignIn(ctx, origin, key, binding);
+  }
+});
+
+panelRoute("/auth/panel/name", async (ctx, origin, body) => {
+  const token = attemptToken(body);
+  if (token === null) return panelError(origin, 400, "invalid-request", "This sign-in request is incomplete.");
+  const { key, binding } = await panelAttempt(origin, token);
+  const result = await ctx.runMutation(internal.signIn.registerReviewer, {
+    key,
+    bindingHash: binding,
+    name: typeof body.name === "string" ? body.name.slice(0, 200) : "",
+    consentHash: await hashSecret(randomSecret()),
+    panel: true,
+  });
+  if (result.status === "expired") return panelExpired(origin);
+  if (result.status === "invalid-name") return panelError(origin, 400, "invalid-name", "Use a name of 1 to 60 characters.");
+  return await finishPanelSignIn(ctx, origin, key, binding);
+});
+
+function panelLocked(origin: string): Response {
+  return panelError(origin, 429, "locked", "This sign-in is locked after too many wrong codes. Start again.");
+}
+
+/** Starts the session and answers with its tokens. Critiqs's own origins need no grant. */
+async function finishPanelSignIn(ctx: ActionCtx, origin: string, key: string, binding: string): Promise<Response> {
+  const refreshToken = randomSecret();
+  const result = await ctx.runMutation(internal.signIn.finishAttempt, {
+    key,
+    bindingHash: binding,
+    consentHash: null,
+    allow: true,
+    refreshHash: await hashSecret(refreshToken),
+    panel: true,
+  });
+  // Also when the origin stopped being one of Critiqs's own since the attempt began.
+  if (result?.profile == null) return panelExpired(origin);
+  const { profile, endsAt } = result;
+  const { accessToken, expiresAt } = await issueAccessToken(signInUrl(), profile, origin, Date.now(), endsAt);
+  return Response.json(
+    {
+      status: "signed-in",
+      accessToken,
+      refreshToken,
+      expiresAt,
+      sessionEndsAt: endsAt,
+      reviewer: { id: profile.subject, name: profile.name, email: profile.email },
+    },
+    { headers: panelHeaders(origin) },
+  );
 }
 
 // ---------------------------------------------------------------------------

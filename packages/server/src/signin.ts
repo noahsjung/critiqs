@@ -235,13 +235,23 @@ export function resendMailer(options: { apiKey: string; from: string; fetch?: ty
 }
 
 /** The sign-in code email. It names the site asking, so a reviewer notices a site they didn't use. */
-export function signInCodeMessage(options: { to: string; code: string; site: string; idempotencyKey: string }): MailMessage {
+export function signInCodeMessage(options: {
+  to: string;
+  code: string;
+  site: string;
+  idempotencyKey: string;
+  /** Where the code is typed: Critiqs's sign-in window (the default), or one of Critiqs's own panels. */
+  where?: "window" | "panel";
+}): MailMessage {
   const { to, code, site } = options;
+  const only = options.where === "panel"
+    ? "Only type it into the Critiqs panel where you asked for it."
+    : "Only type it into the Critiqs sign-in window you opened.";
   const text = [
     `Your Critiqs sign-in code is ${code}.`,
     "",
     `It signs you in to review ${site} and works for ${CODE_MINUTES} minutes.`,
-    "Only type it into the Critiqs sign-in window you opened. Critiqs never asks for it anywhere else.",
+    `${only} Critiqs never asks for it anywhere else.`,
     "",
     "If you didn't try to sign in, you can ignore this email.",
   ].join("\n");
@@ -249,7 +259,7 @@ export function signInCodeMessage(options: { to: string; code: string; site: str
 <p>Your Critiqs sign-in code is</p>
 <p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p>
 <p>It signs you in to review <strong>${escapeHtml(site)}</strong> and works for ${CODE_MINUTES} minutes.
-Only type it into the Critiqs sign-in window you opened. Critiqs never asks for it anywhere else.</p>
+${only} Critiqs never asks for it anywhere else.</p>
 <p style="color:#666">If you didn't try to sign in, you can ignore this email.</p>
 </body></html>`;
   return { to, subject: `${code} is your Critiqs sign-in code`, text, html, idempotencyKey: options.idempotencyKey };
