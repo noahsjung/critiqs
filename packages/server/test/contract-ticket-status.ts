@@ -15,6 +15,7 @@ import {
   prepareStatusCheck,
   STATUS_CHECK_MS,
   setResolveWhenDone,
+  WEBHOOK_UPDATES_PER_MINUTE,
   ticketSettings,
 } from "../src/tickets/status.ts";
 import type { Identity, Store } from "../src/store.ts";
@@ -183,6 +184,22 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     expect(await apply(backend, "issue-1", CANCELED, 60_000, 130_000, "org-2")).toEqual({ updated: 0, resolved: [] });
     // An issue no thread links changes nothing.
     expect(await apply(backend, "issue-404", DONE, 60_000)).toEqual({ updated: 0, resolved: [] });
+  });
+
+  test(`${name}: each site's webhook may update linked tickets a limited number of times a minute; past it, the tracker is told to send it again later`, async () => {
+    const backend = fresh();
+    const { threadId, linear } = await setup(backend);
+    await connect(backend, lee);
+    await link(backend, lee, linear, threadId, "issue-1");
+    const results = [];
+    for (let index = 1; index <= WEBHOOK_UPDATES_PER_MINUTE + 1; index++) results.push(await apply(backend, "issue-1", index % 2 === 0 ? DONE : STARTED, 50_000 + index, 100_000 + index));
+    expect(results.slice(0, WEBHOOK_UPDATES_PER_MINUTE).every((result) => result.updated === 1 && result.limited !== true)).toBe(true);
+    expect(results.at(-1)).toEqual({ updated: 0, resolved: [], limited: true });
+    // Another site has its own room, and an update for no linked ticket takes none.
+    expect(await apply(backend, "issue-404", DONE, 60_000, 100_500)).toEqual({ updated: 0, resolved: [] });
+    expect(await apply(backend, "issue-1", DONE, 60_000, 100_500, "org-2")).toEqual({ updated: 0, resolved: [] });
+    // A minute later there is room again.
+    expect((await apply(backend, "issue-1", DONE, 90_000, 100_000 + 60_000 + WEBHOOK_UPDATES_PER_MINUTE + 1)).limited).toBeUndefined();
   });
 
   test(`${name}: an update naming a site Critiqs can't keep reaches no link, not even one without a site`, async () => {

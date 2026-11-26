@@ -71,6 +71,26 @@ export function heldReading(link: TicketLinkRecord): HeldReading | null {
 }
 
 /**
+ * How many times a minute one tracker site's webhooks (a Linear workspace's,
+ * a GitHub repository's, a Jira site's) may change tickets Critiqs links.
+ * Past it, the webhook route answers 429, so a tracker that retries sends it
+ * again later; the check when a thread opens catches up either way.
+ */
+export const WEBHOOK_UPDATES_PER_MINUTE = 300;
+
+/** What a webhook delivery did: the links it updated, the threads it resolved, and whether its site was over its minute's limit. */
+export interface WebhookResult {
+  updated: number;
+  resolved: string[];
+  limited?: true;
+}
+
+/** Takes one of the site's webhook updates for this minute; false when it has none left. */
+export async function webhookRoom(store: Store, tracker: TrackerId, site: string | null, now: number): Promise<boolean> {
+  return await store.rateLimits.hit(`tracker-webhook:${tracker}:${site ?? ""}`, WEBHOOK_UPDATES_PER_MINUTE, 60_000, now);
+}
+
+/**
  * Saves a ticket's status, from a webhook, on every thread that links it,
  * and on links to it still being added, which weigh it against what they
  * read when they finish (`linkedReading`). Each link takes it only as
@@ -78,10 +98,12 @@ export function heldReading(link: TicketLinkRecord): HeldReading | null {
  * repeated, or replayed deliveries change nothing. Then, in each open thread
  * where this update made a ticket done or canceled, Resolve when done
  * resolves the thread when it is on and every ticket the thread links is now
- * done or canceled. A ticket reopened later never reopens the thread. One
- * transaction. Returns the threads it resolved.
+ * done or canceled. A ticket reopened later never reopens the thread. Each
+ * delivery that reaches links takes one of its site's updates for the minute
+ * (`WEBHOOK_UPDATES_PER_MINUTE`); past them, it changes nothing and says it
+ * was limited. One transaction. Returns the threads it resolved.
  */
-export async function applyTicketStatus(store: Store, update: TicketStatusUpdate, now: number): Promise<{ updated: number; resolved: string[] }> {
+export async function applyTicketStatus(store: Store, update: TicketStatusUpdate, now: number): Promise<WebhookResult> {
   const externalId = trackerId(update.externalId);
   if (externalId === null) return { updated: 0, resolved: [] };
   // Only links in the workspace the update names: a link saves its workspace (a pending one, its linker's), and an
@@ -90,6 +112,8 @@ export async function applyTicketStatus(store: Store, update: TicketStatusUpdate
   // A site Critiqs can't keep is still a site: never "none", which would reach links without one.
   if (update.site !== null && site === null) return { updated: 0, resolved: [] };
   const links = (await ticketStore(store).links.findByExternal(update.tracker, externalId, MAX_TICKET_LINK_ROWS)).filter((link) => (link.site ?? null) === site);
+  if (links.length === 0) return { updated: 0, resolved: [] };
+  if (!(await webhookRoom(store, update.tracker, site, now))) return { updated: 0, resolved: [], limited: true };
   return await saveStatus(store, links, { source: "webhook", asOf: update.asOf ?? now, status: checkedStatus(update.status), deleted: update.deleted }, now);
 }
 

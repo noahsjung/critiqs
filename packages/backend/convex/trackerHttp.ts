@@ -177,7 +177,8 @@ const MAX_WEBHOOK_BYTES = 256 * 1024;
  * `<deployment site>/trackers/linear/webhook`, with Issues events): each
  * delivery's signature is checked with `CRITIQS_LINEAR_WEBHOOK_SECRET`, and
  * its timestamp must be within a minute, before anything in it is used. An
- * issue's new status reaches every thread that links it; other events are
+ * issue's new status reaches every thread that links it, up to the
+ * workspace's updates for the minute (429 past them); other events are
  * answered 200 and ignored, so Linear doesn't retry them.
  */
 export const linearWebhook = httpAction(async (ctx, request) => {
@@ -189,6 +190,11 @@ export const linearWebhook = httpAction(async (ctx, request) => {
   if (body === "too-large") return new Response("Too large.", { status: 413 });
   const read = await readLinearWebhook(secret, body, request.headers.get("Linear-Signature"), Date.now());
   if (read.status === "refused") return new Response("Not a current delivery from Linear.", { status: 401 });
-  if (read.status === "update") await ctx.runMutation(internal.ticketStatus.apply, { update: read.update });
+  if (read.status === "update" && (await ctx.runMutation(internal.ticketStatus.apply, { update: read.update })).limited) return tooManyUpdates();
   return new Response(null, { status: 200 });
 });
+
+/** The answer to a delivery past its site's updates for the minute: a tracker that retries sends it again later. */
+function tooManyUpdates(): Response {
+  return new Response("Too many status updates from this site this minute. Send it again later.", { status: 429, headers: { "Retry-After": "60" } });
+}

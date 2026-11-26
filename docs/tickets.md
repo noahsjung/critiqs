@@ -365,8 +365,11 @@ Critiqs keeps each linked ticket's status and when it last changed:
   issue deleted mid-link shows **Deleted** once linked. A delivery changes
   only links in the Linear workspace it names: each link keeps its
   workspace, and one being linked keeps its linker's, so a delivery that
-  names no workspace, or another one, changes nothing. Status names longer
-  than 100 characters are cut.
+  names no workspace, or another one, changes nothing, and so does one
+  naming a workspace ID Critiqs can't keep. Status names longer than 100
+  characters are cut. Each workspace's deliveries may change linked tickets
+  **300** times a minute; past that the backend answers 429 and changes
+  nothing, and the check when a thread opens catches up.
 - **The check when a thread opens.** Opening a thread checks each linked
   ticket whose status is more than **5 minutes** old, at most once every 5
   minutes per ticket however many people open it, in the background. It reads

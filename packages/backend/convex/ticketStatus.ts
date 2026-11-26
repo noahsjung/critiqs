@@ -1,5 +1,5 @@
 import type { TicketSettingsView } from "@critiqs/core";
-import type { StatusCheck } from "@critiqs/server";
+import type { StatusCheck, WebhookResult } from "@critiqs/server";
 import { applyCheckedStatus, applyTicketStatus, checkTicketStatus, claimStatusChecks, markStatusStale, prepareStatusCheck, setResolveWhenDone as saveResolveWhenDone, ticketSettings } from "@critiqs/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -66,7 +66,7 @@ export const stale = internalMutation({
 /** Saves a webhook's status on every thread that links the ticket, and resolves threads under Resolve when done. */
 export const apply = internalMutation({
   args: { update: statusUpdate },
-  handler: async (ctx, args): Promise<{ updated: number; resolved: string[] }> => await applyTicketStatus(convexStore(ctx), args.update, Date.now()),
+  handler: async (ctx, args): Promise<WebhookResult> => await applyTicketStatus(convexStore(ctx), args.update, Date.now()),
 });
 
 /** Saves what a check read on the checked link only, and resolves its thread under Resolve when done. */

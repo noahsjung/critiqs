@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
-import { STATUS_CHECK_MS } from "@critiqs/server";
+import { STATUS_CHECK_MS, WEBHOOK_UPDATES_PER_MINUTE } from "@critiqs/server";
 import { type LinearStandIn, linearIssueWebhook, linearSignature, linearStandIn } from "@critiqs/server/linear-standin";
 import { api } from "../convex/_generated/api";
 import { anchor, reviewer, setup } from "./harness";
@@ -320,4 +320,16 @@ test("a webhook's over-long status name is cut to what Critiqs shows", async () 
   expect((await deliver(t, await signed({ state: { name: "S".repeat(50_000), type: "started" }, organizationId: "org-1" }))).status).toBe(200);
   const labels = (await list(sam, { projectId })).map((row) => row.tickets?.[0]?.status?.label?.length ?? 0);
   for (const length of labels) expect(length).toBeLessThanOrEqual(100);
+});
+
+test("past its workspace's status updates for the minute, a delivery is answered 429, so Linear sends it again later", async () => {
+  const { t } = await project();
+  const now = Date.now();
+  const statuses = [];
+  for (let index = 0; index <= WEBHOOK_UPDATES_PER_MINUTE; index++) {
+    const state = index % 2 === 0 ? { name: "Done", type: "completed" } : { name: "In Progress", type: "started" };
+    statuses.push((await deliver(t, await linearIssueWebhook(SECRET, { action: "update", issueId: "issue-9", state, updatedAt: now - 10_000 + index, sentAt: now }))).status);
+  }
+  expect(statuses.slice(0, WEBHOOK_UPDATES_PER_MINUTE).every((status) => status === 200)).toBe(true);
+  expect(statuses.at(-1)).toBe(429);
 });
