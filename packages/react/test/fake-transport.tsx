@@ -136,6 +136,7 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
       backend.calls?.push({ name: "setReviewAccess", args });
       if (backend.setReviewAccess !== undefined) await backend.setReviewAccess(args);
     },
+    recordProjectOpened: async (projectId) => void backend.calls?.push({ name: "recordProjectOpened", args: { projectId } }),
     setOverageCap: async (args) => void backend.calls?.push({ name: "setOverageCap", args }),
     syncReviewer: async () => "Dana",
     createProject: async (name, reviewUrl, organizationId) => {

@@ -14,6 +14,8 @@ import type {
   OrganizationRecord,
   FollowerRecord,
   NotificationRecord,
+  OpenedProjectRecord,
+  ProjectAddressRecord,
   ReplyEmailJobRecord,
   PageResult,
   ParticipantRecord,
@@ -43,7 +45,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -510,6 +512,30 @@ export const MIGRATIONS: Migration[] = [
   ALTER TABLE threads ADD COLUMN page_key TEXT;
   CREATE UNIQUE INDEX threads_by_page_key ON threads (page_key) WHERE page_key IS NOT NULL;
   `,
+  // Address lists, and the projects each person opened, for the browser extension's project lookup.
+  `
+  CREATE TABLE project_addresses (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL,
+    organization_id TEXT NOT NULL,
+    address TEXT NOT NULL,
+    key TEXT NOT NULL,
+    position INTEGER NOT NULL
+  );
+  CREATE INDEX project_addresses_by_project ON project_addresses (project_id, position);
+  CREATE INDEX project_addresses_by_project_key ON project_addresses (project_id, key);
+  CREATE INDEX project_addresses_by_organization_key ON project_addresses (organization_id, key, seq);
+  CREATE TABLE opened_projects (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    opened_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX opened_projects_by_user_project ON opened_projects (user_id, project_id);
+  CREATE INDEX opened_projects_by_user_time ON opened_projects (user_id, opened_at);
+  `,
 ];
 
 /**
@@ -605,9 +631,11 @@ const PREFIX = {
   invites: "i",
   planAlerts: "l",
   creditHolds: "v",
-  developerSends: "e",
+  developerSends: "E",
+  projectAddresses: "e",
+  openedProjects: "z",
 } as const;
-const ID_PATTERN = /^[uptmrsfacdnqghkxwjyobilve]_[0-9a-f]{32}$/;
+const ID_PATTERN = /^[uptmrsfacdnqghkxwjyobilvezE]_[0-9a-f]{32}$/;
 
 function newId(table: keyof typeof PREFIX): string {
   return `${PREFIX[table]}_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -992,6 +1020,20 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     userId: row.user_id,
     emoji: row.emoji,
   });
+  const projectAddress = (row: ProjectAddressRow): ProjectAddressRecord => ({
+    _id: row.id,
+    projectId: row.project_id,
+    organizationId: row.organization_id,
+    address: row.address,
+    key: row.key,
+    position: row.position,
+  });
+  const openedProject = (row: OpenedProjectRow): OpenedProjectRecord => ({
+    _id: row.id,
+    userId: row.user_id,
+    projectId: row.project_id,
+    openedAt: row.opened_at,
+  });
   const participant = (row: ParticipantRow): ParticipantRecord => ({
     _id: row.id,
     projectId: row.project_id,
@@ -1277,6 +1319,45 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),
     },
 
+    projectAddresses: {
+      forProject: async (projectId, limit) =>
+        sql.all<ProjectAddressRow>("SELECT * FROM project_addresses WHERE project_id = ? ORDER BY position, seq LIMIT ?", [projectId, limit]).map(projectAddress),
+      insert: async (record) => {
+        const id = newId("projectAddresses");
+        sql.run("INSERT INTO project_addresses (id, project_id, organization_id, address, key, position) VALUES (?, ?, ?, ?, ?, ?)", [
+          id,
+          record.projectId,
+          record.organizationId,
+          record.address,
+          record.key,
+          record.position,
+        ]);
+        return id;
+      },
+      delete: async (id) => sql.run("DELETE FROM project_addresses WHERE id = ?", [id]),
+      inOrganization: async (organizationId, key, limit) =>
+        sql
+          .all<ProjectAddressRow>("SELECT * FROM project_addresses WHERE organization_id = ? AND key = ? ORDER BY seq LIMIT ?", [organizationId, key, limit])
+          .map(projectAddress),
+      inProject: async (projectId, key) =>
+        sql.all<ProjectAddressRow>("SELECT * FROM project_addresses WHERE project_id = ? AND key = ? ORDER BY seq", [projectId, key]).map(projectAddress),
+    },
+    openedProjects: {
+      find: async (userId, projectId) => {
+        const row = sql.get<OpenedProjectRow>("SELECT * FROM opened_projects WHERE user_id = ? AND project_id = ?", [userId, projectId]);
+        return row === undefined ? null : openedProject(row);
+      },
+      insert: async (record) => {
+        const id = newId("openedProjects");
+        sql.run("INSERT INTO opened_projects (id, user_id, project_id, opened_at) VALUES (?, ?, ?, ?)", [id, record.userId, record.projectId, record.openedAt]);
+        return id;
+      },
+      patch: async (id, changes) => patch("opened_projects", id, { opened_at: changes.openedAt }),
+      recent: async (userId, limit) =>
+        sql
+          .all<OpenedProjectRow>("SELECT * FROM opened_projects WHERE user_id = ? ORDER BY opened_at DESC, seq DESC LIMIT ?", [userId, limit])
+          .map(openedProject),
+    },
     threads: {
       get: async (id) => {
         const row = sql.get<ThreadRow>("SELECT * FROM threads WHERE id = ?", [id]);
@@ -1968,6 +2049,22 @@ interface ProjectRow {
   organization_id: string | null;
   onboarding: string | null;
   review_access: string;
+}
+interface ProjectAddressRow {
+  seq: number;
+  id: string;
+  project_id: string;
+  organization_id: string;
+  address: string;
+  key: string;
+  position: number;
+}
+interface OpenedProjectRow {
+  seq: number;
+  id: string;
+  user_id: string;
+  project_id: string;
+  opened_at: number;
 }
 interface ParticipantRow {
   seq: number;

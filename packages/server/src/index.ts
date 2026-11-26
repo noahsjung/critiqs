@@ -17,6 +17,7 @@ export * from "./notify.ts";
 export { CAPTURE_CONTENT_ID, MAX_EMAIL_BYTES, readableTime } from "./mention-email.ts";
 export * from "./limits.ts";
 export * from "./organizations.ts";
+export * from "./project-addresses.ts";
 export * from "./plan-alerts.ts";
 export * from "./onboarding.ts";
 export * from "./address-check.ts";

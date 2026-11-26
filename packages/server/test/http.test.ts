@@ -101,8 +101,27 @@ test("reports itself as a server in the host app, current with the component", a
     developerEmails: false,
     reviewAccess: true,
     threadPages: true,
+    addressLists: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
+});
+
+test("serves address lists, recording opened projects, and the project lookup, without telling other tabs anything changed", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const projectId = (await dana.api("createProject", { name: "Pilot" })).body.value;
+  expect((await dana.api("setProjectAddresses", { projectId, addresses: ["https://Proto.Example/"] })).body).toEqual({ value: ["https://proto.example"] });
+  expect((await dana.api("projectAddresses", { projectId })).body).toEqual({ value: ["https://proto.example"] });
+  expect((await dana.api("setProjectAddresses", { projectId, addresses: "https://proto.example" })).body.error?.code).toBe("invalid");
+  const found = (await dana.api("findProjectsForOrigin", { origin: "https://proto.example" })).body.value;
+  expect(found).toMatchObject({ status: "found", project: { _id: projectId, name: "Pilot" } });
+
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  expect((await lee.api("findProjectsForOrigin", { origin: "https://proto.example" })).body).toEqual({ value: { status: "none" } });
+  const before = (await (await lee.request("/critiqs/changes")).json()).version;
+  expect((await lee.api("recordProjectOpened", { projectId })).body).toEqual({ value: null });
+  expect((await (await lee.request("/critiqs/changes")).json()).version).toBe(before);
+  expect((await lee.api("findProjectsForOrigin", { origin: "https://proto.example" })).body.value).toMatchObject({ status: "found", project: { _id: projectId } });
 });
 
 test("an admin invites someone by email, who joins when they sign in; members can't invite", async () => {
@@ -1027,7 +1046,7 @@ test("a project's owner emails its setup steps; the developer opens the setup li
   const projectId = (await dana.api("createProject", { name: "Acme", reviewUrl: "https://acme.example", onboarding: { codeAccess: "nobody" }, stack: "react" })).body.value;
   const result = await dana.api("sendDeveloperSetup", { projectId, emails: ["Sam@acme.test", "nope"] });
   expect(result.body.value).toEqual([
-    { email: "sam@acme.test", status: "sent", sendId: expect.stringMatching(/^e_/), invite: "created" },
+    { email: "sam@acme.test", status: "sent", sendId: expect.stringMatching(/^E_/), invite: "created" },
     { email: "nope", status: "invalid", message: "Enter a valid email address." },
   ]);
   const sendId = result.body.value[0].sendId;

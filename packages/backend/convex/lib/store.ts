@@ -188,6 +188,46 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
           (project) => project,
         ),
     },
+    projectAddresses: {
+      forProject: async (projectId, limit) =>
+        await db
+          .query("projectAddresses")
+          .withIndex("by_project", (q) => q.eq("projectId", projectId as Id<"projects">))
+          .take(limit),
+      insert: async (address) =>
+        await writer().insert("projectAddresses", {
+          ...address,
+          projectId: address.projectId as Id<"projects">,
+          organizationId: address.organizationId as Id<"organizations">,
+        }),
+      delete: async (id) => await writer().delete(id as Id<"projectAddresses">),
+      inOrganization: async (organizationId, key, limit) =>
+        await db
+          .query("projectAddresses")
+          .withIndex("by_organization_key", (q) => q.eq("organizationId", organizationId as Id<"organizations">).eq("key", key))
+          .take(limit),
+      inProject: async (projectId, key) =>
+        await db
+          .query("projectAddresses")
+          .withIndex("by_project_key", (q) => q.eq("projectId", projectId as Id<"projects">).eq("key", key))
+          .collect(),
+    },
+    openedProjects: {
+      find: async (userId, projectId) =>
+        await db
+          .query("openedProjects")
+          .withIndex("by_user_project", (q) => q.eq("userId", userId as Id<"users">).eq("projectId", projectId as Id<"projects">))
+          .unique(),
+      insert: async (opened) =>
+        await writer().insert("openedProjects", { ...opened, userId: opened.userId as Id<"users">, projectId: opened.projectId as Id<"projects"> }),
+      patch: async (id, changes) => await writer().patch(id as Id<"openedProjects">, { openedAt: changes.openedAt }),
+      recent: async (userId, limit) =>
+        await db
+          .query("openedProjects")
+          .withIndex("by_user_time", (q) => q.eq("userId", userId as Id<"users">))
+          .order("desc")
+          .take(limit),
+    },
     threads: {
       get: async (id) => {
         const thread = await db.get(id as Id<"threads">);

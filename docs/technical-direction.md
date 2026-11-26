@@ -911,6 +911,49 @@ root. Keyboard listeners the host registers in the capture phase on `window` or
 Provider secrets stay on the server; browser configuration contains public settings.
 Synchronizing multiple stores is outside the first release.
 
+**Proposed, built:** address lists and the project lookup for the planned
+browser extension, which has no project ID in the page. Nothing in the
+interface sets a list yet; the owner's settings come with the extension.
+
+- **Address lists.** A project's owners set up to 20 addresses
+  (`setProjectAddresses`): origins, or patterns with one `*` in the leftmost
+  label, such as `https://*-acme.vercel.app`, never directly in front of a
+  top-level name such as `.com`. Each must use HTTPS, or HTTP on this
+  computer or a private network, with no path, parameters, or credentials.
+  Case, a default port, a trailing slash, and a host's final dot are
+  normalized away, and an address is at most 200 characters as typed and
+  once normalized (`parseProjectAddress` in `@critiqs/core`). Lists aren't unique across
+  Critiqs, and saving one never says whether another project lists the same
+  origin. The list is separate from the review address.
+- **Opened projects.** The installed component records, once per page load,
+  that the signed-in reviewer opened its project (`recordProjectOpened`).
+  Recording again writes nothing unless a day has passed. Review links will
+  record the same way; thread pages never do.
+- **Lookup** (`findProjectsForOrigin`). It requires sign-in and searches only
+  projects in organizations the person belongs to and projects they opened.
+  An exact origin wins over a pattern. It returns one project, several to
+  choose from, or none; an origin on this computer, a private network, or a
+  local name such as `.local` always returns its matches as choices. A match
+  outside the person's scope answers exactly as an origin no project lists.
+  The extension, not the backend, remembers which project a person chose for
+  such an origin, because the same `localhost` address is a different app on
+  each computer.
+- **Bounds.** One lookup searches up to 100 organizations and the 100
+  projects the person opened most recently, reads up to 50 exact and 100
+  pattern addresses per organization, checks at most 50 matching projects
+  in full, and offers up to 20 choices, so it stays within a Convex
+  transaction's reads. When a read stops at its limit, a single match is
+  offered as a choice rather than shown, since another may be missing.
+- **Known limit.** The backend can't tell an install from any other caller,
+  so someone who already has a project's ID, such as from a forwarded thread,
+  can record it as opened. Today that ID already gives them its feedback and
+  review address; recording it also lets them confirm whether that project
+  lists an origin they guess. Once projects can limit who reviews them, the
+  lookup applies that check too.
+- **Interface.** Additive calls under protocol 5; `/critiqs/config` reports
+  `addressLists`, and the component records opened projects only where it
+  does.
+
 ## Sign-in and organizations
 
 **Agreed (2026-11-23), not built.**

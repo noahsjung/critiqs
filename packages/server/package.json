@@ -11,7 +11,8 @@
     "./contract": "./test/contract.ts",
     "./ai-providers": "./src/ai/providers.ts",
     "./contract-ai": "./test/contract-ai.ts",
-    "./contract-onboarding": "./test/contract-onboarding.ts"
+    "./contract-onboarding": "./test/contract-onboarding.ts",
+    "./contract-addresses": "./test/contract-addresses.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

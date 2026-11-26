@@ -94,6 +94,8 @@ http.route({
       // `threadPages`: thread pages (`threads:page`, `threads:pageKey`, `threadPage` on `threads:reply`, and
       // `/capture?threadPage=<key>`). `website`: the Critiqs website that serves them for this deployment, where
       // **Share** and emails link (`<website>/t/<key>`); absent without `CRITIQS_WEB_URL`, where they link to the prototype.
+      // `addressLists`: projects' address lists (`projects:addresses`, `projects:setAddresses`), recording projects a
+      // person opened (`projects:recordOpened`), and the browser extension's lookup (`projects:findForOrigin`).
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
@@ -122,6 +124,7 @@ http.route({
         threadPages: true,
         ...(threadPageWebsite() === null ? {} : { website: threadPageWebsite() }),
         panelSignIn: true,
+        addressLists: true,
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,

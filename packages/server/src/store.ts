@@ -57,6 +57,37 @@ export interface ProjectRecord {
   reviewAccess?: ReviewAccess;
 }
 
+/**
+ * One address in a project's address list, which the browser extension's
+ * project lookup searches. Rows carry the project's organization, so the
+ * lookup reads only the organizations a person belongs to.
+ */
+export interface ProjectAddressRecord {
+  _id: string;
+  projectId: string;
+  /** The project's organization when the list was saved; moving a project to another organization must rewrite its rows. */
+  organizationId: string;
+  /** Normalized, as `parseProjectAddress` in @critiqs/core returns it. */
+  address: string;
+  /** What the lookup searches by: the origin, or for a pattern, its key such as `https://*.vercel.app`. */
+  key: string;
+  /** Its place in the list, from 0. */
+  position: number;
+}
+
+/**
+ * That a person opened a project through an install (the component connecting
+ * with its project ID), or later a review link. The lookup also searches these
+ * projects. Opening a thread page never records one.
+ */
+export interface OpenedProjectRecord {
+  _id: string;
+  userId: string;
+  projectId: string;
+  /** Updated at most once a day, so recording again usually writes nothing. */
+  openedAt: number;
+}
+
 /** A group of people that owns projects and the Critiqs Cloud plan covering them. */
 export interface OrganizationRecord {
   _id: string;
@@ -589,6 +620,24 @@ export interface Store {
     patch(id: string, changes: ProjectChanges): Promise<void>;
     /** Projects a reviewer created, oldest first. */
     listByCreator(userId: string, request: PageRequest): Promise<PageResult<ProjectRecord>>;
+  };
+  /** Projects' address lists. */
+  projectAddresses: {
+    /** A project's addresses in list order; at most `limit`. */
+    forProject(projectId: string, limit: number): Promise<ProjectAddressRecord[]>;
+    insert(address: New<ProjectAddressRecord>): Promise<string>;
+    delete(id: string): Promise<void>;
+    /** Addresses with this key in an organization's projects; at most `limit`. */
+    inOrganization(organizationId: string, key: string, limit: number): Promise<ProjectAddressRecord[]>;
+    /** One project's addresses with this key. */
+    inProject(projectId: string, key: string): Promise<ProjectAddressRecord[]>;
+  };
+  openedProjects: {
+    find(userId: string, projectId: string): Promise<OpenedProjectRecord | null>;
+    insert(opened: New<OpenedProjectRecord>): Promise<string>;
+    patch(id: string, changes: Pick<OpenedProjectRecord, "openedAt">): Promise<void>;
+    /** Projects a person opened, most recently first; at most `limit`. */
+    recent(userId: string, limit: number): Promise<OpenedProjectRecord[]>;
   };
   threads: {
     get(id: string): Promise<ThreadRecord | null>;

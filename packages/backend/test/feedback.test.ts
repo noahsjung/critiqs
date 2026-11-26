@@ -265,3 +265,17 @@ test("a token from before profile versions cannot put back an older name", async
   const authors = (await getThread(legacy, { threadId })).messages.map((message) => message.author.name);
   expect(authors).toEqual(["Dana Kim", "Dana Kim"]);
 });
+
+test("the Convex functions keep address lists, record opened projects, and find projects by origin", async () => {
+  const { t, dana, projectId } = await projectWithThread();
+  expect(await dana.mutation(api.projects.setAddresses, { projectId, addresses: ["https://Proto.Example/"] })).toEqual(["https://proto.example"]);
+  expect(await dana.query(api.projects.addresses, { projectId })).toEqual(["https://proto.example"]);
+  expect(await dana.query(api.projects.findForOrigin, { origin: "https://proto.example" })).toMatchObject({ status: "found", project: { _id: projectId } });
+  const riley = t.withIdentity(reviewer("Riley"));
+  expect(await riley.query(api.projects.findForOrigin, { origin: "https://proto.example" })).toEqual({ status: "none" });
+  await riley.mutation(api.projects.recordOpened, { projectId });
+  await riley.mutation(api.projects.recordOpened, { projectId });
+  expect(await riley.query(api.projects.findForOrigin, { origin: "https://proto.example" })).toMatchObject({ status: "found", project: { _id: projectId } });
+  expect(await t.run((ctx) => ctx.db.query("openedProjects").collect())).toHaveLength(1);
+  await expect(t.query(api.projects.findForOrigin, { origin: "https://proto.example" })).rejects.toThrow("Sign in");
+});

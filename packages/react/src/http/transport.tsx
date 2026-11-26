@@ -142,6 +142,8 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
       change("createProject", { name, reviewUrl, ...(organizationId === undefined ? {} : { organizationId }) }),
     setReviewUrl: (args) => change("setReviewUrl", args),
     setReviewAccess: (args) => change("setReviewAccess", args),
+    // Changes nothing the interface shows, so other queries aren't reloaded.
+    recordProjectOpened: async (projectId) => void (await call("recordProjectOpened", { projectId })),
     setOverageCap: (args) => change("setOverageCap", args),
     uploadImage: async (projectId, image) => {
       const response = await fetchFn(`${base}/upload?projectId=${encodeURIComponent(projectId)}`, {

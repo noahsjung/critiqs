@@ -131,6 +131,34 @@ export default defineSchema({
     .index("by_organization", ["organizationId"]),
 
   /**
+   * One address in a project's address list, for the browser extension's
+   * project lookup. It carries the project's organization, so the lookup reads
+   * only the organizations a person belongs to.
+   */
+  projectAddresses: defineTable({
+    projectId: v.id("projects"),
+    organizationId: v.id("organizations"),
+    /** Normalized: an origin, or a pattern with one wildcard in its leftmost label. */
+    address: v.string(),
+    /** What the lookup searches by: the origin, or a pattern's key such as `https://*.vercel.app`. */
+    key: v.string(),
+    position: v.number(),
+  })
+    .index("by_project", ["projectId", "position"])
+    .index("by_project_key", ["projectId", "key"])
+    .index("by_organization_key", ["organizationId", "key"]),
+
+  /** That a person opened a project through an install (or later a review link); the lookup searches these too. */
+  openedProjects: defineTable({
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    /** Updated at most once a day. */
+    openedAt: v.number(),
+  })
+    .index("by_user_project", ["userId", "projectId"])
+    .index("by_user_time", ["userId", "openedAt"]),
+
+  /**
    * Critiqs Cloud plans configured on this deployment, replacing the built-in
    * plan of the same name. Set with `npx convex run plans:set`.
    */
