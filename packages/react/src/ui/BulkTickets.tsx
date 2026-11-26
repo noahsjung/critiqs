@@ -4,7 +4,7 @@ import { useStoredState } from "../hooks.ts";
 import { describeError, useTransport } from "../transport.ts";
 import { Dialog } from "./common.tsx";
 import { DialogHeader, Select, SettingRow } from "./ds.tsx";
-import { DESTINATION_LABEL, TrackerRow, ticketText, trackerLabel } from "./Tickets.tsx";
+import { DESTINATION_LABEL, TrackerRow, ticketText, trackerLabel, useCreatedFromCritiqs } from "./Tickets.tsx";
 
 // **Create tickets** for a selected feedback collection: one ticket per
 // thread, each filled from its thread without AI as Create ticket fills it,
@@ -65,7 +65,7 @@ export function BulkCreateTicketsDialog({
   const [threads] = useState(selected);
   const [tracker, setTracker] = useState<TrackerId>(accounts[0]!.tracker);
   const account = accounts.find((entry) => entry.tracker === tracker) ?? accounts[0]!;
-  const [attribution, setAttribution] = useState(account.attribution);
+  const [attribution, setAttribution] = useCreatedFromCritiqs(tracker, account.attribution);
   const [destinations, setDestinations] = useState<{ tracker: TrackerId; loaded: Loaded<TicketDestination[]> }>({ tracker, loaded: { status: "loading" } });
   const [remembered, remember] = useStoredState<string | null>(`critiqs:ticket-destination:${projectId}:${personId}:${tracker}`, null);
   /** The project's default for the tracker, from the first thread's draft; undefined until read. */

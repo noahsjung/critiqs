@@ -182,6 +182,17 @@ type Loaded<T> = { status: "loading" } | { status: "ready"; data: T } | { status
 /** Critiqs's standard format, in the Template menu. */
 const STANDARD = "";
 
+/**
+ * The "Created from Critiqs" box of Create ticket and Create tickets: it
+ * starts at the person's own setting for the chosen tracker (Your trackers),
+ * and starts there again whenever the tracker changes; what they tick holds
+ * until then.
+ */
+export function useCreatedFromCritiqs(tracker: TrackerId, setting: boolean): [boolean, (on: boolean) => void] {
+  const [ticked, setTicked] = useState<{ tracker: TrackerId; on: boolean } | null>(null);
+  return [ticked?.tracker === tracker ? ticked.on : setting, (on) => setTicked({ tracker, on })];
+}
+
 /** What one request with the model costs, as the model menu says it: "about 6 credits"; null for an own key, which costs none. */
 function draftCost(model: { credits?: number; estimated?: true } | undefined): string | null {
   if (model?.credits === undefined) return null;
@@ -245,7 +256,12 @@ export function CreateTicketDialog({
   const [projectDefault, setProjectDefault] = useState<{ tracker: TrackerId; id: string | null } | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [attribution, setAttribution] = useState(accounts[0]!.attribution);
+  /** The person's setting for the tracker, as its draft said; until it loads, as Your trackers listed it. */
+  const [draftSetting, setDraftSetting] = useState<{ tracker: TrackerId; on: boolean } | null>(null);
+  const [attribution, setAttribution] = useCreatedFromCritiqs(
+    tracker,
+    draftSetting?.tracker === tracker ? draftSetting.on : (accounts.find((account) => account.tracker === tracker) ?? accounts[0]!).attribution,
+  );
   // One submission per tracker while the dialog is open: every try sends its ID, so a retry never creates a second ticket.
   // The server names the person's unfinished one, which the dialog finishes instead of starting another.
   const submissions = useRef(new Map<TrackerId, string>());
@@ -344,7 +360,7 @@ export function CreateTicketDialog({
     setAiNote(null);
     replaceDraft(
       (draft) => {
-        setAttribution(draft.createdFromCritiqs);
+        setDraftSetting({ tracker, on: draft.createdFromCritiqs });
         setProjectDefault({ tracker, id: draft.projectDestinationId ?? null });
       },
       // Without the draft, the list starts at its first destination.

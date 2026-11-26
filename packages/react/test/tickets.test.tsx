@@ -1313,3 +1313,26 @@ test("with no tracker connected, Create tickets… opens Your trackers; a backen
   await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
   expect(button(shadow, "Create tickets…")).toBeNull();
 });
+
+test("Create tickets' Created from Critiqs box starts at each tracker's own setting when the tracker changes, as Create ticket's does", async () => {
+  const both: TicketsConfig = { trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }], threadTickets: true };
+  // Linear's setting is on and GitHub's off: the opposite of the defaults, so a kept box shows.
+  const data = backend({ threads: [thread("t1", "First issue")], trackers: { accounts: [{ ...LINEAR, attribution: true }, { ...GITHUB, attribution: false }] } });
+  const shadow = await mount(data, both, { sidebarOpen: true });
+  const bulk = await openBulk(shadow, ["First"]);
+  const box = () => [...bulk.querySelectorAll("label")].find((label) => label.textContent?.includes("Created from Critiqs"))!.querySelector("input")!;
+  expect(box().checked).toBe(true);
+  await chooseOption(shadow, rowSelect(bulk, "Tracker"), "GitHub Issues");
+  await settle(3);
+  expect(box().checked).toBe(false);
+  // What the person ticks holds while the tracker stays; switching back starts at Linear's setting again.
+  await click(box());
+  expect(box().checked).toBe(true);
+  await chooseOption(shadow, rowSelect(bulk, "Tracker"), "Linear");
+  await settle(3);
+  expect(box().checked).toBe(true);
+  await click(box());
+  await chooseOption(shadow, rowSelect(bulk, "Tracker"), "GitHub Issues");
+  await settle(3);
+  expect(box().checked).toBe(false);
+});
