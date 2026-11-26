@@ -226,6 +226,37 @@ export const APP_STYLES = `
 .live .cur, .live .pv-pin { opacity: 1; }
 .live .pv-toolbar { opacity: 1; }
 
+/* A thread page: one comment's capture, discussion, and reply box. */
+.page.thread { max-width: 720px; }
+.reasons { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 15px; line-height: 22px; }
+.thread-page { display: flex; flex-direction: column; gap: 24px; }
+.thread-head { display: flex; flex-direction: column; gap: 12px; }
+.thread-head .heading h1 { font-size: 28px; line-height: 36px; }
+.thread-head .lead { font-size: 15px; line-height: 22px; overflow-wrap: anywhere; }
+.thread-head .lead code { font: 14px/20px var(--mono); color: var(--text); }
+.thread-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.thread-actions .copy-fallback { flex-basis: 100%; }
+.resolved { padding: 10px 14px; border-radius: 10px; background: #ecfdf3; color: var(--success); font-size: 14px; line-height: 20px; }
+.thread-capture { position: relative; display: grid; place-items: center; width: 100%; max-height: 480px; margin: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.thread-capture img { display: block; width: 100%; height: auto; max-height: 480px; object-fit: contain; background: var(--surface); }
+.thread-capture figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; background: rgb(255 255 255 / 0.92); }
+.capture-failed { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; text-align: center; }
+.capture-none { padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 12px; }
+.thread-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 0; padding: 0; list-style: none; }
+.thread-tags .tag-chip { font-size: 13px; line-height: 20px; padding: 1px 9px; }
+.discussion { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; }
+.thread-messages { list-style: none; margin: 0; padding: 8px 0; }
+.thread-page .message { padding: 12px 20px; gap: 12px; font-size: 15px; line-height: 22px; }
+.thread-page .message .avatar.large { width: 32px; height: 32px; font-size: 12px; }
+.thread-page .message .meta { padding-right: 0; line-height: 22px; column-gap: 8px; }
+.thread-page .message .time, .thread-page .message .edited, .thread-page .message .via { font-size: 13px; }
+.thread-page .message .body { margin-top: 2px; }
+.thread-page .grow { flex: 1; min-width: 0; }
+.reply { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px 20px; border-top: 1px solid var(--line); }
+.reply textarea.field { height: auto; min-height: 88px; padding: 10px 12px; resize: vertical; line-height: 22px; }
+.reply-actions { display: flex; justify-content: flex-end; }
+
 @media (prefers-reduced-motion: reduce) {
   .live .cur, .live .pv-pin, .live .pv-toolbar, .about, .about-done { animation: none; }
   .spinner { animation: none; border-top-color: var(--line); }
@@ -242,6 +273,11 @@ export const APP_STYLES = `
   .flow-main { padding-top: 8px; gap: 20px; }
   .heading h1 { font-size: 26px; line-height: 32px; }
   .actions .btn.large { width: 100%; }
+  .thread-head .heading h1 { font-size: 24px; line-height: 30px; }
+  .thread-actions .btn { flex: 1 1 0; }
+  .thread-page .message { padding: 12px 16px; }
+  .reply { padding: 12px 16px 16px; }
+  .reply-actions .btn { width: 100%; height: 44px; }
   .account-email { display: none; }
   /* Phones zoom into fields with smaller text. */
   .field { font-size: 16px; }

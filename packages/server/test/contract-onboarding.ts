@@ -498,6 +498,10 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await expect(shown(null, projectId)).rejects.toThrow("Sign in");
     await expect(shown({ ...lee, emailVerified: false }, projectId)).rejects.toThrow("Verify");
     await expect(shown(lee, "not-a-project")).rejects.toThrow("This project does not exist.");
+    // Limited to its organization, it follows "Who can review": members still see it, anyone else is refused.
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    expect(await shown(dana, projectId)).toMatchObject({ projectId, stack: { id: "next" } });
+    await expect(shown(lee, projectId)).rejects.toThrow("limited to members of its organization");
   });
 
   test(`${name}: a setup link opens only for the exact address it was sent to, ignoring case and spaces, not another +tag of the same inbox`, async () => {

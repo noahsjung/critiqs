@@ -2,7 +2,7 @@ import { afterEach } from "bun:test";
 import type { DeveloperSendSummary, DeveloperSetup, OrganizationSummary, ProjectInfo, ProjectSetup } from "@critiqs/core";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { type Auth, AuthContext, type Backend, BackendContext } from "../src/backend.ts";
+import { type Auth, AuthContext, type Backend, BackendContext, type ThreadPageData } from "../src/backend.ts";
 import type { QueryState } from "../src/shared.ts";
 
 // Renders the app's pages the way packages/react's tests do: happy-dom, act,
@@ -60,7 +60,9 @@ const loading = { status: "loading" } as const;
  * A backend whose calls the test sees. Queries answer from the overrides:
  * `organizations` (or `organizationsState` for an error), `sends`, `project`,
  * the person's own projects (`mine`), the deployment's `upgradeUrl`, and a
- * setup link's send (`sendSetup`) or project (`projectSetupState`).
+ * setup link's send (`sendSetup`) or project (`projectSetupState`), and a
+ * thread page (`threadPageState`; its image is a 1-byte PNG unless
+ * `loadThreadPageCapture` says otherwise).
  */
 export function fakeBackend(
   overrides: Partial<Backend> & {
@@ -73,6 +75,7 @@ export function fakeBackend(
     sendSetup?: QueryState<DeveloperSetup>;
     projectSetupState?: QueryState<ProjectSetup>;
     projectState?: QueryState<ProjectInfo>;
+    threadPageState?: QueryState<ThreadPageData>;
   } = {},
 ): FakeBackend {
   const calls: FakeBackend["calls"] = [];
@@ -97,6 +100,13 @@ export function fakeBackend(
     useDeveloperSends: () => ({ status: "ready", data: overrides.sends ?? [] }),
     useDeveloperSetup: (sendId) => (sendId === null ? loading : (overrides.sendSetup ?? loading)),
     useProjectSetup: (projectId) => (projectId === null ? loading : (overrides.projectSetupState ?? loading)),
+    useThreadPage: (key) => {
+      if (key !== null) calls.push({ name: "useThreadPage", args: [key] });
+      return key === null ? loading : (overrides.threadPageState ?? loading);
+    },
+    syncReviewer: record("syncReviewer", overrides.syncReviewer ?? (async () => {})),
+    replyOnThreadPage: record("replyOnThreadPage", overrides.replyOnThreadPage ?? (async () => {})),
+    loadThreadPageCapture: record("loadThreadPageCapture", overrides.loadThreadPageCapture ?? (async () => new Blob([new Uint8Array([137])], { type: "image/png" }))),
   };
 }
 
