@@ -1,4 +1,5 @@
 import type { OrganizationDetails, OrganizationMember, OrganizationRole, OrganizationSummary, OrganizationUsage, ProjectInfo } from "@critiqs/core";
+import { inboxOf } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import {
   ALSO_PER_PROJECT,
@@ -387,29 +388,52 @@ export async function inviteMember(
   now: number,
 ): Promise<InviteResult> {
   const { user, organization } = await requireAdmin(store, identity, args.organizationId);
-  const email = normalizeEmail(args.email);
-  if (email === null || email.endsWith(".") || email.includes("..") || email.includes(".@")) fail("invalid", "Enter a valid email address.");
-  for (const membership of await store.memberships.forOrganization(organization._id, MAX_MEMBERS)) {
-    const person = await store.users.get(membership.userId);
-    if (person?.email != null && normalizeEmail(person.email) === email) return { status: "member" };
-  }
+  const email = inviteAddress(args.email);
+  if (email === null) fail("invalid", "Enter a valid email address.");
+  if (await hasMemberAt(store, organization._id, email)) return { status: "member" };
   if ((await store.invites.findPending(organization._id, email)) !== null) return { status: "pending" };
-  const key = `invites:${organization._id}:${utcDay(now)}`;
-  if (!(await countWithinAll(store, [[key, MAX_INVITES_PER_DAY]]))) fail("limit", `This organization has sent ${MAX_INVITES_PER_DAY} invites today. Try again tomorrow.`);
+  if (!(await countWithinAll(store, [inviteLimit(organization._id, now)]))) fail("limit", `This organization has sent ${MAX_INVITES_PER_DAY} invites today. Try again tomorrow.`);
   const inviteId = await store.invites.insert({ organizationId: organization._id, email, role: args.role, invitedBy: user._id, createdAt: now });
   return { status: "invited", inviteId };
 }
 
 /**
- * The inbox an address reaches, so its other spellings share one limit:
- * without a `+tag`, and for Gmail without dots.
+ * A normalized address Critiqs may email an invite or setup steps to; null
+ * when it isn't plausible, or ends in a dot, has two dots in a row, or has a
+ * dot before the `@`.
  */
-function inboxOf(email: string): string {
-  const at = email.lastIndexOf("@");
-  const local = email.slice(0, at).split("+")[0]!;
-  const domain = email.slice(at + 1);
-  return domain === "gmail.com" || domain === "googlemail.com" ? `${local.replaceAll(".", "")}@gmail.com` : `${local}@${domain}`;
+export function inviteAddress(raw: string): string | null {
+  const email = normalizeEmail(raw);
+  return email === null || email.endsWith(".") || email.includes("..") || email.includes(".@") ? null : email;
 }
+
+/** Whether a member of the organization signs in with this normalized address. */
+export async function hasMemberAt(store: Store, organizationId: string, email: string): Promise<boolean> {
+  for (const membership of await store.memberships.forOrganization(organizationId, MAX_MEMBERS)) {
+    const person = await store.users.get(membership.userId);
+    if (person?.email != null && normalizeEmail(person.email) === email) return true;
+  }
+  return false;
+}
+
+/** The counter an organization's new invites count against, per UTC day. */
+export function inviteLimit(organizationId: string, now: number): [string, number] {
+  return [`invites:${organizationId}:${utcDay(now)}`, MAX_INVITES_PER_DAY];
+}
+
+/**
+ * The counters every invite or setup email to an inbox counts against: the
+ * inbox's per UTC day, and the deployment's per hour.
+ */
+export function inviteEmailLimits(inbox: string, now: number): { inbox: [string, number]; hour: [string, number] } {
+  return {
+    inbox: [`inviteEmails:${inbox}:${utcDay(now)}`, MAX_INVITE_EMAILS_PER_INBOX],
+    hour: [`inviteEmails:hour:${Math.floor(now / 3_600_000)}`, MAX_INVITE_EMAILS_PER_HOUR],
+  };
+}
+
+// Core owns the inbox rule, so the website matches addresses as the server counts them.
+export { inboxOf };
 
 /** Withdraws an invite no one has accepted yet. Admins only; to anyone else it doesn't exist. */
 export async function revokeInvite(store: Store, identity: Identity | null, args: { inviteId: string }): Promise<void> {
@@ -474,7 +498,8 @@ export async function acceptInvites(store: Store, user: UserRecord, now: number)
 /**
  * The email for a new invite, counted against its inbox's daily limit and the
  * deployment's hourly one right before it is sent. Null once the invite was
- * accepted or withdrawn, or past a limit. `projectId`, the project the
+ * accepted or withdrawn, past a limit, or when its inbox reported Critiqs's
+ * email as unwanted. `projectId`, the project the
  * admin invited from, adds a link to its review address when it belongs to
  * the organization and opens beyond one computer.
  */
@@ -483,11 +508,11 @@ export async function claimInviteEmail(store: Store, args: { inviteId: string; p
   if (invite === null || invite.acceptedAt !== undefined) return null;
   const organization = await store.organizations.get(invite.organizationId);
   if (organization === null) return null;
-  const limits: [string, number][] = [
-    [`inviteEmails:${inboxOf(invite.email)}:${utcDay(now)}`, MAX_INVITE_EMAILS_PER_INBOX],
-    [`inviteEmails:hour:${Math.floor(now / 3_600_000)}`, MAX_INVITE_EMAILS_PER_HOUR],
-  ];
-  if (!(await countWithinAll(store, limits))) return null;
+  const inbox = inboxOf(invite.email);
+  // Someone who reported Critiqs's email as unwanted gets no more of it.
+  if (await store.emailSuppressions.has(inbox)) return null;
+  const limits = inviteEmailLimits(inbox, now);
+  if (!(await countWithinAll(store, [limits.inbox, limits.hour]))) return null;
   const inviter = (await store.users.get(invite.invitedBy))?.name ?? "Someone";
   const projectId = args.projectId == null ? null : store.normalizeId("projects", args.projectId);
   const project = projectId === null ? null : await store.projects.get(projectId);
@@ -495,7 +520,8 @@ export async function claimInviteEmail(store: Store, args: { inviteId: string; p
   return inviteMessage({ to: invite.email, organization: organization.name, inviter, role: invite.role, link, idempotencyKey: `critiqs-invite:${invite._id}` });
 }
 
-const MAX_NAME_SHOWN = 80;
+/** Longest text a sender controls, such as a name, that Critiqs's emails show. */
+export const MAX_NAME_SHOWN = 80;
 
 function inviteMessage(parts: { to: string; organization: string; inviter: string; role: OrganizationRole; link: string | null; idempotencyKey: string }): MailMessage {
   const organization = shorten(parts.organization);
@@ -517,7 +543,8 @@ function inviteMessage(parts: { to: string; organization: string; inviter: strin
   };
 }
 
-function shorten(text: string): string {
+/** Text a sender controls as an email shows it: on one line, without control characters, and at most `MAX_NAME_SHOWN` characters. */
+export function shorten(text: string): string {
   const clean = text.replace(/\s+/g, " ").replace(new RegExp(CONTROL_CHARACTERS, "g"), "").trim();
   return clean.length > MAX_NAME_SHOWN ? `${clean.slice(0, MAX_NAME_SHOWN - 1)}…` : clean;
 }

@@ -55,6 +55,23 @@ import {
   readPreferenceToken,
   stillMentions,
 } from "../notify.ts";
+import {
+  deliverDeveloperEmail,
+  getDeveloperSetup,
+  getProjectSetup,
+  listDeveloperSends,
+  prepareDeveloperEmail,
+  readReportToken,
+  recordDeveloperEmail,
+  REPORT_DONE,
+  REPORT_PATH,
+  REPORT_QUESTION,
+  reportToken,
+  reportUnwantedEmail,
+  reserveDeveloperSends,
+  setupUrl,
+  webBase,
+} from "../developer-setup.ts";
 import { claimAddressCheck, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
@@ -81,7 +98,7 @@ import {
 import type { SqlDriver } from "../sqlite/driver.ts";
 import { SqliteStore } from "../sqlite/store.ts";
 import type { Identity, Store, UserRecord } from "../store.ts";
-import { codePage, donePage, emailPage, messagePage, namePage, preferencePage } from "./pages.ts";
+import { codePage, donePage, emailPage, messagePage, namePage, preferencePage, reportPage } from "./pages.ts";
 import { ARGUMENTS } from "./validate.ts";
 
 // Critiqs's server inside the host app's own Node or Bun server, storing
@@ -155,6 +172,19 @@ export interface CritiqsHandlerOptions {
    * connections in place of the network.
    */
   addressCheck?: AddressCheckDeps | false;
+  /**
+   * The Critiqs website that setup links in developer setup emails open, such
+   * as `https://critiqs.app`: HTTPS, or HTTP on this computer. Without it,
+   * `publicUrl`, or `email`, this server sends no setup emails.
+   */
+  webUrl?: string;
+  /**
+   * The public address of the app this server runs in, such as
+   * `https://app.example.com`: HTTPS, or HTTP on this computer. Report links
+   * in developer setup emails start with it, then `basePath`. Without it,
+   * `webUrl`, or `email`, this server sends no setup emails.
+   */
+  publicUrl?: string;
 }
 
 export interface CritiqsAiOptions {
@@ -328,6 +358,17 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     ...(aiOptions.timeoutMs === undefined ? {} : { timeoutMs: aiOptions.timeoutMs }),
     ...(options.aiFetch === undefined ? {} : { fetch: options.aiFetch }),
   };
+  const web = webBase(options.webUrl, null);
+  if (options.webUrl !== undefined && web === null) {
+    throw new Error("Critiqs's webUrl must be an https:// address (or http:// on this computer) with no query or hash.");
+  }
+  // Never learned from requests: the first one can come from inside the network, under another host name.
+  const publicBase = webBase(options.publicUrl, null);
+  if (options.publicUrl !== undefined && publicBase === null) {
+    throw new Error("Critiqs's publicUrl must be an https:// address (or http:// on this computer) with no query or hash.");
+  }
+  /** What developer setup emails need: email, the website setup links open, and this server's public address; null without one. */
+  const developerEmails = mailer !== null && web !== null && publicBase !== null ? { mailer, web, publicBase } : null;
   const addressCheckDeps = options.addressCheck ?? nodeNetwork({ http, https, Resolver });
   const addressCheckOn = addressCheckDeps !== false;
   /** The address people reach this server at, learned from requests, for links in emails. */
@@ -419,6 +460,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     personalAiUsage: (args) => (s, id) => getPersonalAiUsage(s, id, args),
     aiChoice: (args) => (s, id) => getAiChoice(s, id, args, deployment),
     exportPage: ({ paginationOpts, ...args }) => (s, id) => ops.exportThreads(s, id, args, paginationOpts),
+    developerSetup: (args) => (s, id) => getDeveloperSetup(s, id, args),
+    projectSetup: (args) => (s, id) => getProjectSetup(s, id, args),
+    developerSends: (args) => (s, id) => listDeveloperSends(s, id, args),
   };
   const changes: Record<string, (args: any) => Run> = {
     sync: () => (s, id) => ops.syncReviewer(s, id),
@@ -521,6 +565,27 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       listModels({ prepare: () => store.transaction((s) => prepareModelList(s, identity, args, Date.now())), deployment, ...modelListOptions }, args.draft),
     listPersonalAiModels: (args: { draft?: AiModelListDraft }, identity) =>
       listModels({ prepare: () => store.transaction((s) => preparePersonalModelList(s, identity, Date.now())), deployment, ...modelListOptions }, args.draft),
+    // Reserved and counted in one transaction, then each email sent and its answer recorded in its own.
+    sendDeveloperSetup: async (args: { projectId: string; emails: string[] }, identity) => {
+      if (developerEmails === null) fail("unavailable", "This Critiqs server can't send setup emails. Copy the message instead.");
+      const { mailer: sender, web: site, publicBase: origin } = developerEmails;
+      const { results, reserved } = await store.transaction((s) => reserveDeveloperSends(s, identity, args, Date.now()));
+      if (reserved.length > 0) version++;
+      const reportSecret = await secret("preference-links");
+      for (const { sendId, idempotencyKey } of reserved) {
+        const reportUrl = `${origin}${base}${REPORT_PATH}?token=${encodeURIComponent(await reportToken(reportSecret, sendId))}`;
+        await deliverDeveloperEmail({
+          prepare: () => store.transaction((s) => prepareDeveloperEmail(s, { sendId, idempotencyKey, setupUrl: setupUrl(site, sendId), reportUrl }, Date.now())),
+          send: (message) => sender.send(message),
+          record: async (attempt, answer) => {
+            const status = await store.transaction((s) => recordDeveloperEmail(s, { sendId, idempotencyKey, attempt, answer }));
+            version++;
+            return status;
+          },
+        }).catch((error) => console.error("Critiqs couldn't send a setup email:", error instanceof Error ? error.message : "unknown error"));
+      }
+      return results;
+    },
     // Counted in one transaction, then fetched outside it, so a slow address doesn't hold the database.
     checkPrototypeAddress: (args: { address: string }, identity) =>
       addressCheckDeps === false
@@ -975,6 +1040,16 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     );
   }
 
+  async function report(request: Request): Promise<Response> {
+    const token =
+      request.method === "GET" ? (new URL(request.url).searchParams.get("token") ?? "") : ((await readForm(request)).get("token") ?? "");
+    const sendId = await readReportToken(await secret("preference-links"), token);
+    if (sendId === null) return messagePage("Link not recognized", "This link is incomplete or was changed. Use the link in your email.");
+    if (request.method === "GET") return reportPage(token, REPORT_QUESTION);
+    await store.transaction((s) => reportUnwantedEmail(s, { sendId }, Date.now()));
+    return messagePage("Done", REPORT_DONE, 200);
+  }
+
   /** What `critiqs doctor` checks, as on Convex: sign-in, email, whether mention emails go out, and a project. Reveals no feedback. */
   async function health(request: Request): Promise<Response> {
     const projectId = new URL(request.url).searchParams.get("projectId");
@@ -1025,6 +1100,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`setOverageCap`).
       // `addressCheck`: onboarding's check of a prototype's address (`checkPrototypeAddress`); false when the host turned it off.
       // `onboardingAnswers`: onboarding saves the person's answers (`saveAboutYou`), and `createProject` takes `onboarding` and `stack`.
+      // `developerEmails`: a project's owners email its setup steps to developers (`sendDeveloperSetup`, `developerSends`), and
+      // setup links show them (`developerSetup`); false without email, `webUrl`, or `publicUrl`. A copied message's
+      // setup page shows the project and its install commands (`projectSetup`), with or without email.
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1038,6 +1116,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         overageCap: true,
         addressCheck: addressCheckOn,
         onboardingAnswers: true,
+        developerEmails: developerEmails !== null,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);
@@ -1054,6 +1133,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     if (path === "/auth/sign-out") return await signOut(request);
     if (path === "/auth/profile") return await rename(request);
     if (path === "/notifications/preferences" && (get || request.method === "POST")) return await preferences(request);
+    if (path === REPORT_PATH && (get || request.method === "POST")) return await report(request);
     return new Response("Not found", { status: 404 });
   }
 

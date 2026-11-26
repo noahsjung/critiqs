@@ -99,6 +99,14 @@ export interface MailMessage {
   idempotencyKey: string;
   /** Files sent with the message; one with a `contentId` shows where the HTML refers to `cid:<contentId>`. */
   attachments?: MailAttachment[];
+  /**
+   * A display name in place of the sender's own, such as "Sam Lee via
+   * Critiqs", always on the sender's address: Critiqs never sends as someone
+   * else's address, which would fail email checks.
+   */
+  fromName?: string;
+  /** Where replies go, such as the person who asked Critiqs to send it. */
+  replyTo?: string;
 }
 
 export interface MailAttachment {
@@ -145,7 +153,34 @@ export function preparedMessage(body: string, idempotencyKey: string): MailMessa
   };
 }
 
-export class MailError extends Error {}
+export class MailError extends Error {
+  /**
+   * True when the mail service answered that it didn't take the message, so
+   * it certainly wasn't sent; false when its answer never arrived or it
+   * failed on its side, so the message may still go out.
+   */
+  readonly confirmed: boolean;
+  constructor(message: string, options: { confirmed?: boolean } = {}) {
+    super(message);
+    this.confirmed = options.confirmed ?? false;
+  }
+}
+
+/**
+ * Whether a mail service status means it refused the message, so it wasn't
+ * sent: a client error, except 409, which Resend answers while a request
+ * with the same idempotency key is still in progress.
+ */
+function refused(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 409;
+}
+
+/** The sender with another display name, on the same address; quotes and line breaks in the name can't change the header. */
+export function senderAs(from: string, name: string): string {
+  const address = /<([^<>]+)>\s*$/.exec(from)?.[1] ?? from.trim();
+  const shown = name.replace(/[\u0000-\u001f\u007f]/g, "").replace(/["\\]/g, (char) => `\\${char}`);
+  return `"${shown}" <${address}>`;
+}
 
 /**
  * Sends mail through Resend's API with a team's or Critiqs's own key. A
@@ -168,13 +203,14 @@ export function resendMailer(options: { apiKey: string; from: string; fetch?: ty
     } catch {
       throw new MailError("The email service couldn't be reached.");
     }
-    if (!response.ok) throw new MailError(`The email service refused the message (${response.status}).`);
+    if (!response.ok) throw new MailError(`The email service refused the message (${response.status}).`, { confirmed: refused(response.status) });
   };
   return {
     async send(message) {
       const body = JSON.stringify({
-        from: options.from,
+        from: message.fromName === undefined ? options.from : senderAs(options.from, message.fromName),
         to: [message.to],
+        ...(message.replyTo === undefined ? {} : { reply_to: message.replyTo }),
         subject: message.subject,
         text: message.text,
         html: message.html,

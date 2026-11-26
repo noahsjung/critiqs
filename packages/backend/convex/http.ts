@@ -9,6 +9,10 @@ import {
   MailError,
   normalizeEmail,
   readPreferenceToken,
+  readReportToken,
+  REPORT_DONE,
+  REPORT_PATH,
+  REPORT_QUESTION,
   resendMailer,
   signInCodeMessage,
 } from "@critiqs/server";
@@ -22,8 +26,10 @@ import {
   messagePage,
   namePage,
   preferencePage,
+  reportPage,
 } from "./lib/pages";
 import { linkSecret } from "./lib/links";
+import { developerEmailSetup } from "./onboarding";
 import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture } from "./captureHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
@@ -84,6 +90,9 @@ http.route({
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
       // takes `onboarding` and `stack`.
+      // `developerEmails`: a project's owners email its setup steps to developers (`onboarding:sendDeveloperSetup`,
+      // `onboarding:developerSends`), and setup links show them (`onboarding:developerSetup`); false without email. A copied
+      // message's setup page shows the project and its install commands (`onboarding:projectSetup`), with or without email.
       {
         signInUrl: signInUrl(),
         protocol: 5,
@@ -100,6 +109,7 @@ http.route({
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,
+        developerEmails: developerEmailSetup() !== null,
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),
@@ -872,6 +882,32 @@ http.route({
       scope.projectId === null ? "You won't get emails from Critiqs any more." : "This project's emails are muted.",
       200,
     );
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// Report links from developer setup emails
+
+http.route({
+  path: REPORT_PATH,
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const token = new URL(request.url).searchParams.get("token") ?? "";
+    const sendId = await readReportToken(await linkSecret(ctx), token);
+    if (sendId === null) return messagePage("Link not recognized", "This link is incomplete or was changed. Use the link in your email.");
+    return reportPage(token, REPORT_QUESTION);
+  }),
+});
+
+http.route({
+  path: REPORT_PATH,
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = new URLSearchParams(await request.text()).get("token") ?? "";
+    const sendId = await readReportToken(await linkSecret(ctx), token);
+    if (sendId === null) return messagePage("Link not recognized", "This link is incomplete or was changed. Use the link in your email.");
+    await ctx.runMutation(internal.onboarding.reportUnwantedEmail, { sendId });
+    return messagePage("Done", REPORT_DONE, 200);
   }),
 });
 

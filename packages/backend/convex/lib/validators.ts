@@ -177,3 +177,13 @@ const sameAsCore: [
   Same<Infer<typeof stackValidator>, StackId>,
 ] = [true, true, true, true, true, true];
 void sameAsCore;
+
+/** A developer setup email as stored, as `StoredMail` in @critiqs/server. */
+export const storedMailValidator = v.object({
+  to: v.string(),
+  subject: v.string(),
+  text: v.string(),
+  html: v.string(),
+  fromName: v.string(),
+  replyTo: v.string(),
+});

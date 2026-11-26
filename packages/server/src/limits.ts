@@ -264,17 +264,26 @@ export async function addUsage(store: Store, key: string, amount: number): Promi
  * every deployment has, plans or not, such as emails per hour.
  */
 export async function countWithinAll(store: Store, limits: [key: string, max: number][]): Promise<boolean> {
+  return (await countOrRefuse(store, limits.map(([key, max]) => [key, max, true]))) === null;
+}
+
+/**
+ * Like `countWithinAll`, but says which limit refused: the name given with
+ * the first key at its maximum, counting nothing; null when every key was
+ * counted.
+ */
+export async function countOrRefuse<Name>(store: Store, limits: [key: string, max: number, name: Name][]): Promise<Name | null> {
   const counters = [];
-  for (const [key, max] of limits) {
+  for (const [key, max, name] of limits) {
     const counter = await store.usage.find(key);
-    if ((counter?.count ?? 0) >= max) return false;
+    if ((counter?.count ?? 0) >= max) return name;
     counters.push({ key, counter });
   }
   for (const { key, counter } of counters) {
     if (counter === null) await store.usage.insert({ key, count: 1 });
     else await store.usage.patch(counter._id, { count: counter.count + 1 });
   }
-  return true;
+  return null;
 }
 
 /**

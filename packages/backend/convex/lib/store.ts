@@ -53,6 +53,8 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
           return db.normalizeId("organizations", raw);
         case "invites":
           return db.normalizeId("invites", raw);
+        case "developerSends":
+          return db.normalizeId("developerSends", raw);
       }
     },
 
@@ -133,6 +135,43 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
           .query("invites")
           .withIndex("by_email_pending", (q) => q.eq("email", email).eq("acceptedAt", undefined))
           .take(limit),
+    },
+    developerSends: {
+      get: async (id) => await db.get(id as Id<"developerSends">),
+      find: async (projectId, email) =>
+        await db
+          .query("developerSends")
+          .withIndex("by_project_email", (q) => q.eq("projectId", projectId as Id<"projects">).eq("email", email))
+          .unique(),
+      forProject: async (projectId, limit) =>
+        await db
+          .query("developerSends")
+          .withIndex("by_project_email", (q) => q.eq("projectId", projectId as Id<"projects">))
+          .take(limit)
+          .then((sends) => sends.sort((a, b) => a._creationTime - b._creationTime)),
+      insert: async (send) =>
+        await writer().insert("developerSends", { ...send, projectId: send.projectId as Id<"projects">, sentBy: send.sentBy as Id<"users"> }),
+      patch: async (id, { sentBy, message, ...changes }) =>
+        await writer().patch(id as Id<"developerSends">, {
+          ...defined(changes),
+          ...(sentBy === undefined ? {} : { sentBy: sentBy as Id<"users"> }),
+          // Null clears the message, which Convex does for a field set to undefined.
+          ...(message === undefined ? {} : { message: message ?? undefined }),
+        }),
+    },
+    emailSuppressions: {
+      has: async (inbox) =>
+        (await db
+          .query("emailSuppressions")
+          .withIndex("by_inbox", (q) => q.eq("inbox", inbox))
+          .first()) !== null,
+      add: async (inbox, now) => {
+        const existing = await db
+          .query("emailSuppressions")
+          .withIndex("by_inbox", (q) => q.eq("inbox", inbox))
+          .first();
+        if (existing === null) await writer().insert("emailSuppressions", { inbox, createdAt: now });
+      },
     },
     projects: {
       get: async (id) => await db.get(id as Id<"projects">),

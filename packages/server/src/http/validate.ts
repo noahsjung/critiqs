@@ -1,4 +1,4 @@
-import { MAX_TAG_LIST, MAX_THREAD_TAGS } from "@critiqs/core";
+import { MAX_DEVELOPER_INVITES_PER_PROJECT, MAX_TAG_LIST, MAX_THREAD_TAGS } from "@critiqs/core";
 import { fail } from "../errors.ts";
 
 // Argument shapes for the self-hosted API, matching what Convex's validators
@@ -146,6 +146,10 @@ export const ARGUMENTS: Record<string, Check> = {
     "stack?": string,
   }),
   saveAboutYou: object({ "role?": string, "teamSize?": string }),
+  sendDeveloperSetup: object({ projectId: string, emails: array(string, MAX_DEVELOPER_INVITES_PER_PROJECT) }),
+  developerSetup: object({ sendId: string }),
+  projectSetup: object({ projectId: string }),
+  developerSends: object({ projectId: string }),
   setReviewUrl: object({ projectId: string, reviewUrl: string }),
   setOverageCap: object({ organizationId: string, cap: union(nullable(number), literal("default")) }),
   createThread: object({

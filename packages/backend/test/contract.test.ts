@@ -1,6 +1,6 @@
 import { defineContract, type ContractBackend } from "@critiqs/server/contract";
 import { defineAiContract } from "@critiqs/server/contract-ai";
-import { defineOnboardingContract } from "@critiqs/server/contract-onboarding";
+import { defineDeveloperEmailContract, defineOnboardingContract } from "@critiqs/server/contract-onboarding";
 import type { Plan } from "@critiqs/server";
 import { afterEach } from "bun:test";
 import type { Id } from "../convex/_generated/dataModel";
@@ -50,3 +50,4 @@ function convexBackend(plans?: Record<string, Plan>): ContractBackend {
 defineContract("Convex", () => convexBackend());
 defineAiContract("Convex", () => convexBackend());
 defineOnboardingContract("Convex", () => convexBackend());
+defineDeveloperEmailContract("Convex", () => convexBackend());
