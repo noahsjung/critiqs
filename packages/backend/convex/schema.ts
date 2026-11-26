@@ -646,6 +646,10 @@ export default defineSchema({
     statusCheckStartedAt: v.optional(v.number()),
     /** Critiqs can't check the status with the linker's account; the status is the last one it knew. */
     statusStale: v.optional(v.boolean()),
+    /** A check a status webhook asked for, not yet started, and whether the delivery said the ticket was deleted. */
+    statusCheckQueued: v.optional(v.object({ at: v.number(), deleted: v.boolean() })),
+    /** What the tracker's status webhooks filter the ticket by (a Jira project's ID). */
+    webhookScope: v.optional(v.string()),
     /** The tracker account the person linked or created it with; status checks use only its token. */
     accountId: v.optional(v.string()),
     linkedBy: v.id("users"),
@@ -655,7 +659,8 @@ export default defineSchema({
     .index("by_thread_state", ["threadId", "state"])
     .index("by_tracker_external", ["tracker", "externalId"])
     .index("by_creation", ["creationId"])
-    .index("by_project", ["projectId"]),
+    .index("by_project", ["projectId"])
+    .index("by_linker_tracker_site", ["linkedBy", "tracker", "site"]),
 
   /** A project's ticket settings. No record means templates off and Resolve when done off. */
   ticketSettings: defineTable({
@@ -702,7 +707,7 @@ export default defineSchema({
     tracker: trackerValidator,
     accountId: v.string(),
     site: v.object({ id: v.string(), name: v.string() }),
-    /** Jira's ID for the webhook, unique within its site; empty while the first registration runs. */
+    /** Jira's ID for the webhook, unique only within its site; empty while the first registration runs. */
     hookId: v.string(),
     scopes: v.array(v.string()),
     expiresAt: v.number(),
@@ -710,7 +715,9 @@ export default defineSchema({
     lease: v.optional(v.object({ id: v.string(), until: v.number() })),
   })
     .index("by_user_tracker_site", ["userId", "tracker", "site.id"])
-    .index("by_tracker_hook", ["tracker", "hookId"])
+    // Jira's webhook IDs are unique only within a site: a delivery's webhook is found by its site and ID together.
+    .index("by_tracker_site_hook", ["tracker", "site.id", "hookId"])
+    .index("by_tracker_host_hook", ["tracker", "site.name", "hookId"])
     .index("by_expiry", ["expiresAt"]),
 
   /** Critiqs AI credits held while a request's model answers, per payer's counter scope. */

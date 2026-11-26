@@ -1,8 +1,10 @@
 import type { TrackerId } from "@critiqs/core";
 import { CritiqsError } from "../errors.ts";
+import { canReview } from "../organizations.ts";
 import type { Store, TrackerWebhookRecord } from "../store.ts";
 import { type TicketsDeployment, ticketStore, trackerAdapter, trackerSignIn } from "./accounts.ts";
-import { applyTicketStatus } from "./status.ts";
+import { MAX_TICKET_LINK_ROWS } from "./links.ts";
+import { webhookRoom } from "./status.ts";
 import type { JiraWebhook } from "./trackers/jira.ts";
 import { jiraId } from "./trackers/jira.ts";
 import type { TrackerSite, TrackerToken } from "./trackers/index.ts";
@@ -10,11 +12,13 @@ import type { TrackerSite, TrackerToken } from "./trackers/index.ts";
 // Status webhooks that people's sign-ins register, for trackers that send
 // webhooks only to those their users register, and expire them (Jira:
 // https://developer.atlassian.com/cloud/jira/platform/webhooks/). Each person
-// has at most one per tracker and site, following the projects they linked
-// or created tickets in there; linking a ticket in another project replaces
-// it with one that follows that project too. A scheduled job renews each
-// before it expires. Pasted tokens can't register webhooks: their tickets'
-// status comes from the check when a thread opens.
+// has at most one per tracker and site, following the projects of the
+// tickets they linked there in projects they may still review: worked out
+// again whenever it is registered or renewed, so a person removed from a
+// project, or whose last ticket there was unlinked, stops following it, and
+// a webhook that follows nothing is removed at the tracker. A scheduled job
+// renews each before it expires. Pasted tokens can't register webhooks:
+// their tickets' status comes from the check when a thread opens.
 
 /** How long one registration or renewal may hold a webhook before another may take over. */
 export const WEBHOOK_LEASE_MS = 60_000;
@@ -22,6 +26,10 @@ export const WEBHOOK_LEASE_MS = 60_000;
 export const WEBHOOK_RENEW_MARGIN_MS = 7 * 24 * 60 * 60_000;
 /** The most projects one webhook follows, so its filter stays short. */
 export const MAX_WEBHOOK_SCOPES = 100;
+/** The most of a person's links on a site read to work out what their webhook follows. */
+const MAX_FOLLOWED_LINKS = 500;
+/** How long a check a delivery asked for counts as waiting: until then, more deliveries for the link ask for none. */
+export const QUEUED_CHECK_MS = 10 * 60_000;
 
 type Webhooks = NonNullable<Store["tickets"]>["webhooks"];
 
@@ -29,48 +37,87 @@ function webhookStore(store: Store): Webhooks {
   return ticketStore(store).webhooks;
 }
 
+const sameScopes = (a: string[], b: string[]) => a.length === b.length && [...a].sort().every((scope, index) => scope === [...b].sort()[index]);
+
+/**
+ * What a person's webhook on a site may follow now: the scopes (Jira
+ * projects) of the tickets they linked there, in projects they may still
+ * review. Their right to review each project is checked here, before any
+ * registration or renewal uses their token. At most `MAX_WEBHOOK_SCOPES`.
+ */
+export async function followedScopes(store: Store, userId: string, tracker: TrackerId, siteId: string): Promise<string[]> {
+  const links = await ticketStore(store).links.listForLinker(userId, tracker, siteId, MAX_FOLLOWED_LINKS);
+  const reviews = new Map<string, boolean>();
+  const scopes = new Set<string>();
+  for (const link of links) {
+    if (link.state !== "linked" || link.webhookScope === undefined || scopes.has(link.webhookScope)) continue;
+    let may = reviews.get(link.projectId);
+    if (may === undefined) {
+      const project = await store.projects.get(link.projectId);
+      may = project !== null && (await canReview(store, project, userId));
+      reviews.set(link.projectId, may);
+    }
+    if (may) scopes.add(link.webhookScope);
+    if (scopes.size >= MAX_WEBHOOK_SCOPES) break;
+  }
+  return [...scopes].sort();
+}
+
 export type WebhookClaim =
-  /** The person's webhook on the site follows the scope already, and isn't due for renewal. */
+  /** The person's webhook on the site follows what it should already, and isn't due for renewal; or there is nothing to follow and no webhook. */
   | { status: "covered" }
   /** Another registration holds the person's webhook; try again shortly. */
   | { status: "busy" }
   /** This caller registers a webhook following `scopes`, replacing `previous` (the tracker's ID for the old one), if any. */
-  | { status: "claimed"; scopes: string[]; previous: string | null };
+  | { status: "claimed"; scopes: string[]; previous: string | null }
+  /** The person's webhook follows nothing they may still review: this caller removes `previous` at the tracker, if any, and the record. */
+  | { status: "retire"; previous: string | null };
 
 /**
- * Takes the person's webhook on a site to make it follow `scope` too, under
- * `leaseId`, unless it does already. One transaction.
+ * Takes the person's webhook on a site to make it follow what it may now
+ * (`followedScopes`), under `leaseId`, unless it does already. One
+ * transaction.
  */
 export async function claimWebhookUpdate(
   store: Store,
-  args: { userId: string; tracker: TrackerId; accountId: string; site: TrackerSite; scope: string; leaseId: string },
+  args: { userId: string; tracker: TrackerId; accountId: string; site: TrackerSite; leaseId: string },
   now: number,
 ): Promise<WebhookClaim> {
   const webhooks = webhookStore(store);
+  const scopes = await followedScopes(store, args.userId, args.tracker, args.site.id);
   const existing = await webhooks.find(args.userId, args.tracker, args.site.id);
   const lease = { id: args.leaseId, until: now + WEBHOOK_LEASE_MS };
   if (existing === null) {
+    if (scopes.length === 0) return { status: "covered" };
     await webhooks.insert({ userId: args.userId, tracker: args.tracker, accountId: args.accountId, site: args.site, hookId: "", scopes: [], expiresAt: 0, updatedAt: now, lease });
-    return { status: "claimed", scopes: [args.scope], previous: null };
+    return { status: "claimed", scopes, previous: null };
   }
   const sameAccount = existing.accountId === args.accountId;
-  if (sameAccount && existing.hookId !== "" && existing.scopes.includes(args.scope) && existing.expiresAt > now) return { status: "covered" };
+  if (sameAccount && existing.hookId !== "" && sameScopes(existing.scopes, scopes) && existing.expiresAt > now) return { status: "covered" };
   if (existing.lease !== undefined && existing.lease.until > now && existing.lease.id !== args.leaseId) return { status: "busy" };
   await webhooks.patch(existing._id, { lease });
   // Another account on the site can't renew or remove the old webhook; it expires on its own.
-  const kept = sameAccount ? existing.scopes.filter((scope) => scope !== args.scope) : [];
-  return { status: "claimed", scopes: [args.scope, ...kept].slice(0, MAX_WEBHOOK_SCOPES), previous: sameAccount && existing.hookId !== "" ? existing.hookId : null };
+  const previous = sameAccount && existing.hookId !== "" ? existing.hookId : null;
+  return scopes.length === 0 ? { status: "retire", previous } : { status: "claimed", scopes, previous };
 }
 
-/** Saves the webhook a registration made and releases the lease; with `hook` null, only releases it. Nothing changes unless `leaseId` holds it. One transaction. */
+/**
+ * Saves the webhook a registration made and releases the lease; with `hook`
+ * null, only releases it (a placeholder goes); with `"retired"`, removes the
+ * record. Nothing changes unless `leaseId` holds it. One transaction.
+ */
 export async function saveWebhookUpdate(
   store: Store,
-  args: { userId: string; tracker: TrackerId; accountId: string; siteId: string; leaseId: string; hook: { hookId: string; scopes: string[]; expiresAt: number } | null },
+  args: { userId: string; tracker: TrackerId; accountId: string; siteId: string; leaseId: string; hook: { hookId: string; scopes: string[]; expiresAt: number } | null | "retired" },
   now: number,
 ): Promise<boolean> {
   const webhooks = webhookStore(store);
   const existing = await webhooks.find(args.userId, args.tracker, args.siteId);
   if (existing === null || existing.lease?.id !== args.leaseId) return false;
+  if (args.hook === "retired") {
+    await webhooks.delete(existing._id);
+    return true;
+  }
   if (args.hook === null) {
     if (existing.hookId === "") await webhooks.delete(existing._id);
     else await webhooks.patch(existing._id, { lease: null });
@@ -80,30 +127,32 @@ export async function saveWebhookUpdate(
   return true;
 }
 
-/** The steps of making a person's webhook follow a ticket's scope; each store step is its own transaction. */
+/** The steps of making a person's webhook follow what it may; each store step is its own transaction. */
 export interface WebhookSteps {
   /** The person's token for the account they linked the ticket with. */
   token(): Promise<TrackerToken>;
   claim(site: TrackerSite, leaseId: string): Promise<WebhookClaim>;
-  save(siteId: string, leaseId: string, hook: { hookId: string; scopes: string[]; expiresAt: number } | null): Promise<boolean>;
+  save(siteId: string, leaseId: string, hook: { hookId: string; scopes: string[]; expiresAt: number } | null | "retired"): Promise<boolean>;
   sleep(ms: number): Promise<void>;
   leaseId(): string;
+  now(): number;
   /** The deployment's webhook address for the tracker. */
   url: string;
 }
 
 /**
- * Makes the person's status webhook on the ticket's site follow its scope
- * (a Jira project), registering a new one that follows it with the ones
- * before and removing the old one. Only for a sign-in on a deployment with
- * the operator's app, whose secret checks the deliveries. Returns what it did.
+ * Makes the person's status webhook on the ticket's site follow what it may
+ * now: registering a new one that follows those scopes and removing the old
+ * one, or, when it may follow nothing, removing it. Only for a sign-in on a
+ * deployment with the operator's app, whose secret checks the deliveries.
+ * Returns what it did.
  */
 export async function followTicketScope(
   steps: WebhookSteps,
   deployment: TicketsDeployment,
-  args: { tracker: TrackerId; scope: string },
+  args: { tracker: TrackerId },
   fetchFn: typeof fetch = fetch,
-): Promise<"followed" | "covered" | "unsupported" | "busy"> {
+): Promise<"followed" | "covered" | "retired" | "unsupported" | "busy"> {
   const adapter = trackerAdapter(args.tracker, deployment, fetchFn);
   if (adapter.webhooks === undefined || trackerSignIn(args.tracker, deployment) === null) return "unsupported";
   const token = await steps.token();
@@ -117,9 +166,14 @@ export async function followTicketScope(
       await steps.sleep(2_000);
       continue;
     }
+    if (claim.status === "retire") {
+      if (claim.previous !== null) await adapter.webhooks.remove(token, [claim.previous]).catch(() => undefined);
+      await steps.save(token.site.id, leaseId, "retired");
+      return "retired";
+    }
     let hook: { id: string; expiresAt: number };
     try {
-      hook = await adapter.webhooks.register(token, { url: steps.url, scopes: claim.scopes });
+      hook = await adapter.webhooks.register(token, { url: steps.url, scopes: claim.scopes, now: steps.now() });
     } catch (error) {
       await steps.save(token.site.id, leaseId, null).catch(() => undefined);
       throw error;
@@ -140,21 +194,51 @@ export async function webhooksToRenew(store: Store, now: number, limit = 100): P
 
 export type WebhookRenewal =
   | { status: "skip" }
-  | { status: "renew"; person: { userId: string; accountId: string }; tracker: TrackerId; site: TrackerSite; hookId: string; scopes: string[]; expired: boolean };
+  | {
+      status: "renew";
+      person: { userId: string; accountId: string };
+      tracker: TrackerId;
+      site: TrackerSite;
+      hookId: string;
+      /** What the webhook follows now, and what it may follow (`followedScopes`): none, and it is removed. */
+      scopes: string[];
+      followed: string[];
+      expired: boolean;
+    };
 
-/** Takes a webhook to renew it under `leaseId`; skipped when it's gone, not due, or another run holds it. One transaction. */
+/**
+ * Takes a webhook to renew it under `leaseId`; skipped when it's gone, not
+ * due, or another run holds it. Works out what it may follow now, checking
+ * its person may still review each project, before their token is used.
+ * One transaction.
+ */
 export async function claimWebhookRenewal(store: Store, args: { webhookId: string; leaseId: string }, now: number): Promise<WebhookRenewal> {
   const webhooks = webhookStore(store);
   const hook = await webhooks.get(args.webhookId);
   if (hook === null || hook.hookId === "" || hook.expiresAt > now + WEBHOOK_RENEW_MARGIN_MS || (hook.lease !== undefined && hook.lease.until > now)) return { status: "skip" };
+  const followed = await followedScopes(store, hook.userId, hook.tracker, hook.site.id);
   await webhooks.patch(hook._id, { lease: { id: args.leaseId, until: now + WEBHOOK_LEASE_MS } });
-  return { status: "renew", person: { userId: hook.userId, accountId: hook.accountId }, tracker: hook.tracker, site: hook.site, hookId: hook.hookId, scopes: hook.scopes, expired: hook.expiresAt <= now };
+  return {
+    status: "renew",
+    person: { userId: hook.userId, accountId: hook.accountId },
+    tracker: hook.tracker,
+    site: hook.site,
+    hookId: hook.hookId,
+    scopes: hook.scopes,
+    followed,
+    expired: hook.expiresAt <= now,
+  };
 }
 
-/** Saves a renewal: the webhook (re-registered when it had expired) and when it expires; `gone` removes the record, as when the person disconnected. One transaction. */
+/**
+ * Saves a renewal: the webhook (registered again when it had expired or
+ * must follow other scopes), what it follows, and when it expires; `gone`
+ * removes the record, as when the person disconnected or it follows
+ * nothing now. One transaction.
+ */
 export async function finishWebhookRenewal(
   store: Store,
-  args: { webhookId: string; leaseId: string; result: { hookId: string; expiresAt: number } | "gone" | "failed" },
+  args: { webhookId: string; leaseId: string; result: { hookId: string; expiresAt: number; scopes: string[] } | "gone" | "failed" },
   now: number,
 ): Promise<void> {
   const webhooks = webhookStore(store);
@@ -162,25 +246,28 @@ export async function finishWebhookRenewal(
   if (hook === null || hook.lease?.id !== args.leaseId) return;
   if (args.result === "gone") await webhooks.delete(hook._id);
   else if (args.result === "failed") await webhooks.patch(hook._id, { lease: null });
-  else await webhooks.patch(hook._id, { hookId: args.result.hookId, expiresAt: args.result.expiresAt, updatedAt: now, lease: null });
+  else await webhooks.patch(hook._id, { hookId: args.result.hookId, expiresAt: args.result.expiresAt, scopes: args.result.scopes, updatedAt: now, lease: null });
 }
 
 /** The steps of renewing one webhook; each store step is its own transaction. */
 export interface RenewSteps {
   claim(leaseId: string): Promise<WebhookRenewal>;
   token(person: { userId: string; accountId: string }, tracker: TrackerId): Promise<TrackerToken>;
-  finish(leaseId: string, result: { hookId: string; expiresAt: number } | "gone" | "failed"): Promise<void>;
+  finish(leaseId: string, result: { hookId: string; expiresAt: number; scopes: string[] } | "gone" | "failed"): Promise<void>;
   leaseId(): string;
+  now(): number;
   url: string;
 }
 
 /**
- * Renews one webhook with its person's token, or registers it again when it
- * expired before it could be renewed. When the person disconnected or
- * connected another account, the record goes, and Jira's webhook expires on
- * its own.
+ * Renews one webhook with its person's token: extends it while it follows
+ * what it may; registers it again, removing the old one, when it must follow
+ * other scopes or expired before it could be renewed; and removes it at the
+ * tracker when its person may follow nothing there now. When the person
+ * disconnected or connected another account, the record goes, and Jira's
+ * webhook expires on its own.
  */
-export async function renewTicketWebhook(steps: RenewSteps, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): Promise<"renewed" | "gone" | "skipped" | "failed"> {
+export async function renewTicketWebhook(steps: RenewSteps, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): Promise<"renewed" | "retired" | "gone" | "skipped" | "failed"> {
   const leaseId = steps.leaseId();
   const claim = await steps.claim(leaseId);
   if (claim.status === "skip") return "skipped";
@@ -202,10 +289,19 @@ export async function renewTicketWebhook(steps: RenewSteps, deployment: TicketsD
       await steps.finish(leaseId, "gone");
       return "gone";
     }
-    const result = claim.expired
-      ? await adapter.webhooks.register(token, { url: steps.url, scopes: claim.scopes }).then((hook) => ({ hookId: hook.id, expiresAt: hook.expiresAt }))
-      : { hookId: claim.hookId, expiresAt: await adapter.webhooks.renew(token, [claim.hookId]) };
-    await steps.finish(leaseId, result);
+    if (claim.followed.length === 0) {
+      // Nothing it may follow: removed with the person's own token, not renewed.
+      await adapter.webhooks.remove(token, [claim.hookId]).catch(() => undefined);
+      await steps.finish(leaseId, "gone");
+      return "retired";
+    }
+    if (claim.expired || !sameScopes(claim.scopes, claim.followed)) {
+      const hook = await adapter.webhooks.register(token, { url: steps.url, scopes: claim.followed, now: steps.now() });
+      await steps.finish(leaseId, { hookId: hook.id, expiresAt: hook.expiresAt, scopes: claim.followed });
+      if (!claim.expired) await adapter.webhooks.remove(token, [claim.hookId]).catch(() => undefined);
+      return "renewed";
+    }
+    await steps.finish(leaseId, { hookId: claim.hookId, expiresAt: await adapter.webhooks.renew(token, [claim.hookId]), scopes: claim.scopes });
     return "renewed";
   } catch {
     await steps.finish(leaseId, "failed");
@@ -216,33 +312,48 @@ export async function renewTicketWebhook(steps: RenewSteps, deployment: TicketsD
 // ---------------------------------------------------------------------------
 // Deliveries.
 
+/** What a Jira delivery did: the links whose status to check now, and whether its site was over its minute's limit. */
+export interface JiraNoticeResult {
+  checks: string[];
+  limited?: true;
+}
+
 /**
- * Saves a Jira webhook's issue status on every thread linking that issue on
- * the site the delivery came from: a site Critiqs registered the matched
- * webhook for, which the issue's address must name too (its host, or its
- * cloud ID through Atlassian's gateway). Jira's webhook and issue IDs are
- * unique within a site only, so a delivery from another site's webhook with
- * the same ID, such as one left behind when its person disconnected, or one
- * whose issue address names no site, changes nothing. One transaction.
+ * Takes a Jira delivery as a notice that an issue on a site changed: Jira's
+ * token doesn't cover the delivery's body, so the status in it is never
+ * used. The notice counts only from a webhook Critiqs registered on the site
+ * the issue's address names, found by that site and the webhook's ID
+ * together, and still current: not expired, nor replaced. Each link to the
+ * issue on that site then gets a check, which reads the issue with its
+ * linker's token after checking they may still review its project
+ * (`prepareStatusCheck`); a link whose check already waits gets no other.
+ * Each site's notices that reach links take its updates for the minute
+ * (`webhookRoom`). One transaction. Returns the links to check.
  */
-export async function applyJiraWebhook(store: Store, delivery: Extract<JiraWebhook, { status: "update" }>, now: number): Promise<{ updated: number; resolved: string[] }> {
+export async function applyJiraWebhook(store: Store, delivery: Extract<JiraWebhook, { status: "notice" }>, now: number): Promise<JiraNoticeResult> {
   const webhooks = webhookStore(store);
   const sites = new Map<string, TrackerWebhookRecord["site"]>();
   for (const hookId of delivery.webhookIds) {
-    for (const hook of await webhooks.findByHook("jira", hookId)) sites.set(hook.site.id, hook.site);
+    for (const hook of await webhooks.findByHook("jira", delivery.site, hookId)) {
+      if (hook.hookId === hookId && hook.expiresAt > now) sites.set(hook.site.id, hook.site);
+    }
   }
-  const self = delivery.self;
-  const candidates = self === null ? [] : [...sites.values()].filter((site) => site.name === self.host || (self.cloudId !== null && site.id === self.cloudId));
-  let updated = 0;
-  const resolved: string[] = [];
-  for (const site of candidates) {
-    const result = await applyTicketStatus(
-      store,
-      { tracker: "jira", externalId: jiraId(site, delivery.issueId), site: site.id, status: delivery.reading.status, asOf: delivery.reading.asOf, deleted: delivery.deleted },
-      now,
-    );
-    updated += result.updated;
-    resolved.push(...result.resolved);
+  const links = ticketStore(store).links;
+  const checks: string[] = [];
+  for (const site of sites.values()) {
+    const linked = (await links.findByExternal("jira", jiraId(site, delivery.issueId), MAX_TICKET_LINK_ROWS)).filter((link) => link.state === "linked" && link.site === site.id);
+    if (linked.length === 0) continue;
+    if (!(await webhookRoom(store, "jira", site.id, now))) return { checks, limited: true };
+    for (const link of linked) {
+      const queued = link.statusCheckQueued;
+      if (queued !== undefined && now - queued.at < QUEUED_CHECK_MS) {
+        // The waiting check reads the issue after this change too; it only needs to know of a deletion.
+        if (delivery.deleted && !queued.deleted) await links.patch(link._id, { statusCheckQueued: { at: queued.at, deleted: true } });
+        continue;
+      }
+      await links.patch(link._id, { statusCheckQueued: { at: now, deleted: delivery.deleted } });
+      checks.push(link._id);
+    }
   }
-  return { updated, resolved };
+  return { checks };
 }

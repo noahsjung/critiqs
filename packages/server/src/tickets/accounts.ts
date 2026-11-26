@@ -345,6 +345,12 @@ export interface DisconnectedAccount {
   method: "oauth" | "token";
   access: StoredToken;
   refresh: StoredToken | null;
+  /** When the access token expires, when the tracker said. */
+  expiresAt: number | null;
+  /** The site the account is on, where the tracker has several (Jira). */
+  site: { id: string; name: string } | null;
+  /** The tracker's IDs of status webhooks the person's sign-in registered there, to remove. */
+  hooks: string[];
 }
 
 /**
@@ -359,27 +365,43 @@ export async function disconnectTracker(store: Store, identity: Identity | null,
   const signIns = ticketStore(store).signIns;
   for (const signIn of await signIns.listForUser(user._id, args.tracker)) await signIns.delete(signIn._id);
   const existing = await accounts.find(user._id, args.tracker);
-  // Nothing can renew their webhooks now; Jira's own expire on their own.
+  // Nothing renews their webhooks now: their records go, and the webhooks on this account's site are removed at the tracker with it.
   const webhooks = ticketStore(store).webhooks;
-  for (const hook of await webhooks.listForUser(user._id, args.tracker)) await webhooks.delete(hook._id);
+  const hooks: string[] = [];
+  for (const hook of await webhooks.listForUser(user._id, args.tracker)) {
+    if (hook.hookId !== "" && existing !== null && hook.accountId === existing.accountId && hook.site.id === existing.site?.id) hooks.push(hook.hookId);
+    await webhooks.delete(hook._id);
+  }
   if (existing === null) return null;
   await accounts.delete(existing._id);
-  return { userId: user._id, tracker: args.tracker, accountId: existing.accountId, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
+  return {
+    userId: user._id,
+    tracker: args.tracker,
+    accountId: existing.accountId,
+    method: existing.method,
+    access: existing.access,
+    refresh: existing.refresh ?? null,
+    expiresAt: existing.expiresAt ?? null,
+    site: existing.site ?? null,
+    hooks,
+  };
 }
 
 /** What disconnecting did at the tracker: ended Critiqs's access there, left a pasted token for the person to remove, or couldn't end it. */
 export type TrackerEnd = "ended" | "kept" | "failed" | "shared";
 
 /**
- * Ends a disconnected account at its tracker, where an API call can: a
- * Linear sign-in's tokens are revoked, and a GitHub sign-in's grant is
- * deleted, which ends all its tokens. A pasted token can't be ended by
- * another caller in any tracker, so it is `kept`: valid until the person
- * removes it there. `failed` when the tracker couldn't be reached, refused,
- * still accepts a token afterwards, or offers no such call; the person is
- * told, and the sign-in ends when its tokens expire or they remove Critiqs at
- * the tracker. `shared` when ending it would end every token and `mayEnd`
- * (asked right before each such call) says another sign-in still uses it.
+ * Ends a disconnected account at its tracker, where an API call can. Status
+ * webhooks its sign-in registered (Jira) are removed first, with a refreshed
+ * token if it had expired. Then a Linear sign-in's tokens are revoked, and a
+ * GitHub sign-in's grant is deleted, which ends all its tokens. Atlassian
+ * documents no call that revokes a sign-in, and no tracker lets another
+ * caller revoke a pasted token, so those are `kept`: valid until they expire,
+ * or until the person removes them in the tracker. `failed` when a call
+ * couldn't be made, was refused, or the tracker still accepts a token
+ * afterwards; the person is told. `shared` when ending it would end every
+ * token and `mayEnd` (asked right before each such call) says another
+ * sign-in still uses it.
  */
 export async function endTrackerAccount(
   deployment: TicketsDeployment,
@@ -390,12 +412,28 @@ export async function endTrackerAccount(
 ): Promise<TrackerEnd> {
   if (account.method !== "oauth") return "kept";
   const key = deployment.encryptionKey;
-  if (key === null || trackerSignIn(account.tracker, deployment)?.end === undefined) return "failed";
+  const signIn = trackerSignIn(account.tracker, deployment);
+  if (key === null || signIn === null) return "failed";
   const binding = trackerTokenBinding(account.tracker, account.userId);
   const refresh = account.refresh === null ? null : await decryptToken(key, binding, account.refresh);
-  const access = await decryptToken(key, binding, account.access);
-  if (refresh === null && access === null) return "failed";
-  const ended = await endTrackerSignIn(deployment, account.tracker, { access, refresh }, fetchFn, now, mayEnd);
+  let access = await decryptToken(key, binding, account.access);
+  let removed = true;
+  if (account.hooks.length > 0) {
+    removed = false;
+    try {
+      if ((access === null || (account.expiresAt !== null && account.expiresAt <= now + REFRESH_MARGIN_MS)) && refresh !== null) access = (await signIn.refresh(refresh, now, undefined, fetchFn)).access;
+      const webhooks = trackerAdapter(account.tracker, deployment, fetchFn).webhooks;
+      if (access !== null && webhooks !== undefined) {
+        await webhooks.remove({ method: "oauth", value: access, ...(trackerHasSites(account.tracker) ? { site: account.site } : {}) }, account.hooks);
+        removed = true;
+      }
+    } catch {
+      removed = false;
+    }
+  }
+  if (signIn.end === undefined) return removed ? "kept" : "failed";
+  if (!removed || (access === null && refresh === null)) return "failed";
+  const ended = await signIn.end({ access, refresh }, fetchFn, now, mayEnd);
   return ended === "shared" ? "shared" : ended ? "ended" : "failed";
 }
 

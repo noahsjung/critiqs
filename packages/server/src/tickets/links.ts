@@ -470,6 +470,7 @@ export async function finishTicketCreation(
     title: ticket.title,
     // Where the tracker didn't say, the linker's workspace stays.
     site: ticket.site ?? creation.site ?? null,
+    ...(ticket.webhookScope === undefined ? {} : { webhookScope: ticket.webhookScope }),
     state: "linked",
     claimToken: null,
     leaseUntil: null,
@@ -838,6 +839,7 @@ export async function finishTicketLink(
     title: ticket.title,
     // Where the tracker didn't say, the linker's workspace stays.
     site: ticket.site ?? held.site ?? null,
+    ...(ticket.webhookScope === undefined ? {} : { webhookScope: ticket.webhookScope }),
     state: "linked",
     claimToken: null,
     leaseUntil: null,

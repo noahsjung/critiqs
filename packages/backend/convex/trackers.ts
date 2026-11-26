@@ -56,6 +56,9 @@ const disconnectedAccount = v.object({
   method: v.union(v.literal("oauth"), v.literal("token")),
   access: storedTokenValidator,
   refresh: v.union(storedTokenValidator, v.null()),
+  expiresAt: v.union(v.number(), v.null()),
+  site: v.union(v.object({ id: v.string(), name: v.string() }), v.null()),
+  hooks: v.array(v.string()),
 });
 
 /** When a sign-in that couldn't be ended at its tracker is tried again, after each failed try: a minute, ten minutes, an hour. */

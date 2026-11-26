@@ -150,6 +150,7 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
           return await tokens(backend)(person, use);
         },
         save: (reading) => backend.run((store) => applyCheckedStatus(store, { linkId, reading }, now)),
+        deleted: () => backend.run((store) => applyCheckedStatus(store, { linkId, reading: { status: { label: "Deleted", category: "canceled" }, asOf: null }, deleted: true }, now)),
         stale: (startedAt) => backend.run((store) => markStatusStale(store, { linkId, startedAt })),
       },
       deployment,

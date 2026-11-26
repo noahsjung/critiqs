@@ -278,9 +278,12 @@ export const githubWebhook = httpAction(async (ctx, request) => {
 /**
  * Jira's webhooks for the webhooks people's sign-ins registered
  * (trackerWebhooks.ts): each delivery's bearer token must be signed with the
- * operator's Atlassian app's client secret, before anything in it is used.
- * An issue's new status reaches every thread that links it on the site the
- * matched webhook was registered for; other events are answered 200 and
+ * operator's Atlassian app's client secret, say when it expires, and not have,
+ * before anything in it is used. The token doesn't cover the body, so a
+ * delivery is only a notice that an issue changed, on the one site its
+ * address names, from a current webhook Critiqs registered there: each link
+ * to the issue there is checked with its linker's token, up to the site's
+ * updates for the minute (429 past them). Other events are answered 200 and
  * ignored, so Jira doesn't retry them.
  */
 export const jiraWebhook = httpAction(async (ctx, request) => {
@@ -291,6 +294,6 @@ export const jiraWebhook = httpAction(async (ctx, request) => {
   if (body === "too-large") return new Response("Too large.", { status: 413 });
   const read = await readJiraWebhook(app.clientSecret, body, request.headers.get("Authorization"), Date.now());
   if (read.status === "refused") return new Response("Not a current delivery from Jira.", { status: 401 });
-  if (read.status === "update") await ctx.runMutation(internal.trackerWebhooks.applyJira, { delivery: read });
+  if (read.status === "notice" && (await ctx.runMutation(internal.trackerWebhooks.applyJira, { delivery: read })).limited) return tooManyUpdates();
   return new Response(null, { status: 200 });
 });

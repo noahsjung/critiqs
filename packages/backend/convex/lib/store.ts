@@ -818,6 +818,15 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .first();
           return row === null ? null : withoutCreationTime(row);
         },
+        listForLinker: async (userId, tracker, site, limit) => {
+          const id = db.normalizeId("users", userId);
+          if (id === null) return [];
+          const rows = await db
+            .query("ticketLinks")
+            .withIndex("by_linker_tracker_site", (q) => q.eq("linkedBy", id).eq("tracker", tracker).eq("site", site))
+            .take(limit);
+          return rows.map(withoutCreationTime);
+        },
         insert: async (link) =>
           await writer().insert(
             "ticketLinks",
@@ -896,11 +905,12 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .collect();
           return rows.map(withoutCreationTime);
         },
-        findByHook: async (tracker, hookId) => {
-          const rows = await db
-            .query("trackerWebhooks")
-            .withIndex("by_tracker_hook", (q) => q.eq("tracker", tracker).eq("hookId", hookId))
-            .take(20);
+        findByHook: async (tracker, site, hookId) => {
+          // One per person on the site, each with its own ID: a few at most.
+          const rows =
+            "id" in site
+              ? await db.query("trackerWebhooks").withIndex("by_tracker_site_hook", (q) => q.eq("tracker", tracker).eq("site.id", site.id).eq("hookId", hookId)).take(5)
+              : await db.query("trackerWebhooks").withIndex("by_tracker_host_hook", (q) => q.eq("tracker", tracker).eq("site.name", site.name).eq("hookId", hookId)).take(5);
           return rows.map(withoutCreationTime);
         },
         listExpiring: async (before, limit) => {

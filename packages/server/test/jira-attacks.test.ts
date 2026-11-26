@@ -88,7 +88,7 @@ test("Jira attack: an over-long key, summary, or status name in an issue is cut 
   const { standIn, jira, pasted } = recorded();
   standIn.intercept = (method, path) =>
     method === "GET" && /\/rest\/api\/3\/issue\/\d+$/.test(path)
-      ? Response.json({ id: "10500", key: `WEB-${"9".repeat(300)}`, fields: { summary: "S".repeat(5_000), status: { name: "N".repeat(100_000), statusCategory: { key: "new" } }, updated: "2026-01-01T00:00:00.000+0000", project: { id: "10001" } } })
+      ? Response.json({ id: path.split("/").at(-1), key: `WEB-${"9".repeat(300)}`, fields: { summary: "S".repeat(5_000), status: { name: "N".repeat(100_000), statusCategory: { key: "new" } }, updated: "2026-01-01T00:00:00.000+0000", project: { id: "10001" } } })
       : undefined;
   const made = await create(jira, pasted);
   expect(made.status).toBe("created");
@@ -102,7 +102,7 @@ test("Jira attack: an issue key can't make the ticket's address anything but the
   const { standIn, jira, pasted } = recorded();
   standIn.intercept = (method, path) =>
     method === "GET" && /\/rest\/api\/3\/issue\/\d+$/.test(path)
-      ? Response.json({ id: "10500", key: "@evil.example/x", fields: { summary: "x", status: { name: "To Do", statusCategory: { key: "new" } }, updated: "2026-01-01T00:00:00.000+0000" } })
+      ? Response.json({ id: path.split("/").at(-1), key: "@evil.example/x", fields: { summary: "x", status: { name: "To Do", statusCategory: { key: "new" } }, updated: "2026-01-01T00:00:00.000+0000" } })
       : undefined;
   const made = await create(jira, pasted);
   expect(made.status === "created" ? new URL(made.ticket.url).host : "not created").toBe("acme.atlassian.net");

@@ -510,7 +510,9 @@ export function jiraStandIn(options: { users?: JiraStandInUser[]; now?: () => nu
         const expiresAt = standIn.now() + 30 * 86_400_000;
         // Unrecognized IDs are ignored.
         for (const hook of standIn.webhooks) if (ids.includes(hook.id) && hook.ownerId === user.accountId) hook.expiresAt = expiresAt;
-        return Response.json({ expirationDate: expiresAt });
+        // As Jira's documentation's example answers it (https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-webhooks/#api-rest-api-3-webhook-refresh-put):
+        // a date in Jira's format, such as {"expirationDate":"2019-06-01T12:42:30.000+0000"}, though its schema says a number.
+        return Response.json({ expirationDate: jiraTimestamp(expiresAt) });
       }
       if (method === "DELETE") {
         standIn.webhooks = standIn.webhooks.filter((hook) => !ids.includes(hook.id) || hook.ownerId !== user.accountId);

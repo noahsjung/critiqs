@@ -6,6 +6,7 @@ import {
   followTicketScope,
   renewTicketWebhook,
   saveWebhookUpdate,
+  type JiraNoticeResult,
   type TrackerSite,
   type WebhookClaim,
   type WebhookRenewal,
@@ -32,33 +33,40 @@ const person = { userId: v.string(), accountId: v.string(), tracker: trackerVali
 /** Where Jira sends a tracker's webhooks on this deployment. */
 const webhookUrl = (tracker: string) => `${siteUrl()}/trackers/${tracker}/webhook`;
 
-/** Has the person's webhook on the ticket's site follow its scope (a Jira project). */
+/** Has the person's webhook on a ticket's site follow what it may now: the projects of their linked tickets there that they may still review. */
 export const follow = internalAction({
-  args: { ...person, scope: v.string() },
+  // `scope` is the new ticket's, kept for calls scheduled before the webhook followed every linked ticket's: what it follows is worked out again.
+  args: { ...person, scope: v.optional(v.string()) },
   handler: async (ctx, args): Promise<string> => {
-    const { userId, accountId, tracker, scope } = args;
+    const { userId, accountId, tracker } = args;
     return await followTicketScope(
       {
         token: () => trackerToken(ctx, { userId, accountId }, tracker),
-        claim: (on: TrackerSite, leaseId: string): Promise<WebhookClaim> => ctx.runMutation(internal.trackerWebhooks.claim, { userId, accountId, tracker, site: on, scope, leaseId }),
+        claim: (on: TrackerSite, leaseId: string): Promise<WebhookClaim> => ctx.runMutation(internal.trackerWebhooks.claim, { userId, accountId, tracker, site: on, leaseId }),
         save: (siteId, leaseId, hook): Promise<boolean> => ctx.runMutation(internal.trackerWebhooks.save, { userId, accountId, tracker, siteId, leaseId, hook }),
         sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
         leaseId: () => randomSecret(16),
+        now: () => Date.now(),
         url: webhookUrl(tracker),
       },
       ticketsDeployment(),
-      { tracker, scope },
+      { tracker },
     );
   },
 });
 
 export const claim = internalMutation({
-  args: { ...person, site, scope: v.string(), leaseId: v.string() },
+  args: { ...person, site, leaseId: v.string() },
   handler: async (ctx, args): Promise<WebhookClaim> => await claimWebhookUpdate(convexStore(ctx), args, Date.now()),
 });
 
 export const save = internalMutation({
-  args: { ...person, siteId: v.string(), leaseId: v.string(), hook: v.union(v.object({ hookId: v.string(), scopes: v.array(v.string()), expiresAt: v.number() }), v.null()) },
+  args: {
+    ...person,
+    siteId: v.string(),
+    leaseId: v.string(),
+    hook: v.union(v.object({ hookId: v.string(), scopes: v.array(v.string()), expiresAt: v.number() }), v.null(), v.literal("retired")),
+  },
   handler: async (ctx, args): Promise<boolean> => await saveWebhookUpdate(convexStore(ctx), args, Date.now()),
 });
 
@@ -82,6 +90,7 @@ export const renew = internalAction({
         token: (who, tracker) => trackerToken(ctx, who, tracker),
         finish: async (leaseId, result) => void (await ctx.runMutation(internal.trackerWebhooks.finishRenewal, { ...args, leaseId, result })),
         leaseId: () => randomSecret(16),
+        now: () => Date.now(),
         url: webhookUrl("jira"),
       },
       ticketsDeployment(),
@@ -97,22 +106,29 @@ export const finishRenewal = internalMutation({
   args: {
     webhookId: v.string(),
     leaseId: v.string(),
-    result: v.union(v.object({ hookId: v.string(), expiresAt: v.number() }), v.literal("gone"), v.literal("failed")),
+    result: v.union(v.object({ hookId: v.string(), expiresAt: v.number(), scopes: v.array(v.string()) }), v.literal("gone"), v.literal("failed")),
   },
   handler: async (ctx, args): Promise<void> => await finishWebhookRenewal(convexStore(ctx), args, Date.now()),
 });
 
-/** Saves a Jira webhook's issue status on every thread linking the issue on the site the delivery came from. */
+/**
+ * Takes a Jira delivery as a notice that an issue changed on the site it
+ * names, from a current webhook Critiqs registered there; returns the links
+ * whose status to check with their linkers' tokens (`applyJiraWebhook`).
+ */
 export const applyJira = internalMutation({
   args: {
     delivery: v.object({
-      status: v.literal("update"),
+      status: v.literal("notice"),
       webhookIds: v.array(v.string()),
-      self: v.union(v.object({ host: v.string(), cloudId: v.union(v.string(), v.null()) }), v.null()),
+      site: v.union(v.object({ id: v.string() }), v.object({ name: v.string() })),
       issueId: v.string(),
-      reading: v.object({ status: ticketStatusValidator, asOf: v.number() }),
       deleted: v.boolean(),
     }),
   },
-  handler: async (ctx, args): Promise<{ updated: number; resolved: string[] }> => await applyJiraWebhook(convexStore(ctx), args.delivery, Date.now()),
+  handler: async (ctx, args): Promise<JiraNoticeResult> => {
+    const result = await applyJiraWebhook(convexStore(ctx), args.delivery, Date.now());
+    for (const linkId of result.checks) await ctx.scheduler.runAfter(0, internal.ticketStatus.check, { linkId });
+    return result;
+  },
 });

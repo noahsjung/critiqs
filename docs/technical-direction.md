@@ -2410,12 +2410,16 @@ trackers, webhooks, drafting, and compatibility items below describe them.
   Jira on Convex: linking or creating a ticket with a Jira sign-in schedules
   `trackerWebhooks:follow`, which keeps one webhook per person and site
   (`trackerWebhooks` table) whose filter is `project IN (…)` of the projects
-  they linked tickets in there, replacing it when a project is added; a daily
-  cron renews webhooks a week before they expire. `POST
+  of their linked tickets there that they may still review (each link keeps
+  its `webhookScope`), worked out again at each registration and renewal; a
+  daily cron renews webhooks a week before they expire, registering one again
+  when its projects changed and removing one that follows none. `POST
   /trackers/jira/webhook` checks the bearer token (HS256 under the app's
-  client secret, its `exp` and `iat` when present) before reading the body,
-  and saves the issue's status on the links of the site the matched webhook
-  was registered for. Where no
+  client secret, a required `exp` at most an hour ahead, `iat` when present)
+  before reading the body. The token doesn't cover the body, so the delivery
+  only queues a check (`statusCheckQueued`) of each link to the issue on the
+  one site its address names, whose current webhook matched (found by site
+  and webhook ID); the check reads the status with the linker's token. Where no
   webhook can arrive, opening a thread checks its tickets' status, at most once
   every few minutes. Built for Linear on Convex: `POST
   /trackers/linear/webhook` reads the raw body, checks `Linear-Signature` (hex

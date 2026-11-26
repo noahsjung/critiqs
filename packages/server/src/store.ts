@@ -632,6 +632,15 @@ export interface TicketLinkRecord {
   statusCheckStartedAt?: number;
   /** Set when Critiqs can't check the status with the linker's account (disconnected, another account, or no longer allowed to see the ticket): `status` is the last one it knew. */
   statusStale?: boolean;
+  /**
+   * A check a status webhook asked for, not yet started: when, and whether
+   * the delivery said the ticket was deleted. Where a delivery only says a
+   * ticket changed (Jira), its status is read with the linker's token; while
+   * one check waits, more deliveries ask for none.
+   */
+  statusCheckQueued?: { at: number; deleted: boolean };
+  /** What the tracker's status webhooks filter the ticket by (a Jira project's ID), so a person's webhook follows only their linked tickets' scopes. */
+  webhookScope?: string;
   /** The tracker account (the tracker's ID for it) the person linked or created the ticket with: status checks use only this account's token. */
   accountId?: string;
   /** Who linked or created it. */
@@ -778,7 +787,7 @@ export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" 
 };
 /** Changes to a ticket link; `null` clears an optional field. */
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
-  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt" | "statusAsOf" | "statusDeleted" | "statusCheckStartedAt" | "statusStale" | "accountId"]?: TicketLinkRecord[K] | null;
+  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt" | "statusAsOf" | "statusDeleted" | "statusCheckStartedAt" | "statusStale" | "statusCheckQueued" | "webhookScope" | "accountId"]?: TicketLinkRecord[K] | null;
 };
 export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templatesOn" | "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
 
@@ -1074,6 +1083,8 @@ export interface Store {
       findByExternal(tracker: TrackerId, externalId: string, limit: number): Promise<TicketLinkRecord[]>;
       /** The link a creation made or is making, in any thread, by its creation ID; null when there is none. */
       findByCreation(creationId: string): Promise<TicketLinkRecord | null>;
+      /** Links one person made in a tracker's site, linked or pending: at most `limit`. */
+      listForLinker(userId: string, tracker: TrackerId, site: string, limit: number): Promise<TicketLinkRecord[]>;
       insert(link: New<TicketLinkRecord>): Promise<string>;
       patch(id: string, changes: TicketLinkChanges): Promise<void>;
       delete(id: string): Promise<void>;
@@ -1099,8 +1110,8 @@ export interface Store {
       find(userId: string, tracker: TrackerId, siteId: string): Promise<TrackerWebhookRecord | null>;
       /** A person's webhooks for a tracker, on every site. */
       listForUser(userId: string, tracker: TrackerId): Promise<TrackerWebhookRecord[]>;
-      /** Webhooks with this tracker ID, on any site. */
-      findByHook(tracker: TrackerId, hookId: string): Promise<TrackerWebhookRecord[]>;
+      /** Webhooks with this tracker ID on one site, named by its ID or by its host: IDs are unique only within a site. At most a few. */
+      findByHook(tracker: TrackerId, site: { id: string } | { name: string }, hookId: string): Promise<TrackerWebhookRecord[]>;
       /** Webhooks that expire before `before`, soonest first; at most `limit`. */
       listExpiring(before: number, limit: number): Promise<TrackerWebhookRecord[]>;
       insert(webhook: New<TrackerWebhookRecord>): Promise<string>;

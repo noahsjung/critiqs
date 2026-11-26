@@ -53,6 +53,7 @@ export const check = internalAction({
         prepare: (): Promise<StatusCheck> => ctx.runMutation(internal.ticketStatus.prepare, args),
         token: (person, tracker, use) => trackerToken(ctx, person, tracker, use),
         save: (reading): Promise<unknown> => ctx.runMutation(internal.ticketStatus.saveCheck, { ...args, reading }),
+        deleted: (): Promise<unknown> => ctx.runMutation(internal.ticketStatus.saveCheck, { ...args, reading: { status: { label: "Deleted", category: "canceled" }, asOf: null }, deleted: true }),
         stale: async (startedAt) => void (await ctx.runMutation(internal.ticketStatus.stale, { ...args, startedAt })),
       },
       ticketsDeployment(),
@@ -77,7 +78,7 @@ export const apply = internalMutation({
 
 /** Saves what a check read on the checked link only, and resolves its thread under Resolve when done. */
 export const saveCheck = internalMutation({
-  args: { linkId: v.string(), reading: statusReading },
+  args: { linkId: v.string(), reading: statusReading, deleted: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<{ updated: number; resolved: string[] }> => await applyCheckedStatus(convexStore(ctx), args, Date.now()),
 });
 

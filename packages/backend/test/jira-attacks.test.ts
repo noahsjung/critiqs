@@ -152,9 +152,12 @@ test("Jira attack: a signed delivery from another site's webhook with the same I
   const nowhere = await jiraIssueWebhook(jira, { event: "jira:issue_updated", issueId: existing.id, webhookIds: [1000], sentAt: Date.now(), self: null });
   expect((await deliver(nowhere)).status).toBe(200);
   expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("To Do");
-  // The same change from this site's webhook does.
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("To Do");
+  // The same change from this site's webhook does: Lee's token reads the issue as Jira has it now.
   const own = await jiraIssueWebhook(jira, { event: "jira:issue_updated", issueId: existing.id, webhookIds: [1000], sentAt: Date.now() });
   expect((await deliver(own)).status).toBe(200);
+  await t.finishAllScheduledFunctions(() => undefined);
   expect((await getThread(dana, { threadId })).tickets?.[0]?.status?.label).toBe("Done");
 });
 

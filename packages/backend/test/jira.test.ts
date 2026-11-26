@@ -232,11 +232,15 @@ test("linking an existing Jira issue adds a remote link and the summary comment;
   expect((await getThread(sam, { threadId })).tickets?.[0]?.status).toEqual({ label: "In Progress", category: "started" });
   const delivery = await jiraIssueWebhook(jira, { event: "jira:issue_updated", issueId: existing.id, webhookIds: [jira.webhooks[0]!.id], sentAt: Date.now() });
   expect((await deliver(delivery)).status).toBe(200);
+  // The delivery says the issue changed; Lee's sign-in reads it as Jira has it.
+  await t.finishAllScheduledFunctions(() => undefined);
   expect(await getThread(sam, { threadId })).toMatchObject({ status: "resolved", resolvedByTickets: true, tickets: [{ key: existing.key, status: { label: "Done", category: "done" } }] });
 
-  // Disconnecting removes the webhook's record; Jira's expires on its own.
+  // Disconnecting removes the webhook's record, and the webhook at Jira.
   await lee.mutation(api.trackers.disconnect, { tracker: "jira" });
   expect(await t.run((ctx) => ctx.db.query("trackerWebhooks").collect())).toEqual([]);
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(jira.webhooks).toEqual([]);
 });
 
 test("a webhook due to expire is renewed with its person's sign-in; one whose person disconnected is dropped", async () => {

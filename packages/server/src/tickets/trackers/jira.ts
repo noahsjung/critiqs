@@ -1,4 +1,4 @@
-import { type TicketDestination, type TicketField, type TicketFieldValue, type TicketStatus, type TicketStatusCategory, webAddress } from "@critiqs/core";
+import { type TicketDestination, type TicketField, type TicketFieldValue, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, webAddress } from "@critiqs/core";
 import { CritiqsError, fail } from "../../errors.ts";
 import { type AdfDocument, markdownToAdf, plainAdf } from "./adf.ts";
 import {
@@ -13,9 +13,11 @@ import {
   type TrackerIdentity,
   type TrackerLabel,
   TrackerRefusal,
+  type TicketPlace,
   type TrackerSite,
   type TrackerToken,
   trackerEndpoint,
+  trackerText,
 } from "./index.ts";
 
 // Jira Cloud, through its REST API v3
@@ -369,8 +371,12 @@ function fieldValue(field: TicketField, value: TicketFieldValue): unknown {
 export function jiraAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapter {
   const to = endpointsOf(endpoint);
   const issue = async (token: TrackerToken, idOrKey: string) => {
-    const found = parseIssue(siteOf(token), await call(to, token, `/rest/api/3/issue/${encodeURIComponent(idOrKey)}`, { query: { fields: ISSUE_FIELDS.join(",") } }));
+    const site = siteOf(token);
+    const found = parseIssue(site, await call(to, token, `/rest/api/3/issue/${encodeURIComponent(idOrKey)}`, { query: { fields: ISSUE_FIELDS.join(",") } }));
     if (found === null) throw unexpected("issue unreadable");
+    // Another issue than the one asked for, by its ID or its key, isn't this one: its attachments and comments would go there.
+    const asked = /^\d+$/.test(idOrKey) ? found.externalId === jiraId(site, idOrKey) : found.key.toUpperCase() === idOrKey.toUpperCase();
+    if (!asked) throw unexpected("another issue");
     return found;
   };
   const search = async (token: TrackerToken, jql: string, maxResults: number, properties: string[] = []) => {
@@ -404,7 +410,9 @@ export function jiraAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapt
         // Who signed in, with their email, from Atlassian's own account (`read:me`); the site is the one their sign-in chose.
         const me = await call(to, token, "/me", {}, true);
         if (!isRecord(me) || !text(me.account_id) || !text(me.name)) throw unexpected("no account");
-        return { accountId: jiraId(site, me.account_id), accountName: me.name, emails: text(me.email) ? [me.email] : [], site };
+        // Atlassian's documented answer says nothing of whether the email is verified; one that says it isn't is never compared.
+        const verified = !("email_verified" in me) || me.email_verified === true;
+        return { accountId: jiraId(site, me.account_id), accountName: me.name, emails: text(me.email) && verified ? [me.email] : [], site };
       }
       const cloudId = await cloudIdOf(to, site.name);
       const myself = await call(to, token, "/rest/api/3/myself");
@@ -550,29 +558,57 @@ export function jiraAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapt
             webhooks: [{ events: ["jira:issue_updated", "jira:issue_deleted"], jqlFilter: `project IN (${scopes.join(", ")})` }],
           },
         });
+        // {"webhookRegistrationResult":[{"createdWebhookId":1000}]}, or the webhook's errors in place of its ID.
         const [result] = isRecord(answer) && Array.isArray(answer.webhookRegistrationResult) ? answer.webhookRegistrationResult : [];
         if (!isRecord(result)) throw unexpected("no webhook");
-        if (typeof result.createdWebhookId !== "number") {
+        if (typeof result.createdWebhookId !== "number" || !Number.isSafeInteger(result.createdWebhookId)) {
           const errors = Array.isArray(result.errors) ? result.errors.filter(text).join(" ") : "";
           throw new TrackerRefusal("invalid", `Jira didn't register the webhook${errors === "" ? "." : `: ${errors}`}`);
         }
-        const id = String(result.createdWebhookId);
-        // Jira's answer doesn't say when it expires; extending its life does.
-        return { id, expiresAt: await renew(to, token, [id]) };
+        // Jira's answer doesn't say when it expires; its documentation says 30 days from registration. Asking would risk
+        // losing a webhook Jira made over an answer Critiqs couldn't read.
+        return { id: String(result.createdWebhookId), expiresAt: input.now + JIRA_WEBHOOK_LIFE_MS };
       },
       renew: async (token, ids) => await renew(to, token, ids),
       remove: async (token, ids) => {
         await call(to, token, "/rest/api/3/webhook", { method: "DELETE", json: { webhookIds: ids.map(Number) } });
       },
     },
-  }, (ticket) => webAddress(ticket.url));
+  }, jiraPlace);
 }
 
+/** How long a Jira webhook lives after it is registered or extended (https://developer.atlassian.com/cloud/jira/platform/webhooks/). */
+export const JIRA_WEBHOOK_LIFE_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * Extends webhooks' life; returns when they now expire. Jira's documentation
+ * describes `expirationDate` as a number of milliseconds, and shows it as a
+ * date in Jira's format (`"2019-06-01T12:42:30.000+0000"`): either is taken.
+ */
 async function renew(to: JiraEndpoints, token: TrackerToken, ids: string[]): Promise<number> {
   const answer = await call(to, token, "/rest/api/3/webhook/refresh", { method: "PUT", json: { webhookIds: ids.map(Number) } });
-  if (!isRecord(answer) || typeof answer.expirationDate !== "number") throw unexpected("no expiration date");
-  return answer.expirationDate;
+  const date = isRecord(answer) ? answer.expirationDate : undefined;
+  const expiresAt = typeof date === "number" ? date : jiraTime(date);
+  if (expiresAt === null || !Number.isSafeInteger(expiresAt) || expiresAt <= 0) throw unexpected("no expiration date");
+  return expiresAt;
 }
+
+/**
+ * Where Jira's issues are: `https://<site>/browse/<key>`, on the site of the
+ * token the issue was read with. An address is kept only when it is that page
+ * for an issue on that site.
+ */
+const jiraPlace: TicketPlace = (ticket, token) => {
+  const site = token.site;
+  const url = webAddress(ticket.url);
+  if (site == null || ticket.site !== site.id || url === null) return null;
+  const prefix = `https://${site.name}/browse/`;
+  if (!url.startsWith(prefix)) return null;
+  const named = url.slice(prefix.length);
+  if (named.includes("/") || named.includes("?") || named.includes("#") || /%(?![0-9A-Fa-f]{2})/.test(named)) return null;
+  // Compared as Critiqs keeps keys, cut to their limit.
+  return trackerText(decodeURIComponent(named), TRACKER_LIMITS.key) === ticket.key ? url : null;
+};
 
 /** The remote link's global ID for a thread's link: the same for the same thread, so adding it again updates it. */
 async function linkGlobalId(url: string): Promise<string> {
@@ -700,8 +736,13 @@ export async function jiraSignInSite(endpoint: TrackerEndpointOptions, accessTok
 
 /** Leeway on a webhook token's times, for clocks that differ. */
 export const JIRA_WEBHOOK_LEEWAY_MS = 5 * 60_000;
+/** The longest a webhook token may be good for: Atlassian's tokens last minutes, so one good for longer isn't a delivery's. */
+export const JIRA_WEBHOOK_TOKEN_MAX_MS = 60 * 60_000;
 /** The status Critiqs records for an issue Jira deleted: the work is closed there. */
 export const JIRA_DELETED_STATUS = { label: "Deleted", category: "canceled" } as const;
+
+/** A Jira site as a delivery's issue address names it: by its cloud ID through Atlassian's gateway, or by its own host. */
+export type JiraDeliverySite = { id: string } | { name: string };
 
 /** What a call to the Jira webhook route means. */
 export type JiraWebhook =
@@ -710,13 +751,14 @@ export type JiraWebhook =
   /** From Jira, but nothing Critiqs keeps. */
   | { status: "ignored" }
   /**
-   * An issue's status. The delivery doesn't name its site: `webhookIds` are
-   * the webhooks it matched, which Critiqs registered for one site each, and
-   * `self` where the issue's address says it is (its host, or the cloud ID
-   * in a gateway address), which must be that site: webhook IDs are unique
-   * only within a site.
+   * That an issue changed, or was deleted. The token Jira signs doesn't
+   * cover the body, so nothing else in it is used: the issue's status is read
+   * from Jira with each linker's token. `webhookIds` are the webhooks it
+   * matched, which Critiqs registered on one site each, and `site` the one
+   * site the issue's address names, which must be theirs: webhook IDs are
+   * unique only within a site.
    */
-  | { status: "update"; webhookIds: string[]; self: { host: string; cloudId: string | null } | null; issueId: string; reading: { status: TicketStatus; asOf: number }; deleted: boolean };
+  | { status: "notice"; webhookIds: string[]; site: JiraDeliverySite; issueId: string; deleted: boolean };
 
 function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[A-Za-z0-9_-]*$/.test(value)) return null;
@@ -740,7 +782,12 @@ function base64UrlJson(value: string): unknown {
   }
 }
 
-/** Whether `authorization` is a bearer token signed with `secret` (HS256) that hasn't expired; the reason when it isn't. */
+/**
+ * Whether `authorization` is a bearer token signed with `secret` (HS256)
+ * that says when it expires (`exp`), hasn't, and is good for at most
+ * `JIRA_WEBHOOK_TOKEN_MAX_MS`; the reason when it isn't. Atlassian documents
+ * no other claims of these tokens, so none is required.
+ */
 export async function checkJiraWebhookToken(secret: string, authorization: string | null, now: number): Promise<string | null> {
   const match = /^Bearer ([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(authorization?.trim() ?? "");
   if (match === null) return "missing or malformed token";
@@ -753,15 +800,40 @@ export async function checkJiraWebhookToken(secret: string, authorization: strin
   if (!isRecord(header) || header.alg !== "HS256") return "unexpected algorithm";
   const claims = base64UrlJson(payload);
   if (!isRecord(claims)) return "unreadable claims";
-  if (claims.exp !== undefined && (typeof claims.exp !== "number" || claims.exp * 1000 < now - JIRA_WEBHOOK_LEEWAY_MS)) return "expired";
+  if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp)) return "no expiry";
+  if (claims.exp * 1000 < now - JIRA_WEBHOOK_LEEWAY_MS) return "expired";
+  if (claims.exp * 1000 > now + JIRA_WEBHOOK_TOKEN_MAX_MS + JIRA_WEBHOOK_LEEWAY_MS) return "good for too long";
   if (claims.iat !== undefined && (typeof claims.iat !== "number" || claims.iat * 1000 > now + JIRA_WEBHOOK_LEEWAY_MS)) return "issued in the future";
   return null;
 }
 
 /**
+ * The one site an issue's address names: its cloud ID, through Atlassian's
+ * gateway (`https://api.atlassian.com/ex/jira/<cloudId>/…`), or the site's
+ * own Atlassian host. Null for any other address, or none.
+ */
+export function jiraDeliverySite(self: unknown): JiraDeliverySite | null {
+  if (!text(self)) return null;
+  let url: URL;
+  try {
+    url = new URL(self);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "") return null;
+  if (url.origin === JIRA_API_URL) {
+    const cloudId = /^\/ex\/jira\/([A-Za-z0-9-]{1,64})\//.exec(url.pathname)?.[1];
+    return cloudId === undefined ? null : { id: cloudId };
+  }
+  const host = url.hostname.toLowerCase();
+  return JIRA_SITE_HOST.test(host) && !url.pathname.startsWith("/ex/") ? { name: host } : null;
+}
+
+/**
  * Reads a call to the Jira webhook route: the token is checked first; then
- * an issue's update or deletion becomes its status, as of the issue's last
- * update (a deletion as of when Jira sent it, if later).
+ * an issue's update or deletion becomes a notice that it changed, on the
+ * site its address names. The token doesn't cover the body, so no status in
+ * it is used: Critiqs reads the issue from Jira with the linker's token.
  */
 export async function readJiraWebhook(secret: string, rawBody: Uint8Array<ArrayBuffer>, authorization: string | null, now: number): Promise<JiraWebhook> {
   const refused = await checkJiraWebhookToken(secret, authorization, now);
@@ -772,31 +844,17 @@ export async function readJiraWebhook(secret: string, rawBody: Uint8Array<ArrayB
   } catch {
     return { status: "refused", reason: "unreadable body" };
   }
-  if (!isRecord(body) || !isRecord(body.issue) || !text(body.issue.id)) return { status: "ignored" };
+  if (!isRecord(body) || !isRecord(body.issue) || !text(body.issue.id) || !/^\d{1,18}$/.test(body.issue.id)) return { status: "ignored" };
   const webhookIds = Array.isArray(body.matchedWebhookIds) ? body.matchedWebhookIds.flatMap((id) => (typeof id === "number" || text(id) ? [String(id)] : [])) : [];
   if (webhookIds.length === 0 || webhookIds.length > 20) return { status: "ignored" };
-  const { issue } = body;
-  const fields = isRecord(issue.fields) ? issue.fields : {};
-  let self: { host: string; cloudId: string | null } | null = null;
-  try {
-    if (text(issue.self)) {
-      const url = new URL(issue.self);
-      // A sign-in's address goes through Atlassian's gateway, naming the site's cloud ID.
-      const cloudId = /^\/ex\/jira\/([^/]{1,256})\//.exec(url.pathname)?.[1] ?? null;
-      self = { host: url.hostname.toLowerCase(), cloudId: cloudId === null ? null : decodeURIComponent(cloudId) };
-    }
-  } catch {
-    self = null;
-  }
-  const sentAt = typeof body.timestamp === "number" ? body.timestamp : now;
-  const updatedAt = jiraTime(fields.updated) ?? sentAt;
-  const update = (status: TicketStatus, asOf: number, deleted: boolean): JiraWebhook => ({ status: "update", webhookIds, self, issueId: issue.id as string, reading: { status, asOf }, deleted });
+  const site = jiraDeliverySite(body.issue.self);
+  if (site === null) return { status: "ignored" };
   switch (body.webhookEvent) {
     case "jira:issue_created":
     case "jira:issue_updated":
-      return isRecord(fields.status) && text(fields.status.name) ? update(parseStatus(fields.status), updatedAt, false) : { status: "ignored" };
+      return { status: "notice", webhookIds, site, issueId: body.issue.id, deleted: false };
     case "jira:issue_deleted":
-      return update({ ...JIRA_DELETED_STATUS }, Math.max(updatedAt, sentAt), true);
+      return { status: "notice", webhookIds, site, issueId: body.issue.id, deleted: true };
     default:
       return { status: "ignored" };
   }

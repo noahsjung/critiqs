@@ -239,7 +239,7 @@ test("webhooks: registered, renewed, and removed only with a sign-in, following 
   const adapter = jiraAdapter({ fetch: standIn.fetchFn, baseUrl: ORIGIN, sitesUrl: ORIGIN });
   const site = { id: standIn.site.cloudId, name: standIn.site.host };
   const token = await signIn(standIn, site);
-  const hook = await adapter.webhooks!.register(token, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001", "10002", "10001"] });
+  const hook = await adapter.webhooks!.register(token, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001", "10002", "10001"], now });
   expect(hook).toEqual({ id: "1000", expiresAt: 10_000 + 30 * 86_400_000 });
   expect(standIn.webhooks[0]).toMatchObject({ url: "https://critiqs.test/trackers/jira/webhook", jqlFilter: "project IN (10001, 10002)", events: ["jira:issue_updated", "jira:issue_deleted"] });
   now = 20_000;
@@ -248,31 +248,100 @@ test("webhooks: registered, renewed, and removed only with a sign-in, following 
   expect(standIn.webhooks).toEqual([]);
   // Only OAuth apps can register webhooks: a pasted token is refused.
   const pasted: TrackerToken = { method: "token", value: "dana@example.com:ATATT-dana-token", site };
-  expect(await refusal(adapter.webhooks!.register(pasted, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001"] }))).toBeInstanceOf(TrackerRefusal);
+  expect(await refusal(adapter.webhooks!.register(pasted, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001"], now }))).toBeInstanceOf(TrackerRefusal);
 });
 
-test("a webhook is read only with a token signed with the app's secret that hasn't expired", async () => {
+test("webhook registration and renewal take the answers Atlassian documents, and a registered webhook's ID is kept whatever its renewal answers", async () => {
+  const now = 10_000;
+  const standIn = jiraStandIn({ now: () => now });
+  const adapter = jiraAdapter({ fetch: standIn.fetchFn, baseUrl: ORIGIN, sitesUrl: ORIGIN });
+  const site = { id: standIn.site.cloudId, name: standIn.site.host };
+  const token = await signIn(standIn, site);
+  standIn.requests.length = 0;
+  // Registered: {"webhookRegistrationResult":[{"createdWebhookId":1000}]}. A webhook lives 30 days from its registration.
+  const hook = await adapter.webhooks!.register(token, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10001"], now });
+  expect(hook).toEqual({ id: "1000", expiresAt: now + 30 * 86_400_000 });
+  expect(standIn.webhooks).toHaveLength(1);
+  // Extended: the documented example's date, {"expirationDate":"2019-06-01T12:42:30.000+0000"} ...
+  expect(await adapter.webhooks!.renew(token, ["1000"])).toBe(now + 30 * 86_400_000);
+  // ... or a number, as the schema says.
+  standIn.intercept = (method, path) => (method === "PUT" && path === "/rest/api/3/webhook/refresh" ? Response.json({ expirationDate: 1_700_000_000_000 }) : undefined);
+  expect(await adapter.webhooks!.renew(token, ["1000"])).toBe(1_700_000_000_000);
+  // An answer with neither is refused, not saved as a date.
+  standIn.intercept = (method, path) => (method === "PUT" && path === "/rest/api/3/webhook/refresh" ? Response.json({ expirationDate: "soon" }) : undefined);
+  expect((await refusal(adapter.webhooks!.renew(token, ["1000"]))).code).toBe("unavailable");
+  // Registering needs no renewal, so an answer Critiqs can't read there never loses a webhook Jira made.
+  standIn.intercept = (method, path) => (method === "PUT" && path === "/rest/api/3/webhook/refresh" ? Response.json({}) : undefined);
+  expect(await adapter.webhooks!.register(token, { url: "https://critiqs.test/trackers/jira/webhook", scopes: ["10002"], now })).toEqual({ id: "1001", expiresAt: now + 30 * 86_400_000 });
+});
+
+test("an issue Jira answers with in place of the one asked for, such as a creation's read-back, is never taken for it", async () => {
+  const { adapter, pasted, standIn } = setup();
+  const other = addJiraIssue(standIn, { summary: "Someone else's" });
+  // Asked for the new issue, Jira answers with another one: its attachments and comments would go there.
+  standIn.intercept = (method, path) => (method === "GET" && /^\/rest\/api\/3\/issue\/\d+$/.test(path) && path !== `/rest/api/3/issue/${other.id}` ? standIn.handle(new Request(`${ORIGIN}/acme.atlassian.net/rest/api/3/issue/${other.id}`, { headers: { Authorization: `Basic ${btoa("dana@example.com:ATATT-dana-token")}`, Accept: "application/json" } })) : undefined);
+  const made = await adapter.create(pasted, { destinationId: "10001/10010", title: "T", body: md("B"), labels: [], templateId: null, creationId: crypto.randomUUID() });
+  expect(made.status).toBe("unknown");
+});
+
+test("Atlassian sign-in's email counts only when Atlassian doesn't say it is unverified", async () => {
+  const standIn = jiraStandIn();
+  const site = { id: standIn.site.cloudId, name: standIn.site.host };
+  let verified: boolean | undefined;
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const answer = await standIn.fetchFn(input, init);
+    if (!new URL(input instanceof Request ? input.url : String(input)).pathname.endsWith("/me") || verified === undefined) return answer;
+    return Response.json({ ...(await answer.json()), email_verified: verified });
+  }) as typeof fetch;
+  const adapter = jiraAdapter({ fetch: fetchFn, baseUrl: ORIGIN, sitesUrl: ORIGIN });
+  const token = await signIn(standIn, site);
+  // Atlassian's documented answer has no such field: its email is compared.
+  expect((await adapter.verify(token)).emails).toEqual(["dana@example.com"]);
+  verified = false;
+  expect((await adapter.verify(token)).emails).toEqual([]);
+  verified = true;
+  expect((await adapter.verify(token)).emails).toEqual(["dana@example.com"]);
+});
+
+test("a webhook is read only with a token signed with the app's secret that says when it expires, hasn't, and isn't good for long; it is only a notice that an issue on one site changed", async () => {
   const { standIn } = setup();
   const issue = addJiraIssue(standIn, { summary: "Hooked", status: { name: "In Review", categoryKey: "indeterminate" }, updated: jiraTimestamp(50_000) });
   const read = async (delivery: { body: string; headers: Record<string, string> }, now = 60_000) =>
     await readJiraWebhook(JIRA_STANDIN_SECRET, new TextEncoder().encode(delivery.body), delivery.headers.Authorization ?? null, now);
   const updated = await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000 });
-  expect(await read(updated)).toEqual({
-    status: "update",
-    webhookIds: ["1000"],
-    self: { host: "acme.atlassian.net", cloudId: null },
-    issueId: issue.id,
-    reading: { status: { label: "In Review", category: "started" }, asOf: 50_000 },
-    deleted: false,
-  });
+  // No status from the body: the token doesn't cover it.
+  expect(await read(updated)).toEqual({ status: "notice", webhookIds: ["1000"], site: { name: "acme.atlassian.net" }, issueId: issue.id, deleted: false });
   const deleted = await jiraIssueWebhook(standIn, { event: "jira:issue_deleted", issueId: issue.id, webhookIds: [1000], sentAt: 70_000 });
-  expect(await read(deleted, 70_000)).toMatchObject({ status: "update", reading: { status: { label: "Deleted", category: "canceled" }, asOf: 70_000 }, deleted: true });
+  expect(await read(deleted, 70_000)).toMatchObject({ status: "notice", deleted: true });
+  const gateway = await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000, self: `https://api.atlassian.com/ex/jira/${standIn.site.cloudId}/rest/api/2/issue/${issue.id}` });
+  expect(await read(gateway)).toMatchObject({ status: "notice", site: { id: standIn.site.cloudId } });
+  // An address on another host that borrows the gateway's path, or none, names no site.
+  for (const self of [`https://evil.example/ex/jira/${standIn.site.cloudId}/rest/api/2/issue/${issue.id}`, `https://acme.atlassian.net/ex/jira/${standIn.site.cloudId}/rest/api/2/issue/${issue.id}`, "http://acme.atlassian.net/rest/api/2/issue/1", null]) {
+    expect(await read(await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000, self }))).toEqual({ status: "ignored" });
+  }
   const forged = await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000, secret: "not-the-secret" });
   expect(await read(forged)).toEqual({ status: "refused", reason: "wrong signature" });
   const old = await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000, claims: { iat: 1, exp: 2 } });
   expect(await read(old, 2_000 + 5 * 60_000 + 1)).toEqual({ status: "refused", reason: "expired" });
+  const forever = await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000, claims: { iat: 60 } });
+  expect(await read(forever)).toEqual({ status: "refused", reason: "no expiry" });
+  const long = await jiraIssueWebhook(standIn, { event: "jira:issue_updated", issueId: issue.id, webhookIds: [1000], sentAt: 60_000, claims: { iat: 60, exp: 60 + 86_400 } });
+  expect(await read(long)).toEqual({ status: "refused", reason: "good for too long" });
   expect(await read({ body: updated.body, headers: {} })).toEqual({ status: "refused", reason: "missing or malformed token" });
-  // A body changed after signing is still from Jira's app (the token covers no body), so the issue's own time still orders it.
   const unrelated = { ...updated, body: JSON.stringify({ webhookEvent: "comment_created", comment: {} }) };
   expect(await read(unrelated)).toEqual({ status: "ignored" });
+});
+
+test("a Jira issue Critiqs holds is written to only when its address is its site's page for its key", async () => {
+  const { adapter, pasted, site, standIn } = setup();
+  const issue = addJiraIssue(standIn, { summary: "Linked" });
+  const held = { tracker: "jira" as const, externalId: `${site.id}/${issue.id}`, key: issue.key, url: web(`https://acme.atlassian.net/browse/${issue.key}`), title: "t", site: site.id };
+  standIn.requests.length = 0;
+  for (const url of ["https://evil.example/browse/WEB-1", `https://acme.atlassian.net/browse/OTHER-9`, `https://other.atlassian.net/browse/${issue.key}`]) {
+    expect(await refusal(adapter.comment(pasted, { ...held, url: web(url) }, md("Text")))).toBeInstanceOf(TrackerRefusal);
+  }
+  expect(await refusal(adapter.linkBack(pasted, { ...held, site: "another-cloud" }, { url: web("https://app.test/t1"), title: "t" }))).toBeInstanceOf(TrackerRefusal);
+  expect(standIn.requests).toEqual([]);
+  await adapter.comment(pasted, held, md("Text"));
+  expect(standIn.comments).toHaveLength(1);
 });

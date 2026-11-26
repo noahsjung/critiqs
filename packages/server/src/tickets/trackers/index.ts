@@ -568,8 +568,8 @@ export interface TrackerAdapter {
 
 /** Registering, renewing, and removing status webhooks with a person's sign-in. */
 export interface TrackerWebhooks {
-  /** Registers one webhook sending `url` the status of tickets in `scopes` (`webhookScope`s); returns its ID and when it expires. */
-  register(token: TrackerToken, input: { url: string; scopes: string[] }): Promise<{ id: string; expiresAt: number }>;
+  /** Registers one webhook sending `url` the status of tickets in `scopes` (`webhookScope`s), at `now`; returns its ID and when it expires. */
+  register(token: TrackerToken, input: { url: string; scopes: string[]; now: number }): Promise<{ id: string; expiresAt: number }>;
   /** Extends the webhooks' life; returns when they now expire. */
   renew(token: TrackerToken, ids: string[]): Promise<number>;
   remove(token: TrackerToken, ids: string[]): Promise<void>;

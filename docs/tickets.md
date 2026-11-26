@@ -138,6 +138,10 @@ happened there:
   moment between that check and GitHub's deletion can still be ended by it;
   its first use then asks to connect GitHub again. The app stays installed on
   the organization's repositories; only the organization can remove it.
+- **Jira sign-in:** the webhooks it registered are removed at Jira.
+  Atlassian documents no call that revokes a sign-in, so its tokens stay
+  valid until they expire, or until the person removes Critiqs from their
+  Atlassian account's connected apps.
 - **When the tracker can't be told** (unreachable, or it refused), Your
   trackers says that Critiqs can still reach the account and how to end it in
   the tracker; Critiqs tries again a minute, ten minutes, and an hour later.
@@ -463,7 +467,9 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
   `*.jira.com`) are accepted, so a token is never sent anywhere else. With the
   operator's Atlassian app, **Connect Jira** opens Atlassian's sign-in for that
   site, and it is saved only when the sign-in reaches that site and the
-  Atlassian account's email is the Critiqs account's. **Use an API token
+  Atlassian account's email is the Critiqs account's (Atlassian's account
+  answer documents no verified flag; one that says the email isn't verified
+  is never compared). **Use an API token
   instead**, or a deployment without the app, takes an Atlassian API token
   with the person's email and site. Critiqs records the site (its cloud ID and
   address) on the account and on each link, including links still being made;
@@ -499,14 +505,34 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
   started, and Done → done; Jira has no canceled category, and a deleted issue
   shows **Deleted**. When someone signed in to Jira links or creates a ticket,
   their sign-in registers one webhook per site following the projects of the
-  tickets they linked there; a daily job renews each a week before it expires,
-  or registers it again if it lapsed, and drops it when its person
-  disconnects. A delivery is used only after its bearer token checks out with
-  the app's client secret, and only on a site its webhook was registered for
-  that the issue's own address names too: Jira's webhook and issue IDs are
-  unique only within a site, so a delivery from another site's webhook with
-  the same ID, or one whose issue address names no site, changes nothing. Pasted API tokens can't register webhooks, so their tickets'
-  status comes from the check when a thread opens.
+  tickets they linked there in projects they may still review. Each
+  registration and the daily renewal (a week before the webhook's 30 days
+  end) work that out again first, so after a person is removed from a
+  project, or unlinks their last ticket in it, their webhook stops following
+  it, and one that follows nothing is removed at Jira rather than renewed.
+  Jira's answers are read as its documentation gives them: the webhook's ID
+  from the registration, and the new expiry from a renewal as a number or as
+  a date like `2019-06-01T12:42:30.000+0000`; a registered webhook is kept
+  as 30 days from its registration, without waiting on a renewal.
+- **Deliveries.** A delivery's bearer token must check out with the app's
+  client secret, say when it expires, not have expired, and be good for at
+  most an hour. The token doesn't cover the delivery's body, so a delivery is
+  only a notice that an issue changed: Critiqs reads the issue from Jira with
+  each linker's own token (once it checks they may still review the project)
+  and saves what Jira says now, never the body's status. A deleted issue
+  shows **Deleted** when the delivery says it was deleted and the linker's
+  read finds no issue. The notice counts only from a current webhook Critiqs
+  registered on the one site the issue's address names, by its own host or
+  by its cloud ID through Atlassian's gateway: webhook and issue IDs are
+  unique only within a site, so the webhook is found by its site and ID
+  together. A link whose check already waits gets no other, and each site's
+  deliveries may queue checks 300 times a minute (429 past that). Pasted API
+  tokens can't register webhooks, so their tickets' status comes from the
+  check when a thread opens.
+- **Disconnecting** removes the person's webhooks at Jira with their sign-in
+  (refreshed first if it had expired). Atlassian documents no call that
+  revokes a sign-in, so its tokens stay valid until they expire or the person
+  removes Critiqs from their Atlassian account's connected apps.
 - **Safety.** As for Linear and GitHub: every call goes through Critiqs's
   tracker endpoint (Atlassian's gateway, or the person's own site, which must
   be an Atlassian cloud host each time it is used; no redirects, 15 seconds,
