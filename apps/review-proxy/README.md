@@ -54,7 +54,12 @@ sibling frame host planted can't make it refuse requests).
   with `@critiqs/server/public-web`'s pinned connector. Redirects are followed
   on the server, at most three, within one origin.
 - `src/headers.ts` builds upstream request headers from scratch and passes
-  only an allow list of response headers back.
+  only an allow list of response headers back. The one exception is the
+  request headers Next.js's App Router sends with its data requests (`rsc`,
+  `next-router-state-tree`, `next-router-prefetch`,
+  `next-router-segment-prefetch`, `next-url`, `x-deployment-id`): on the
+  prototype's own origin only, each by name and only with a value of the exact
+  shape Next.js produces. Its server refuses data requests without them.
 - `src/decompress.ts` reads bodies with wire and decompressed byte caps and
   idle and total deadlines, closing the upstream connection at once.
 - `src/reputation.ts` checks the origin and path (never the query) with
@@ -63,7 +68,10 @@ sibling frame host planted can't make it refuse requests).
   and owner-approved origins checks every path, the one for third-party
   static files checks each host.
 - `src/limits.ts` caps reads in flight per lease and per process, and
-  requests and bytes per lease per window.
+  requests and bytes per lease per window. Prefetches (Next.js's router, the
+  browser's own) have a window of their own and at most half the reads in
+  flight, so a page prefetching every link never locks the reviewer out of
+  what they open; their bytes count in the lease's byte window.
 
 `bun test` runs the unit tests and the attack tests against local servers;
 no test reaches the internet.

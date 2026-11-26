@@ -15,10 +15,19 @@ export class ConfigError extends Error {
 export interface ProxyLimits {
   /** Upstream reads at once for one lease, and for the whole process. Past either, 503 at once: there is no queue. */
   concurrentPerLease: number;
+  /** Of a lease's reads at once, how many may be prefetches, so what the reviewer opens always has room. */
+  concurrentPrefetchPerLease: number;
   concurrentPerProcess: number;
   /** Requests and bytes one lease may use per window. */
   windowMs: number;
   requestsPerWindow: number;
+  /**
+   * Prefetches (Next.js's router, the browser's own) per lease per window,
+   * counted apart from `requestsPerWindow`: a framework prefetching every link
+   * on a page uses these up, and is then refused, while what the reviewer
+   * opens still has its own. Bytes count against `bytesPerWindow` either way.
+   */
+  prefetchRequestsPerWindow: number;
   bytesPerWindow: number;
   /** Bytes read from upstream (on the wire) and after decompression, for HTML and CSS that are rewritten. */
   htmlInputBytes: number;
@@ -43,9 +52,11 @@ export interface ProxyLimits {
 
 export const DEFAULT_LIMITS: ProxyLimits = {
   concurrentPerLease: 8,
+  concurrentPrefetchPerLease: 4,
   concurrentPerProcess: 64,
   windowMs: 10 * 60_000,
   requestsPerWindow: 300,
+  prefetchRequestsPerWindow: 600,
   bytesPerWindow: 80 * 1024 * 1024,
   htmlInputBytes: 2 * 1024 * 1024,
   htmlOutputBytes: 3 * 1024 * 1024,

@@ -38,6 +38,16 @@ const primary = recordingServer((request, response) => {
     case "/api/items":
       response.writeHead(200, { "Content-Type": "application/json" });
       return response.end('{"items":[1,2,3]}');
+    case "/next?_rsc=abc":
+      response.writeHead(200, {
+        "Content-Type": "text/x-component",
+        Vary: "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch, next-url",
+        "x-nextjs-stale-time": "300",
+        "x-nextjs-postponed": "12",
+        "x-nextjs-deployment-id": "dpl_ABC123",
+        "x-nextjs-rewritten-path": "/secret",
+      });
+      return response.end("0:{}");
     case "/old":
       response.writeHead(301, { Location: "/new?from=old" });
       return response.end();
@@ -432,5 +442,124 @@ describe("limits", () => {
     expect(response.status).toBe(200);
     await response.text();
     expect(primary.requests.at(-1)!.headers.cookie).toBeUndefined();
+  });
+});
+
+// Next.js's App Router asks for each page's data with its own request headers
+// (headers.ts); without them its server redirects every request to an `_rsc`
+// hash it never reaches. Only those names pass, each with its exact shape.
+const TREE = encodeURIComponent(JSON.stringify(["", { children: ["blog", { children: ["__PAGE__", {}] }] }, null, null, true]));
+const NEXT_HEADERS = {
+  rsc: "1",
+  "next-router-state-tree": TREE,
+  "next-router-prefetch": "1",
+  "next-router-segment-prefetch": "/_tree",
+  "next-url": "/blog",
+  "x-deployment-id": "dpl_ABC123",
+};
+
+describe("framework headers (Next.js App Router)", () => {
+  test("its data requests reach the prototype with exactly its headers", async () => {
+    const { proxy } = setup();
+    primary.requests.length = 0;
+    const response = await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("0:{}");
+    const seen = primary.requests.at(-1)!.headers;
+    expect(Object.keys(seen).sort()).toEqual(["accept", "accept-encoding", "connection", "host", "next-router-prefetch", "next-router-segment-prefetch", "next-router-state-tree", "next-url", "rsc", "user-agent", "x-deployment-id"]);
+    for (const [name, value] of Object.entries(NEXT_HEADERS)) expect(seen[name]).toBe(value);
+    // What its client reads back passes; a value that isn't its shape, and anything else, doesn't.
+    expect(response.headers.get("vary")).toContain("next-router-state-tree");
+    expect(response.headers.get("x-nextjs-stale-time")).toBe("300");
+    expect(response.headers.get("x-nextjs-deployment-id")).toBe("dpl_ABC123");
+    expect(response.headers.get("x-nextjs-postponed")).toBeNull();
+    expect(response.headers.get("x-nextjs-rewritten-path")).toBeNull();
+  });
+
+  test("an arbitrary header still never passes, nor a framework header with another shape (attack)", async () => {
+    const { proxy } = setup();
+    primary.requests.length = 0;
+    await ask(proxy, "/next?_rsc=abc", {
+      dest: "empty",
+      headers: {
+        "x-custom": "1",
+        "x-secret": "reviewer",
+        authorization: "Bearer reviewer-token",
+        cookie: "session=1",
+        "next-action": "abc123",
+        "next-hmr-refresh": "1",
+        "x-nextjs-request-id": "ff",
+        "x-nextjs-html-request-id": "ff",
+        "x-middleware-subrequest": "middleware",
+        rsc: "2",
+        "next-router-state-tree": encodeURIComponent(JSON.stringify({ not: "a tree" })),
+        "next-router-prefetch": "yes",
+        "next-router-segment-prefetch": "/a b",
+        "next-url": "https://evil.example/x",
+        "x-deployment-id": "dpl id with spaces",
+      },
+    }).then((response) => response.text());
+    const seen = primary.requests.at(-1)!.headers;
+    expect(Object.keys(seen).sort()).toEqual(["accept", "accept-encoding", "connection", "host", "user-agent"]);
+  });
+
+  test("a state tree that isn't URL-encoded JSON, or is too long, is dropped", async () => {
+    const { proxy } = setup();
+    for (const tree of ["%5B", "not-json", "%7B%7D", encodeURIComponent(JSON.stringify(["x".repeat(9000)]))]) {
+      primary.requests.length = 0;
+      await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: { rsc: "1", "next-router-state-tree": tree } }).then((response) => response.text());
+      const seen = primary.requests.at(-1)!.headers;
+      expect(seen.rsc).toBe("1");
+      expect(seen["next-router-state-tree"]).toBeUndefined();
+    }
+  });
+
+  test("pages, files and other sites' requests never carry them", async () => {
+    const { proxy } = setup();
+    primary.requests.length = 0;
+    await ask(proxy, "/", { headers: NEXT_HEADERS }).then((response) => response.text());
+    await ask(proxy, "/site.css", { dest: "style", headers: NEXT_HEADERS }).then((response) => response.text());
+    for (const request of primary.requests) expect(request.headers.rsc).toBeUndefined();
+    api.requests.length = 0;
+    await ask(proxy, "/__critiqs/o/1/data", { dest: "empty", headers: NEXT_HEADERS }).then((response) => response.text());
+    expect(api.requests.at(-1)!.headers.rsc).toBeUndefined();
+  });
+});
+
+describe("prefetches", () => {
+  test("prefetching past its own window never locks the reviewer out", async () => {
+    const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, requestsPerWindow: 3, prefetchRequestsPerWindow: 2 } };
+    const { proxy } = setup({ config });
+    const prefetch = () => ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS });
+    expect((await prefetch()).status).toBe(200);
+    expect((await prefetch()).status).toBe(200);
+    // Out of prefetches: refused at once, without reaching the prototype.
+    primary.requests.length = 0;
+    expect((await prefetch()).status).toBe(429);
+    expect((await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: { "sec-purpose": "prefetch" } })).status).toBe(429);
+    expect(primary.requests.length).toBe(0);
+    // What the reviewer opens still has its own window, and is still bounded by it.
+    expect((await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: { ...NEXT_HEADERS, "next-router-prefetch": "" } })).status).toBe(200);
+    expect((await ask(proxy, "/")).status).toBe(200);
+    expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(200);
+    expect((await ask(proxy, "/api/items", { dest: "empty" })).status).toBe(429);
+  });
+
+  test("prefetches can't take every read in flight", async () => {
+    const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, concurrentPerLease: 2, concurrentPrefetchPerLease: 1 } };
+    const { proxy } = setup({ config });
+    const held = await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS });
+    expect((await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS })).status).toBe(503);
+    const opened = await ask(proxy, "/api/items", { dest: "empty" });
+    expect(opened.status).toBe(200);
+    await Promise.all([held.text(), opened.text()]);
+    expect(proxy.inFlight).toBe(0);
+  });
+
+  test("prefetched bytes count against the lease's byte window", async () => {
+    const config = { ...baseConfig, limits: { ...DEFAULT_LIMITS, bytesPerWindow: 1 } };
+    const { proxy } = setup({ config });
+    await (await ask(proxy, "/api/items", { dest: "empty" })).text();
+    expect((await ask(proxy, "/next?_rsc=abc", { dest: "empty", headers: NEXT_HEADERS })).status).toBe(429);
   });
 });

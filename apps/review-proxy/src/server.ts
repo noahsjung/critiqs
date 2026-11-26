@@ -4,7 +4,7 @@ import { rewriteCss } from "./css.ts";
 import { BodyError, boundedChunks, readDecoded } from "./decompress.ts";
 import { FRAME_LABEL, type ReviewDirectory, type ReviewResolution, type ReviewUsageReport } from "./directory.ts";
 import type { Egress, EgressOutcome } from "./egress.ts";
-import { charsetOf, inboundHeaders, mediaType, type RequestClass, requestHeaderBytes } from "./headers.ts";
+import { charsetOf, frameworkHeaders, inboundHeaders, isPrefetch, mediaType, type RequestClass, requestHeaderBytes } from "./headers.ts";
 import { decodeHtml, rewriteHtml } from "./html.ts";
 import { keyedSlots, slots, windowCounter } from "./limits.ts";
 import { ASSET_CSP, failurePage, frameCsp, leavePage, topLevelPage } from "./pages.ts";
@@ -98,7 +98,11 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   const limits = config.limits;
   const processSlots = slots(limits.concurrentPerProcess);
   const leaseSlots = keyedSlots(limits.concurrentPerLease);
+  const prefetchSlots = keyedSlots(Math.min(limits.concurrentPrefetchPerLease, limits.concurrentPerLease));
   const windows = windowCounter({ windowMs: limits.windowMs, requests: limits.requestsPerWindow, bytes: limits.bytesPerWindow }, now);
+  // Prefetches have their own count, so a framework prefetching every link
+  // can't use up what the reviewer opens; their bytes count in `windows`.
+  const prefetchWindows = windowCounter({ windowMs: limits.windowMs, requests: limits.prefetchRequestsPerWindow, bytes: Number.POSITIVE_INFINITY }, now);
   const usage = new Map<string, { requests: number; bytes: number }>();
 
   const common = (headers: Headers) => {
@@ -298,13 +302,20 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     // Other sites' files are never pages.
     if (route.kind !== "primary" && ["iframe", "frame", "document", "embed", "object"].includes(request.headers.get("sec-fetch-dest") ?? "")) return notFound();
 
-    if (!windows.admit(lease.leaseId)) return asPage ? failure("busy", head) : plain(429, "Too many requests");
+    // A page is never a prefetch here: the frame's own navigation is what the reviewer opened.
+    const prefetch = !asPage && isPrefetch(request.headers);
+    if (prefetch) {
+      // Out of prefetches, or out of bytes: refused without fetching; the framework fetches again when the reviewer navigates.
+      if (windows.usage(lease.leaseId).bytes >= limits.bytesPerWindow || !prefetchWindows.admit(lease.leaseId)) return plain(429, "Too many prefetches");
+    } else if (!windows.admit(lease.leaseId)) return asPage ? failure("busy", head) : plain(429, "Too many requests");
     const entry = usage.get(lease.linkId) ?? { requests: 0, bytes: 0 };
     entry.requests++;
     usage.set(lease.linkId, entry);
     const releaseProcess = processSlots.take();
-    const releaseLease = releaseProcess === null ? null : leaseSlots.take(lease.leaseId);
+    const releasePrefetch = releaseProcess === null || !prefetch ? null : prefetchSlots.take(lease.leaseId);
+    const releaseLease = releaseProcess === null || (prefetch && releasePrefetch === null) ? null : leaseSlots.take(lease.leaseId);
     if (releaseProcess === null || releaseLease === null) {
+      releasePrefetch?.();
       releaseProcess?.();
       return asPage ? failure("busy", head) : plain(503, "Busy", { "retry-after": "2" });
     }
@@ -312,6 +323,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const release = () => {
       if (released) return;
       released = true;
+      releasePrefetch?.();
       releaseLease();
       releaseProcess();
     };
@@ -320,7 +332,9 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const method = head ? "HEAD" : "GET";
     try {
       if (route.kind === "primary") {
-        const outcome = await deps.egress.primary.fetch({ url: route.upstream, method, class: requestClass, origin: lease.origin, signal });
+        // The prototype's own data requests may carry its framework's headers, each checked by name and shape.
+        const framework = requestClass === "data" ? frameworkHeaders(request.headers) : {};
+        const outcome = await deps.egress.primary.fetch({ url: route.upstream, method, class: requestClass, origin: lease.origin, framework, signal });
         if (asPage) return await servePage(ctx, lease, outcome, `${url.pathname}${url.search}`, signal, head, release);
         if (outcome.kind !== "response") {
           release();

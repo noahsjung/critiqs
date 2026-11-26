@@ -36,6 +36,8 @@ export interface EgressRequest {
   class: RequestClass;
   /** The one origin redirects may stay within: the link's, or the asset's own. */
   origin: string;
+  /** Framework headers checked by `frameworkHeaders`, on the prototype's own data requests only. */
+  framework?: Readonly<Record<string, string>>;
   /** Aborts the request and its body, such as when the browser goes away. */
   signal: AbortSignal;
 }
@@ -108,7 +110,7 @@ export function createEgress(deps: EgressDeps): Egress {
           const address = await resolvePublicAddress(url, deps.web.resolve, signal, deps.policy);
           if (address === null) return { kind: "refused", reason: "unreachable" };
           signal.throwIfAborted();
-          response = await deps.web.fetchPinned({ url, address, headers: outboundHeaders(request.class, deps.userAgent), signal, method: request.method });
+          response = await deps.web.fetchPinned({ url, address, headers: outboundHeaders(request.class, deps.userAgent, request.framework), signal, method: request.method });
         } catch {
           // DNS, TLS, connection, the deadline: never reported in detail.
           return { kind: "refused", reason: "unreachable" };
