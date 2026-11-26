@@ -326,13 +326,13 @@ test("SQLite: upgrading a version 8 database gives people from before organizati
   expect(driver.get<{ count: number }>("SELECT count(*) AS count FROM organizations")?.count).toBe(3);
 });
 
-test("SQLite: upgrading a version 11 database keeps every project open to anyone who signs in, until its owners limit it", async () => {
+test("SQLite: upgrading a version 13 database keeps every project open to anyone who signs in, until its owners limit it", async () => {
   const driver = bunDriver(new Database(":memory:"));
-  for (const migration of MIGRATIONS.slice(0, 11)) {
+  for (const migration of MIGRATIONS.slice(0, 13)) {
     if (typeof migration === "string") driver.exec(migration);
     else migration(driver);
   }
-  driver.exec("PRAGMA user_version = 11");
+  driver.exec("PRAGMA user_version = 13");
   const ids = { dana: `u_${"1".repeat(32)}`, organization: `o_${"2".repeat(32)}`, project: `p_${"3".repeat(32)}` };
   driver.run("INSERT INTO users (id, token, name, email, home_organization_id) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com', ?)", [ids.dana, ids.organization]);
   driver.run("INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Dana''s organization', ?, 1)", [ids.organization, ids.dana]);
@@ -451,13 +451,13 @@ test("SQLite: message search finds word beginnings and accents, and treats searc
   expect(await search(["absent"])).toEqual([]);
 });
 
-test("SQLite: upgrading a version 12 database gives older threads a page key only when first shared, and new threads one each", async () => {
+test("SQLite: upgrading a version 14 database gives older threads a page key only when first shared, and new threads one each", async () => {
   const driver = bunDriver(new Database(":memory:"));
-  for (const migration of MIGRATIONS.slice(0, 12)) {
+  for (const migration of MIGRATIONS.slice(0, 14)) {
     if (typeof migration === "string") driver.exec(migration);
     else migration(driver);
   }
-  driver.exec("PRAGMA user_version = 12");
+  driver.exec("PRAGMA user_version = 14");
   const ids = { dana: `u_${"1".repeat(32)}`, organization: `o_${"2".repeat(32)}`, project: `p_${"3".repeat(32)}`, thread: `t_${"5".repeat(32)}` };
   driver.run("INSERT INTO users (id, token, name, email, home_organization_id) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com', ?)", [ids.dana, ids.organization]);
   driver.run("INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Dana''s organization', ?, 1)", [ids.organization, ids.dana]);

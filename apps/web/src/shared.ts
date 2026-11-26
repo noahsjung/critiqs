@@ -10,3 +10,8 @@ export { BackIcon } from "../../../packages/react/src/ui/icons.tsx";
 export { useAllPages, useQueryState } from "../../../packages/react/src/convex/queries.ts";
 export { useUtcDay } from "../../../packages/react/src/hooks.ts";
 export { describeError, type QueryState } from "../../../packages/react/src/transport.ts";
+// The installed panel's thread pieces, for the thread page: avatars, times,
+// and message text with its mentions and hashtags drawn as the panel draws them.
+export { Avatar } from "../../../packages/react/src/ui/common.tsx";
+export { fullTime, relativeTime } from "../../../packages/react/src/ui/format.ts";
+export { MessageBody, tagDisplay } from "../../../packages/react/src/ui/MentionInput.tsx";

@@ -9,6 +9,7 @@ import { Onboarding } from "./ui/Onboarding.tsx";
 import { Account } from "./ui/parts.tsx";
 import { Logo } from "./ui/Preview.tsx";
 import { SetupPage } from "./ui/SetupPage.tsx";
+import { ThreadPage } from "./ui/ThreadPage.tsx";
 
 /** Critiqs Cloud's Convex deployment, or the one `VITE_CRITIQS_BACKEND` names. */
 const BACKEND = (import.meta.env.VITE_CRITIQS_BACKEND as string | undefined)?.trim() || HOSTED_BACKEND_URL;
@@ -58,7 +59,9 @@ export function App() {
     <Connected deployment={deployment.deployment}>
       <div className="app">
         {header(true)}
-        <main className={route.page === "setup" ? "page narrow" : "page"}>{route.page === "setup" ? <SetupPage id={route.id} /> : <Onboarding />}</main>
+        <main className={route.page === "setup" ? "page narrow" : route.page === "thread" ? "page thread" : "page"}>
+          {route.page === "setup" ? <SetupPage id={route.id} /> : route.page === "thread" ? <ThreadPage pageKey={route.key} /> : <Onboarding />}
+        </main>
       </div>
     </Connected>
   );
@@ -68,7 +71,10 @@ export function App() {
 function Connected({ deployment, children }: { deployment: Deployment; children: ReactNode }) {
   const session = useMemo(() => new Session(deployment.signInUrl), [deployment.signInUrl]);
   const client = useMemo(() => new ConvexReactClient(deployment.backendUrl), [deployment.backendUrl]);
-  const backend = useMemo(() => convexBackend(client, COMPONENT_BACKEND), [client]);
+  const backend = useMemo(
+    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }),
+    [client, deployment.siteUrl, session],
+  );
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
   // Signing out on any page, or in another tab, removes the onboarding draft.
   useEffect(() => clearFlowOnSignOut(session, sessionStore()), [session]);

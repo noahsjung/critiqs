@@ -257,7 +257,7 @@ only its owners change (`setReviewAccess`):
   row; one that meets a backend without it sees no `reviewAccess` and shows
   none either.
 - **Stored.** Convex: an optional field, absent meaning `anyone`. SQLite:
-  `review_access`, added by migration 12 with default `'anyone'`.
+  `review_access`, added by migration 14 with default `'anyone'`.
 - **Access that ends mid-way.** Work that runs across several transactions
   checks access again where it would hand data on, not only when it starts:
   - The email worker checks that the recipient may still review the project
@@ -321,11 +321,11 @@ state, and notification choices are each person's own.
   report it, and the window offers it as before. The window closes only once
   the deletion succeeds, so a refusal shows beside the thread.
 
-**Built (2026-11-25), backend only:** thread pages. Each thread can have a
-page on Critiqs's website with its capture, discussion, reply box, and **Open
-in prototype**, so a shared link works on phones and for people without the
-extension. The website's page comes later; the backend serves it now, on
-Convex and the self-hosted server.
+**Built (2026-11-25):** thread pages. Each thread can have a page on
+Critiqs's website with its capture, discussion, reply box, and **Open in
+prototype**, so a shared link works on phones and for people without the
+extension. The backend serves it on Convex and the self-hosted server, and
+the website (`apps/web`) shows it at `/t/<key>` for Convex.
 
 - **Who may open one.** Someone signed in, with a verified address, who may
   review the project (`canReview`, so **Who can review** applies first) and
@@ -369,7 +369,37 @@ Convex and the self-hosted server.
   opened project.
 - **Reported.** `/critiqs/config` reports `threadPages: true`. Convex: an
   optional `pageKey` with the `by_page_key` index. SQLite: `page_key`, added
-  by migration 13 with a unique index.
+  by migration 15 with a unique index.
+- **The website's page** (`apps/web/src/ui/ThreadPage.tsx`). Signed out, it
+  asks the person to sign in, with the website's usual sign-in. Signed in, it
+  first runs `users:sync`, as the installed panel does, which accepts the
+  invitations sent to the person's address, so someone just invited to the
+  project's organization gets in; the page's own reads stay read-only. Then
+  `not-found`, `forbidden`, and a key of the wrong form (never sent) show one
+  page, "This comment isn't available", which says to sign in with another
+  address or ask to be added, and never whether the thread exists. A deleted
+  thread says so, as the backend tells only those who could open it.
+  Otherwise it shows the capture (through `/capture?threadPage=`), the
+  discussion live, with names, times, mentions, and hashtags as the panel
+  draws them (its `MessageBody`, `Avatar`, and time format, imported from
+  `packages/react/src` as the rest of `apps/web` is), the thread's tags, its
+  resolved state, a reply box (`threadPage: true`), and **Copy link**, which
+  copies the page's own address. The reply box is a plain text box: hashtags
+  tag the thread as usual, but `@` doesn't suggest people, since the panel's
+  suggestions list everyone in the project, and the page shows only the
+  thread. The browser tab's title names no project, since browsers keep
+  titles in history.
+- **Open in prototype.** It opens the page the thread was left on at the
+  project's review address (`buildLink`: the review address's origin, the
+  saved page's path), with `?critiqs=<threadId>` so installed Critiqs opens
+  the thread there, in a new tab without a referrer. Only someone who may
+  open the page sees it, and the ID gives a prototype link nothing beyond
+  the prototype itself: in a project anyone may review, the prototype
+  carries the project ID, which already opens its threads; limited to its
+  organization, `requireThread` refuses outsiders. A saved page address that
+  can't be read opens the review address itself, as email links do. Without
+  a review address it isn't offered, and the page says the comment was left on its saved
+  address.
 - **Where pages are served.** A page link names no deployment, so the website
   at the configured address must reach the backend that holds the thread.
   Critiqs Cloud's website serves Critiqs Cloud's threads. Not decided yet:
