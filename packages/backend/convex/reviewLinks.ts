@@ -15,6 +15,7 @@ import {
   REVIEW_LEASE_MAX_MS,
   REVIEW_LEASE_MS,
   linkKeyHash,
+  listsOrigin,
   MIN_PROXY_SECRET,
   newFrameLabel,
   newSecret,
@@ -164,13 +165,15 @@ async function denied(ctx: QueryCtx, subject: string): Promise<boolean> {
   );
 }
 
-/** Whether an exact origin is still in the project's address list; a pattern that matches it doesn't count. */
+/** Whether an exact origin is still in the project's address list (`listsOrigin`); a pattern that matches it doesn't count. */
 async function listed(ctx: QueryCtx, projectId: Id<"projects">, origin: string): Promise<boolean> {
+  const project = await ctx.db.get(projectId);
+  if (project === null) return false;
   const rows = await ctx.db
     .query("projectAddresses")
     .withIndex("by_project_key", (q) => q.eq("projectId", projectId).eq("key", origin))
     .take(10);
-  return rows.some((row) => row.address === origin);
+  return rows.some((row) => listsOrigin(project, row, origin));
 }
 
 async function usageToday(ctx: QueryCtx, linkId: Id<"reviewLinks">, now: number): Promise<Doc<"reviewUsage"> | null> {

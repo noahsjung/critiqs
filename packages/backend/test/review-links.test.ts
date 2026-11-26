@@ -716,3 +716,24 @@ test("a frame host is judged at the time the proxy asks, which the HTTP action p
   // The same question asked after the lease's end: nothing, with nothing in the database changed.
   expect(await f.t.query(internal.reviewLinks.resolveHost, { hostHash, now: now + REVIEW_LEASE_MAX_MS + 1 })).toBeNull();
 });
+
+test("a link's origins count only as the address list counts them, and a link takes no address the list refuses", async () => {
+  const f = await fixture();
+  // A host name the address list refuses is no link's address either.
+  expect(await outcome(f.dana.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: "https://my_app.acme.com/" }))).toContain("has a host name that isn't valid.");
+  expect(await f.t.run(async (ctx) => (await ctx.db.query("reviewLinks").collect()).length)).toBe(0);
+  const created = await f.link("https://app.acme.com/", { assetOrigins: ["https://api.acme.com"] });
+  const opened = await lease(f.anonymous, created.key);
+  expect(JSON.parse((await resolve(f.t, opened.label)).body).assetOrigins).toEqual([{ slot: 1, origin: "https://api.acme.com" }]);
+  // A row from before the project's organization changed speaks for it nowhere: not in the lookup, not for Connected, not for a link.
+  await f.lee.mutation(api.projects.create, { name: "Elsewhere" });
+  const [elsewhere] = await f.lee.query(api.organizations.mine, {});
+  const stale = async (origin: string) =>
+    await f.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("projectAddresses").collect()) if (row.address === origin) await ctx.db.patch(row._id, { organizationId: elsewhere!.id as Id<"organizations"> });
+    });
+  await stale("https://api.acme.com");
+  expect(JSON.parse((await resolve(f.t, opened.label)).body).assetOrigins).toEqual([]);
+  await stale("https://app.acme.com");
+  expect(await resolve(f.t, opened.label)).toEqual(NOT_FOUND);
+});

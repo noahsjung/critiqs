@@ -1,4 +1,4 @@
-import { canonicalHost, hostOf, isHostWithin, isLocalAddress, MAX_REVIEW_URL_LENGTH, siteOf } from "@critiqs/core";
+import { canonicalHost, hostOf, isHostWithin, isLocalAddress, MAX_REVIEW_URL_LENGTH, parseProjectAddress, siteOf } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { isPublicAddress } from "./public-web.ts";
 
@@ -252,7 +252,10 @@ export function parseLiveAddress(input: string, refusedHosts: readonly string[])
   }
   if (url.pathname.startsWith("/__critiqs/")) fail("invalid", "Paths starting with /__critiqs/ are reserved for review links.");
   if (url.pathname.startsWith("//")) fail("invalid", "Enter an address whose path starts with a single /.");
-  return { origin: url.origin, path: `${url.pathname}${url.search}` };
+  // The origin joins the project's address list, so nothing that list refuses is a link's address.
+  const listed = parseProjectAddress(url.origin);
+  if ("error" in listed) fail("invalid", listed.error);
+  return { origin: listed.address, path: `${url.pathname}${url.search}` };
 }
 
 /** What a reputation provider is asked about: the origin and path, never the query or fragment. */

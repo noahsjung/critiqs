@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { parseProjectAddress } from "@critiqs/core";
+import { listsOrigin } from "../src/project-addresses.ts";
 import {
   base32,
   deriveLinkKey,
@@ -150,4 +152,27 @@ test("the proxy accepts only a well-formed resolution", () => {
   ]) {
     expect([bad, parseReviewResolution(bad)]).toEqual([bad, null]);
   }
+});
+
+test("a live address is one the address list takes, spelled as the list spells it, and refused where the list refuses it", () => {
+  for (const address of ["https://Proto.Example./", "https://xn--bcher-kva.example/", "https://bücher.example/a", "https://8.8.8.8/", "https://a-b.c-d.example/"]) {
+    const live = parseLiveAddress(address, []);
+    const listed = parseProjectAddress(live.origin);
+    expect("error" in listed ? listed.error : listed.address).toBe(live.origin);
+  }
+  for (const address of ["https://my_app.acme.com/", "https://-acme.example/", `https://${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.example/`]) {
+    expect("error" in parseProjectAddress(new URL(address).origin)).toBe(true);
+    expect(() => parseLiveAddress(address, [])).toThrow();
+  }
+});
+
+test("a link's origin is listed only by a current row holding that origin itself, never by a pattern", () => {
+  const project = { organizationId: "o1" };
+  const exact = { address: "https://app.acme.com", key: "https://app.acme.com", organizationId: "o1" };
+  expect(listsOrigin(project, exact, "https://app.acme.com")).toBe(true);
+  // Another spelling of the same origin is the same origin.
+  expect(listsOrigin(project, exact, "https://APP.acme.com.")).toBe(true);
+  expect(listsOrigin(project, exact, "https://api.acme.com")).toBe(false);
+  expect(listsOrigin(project, { ...exact, organizationId: "o2" }, "https://app.acme.com")).toBe(false);
+  expect(listsOrigin(project, { address: "https://*-acme.vercel.app", key: "https://*.vercel.app", organizationId: "o1" }, "https://pr-1-acme.vercel.app")).toBe(false);
 });
