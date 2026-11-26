@@ -185,6 +185,22 @@ export function defineTicketStatusContract(name: string, fresh: () => ContractBa
     expect(await apply(backend, "issue-404", DONE, 60_000)).toEqual({ updated: 0, resolved: [] });
   });
 
+  test(`${name}: an update naming a site Critiqs can't keep reaches no link, not even one without a site`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend);
+    const leeId = await backend.run(async (store) => (await ops.requireUser(store, lee))._id);
+    // A link with no site, as a tracker without sites would save one.
+    const linkId = await backend.run((store) =>
+      tickets(store).links.insert({ projectId, threadId, tracker: "linear", externalId: "issue-7", key: "ENG-7", url: "https://linear.app/acme/issue/eng-7", title: "t", state: "linked", accountId: "u-lee", linkedBy: leeId, linkedAt: 1, createdFromCritiqs: false, status: STARTED, statusAsOf: 1 }),
+    );
+    // Too long, or with a control character: not "no site", so it can't match one.
+    expect(await apply(backend, "issue-7", DONE, 50_000, 100_000, "x".repeat(300))).toEqual({ updated: 0, resolved: [] });
+    expect(await apply(backend, "issue-7", DONE, 50_000, 100_000, "org\u0000")).toEqual({ updated: 0, resolved: [] });
+    expect((await backend.run((store) => tickets(store).links.get(linkId)))?.status).toEqual(STARTED);
+    // An update that names no site does reach it.
+    expect(await apply(backend, "issue-7", DONE, 50_000, 100_000, null)).toEqual({ updated: 1, resolved: [] });
+  });
+
   test(`${name}: an issue updated and deleted at the same moment stays Deleted, in either order and when the update is delivered again`, async () => {
     const backend = fresh();
     const { threadId, linear } = await setup(backend);

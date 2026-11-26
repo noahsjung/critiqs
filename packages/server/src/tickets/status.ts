@@ -87,6 +87,8 @@ export async function applyTicketStatus(store: Store, update: TicketStatusUpdate
   // Only links in the workspace the update names: a link saves its workspace (a pending one, its linker's), and an
   // update that names none, or another, never reaches a link in one. Keys and IDs are unique only per workspace.
   const site = update.site === null ? null : trackerId(update.site);
+  // A site Critiqs can't keep is still a site: never "none", which would reach links without one.
+  if (update.site !== null && site === null) return { updated: 0, resolved: [] };
   const links = (await ticketStore(store).links.findByExternal(update.tracker, externalId, MAX_TICKET_LINK_ROWS)).filter((link) => (link.site ?? null) === site);
   return await saveStatus(store, links, { source: "webhook", asOf: update.asOf ?? now, status: checkedStatus(update.status), deleted: update.deleted }, now);
 }
