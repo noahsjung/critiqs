@@ -110,6 +110,21 @@ test("a draft ending inside a code fence, an HTML comment, or another open HTML 
   }
 });
 
+test("an open script, style, or textarea in a draft is closed by its own tag, so a web page showing the ticket shows what follows", async () => {
+  const MarkdownIt = (await import("markdown-it")).default;
+  for (const ending of ["<script>\nvar x = 1;", "<style>\nbody { color: red }", "<textarea>\nnotes"]) {
+    const body = ticketBody(`Hello\n\n${ending}`, { capture: { url: webAddress("https://uploads.linear.app/cap.png")! }, attribution: { name: "Dana" }, link: LINK });
+    const page = document.createElement("div");
+    page.innerHTML = new MarkdownIt({ html: true }).render(body);
+    expect({ ending, heading: page.querySelector("h2")?.textContent ?? null, capture: page.querySelector("img")?.getAttribute("src") ?? null }).toEqual({
+      ending,
+      heading: "Capture",
+      capture: "https://uploads.linear.app/cap.png",
+    });
+    expect({ ending, attributed: (page.textContent ?? "").includes("Created from Critiqs by Dana") }).toEqual({ ending, attributed: true });
+  }
+});
+
 test("a tracker template's headings render as written in a Critiqs AI draft, so the thread's link stays its only link", async () => {
   const { aiTicketText, draftedSections, ticketOutline } = await import("../src/tickets.ts");
   const template = "## <img src=x onerror=alert(1)>\n\nBody\n\n## [Phish](https://evil.example)\n\nFoo ###\n===\n\n[a]: /url\n===\n";

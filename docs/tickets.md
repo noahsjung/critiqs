@@ -231,7 +231,8 @@ The ticket is created with the text as the person left it. Critiqs adds the
 capture and attribution after it; when the text ends inside a block that a
 blank line doesn't end (a code fence, an HTML comment, a `<pre>`, `<script>`,
 `<style>`, or `<textarea>` block, and the like), it first adds the line that
-ends it, so they stay outside it, and changes nothing else.
+ends it (for those four, the block's own closing tag, as a web page reading the
+rendered text closes it), so they stay outside it, and changes nothing else.
 
 Built for Linear: each draft creates at most one ticket, however often the
 person retries it. When a ticket the person started didn't finish, such as
@@ -263,7 +264,8 @@ the thread: its text says so, and nothing is added to the ticket as a link
 back. Critiqs never links a ticket to the page a
 thread was left on, since the thread's author sends that address and it could
 name any site. Each person may search their tracker or list where tickets go
-60 times a minute, and create or link 20 tickets a minute.
+60 times a minute, and create or link 20 tickets a minute; each try at
+**Add link back** counts as one of those 20.
 
 **Proposed:** an **Also create a ticket** choice in the new-comment composer,
 and **Create tickets** for a selected feedback collection, one ticket per
