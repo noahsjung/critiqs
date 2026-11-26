@@ -1,6 +1,6 @@
 import type { TicketSettingsView } from "@critiqs/core";
 import type { StatusCheck, WebhookResult } from "@critiqs/server";
-import { applyCheckedStatus, applyTicketStatus, checkTicketStatus, claimStatusChecks, markStatusStale, prepareStatusCheck, setResolveWhenDone as saveResolveWhenDone, ticketSettings } from "@critiqs/server";
+import { applyCheckedStatus, applyTicketStatus, catchUpResolveWhenDone, checkTicketStatus, claimStatusChecks, markStatusStale, prepareStatusCheck, setResolveWhenDone as saveResolveWhenDone, ticketSettings } from "@critiqs/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, mutation, query } from "./_generated/server";
@@ -86,8 +86,23 @@ export const settings = query({
   handler: async (ctx, args): Promise<TicketSettingsView> => run(async () => ticketSettings(convexStore(ctx), await identityOf(ctx), args)),
 });
 
-/** Turns Resolve when done on or off; project owners only. */
+/** Turns Resolve when done on or off; project owners only. Turned on, it catches up the project's threads in steps (`catchUp`). */
 export const setResolveWhenDone = mutation({
   args: { projectId: v.string(), on: v.boolean() },
-  handler: async (ctx, args): Promise<TicketSettingsView> => run(async () => saveResolveWhenDone(convexStore(ctx), await identityOf(ctx), args, Date.now())),
+  handler: async (ctx, args): Promise<TicketSettingsView> =>
+    run(async () => {
+      const now = Date.now();
+      return await saveResolveWhenDone(convexStore(ctx), await identityOf(ctx), args, now, async (projectId) => {
+        await ctx.scheduler.runAfter(0, internal.ticketStatus.catchUp, { projectId, since: now, cursor: null });
+      });
+    }),
+});
+
+/** One step of catching up the project's threads after Resolve when done was turned on; schedules the next. */
+export const catchUp = internalMutation({
+  args: { projectId: v.string(), since: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args): Promise<void> => {
+    const { cursor } = await catchUpResolveWhenDone(convexStore(ctx), args, Date.now());
+    if (cursor !== null) await ctx.scheduler.runAfter(0, internal.ticketStatus.catchUp, { ...args, cursor });
+  },
 });

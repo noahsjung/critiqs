@@ -333,3 +333,26 @@ test("past its workspace's status updates for the minute, a delivery is answered
   expect(statuses.slice(0, WEBHOOK_UPDATES_PER_MINUTE).every((status) => status === 200)).toBe(true);
   expect(statuses.at(-1)).toBe(429);
 });
+
+test("turning Resolve when done on resolves the open threads whose linked tickets are all already done; a thread someone reopened since stays open", async () => {
+  const { t, dana, lee, sam, projectId, threadId, otherId } = await project();
+  // Both threads' ticket is done while the setting is off: nothing resolves.
+  expect((await deliver(t, await done())).status).toBe(200);
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect((await getThread(sam, { threadId })).status).toBe("open");
+  // A third thread has no ticket: nothing to resolve it by.
+  const plain = await lee.mutation(api.threads.create, { projectId, anchor, body: "No ticket", tags: [], capture: failedCapture });
+  await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true });
+  // Someone reopens one before the catch-up reaches it: their choice holds.
+  await lee.mutation(api.threads.setStatus, { threadId: otherId, status: "resolved" });
+  await lee.mutation(api.threads.setStatus, { threadId: otherId, status: "open" });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(await getThread(sam, { threadId })).toMatchObject({ status: "resolved", resolvedByTickets: true });
+  expect((await getThread(sam, { threadId: otherId })).status).toBe("open");
+  expect((await getThread(sam, { threadId: plain })).status).toBe("open");
+  // Turned on again while on: nothing more is caught up, so a thread reopened by hand stays open.
+  await lee.mutation(api.threads.setStatus, { threadId, status: "open" });
+  await dana.mutation(api.ticketStatus.setResolveWhenDone, { projectId, on: true });
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect((await getThread(sam, { threadId })).status).toBe("open");
+});

@@ -323,7 +323,14 @@ export async function ticketSettings(store: Store, identity: Identity | null, ar
 }
 
 /** Turns Resolve when done on or off for a project; only its owners may. Turning it on resolves nothing at once: threads resolve on their tickets' next status update. */
-export async function setResolveWhenDone(store: Store, identity: Identity | null, args: { projectId: string; on: boolean }, now: number): Promise<TicketSettingsView> {
+export async function setResolveWhenDone(
+  store: Store,
+  identity: Identity | null,
+  args: { projectId: string; on: boolean },
+  now: number,
+  /** Called when this turned the setting on, to catch up the project's threads (`catchUpResolveWhenDone`), in the same transaction. */
+  turnedOn: (projectId: string) => Promise<void> = async () => undefined,
+): Promise<TicketSettingsView> {
   const tickets = ticketStore(store);
   const user = await requireUser(store, identity);
   const project = await requireProject(store, user, args.projectId);
@@ -334,5 +341,28 @@ export async function setResolveWhenDone(store: Store, identity: Identity | null
   } else if (settings.resolveWhenDone !== args.on) {
     await tickets.settings.patch(settings._id, { resolveWhenDone: args.on, updatedBy: user._id, updatedAt: now });
   }
+  if (args.on && settings?.resolveWhenDone !== true) await turnedOn(project._id);
   return { resolveWhenDone: args.on };
+}
+
+/** How many of a project's threads one step of the catch-up looks at. */
+export const RESOLVE_CATCH_UP_PAGE = 50;
+
+/**
+ * After Resolve when done was turned on at `since`: resolves the open threads
+ * in a page of the project's threads whose every linked ticket is already
+ * done or canceled, as a ticket finishing would have (`resolveWhenDone`), so
+ * turning it on catches up. A thread whose status someone changed since is
+ * left as they set it, and nothing happens once the setting is off again.
+ * Returns the threads it resolved and the next page's cursor, null after the
+ * last. One transaction.
+ */
+export async function catchUpResolveWhenDone(store: Store, args: { projectId: string; since: number; cursor: string | null }, now: number): Promise<{ resolved: string[]; cursor: string | null }> {
+  const page = await store.threads.listVisible(args.projectId, { numItems: RESOLVE_CATCH_UP_PAGE, cursor: args.cursor });
+  const resolved: string[] = [];
+  for (const thread of page.page) {
+    if (thread.status !== "open" || (thread.statusChangedAt ?? 0) >= args.since) continue;
+    if (await resolveWhenDone(store, thread._id, now)) resolved.push(thread._id);
+  }
+  return { resolved, cursor: page.isDone ? null : page.continueCursor };
 }

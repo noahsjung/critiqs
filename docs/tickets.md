@@ -408,7 +408,10 @@ resolves the thread; canceled counts, since the work is closed either way.
 The thread says it was resolved when its tickets were done, naming no
 person. Reopening a ticket does not reopen the thread, and a person who
 reopens it keeps it open until a ticket finishes again. Turning the setting
-on resolves nothing at once; threads resolve on their tickets' next update.
+on catches up: in the background, every open thread whose linked tickets are
+all already done or canceled resolves, as if its last ticket had just
+finished, except one whose status someone changed after the setting was
+turned on.
 Only linked tickets count, not ones still being created.
 
 ## Attribution
