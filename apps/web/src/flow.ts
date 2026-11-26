@@ -136,6 +136,8 @@ export interface AboutState {
   asking: AboutQuestion | null;
   /** Shown once the person has done the setup step's action: copied the command, or sent or copied the message. */
   shown: boolean;
+  /** The team size the person answered, for the suggested plan; absent until then, or when skipped. */
+  teamSize?: TeamSize;
 }
 
 export interface FlowState {
@@ -173,7 +175,7 @@ export type FlowAction =
   /** The attempt was called off before its request went out, such as when the screen went away while it waited on the address check. */
   | { type: "create-cancelled"; key: string }
   | { type: "setup-done"; flow: number }
-  | { type: "about-answered" }
+  | { type: "about-answered"; teamSize?: TeamSize }
   | { type: "about-skip" };
 
 const EMPTY_ADDRESS: AddressState = { text: "", error: null, url: undefined };
@@ -256,7 +258,8 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
     case "about-skip": {
       if (state.about.asking === null) return state;
       const next = ABOUT_QUESTIONS[ABOUT_QUESTIONS.indexOf(state.about.asking) + 1] ?? null;
-      return { ...state, about: { ...state.about, asking: next } };
+      const teamSize = action.type === "about-answered" && state.about.asking === "team-size" ? action.teamSize : undefined;
+      return { ...state, about: { ...state.about, asking: next, ...(teamSize === undefined ? {} : { teamSize }) } };
     }
     default: {
       const exhaustive: never = action;

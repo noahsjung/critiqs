@@ -213,6 +213,17 @@ export const copy = {
       } satisfies Record<Role, string>,
     },
     thanks: "Thanks, that helps.",
+    plan: {
+      heading: "Suggested plan",
+      fits: (label: string, organization: string) => `${organization}'s ${label} plan fits a team this size.`,
+      suggest: (label: string) => `${label} fits a team this size`,
+      includes: (reviewers: number | null, projects: number | null) =>
+        `${reviewers === null ? "Any number of reviewers" : `Up to ${reviewers} reviewers a month`}, and ${projects === null ? "any number of projects" : projects === 1 ? "1 project" : `${projects} projects`}.`,
+      price: (monthly: number) => (monthly === 0 ? "Free." : `US$${monthly} a month.`),
+      seePlans: "See plans",
+      askAdmin: (organization: string) => `An admin of ${organization} can change its plan.`,
+      changeInCritiqs: "Change it in Critiqs's Plan and billing.",
+    },
   },
 
   preview: {

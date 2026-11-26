@@ -1,5 +1,5 @@
 import { afterEach } from "bun:test";
-import type { DeveloperSendSummary, DeveloperSetup, OrganizationSummary, ProjectInfo, ProjectSetup } from "@critiqs/core";
+import type { BillingStatus, DeveloperSendSummary, DeveloperSetup, OrganizationSummary, ProjectInfo, ProjectSetup } from "@critiqs/core";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { type Auth, AuthContext, type Backend, BackendContext, type ThreadPageData } from "../src/backend.ts";
@@ -78,6 +78,7 @@ export function fakeBackend(
     organizationsState?: QueryState<OrganizationSummary[]>;
     sends?: DeveloperSendSummary[];
     sendsState?: QueryState<DeveloperSendSummary[]>;
+    billing?: QueryState<BillingStatus | null>;
     project?: ProjectInfo;
     mine?: ProjectInfo[];
     upgradeUrl?: string | null;
@@ -110,6 +111,7 @@ export function fakeBackend(
     useProject: (projectId) => (projectId === null ? loading : (overrides.projectState ?? (overrides.project === undefined ? loading : { status: "ready", data: overrides.project }))),
     useMyProjects: (enabled) => (enabled ? { status: "ready", data: overrides.mine ?? [] } : loading),
     useUpgradeUrl: (enabled) => (enabled ? { status: "ready", data: overrides.upgradeUrl ?? null } : loading),
+    useBillingStatus: (organizationId) => (organizationId === null ? loading : (overrides.billing ?? { status: "ready", data: null })),
     useDeveloperSends: () => overrides.sendsState ?? { status: "ready", data: overrides.sends ?? [] },
     useDeveloperSetup: (sendId) => (sendId === null ? loading : (overrides.sendSetup ?? loading)),
     useProjectSetup: (projectId) => (projectId === null ? loading : (overrides.projectSetupState ?? loading)),

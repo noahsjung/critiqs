@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AddressCheck } from "@critiqs/core";
+import type { AddressCheck, BillingStatus } from "@critiqs/core";
 import { act, useReducer } from "react";
 import type { NewProject } from "../src/backend.ts";
 import { type FlowState, flowReducer, initialFlow } from "../src/flow.ts";
@@ -420,6 +420,65 @@ describe("the third screen", () => {
     await click(button(page, "Skip"));
     expect(text(page)).toContain("Thanks, that helps.");
     expect(backend.calls.filter((call) => call.name === "saveAboutYou")).toEqual([]);
+  });
+});
+
+describe("the suggested plan", () => {
+  const atSetup = async (who: RegExp, backend = fakeBackend()) => {
+    const page = await render(<Flow from={atWho()} />, { backend });
+    await click(button(page, who));
+    await settle();
+    return page;
+  };
+  const limits = (reviewers: number | null, projects: number | null) => [
+    { metric: "aiCredits" as const, period: "month" as const, max: 200 },
+    { metric: "projects" as const, period: "total" as const, max: projects },
+    { metric: "reviewers" as const, period: "month" as const, max: reviewers },
+  ];
+  const billing = (plan: "free" | "plus" | "pro", canManage = true): BillingStatus => ({
+    plan,
+    subscription: null,
+    storageAddOns: 0,
+    canManage,
+    prices: { plans: { free: { monthly: 0, extraCredits: null }, plus: { monthly: 19, extraCredits: null }, pro: { monthly: 49, extraCredits: null } }, storageAddOn: { gb: 100, monthly: 10 } },
+    plans: { free: { label: "Free", limits: limits(5, 1) }, plus: { label: "Plus", limits: limits(25, 10) }, pro: { label: "Pro", limits: limits(null, null) } },
+  });
+  const project = (role: "admin" | "member") => ({ _id: PROJECT_ID, name: "acme-proto", tags: [], createdAt: 1, reviewUrl: null, isOwner: true, organization: { id: "o1", name: "Acme", role } });
+  const answer = async (backend: ReturnType<typeof fakeBackend>, size: string) => {
+    fakeClipboard();
+    const page = await atSetup(I_WILL, backend);
+    await click(button(page, "Copy command"));
+    await click(button(page, size));
+    return page;
+  };
+
+  test("a team size answered: the smallest plan whose reviewers fit, what it includes and costs, and See plans for an admin", async () => {
+    const backend = fakeBackend({ project: project("admin"), billing: { status: "ready", data: billing("free") }, upgradeUrl: "https://critiqs.app/pricing" });
+    const page = await answer(backend, "6–20");
+    const card = page.querySelector(".plan");
+    expect(card?.textContent).toBe("Suggested planPlus fits a team this sizeUp to 25 reviewers a month, and 10 projects. US$19 a month.See plans");
+    expect(card?.querySelector("a")?.getAttribute("href")).toBe("https://critiqs.app/pricing");
+    // Questions go on; the suggestion stays.
+    expect(text(page)).toContain("What do you do?");
+  });
+
+  test("a plan that already fits says so; a member is told an admin changes it; larger teams get Pro", async () => {
+    const fits = await answer(fakeBackend({ project: project("admin"), billing: { status: "ready", data: billing("plus") } }), "2–5");
+    expect(fits.querySelector(".plan")?.textContent).toBe("Suggested planAcme's Plus plan fits a team this size.");
+    const member = await answer(fakeBackend({ project: project("member"), billing: { status: "ready", data: billing("free", false) } }), "100+");
+    expect(member.querySelector(".plan")?.textContent).toBe("Suggested planPro fits a team this sizeAny number of reviewers, and any number of projects. US$49 a month.An admin of Acme can change its plan.");
+    const justMe = await answer(fakeBackend({ project: project("admin"), billing: { status: "ready", data: billing("free") } }), "Just me");
+    expect(justMe.querySelector(".plan")?.textContent).toBe("Suggested planAcme's Free plan fits a team this size.");
+  });
+
+  test("where the deployment takes no payment, or the team size was skipped, nothing is suggested", async () => {
+    const off = await answer(fakeBackend({ project: project("admin") }), "6–20");
+    expect(off.querySelector(".plan")).toBeNull();
+    fakeClipboard();
+    const skipped = await atSetup(I_WILL, fakeBackend({ project: project("admin"), billing: { status: "ready", data: billing("free") } }));
+    await click(button(skipped, "Copy command"));
+    await click(button(skipped, "Skip"));
+    expect(skipped.querySelector(".plan")).toBeNull();
   });
 });
 

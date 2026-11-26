@@ -5,6 +5,7 @@
 
 import { type HtmlElement, type ScannedHtml, scanHtml } from "./html-scan.ts";
 import { isPrivateHost } from "./local-host.ts";
+import type { BillingPlan, PlanIncludes } from "./protocol.ts";
 import { DEFAULT_TAGS } from "./tags.ts";
 
 // Answers. Each list is in the order the question shows its options.
@@ -555,6 +556,33 @@ export function recommend(answers: OnboardingAnswers, check: AddressCheck, avail
   // Every row includes `install`, so one way is always left.
   const [primary, ...others] = offered as [Way, ...Way[]];
   return { primary, others, reason };
+}
+
+// The suggested plan.
+
+/** The most people each team size answer can mean. */
+const TEAM_SIZE_PEOPLE: Record<TeamSize, number> = { "just-me": 1, "2-5": 5, "6-20": 20, "21-100": 100, "over-100": Number.POSITIVE_INFINITY };
+
+/** Critiqs Cloud's plans, smallest first. */
+const PLAN_ORDER: readonly BillingPlan[] = ["free", "plus", "pro"];
+
+/**
+ * The plan to suggest for a team of `teamSize`: the smallest whose monthly
+ * reviewers, as the deployment configures its plans, fit the most people
+ * the answer can mean. A plan that doesn't limit reviewers fits any team.
+ */
+export function suggestedPlan(teamSize: TeamSize, plans: Readonly<Record<BillingPlan, PlanIncludes>>): BillingPlan {
+  const people = TEAM_SIZE_PEOPLE[teamSize];
+  const fits = (plan: BillingPlan) => {
+    const reviewers = plans[plan].limits.find((limit) => limit.metric === "reviewers");
+    return reviewers === undefined || reviewers.max === null || reviewers.max >= people;
+  };
+  return PLAN_ORDER.find(fits) ?? "pro";
+}
+
+/** Whether plan `a` includes at least what plan `b` does, in the order Free, Plus, Pro. */
+export function planCovers(a: BillingPlan, b: BillingPlan): boolean {
+  return PLAN_ORDER.indexOf(a) >= PLAN_ORDER.indexOf(b);
 }
 
 // Starting tags.

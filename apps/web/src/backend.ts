@@ -1,6 +1,7 @@
 import { api } from "@critiqs/backend/api";
 import type {
   AddressCheck,
+  BillingStatus,
   DeveloperSendResult,
   DeveloperSendSummary,
   DeveloperSetup,
@@ -70,6 +71,8 @@ export interface Backend {
   useMyProjects(enabled: boolean): QueryState<ProjectInfo[]>;
   /** The deployment's upgrade page, as the plan rows' Upgrade opens it; null when it names none. */
   useUpgradeUrl(enabled: boolean): QueryState<string | null>;
+  /** An organization's plan, what each plan includes, and their prices; null where the deployment takes no payment. Null skips it. */
+  useBillingStatus(organizationId: string | null): QueryState<BillingStatus | null>;
   useDeveloperSends(projectId: string | null): QueryState<DeveloperSendSummary[]>;
   /** A send's setup, from a setup email's link; null skips it. */
   useDeveloperSetup(sendId: string | null): QueryState<DeveloperSetup>;
@@ -195,6 +198,7 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
       const usage = useQueryState(api.aiSettings.myUsage, enabled ? { day } : "skip");
       return usage.status === "ready" ? { status: "ready", data: usage.data?.upgradeUrl ?? null } : usage;
     },
+    useBillingStatus: (organizationId) => useQueryState(api.billing.status, organizationId === null ? "skip" : { organizationId }),
     useDeveloperSends: (projectId) => useQueryState(api.onboarding.developerSends, projectId === null ? "skip" : { projectId }),
     useDeveloperSetup: (sendId) => useQueryState(api.onboarding.developerSetup, sendId === null ? "skip" : { sendId }),
     useProjectSetup: (projectId) => useQueryState(api.onboarding.projectSetup, projectId === null ? "skip" : { projectId }),

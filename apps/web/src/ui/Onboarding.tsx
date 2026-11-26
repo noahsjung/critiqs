@@ -24,7 +24,7 @@ import {
   type Who,
 } from "../flow.ts";
 import { Select } from "../shared.ts";
-import { AboutYou } from "./AboutYou.tsx";
+import { AboutYou, SuggestedPlan } from "./AboutYou.tsx";
 import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
 import { Preview } from "./Preview.tsx";
 import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
@@ -501,7 +501,14 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
       )}
       {/* The first question arrives while focus stays on what the person just used, so it's announced. */}
       <div aria-live="polite">
-        {state.about.shown && <AboutYou asking={state.about.asking} onAnswered={() => dispatch({ type: "about-answered" })} onSkip={() => dispatch({ type: "about-skip" })} />}
+        {state.about.shown && (
+          <AboutYou
+            asking={state.about.asking}
+            onAnswered={(answer) => dispatch({ type: "about-answered", ...("teamSize" in answer ? { teamSize: answer.teamSize } : {}) })}
+            onSkip={() => dispatch({ type: "about-skip" })}
+          />
+        )}
+        {state.about.teamSize !== undefined && <SuggestedPlan projectId={project.id} teamSize={state.about.teamSize} />}
       </div>
     </>
   );

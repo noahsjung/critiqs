@@ -3,6 +3,11 @@ import {
   AVAILABLE_WAYS,
   backendSetting,
   type AddressCheck,
+  type BillingPlan,
+  planCovers,
+  type PlanIncludes,
+  suggestedPlan,
+  TEAM_SIZES,
   classifyAddress,
   detectStack,
   developerMessage,
@@ -817,5 +822,35 @@ describe("backendSetting", () => {
       wordpress: `data-backend="${url}"`,
     });
     expect(backendSetting(null, url)).toEqual({ where: expect.stringContaining("README"), setting: url });
+  });
+});
+
+describe("the suggested plan", () => {
+  const plans = (free: number | null, plus: number | null, pro: number | null): Record<BillingPlan, PlanIncludes> => ({
+    free: { label: "Free", limits: [{ metric: "reviewers", period: "month", max: free }] },
+    plus: { label: "Plus", limits: [{ metric: "reviewers", period: "month", max: plus }] },
+    pro: { label: "Pro", limits: [{ metric: "reviewers", period: "month", max: pro }] },
+  });
+
+  test("the smallest plan whose monthly reviewers fit the most people a team size can mean", () => {
+    const builtIn = plans(5, 25, null);
+    expect(TEAM_SIZES.map((size) => [size, suggestedPlan(size, builtIn)])).toEqual([
+      ["just-me", "free"],
+      ["2-5", "free"],
+      ["6-20", "plus"],
+      ["21-100", "pro"],
+      ["over-100", "pro"],
+    ]);
+  });
+
+  test("follows the deployment's own plans: a plan that limits no reviewers fits any team", () => {
+    expect(suggestedPlan("21-100", plans(5, null, null))).toBe("plus");
+    expect(suggestedPlan("over-100", plans(5, 25, 500))).toBe("pro");
+    expect(suggestedPlan("6-20", plans(null, 25, null))).toBe("free");
+    expect(suggestedPlan("2-5", { ...plans(5, 25, null), free: { label: "Free", limits: [] } })).toBe("free");
+  });
+
+  test("whether a plan covers another, Free < Plus < Pro", () => {
+    expect([planCovers("pro", "plus"), planCovers("plus", "plus"), planCovers("free", "plus")]).toEqual([true, true, false]);
   });
 });
