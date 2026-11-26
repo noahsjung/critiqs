@@ -1,4 +1,4 @@
-import { buildLink, hostOf, isHostWithin, isThreadPageKey, type MentionView, removeLink, reviewLink } from "@critiqs/core";
+import { buildLink, hostOf, isHostWithin, isThreadPageKey, type MentionView, removeLink, reviewLink, type TicketLinkView, TRACKERS, webAddress } from "@critiqs/core";
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type Backend, failureCode, failureMessage, type ThreadPageData, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
@@ -211,6 +211,7 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
           ))}
         </ul>
       )}
+      {thread.tickets !== undefined && thread.tickets.length > 0 && <Tickets tickets={thread.tickets} />}
       <section className="discussion" aria-label={copy.threadPage.discussion}>
         <ol className="thread-messages">
           {thread.messages.map((message) => (
@@ -239,6 +240,42 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
         <ReplyBox threadId={thread._id} people={threadPeople(thread.messages)} />
       </section>
     </article>
+  );
+}
+
+/**
+ * The tickets linked to the thread, as the widget's thread window shows them:
+ * tracker, key, and status ("last known" when Critiqs can no longer check
+ * it), each opening the ticket in its tracker when its address is a web
+ * address. Only where the backend has tickets.
+ */
+function Tickets({ tickets }: { tickets: TicketLinkView[] }) {
+  return (
+    <ul className="thread-tickets" aria-label={copy.threadPage.tickets}>
+      {tickets.map((ticket) => {
+        const tracker = TRACKERS.find((entry) => entry.id === ticket.tracker)?.label ?? ticket.tracker;
+        const status = ticket.status === null ? null : `${ticket.status.label}${ticket.statusStale ? ` · ${copy.threadPage.lastKnown}` : ""}`;
+        const href = webAddress(ticket.url);
+        const content = (
+          <>
+            <span className="tracker">{tracker}</span>
+            <span className="key">{ticket.key}</span>
+            {status !== null && <span className={`status ${ticket.status!.category}`}>{status}</span>}
+          </>
+        );
+        return (
+          <li key={ticket._id} title={ticket.title}>
+            {href === null ? (
+              <span className="ticket-chip">{content}</span>
+            ) : (
+              <a className="ticket-chip" href={href} target="_blank" rel="noopener noreferrer">
+                {content}
+              </a>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

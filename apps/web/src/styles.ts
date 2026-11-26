@@ -278,6 +278,14 @@ export const APP_STYLES = `
 .capture-none { padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 12px; }
 .thread-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 0; padding: 0; list-style: none; }
 .thread-tags .tag-chip { font-size: 13px; line-height: 20px; padding: 1px 9px; }
+.thread-tickets { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 0; padding: 0; list-style: none; }
+.ticket-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text); font-size: 13px; line-height: 20px; text-decoration: none; }
+a.ticket-chip:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.ticket-chip .tracker { color: var(--muted); }
+.ticket-chip .key { font-weight: 600; }
+.ticket-chip .status { color: var(--muted); }
+.ticket-chip .status.done { color: var(--success); }
 .discussion { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; }
 .thread-messages { list-style: none; margin: 0; padding: 8px 0; }
 .thread-page .message { padding: 12px 20px; gap: 12px; font-size: 15px; line-height: 22px; }

@@ -316,6 +316,8 @@ export const copy = {
     noCapture: "No image was saved with this comment.",
     supplied: "Screenshot added after the automatic capture failed.",
     discussion: "Discussion",
+    tickets: "Linked tickets",
+    lastKnown: "last known",
     edited: "(edited)",
     viaAgent: "via coding agent",
     replyLabel: "Reply",

@@ -366,6 +366,10 @@ built as listed:** how each place shows it:
 - **Pin:** a small tracker mark, with the key and status on hover or focus.
 - **Thread list:** the key and status on the thread's row.
 - **Thread window:** the ticket chip under the header, which opens the ticket.
+- **Thread page** (`/t/<key>` on the Critiqs website): each ticket's tracker,
+  key, and status ("last known" when Critiqs can no longer check it) between
+  the tags and the discussion, opening the ticket when its address is a web
+  address. Built.
 - **Mockup threads:** the chip for tickets linked to the mockup thread, and to
   comments added to the mockup. Whether tickets can be created or linked from
   inside a mockup thread, and how their text is built, is open. Built: the
