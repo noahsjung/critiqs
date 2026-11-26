@@ -104,6 +104,14 @@
         "react-dom": "^19.3.0",
       },
     },
+    "packages/django": {
+      "name": "critiqs-django",
+      "version": "0.3.0",
+    },
+    "packages/flask": {
+      "name": "critiqs-flask",
+      "version": "0.3.0",
+    },
     "packages/react": {
       "name": "critiqs-react",
       "version": "0.3.0",
@@ -421,6 +429,10 @@
     "critiqs": ["critiqs@workspace:packages/critiqs"],
 
     "critiqs-angular": ["critiqs-angular@workspace:packages/angular"],
+
+    "critiqs-django": ["critiqs-django@workspace:packages/django"],
+
+    "critiqs-flask": ["critiqs-flask@workspace:packages/flask"],
 
     "critiqs-react": ["critiqs-react@workspace:packages/react"],
 

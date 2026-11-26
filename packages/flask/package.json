@@ -1,0 +1,14 @@
+{
+  "name": "critiqs-flask",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Workspace marker for the flask-critiqs Python package: Changesets bumps this version and pyproject.toml reads it.",
+  "critiqsRelease": {
+    "registry": "pypi"
+  },
+  "scripts": {
+    "test": "bun scripts/tasks.ts test",
+    "release:build": "bun scripts/tasks.ts release",
+    "check:consumer": "bun scripts/check-consumer.ts"
+  }
+}
