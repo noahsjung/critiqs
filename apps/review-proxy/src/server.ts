@@ -228,9 +228,9 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
    * `clientStallMs` gives its slots back and carries on as a slow read, so a
    * slow connection still gets the whole file without holding its link's and
    * site's shares; one that then goes longer than that plus a second per
-   * `slowReaderBytesPerSecond` bytes sent without taking anything has
-   * stopped, and is ended. Past the slow reads a lease or the process may
-   * have, a stalled read is ended at once.
+   * `slowReaderBytesPerSecond` bytes sent (at most `slowReaderMaxIdleMs`
+   * more) without taking anything has stopped, and is ended. Past the slow
+   * reads a lease or the process may have, a stalled read is ended at once.
    */
   const stream = (status: number, headers: Headers, body: AsyncIterable<Uint8Array>, wireBytes: number, signal: AbortSignal, lease: ReviewResolution, release: () => void, head: boolean) => {
     if (head) {
@@ -291,7 +291,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
               slowPerLease.set(lease.leaseId, (slowPerLease.get(lease.leaseId) ?? 0) + 1);
               giveBack();
             }, limits.clientStallMs);
-            stop = setTimeout(() => end(controller), limits.clientStallMs + Math.ceil((sent / limits.slowReaderBytesPerSecond) * 1000));
+            stop = setTimeout(() => end(controller), limits.clientStallMs + Math.min(limits.slowReaderMaxIdleMs, Math.ceil((sent / limits.slowReaderBytesPerSecond) * 1000)));
           } catch (error) {
             finish();
             controller.error(error);

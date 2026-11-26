@@ -17,7 +17,8 @@ const WORDS: Record<ReviewFailure, { title: string; body: string }> = {
   unsupported: { title: "This page can't be shown here", body: "This page uses something review links don't support, such as a text encoding other than UTF-8. Try the Critiqs extension." },
   busy: {
     title: "Critiqs is busy",
-    body: "Other pages from this site, or other viewers of this link, are loading through Critiqs, and this page waited 8 seconds without its turn. Reload it in a few seconds. If this keeps happening, the site is answering slowly.",
+    // Said for every share that can be full: this lease's, its link's, its site's, or the whole proxy's.
+    body: "This page waited for its turn while other pages loaded through Critiqs: from this site, through this link, or through other review links. Reload it in a few seconds. If this keeps happening, a site is answering slowly; try again later.",
   },
   limited: {
     title: "This review link needs a short pause",

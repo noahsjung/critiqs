@@ -341,6 +341,27 @@ describe("a slow reader keeps its download", () => {
     }
     expect(failed).toBe(true);
   });
+  test("a reader that stops after a large download is ended within a minute of stopping, not after an hour", async () => {
+    // At 4 KiB a second, 3 MiB already sent would allow 768 s; the most it may wait is the cap.
+    const stop = { ...config, limits: { ...DEFAULT_LIMITS, clientStallMs: 200, slowReaderMaxIdleMs: 400 } };
+    const { proxy } = setup({ config: stop });
+    const response = await ask(proxy, "/sized.bin", { dest: "image" });
+    const reader = response.body!.getReader();
+    let bytes = 0;
+    while (bytes < 2 * MIB) {
+      const step = await reader.read();
+      if (step.done) break;
+      bytes += step.value.byteLength;
+    }
+    await Bun.sleep(1_500);
+    let failed = false;
+    try {
+      for (;;) if ((await reader.read()).done) break;
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
+  });
 });
 
 describe("a file over the size cap says so", () => {
@@ -456,6 +477,25 @@ describe("a freed read goes to whoever holds the fewest", () => {
     for (const controller of controllers) controller.abort();
     for (const response of held) await response.body?.cancel().catch(() => undefined);
     await Promise.all([...waiting, ...others].map(statusOf));
+  });
+});
+
+describe("the busy page", () => {
+  test("says the page waited its turn, and what helps, whichever share was full", async () => {
+    const tight = { ...config, limits: { ...DEFAULT_LIMITS, concurrentPerProcess: 1, queueTimeoutMs: 200 } };
+    const { proxy } = setup({ config: tight, leases: [lease(), lease({ label: label(1), leaseId: "lease-2", linkId: "link-2", origin: "http://proto.example.com" })] });
+    // Another link holds the whole proxy's one read.
+    const controller = new AbortController();
+    const held = await ask(proxy, "/trickle.js", { dest: "script", host: `${label(1)}.${DOMAIN}`, signal: controller.signal });
+    const page = await ask(proxy, "/page.html");
+    const words = await page.text();
+    expect(page.status).toBe(503);
+    expect(words).toContain("Critiqs is busy");
+    expect(words).toContain("other review links");
+    expect(words).toContain("Reload it in a few seconds");
+    expect(words).not.toContain("Too many pages");
+    controller.abort();
+    await held.body?.cancel().catch(() => undefined);
   });
 });
 
