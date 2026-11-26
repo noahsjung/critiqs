@@ -18,6 +18,10 @@ const tokenReplies: { status?: number; body: unknown }[] = [];
 const sent: { path: string; authorization: string | null; form: Record<string, string> }[] = [];
 /** The email Linear reports for whoever signed in; Dana's Critiqs address unless a test changes it. */
 let linearEmail = "dana@example.com";
+/** Whether Linear turns every revocation down (400), as it may for a token it can't revoke. */
+let refuseRevocations = false;
+/** Runs while Linear is trading a code for tokens, before it answers. */
+let duringExchange: (() => Promise<unknown>) | null = null;
 let linear: ReturnType<typeof Bun.serve>;
 beforeAll(() => {
   linear = Bun.serve({
@@ -28,8 +32,9 @@ beforeAll(() => {
       const body = await request.text();
       const authorization = request.headers.get("Authorization");
       sent.push({ path, authorization, form: path === "/oauth/token" || path === "/oauth/revoke" ? Object.fromEntries(new URLSearchParams(body)) : { query: body } });
-      if (path === "/oauth/revoke") return new Response(null, { status: 200 });
+      if (path === "/oauth/revoke") return new Response(null, { status: refuseRevocations ? 400 : 200 });
       if (path === "/oauth/token") {
+        if (new URLSearchParams(body).get("grant_type") === "authorization_code") await duringExchange?.();
         const next = tokenReplies.shift() ?? { status: 400, body: { error: "invalid_grant" } };
         return Response.json(next.body, { status: next.status ?? 200 });
       }
@@ -59,6 +64,8 @@ afterEach(() => {
   tokenReplies.length = 0;
   sent.length = 0;
   linearEmail = "dana@example.com";
+  refuseRevocations = false;
+  duringExchange = null;
 });
 
 function withSignIn() {
@@ -135,7 +142,8 @@ test("a pasted Linear API key is checked with Linear, stored encrypted, and show
   expect(await t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toHaveLength(1);
   expect(await dana.query(api.trackers.mine, {})).toEqual([expect.objectContaining({ attribution: false })]);
 
-  await dana.mutation(api.trackers.disconnect, { tracker: "linear" });
+  // A pasted key can't be ended by Critiqs: the person is told it still works in Linear.
+  expect(await dana.action(api.trackers.disconnect, { tracker: "linear" })).toBe("kept");
   expect(await dana.query(api.trackers.mine, {})).toEqual([]);
   expect(await t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
 });
@@ -344,19 +352,80 @@ test("expired tracker sign-ins are cleaned up with the other sign-in records", a
   expect(await f.t.run((ctx) => ctx.db.query("trackerSignIns").collect())).toHaveLength(1);
 });
 
-test("disconnecting a Linear sign-in removes it and, in the background, revokes its tokens at Linear", async () => {
+test("disconnecting a Linear sign-in removes it, revokes its tokens at Linear, and says so", async () => {
   withSignIn();
   const f = people();
   const { state, cookie } = await openSignIn(f);
   tokenReplies.push({ body: { access_token: "access-1", expires_in: 86_399, refresh_token: "refresh-1" } });
   await callback(f, { code: "code-1", state }, cookie);
-  await f.dana.mutation(api.trackers.disconnect, { tracker: "linear" });
+  expect(await f.dana.action(api.trackers.disconnect, { tracker: "linear" })).toBe("ended");
   expect(await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
-  await f.t.finishAllScheduledFunctions(() => undefined);
   expect(sent.filter((request) => request.path === "/oauth/revoke").map((request) => [request.form.token, request.form.token_type_hint])).toEqual([
     ["refresh-1", "refresh_token"],
     ["access-1", "access_token"],
   ]);
+  // Nothing was connected: nothing to end.
+  expect(await f.dana.action(api.trackers.disconnect, { tracker: "linear" })).toBe("none");
+});
+
+test("when Linear turns the revocation down, disconnecting says Critiqs couldn't end its access, and tries again in the background for a while", async () => {
+  withSignIn();
+  const f = people();
+  const { state, cookie } = await openSignIn(f);
+  tokenReplies.push({ body: { access_token: "access-1", expires_in: 86_399, refresh_token: "refresh-1" } });
+  await callback(f, { code: "code-1", state }, cookie);
+  refuseRevocations = true;
+  // Linear still accepts the access token afterwards, so it wasn't ended, whatever its 400 meant.
+  expect(await f.dana.action(api.trackers.disconnect, { tracker: "linear" })).toBe("failed");
+  // The account is gone from Critiqs either way.
+  expect(await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
+  const tries = () => sent.filter((request) => request.path === "/oauth/revoke" && request.form.token_type_hint === "refresh_token").length;
+  expect(tries()).toBe(1);
+  // Tried again a minute later, then ten minutes and an hour after each failed try, then left to the person, who was told how to end it.
+  const pending = async () =>
+    (await f.t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.state.kind === "pending" && job.name.includes("endAccount")))).map((job) => ({
+      delay: Math.round((job.scheduledTime - job._creationTime) / 60_000),
+      args: job.args[0] as { account: unknown; attempt: number },
+    }));
+  const delays: number[] = [];
+  for (let next = await pending(); next.length > 0; next = await pending()) {
+    expect(next).toHaveLength(1);
+    delays.push(next[0]!.delay);
+    await f.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+    });
+    await f.t.action(internal.trackers.endAccount, next[0]!.args as never);
+  }
+  expect(delays).toEqual([1, 10, 60]);
+  expect(tries()).toBe(4);
+});
+
+test("a sign-in window still open when the person disconnects connects nothing, and the tokens it got are revoked", async () => {
+  withSignIn();
+  const f = people();
+  await f.dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_good" });
+  // Dana starts connecting through Linear's sign-in, then disconnects before Linear sends the window back.
+  const { state, cookie } = await openSignIn(f);
+  await f.dana.action(api.trackers.disconnect, { tracker: "linear" });
+  tokenReplies.push({ body: { access_token: "access-late", expires_in: 86_399, refresh_token: "refresh-late" } });
+  const done = await callback(f, { code: "code-1", state }, cookie);
+  expect(done.status).toBe(400);
+  expect(await done.text()).toContain("expired or was already used");
+  expect(await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
+  // No code was traded: Linear never issued the tokens.
+  expect(sent.some((request) => request.path === "/oauth/token")).toBe(false);
+
+  // Linear had sent the window back, and Critiqs was trading the code, when Dana disconnected.
+  await f.dana.action(api.trackers.connectWithToken, { tracker: "linear", token: "lin_api_good" });
+  const again = await openSignIn(f);
+  duringExchange = () => f.dana.action(api.trackers.disconnect, { tracker: "linear" });
+  tokenReplies.push({ body: { access_token: "access-late", expires_in: 86_399, refresh_token: "refresh-late" } });
+  const late = await callback(f, { code: "code-2", state: again.state }, again.cookie);
+  expect(late.status).toBe(409);
+  expect(await late.text()).toContain("You disconnected Linear while this window was signing in, so Critiqs didn&#39;t connect it.");
+  expect(await f.t.run((ctx) => ctx.db.query("trackerAccounts").collect())).toEqual([]);
+  // The tokens Linear issued for it are revoked, not left working.
+  expect(sent.filter((request) => request.path === "/oauth/revoke").map((request) => request.form.token)).toEqual(["refresh-late", "access-late"]);
 });
 
 test("an expired sign-in token is refreshed with Linear before use, and the rotated tokens replace the old ones", async () => {

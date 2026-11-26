@@ -69,7 +69,9 @@ Connecting opens the tracker's sign-in in a window served by the Critiqs
 backend, never inside the prototype's page, as Critiqs sign-in does today.
 Only that person sees or changes their connections. Disconnecting removes the
 stored token; tickets already linked keep their links and their last known
-status.
+status. It also cancels that person's sign-ins to the tracker still under way:
+a sign-in window that finishes afterwards connects nothing, and the tokens it
+got are revoked.
 
 Signing in connects a tracker account only when it uses the same email address
 as the person's Critiqs account; letter case doesn't matter. Critiqs can't
@@ -86,14 +88,21 @@ signed in to their own account. Each person may start 10 sign-ins and paste
 10 keys a minute.
 
 Disconnecting also ends what Critiqs holds at the tracker, where an API call
-can, in the background after the stored token is removed:
+can, right after the stored token is removed, and Your trackers says what
+happened there:
 
 - **Linear sign-in:** its refresh and access tokens are revoked at Linear
-  (`POST /oauth/revoke`). If Linear can't be reached, they stay valid until
-  they expire, or until the person removes Critiqs from their authorized
-  apps in Linear.
+  (`POST /oauth/revoke`). Linear answers 400 both for a token it couldn't
+  revoke and for one already revoked, so Critiqs counts a token as ended only
+  when Linear revoked it or no longer accepts it: an access token Linear's
+  API refuses, a refresh token Linear won't refresh with (one that still
+  works is spent, and its new tokens revoked).
+- **When the tracker can't be told** (unreachable, or it refused), Your
+  trackers says that Critiqs can still reach the account and how to end it in
+  the tracker; Critiqs tries again a minute, ten minutes, and an hour later.
 - **A pasted API key:** no tracker lets another caller revoke a personal key,
-  so it stays valid until the person deletes it in the tracker.
+  so it stays valid until the person deletes it in the tracker, and Your
+  trackers says so.
 
 Critiqs calls a tracker only at the tracker's own address or at a public
 HTTPS address the tracker names, such as where it takes an upload: never at

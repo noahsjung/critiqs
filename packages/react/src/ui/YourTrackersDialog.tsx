@@ -1,4 +1,4 @@
-import { TRACKERS, type TicketsConfig, type TrackerAccountView, type TrackerId, type TrackerSignInStart } from "@critiqs/core";
+import { TRACKERS, type TicketsConfig, type TrackerAccountView, type TrackerDisconnected, type TrackerId, type TrackerSignInStart } from "@critiqs/core";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type TicketTransport, useTransport } from "../transport.ts";
 import { Dialog } from "./common.tsx";
@@ -10,6 +10,23 @@ const TOKEN_PAGES: Partial<Record<TrackerId, string>> = {
 };
 
 const label = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
+
+/**
+ * What a disconnect left working at the tracker, for the person to know:
+ * a pasted key, which only they can delete there; or a sign-in Critiqs
+ * couldn't end, which they can end by removing Critiqs in the tracker.
+ */
+function leftAtTracker(tracker: TrackerId, outcome: TrackerDisconnected): { text: string; alert: boolean } | null {
+  const name = label(tracker);
+  if (outcome === "kept") return { text: `Critiqs no longer has your ${name} API key, but the key still works in ${name} until you delete it there.`, alert: false };
+  if (outcome === "failed") {
+    return {
+      text: `${name} is disconnected here, but Critiqs couldn't tell ${name} to end its access, so Critiqs can still reach your ${name} account. Critiqs will try again for about an hour; to end it now, remove Critiqs in ${name}'s settings.`,
+      alert: true,
+    };
+  }
+  return null;
+}
 
 const SIGN_IN_WINDOW = "critiqs-tracker-sign-in";
 /** How long after posting the sign-in form a page's refusal of it (`form-action`) is still taken for that form's. */
@@ -66,6 +83,8 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
   const [page, setPage] = useState<{ kind: "main" } | { kind: "token"; tracker: TrackerId }>({ kind: "main" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What the last disconnect left working at the tracker, said plainly.
+  const [left, setLeft] = useState<{ text: string; alert: boolean } | null>(null);
   // A sign-in window opened for this tracker; the account appears when it finishes.
   const [waiting, setWaiting] = useState<TrackerId | null>(null);
   const [confirming, setConfirming] = useState<TrackerId | null>(null);
@@ -88,6 +107,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
     if (busy) return false;
     setBusy(true);
     setError(null);
+    setLeft(null);
     try {
       await work();
       return true;
@@ -180,6 +200,11 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
             {error}
           </p>
         )}
+        {left !== null && (
+          <p className={left.alert ? "error" : "note"} role={left.alert ? "alert" : "status"}>
+            {left.text}
+          </p>
+        )}
         {waiting !== null && (
           <p className="note" role="status">
             Finish connecting in the {label(waiting)} window.
@@ -211,15 +236,19 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                     onAttribution={(on) =>
                       void attempt(() => tickets.setTrackerAttribution(id, on)).then((ok) => ok && notify(on ? "New tickets say they came from Critiqs" : "New tickets won't say they came from Critiqs"))
                     }
-                    onDisconnect={() =>
-                      void attempt(() => tickets.disconnectTracker(id)).then((ok) => {
+                    onDisconnect={() => {
+                      let outcome: TrackerDisconnected = "none";
+                      void attempt(async () => {
+                        outcome = await tickets.disconnectTracker(id);
+                      }).then((ok) => {
                         if (!ok) return;
                         setConfirming(null);
+                        setLeft(leftAtTracker(id, outcome));
                         notify(`${label(id)} disconnected`);
                         // The rows that held focus are gone; the dialog keeps it.
                         mainRef.current?.closest<HTMLElement>('[role="dialog"]')?.focus();
-                      })
-                    }
+                      });
+                    }}
                   />
                 )}
               </div>

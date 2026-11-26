@@ -331,3 +331,30 @@ test("Created from Critiqs is on by default and saves at once; Disconnect asks f
   expect(notes.at(-1)).toBe("Linear disconnected");
   expect(button(dialog, "Connect Linear")).not.toBeNull();
 });
+
+test("disconnecting says plainly what happened at the tracker: a pasted key still works there, and a sign-in Critiqs couldn't end does too", async () => {
+  const pasted = backend({ trackers: { accounts: [{ ...CONNECTED, method: "token" }] } });
+  const notes: string[] = [];
+  const disconnect = async (data: FakeBackend) => {
+    const node = <YourTrackersDialog offered={BY_SIGN_IN} onClose={() => undefined} notify={(note) => notes.push(note)} />;
+    const dialog = await render(node, data);
+    await click(button(dialog, "Disconnect"));
+    await click([...dialog.querySelectorAll<HTMLButtonElement>("button.danger")].find((each) => each.textContent === "Disconnect"));
+    await rerender(node, data);
+    return dialog;
+  };
+  let dialog = await disconnect(pasted);
+  expect(notes.at(-1)).toBe("Linear disconnected");
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe("Critiqs no longer has your Linear API key, but the key still works in Linear until you delete it there.");
+  // Linear couldn't be told: the sign-in still works there, and the person learns how to end it.
+  const refused = backend({ trackers: { accounts: [CONNECTED], disconnected: "failed" } });
+  dialog = await disconnect(refused);
+  expect(notes.at(-1)).toBe("Linear disconnected");
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
+    "Linear is disconnected here, but Critiqs couldn't tell Linear to end its access, so Critiqs can still reach your Linear account. Critiqs will try again for about an hour; to end it now, remove Critiqs in Linear's settings.",
+  );
+  // Ended: nothing more to say.
+  dialog = await disconnect(backend({ trackers: { accounts: [CONNECTED] } }));
+  expect(dialog.querySelector('[role="alert"]')).toBeNull();
+  expect(dialog.querySelector('[role="status"]')).toBeNull();
+});

@@ -141,10 +141,11 @@ export async function refreshLinearToken(endpoint: TrackerEndpointOptions, app: 
 /**
  * Ends a sign-in's token at Linear (https://linear.app/developers/oauth-2-0-authentication,
  * "Revoke an access token"): the token in the `token` field, with which kind
- * it is. True when Linear revoked it, or had already (400); false when
- * Linear couldn't be reached or answered otherwise.
+ * it is. `revoked` when Linear answered 200; `refused` when it couldn't revoke
+ * it (400, as for a token already revoked, or any other refusal); and
+ * `unreachable` when there was no answer, or a server error.
  */
-export async function revokeLinearToken(endpoint: TrackerEndpointOptions, app: LinearApp, token: string, kind: "access_token" | "refresh_token"): Promise<boolean> {
+export async function revokeLinearToken(endpoint: TrackerEndpointOptions, app: LinearApp, token: string, kind: "access_token" | "refresh_token"): Promise<"revoked" | "refused" | "unreachable"> {
   const to = endpointOf(endpoint);
   try {
     const response = await to.fetch(`${to.baseUrl}/oauth/revoke`, {
@@ -153,9 +154,10 @@ export async function revokeLinearToken(endpoint: TrackerEndpointOptions, app: L
       body: new URLSearchParams({ token, token_type_hint: kind, client_id: app.clientId, client_secret: app.clientSecret }).toString(),
     });
     await response.body?.cancel().catch(() => undefined);
-    return response.ok || response.status === 400;
+    if (response.ok) return "revoked";
+    return response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429 ? "refused" : "unreachable";
   } catch {
-    return false;
+    return "unreachable";
   }
 }
 

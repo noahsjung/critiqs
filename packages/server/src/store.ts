@@ -634,6 +634,12 @@ export interface TrackerSignInRecord {
   bindingHash?: string;
   /** When the starting interface's window opened the sign-in; it opens once. */
   openedAt?: number;
+  /**
+   * When the tracker sent the window back and Critiqs began trading its code
+   * for tokens; the sign-in is kept until they are saved, so disconnecting
+   * meanwhile, which removes it, cancels it.
+   */
+  claimedAt?: number;
 }
 
 export interface FileInfo {
@@ -1012,8 +1018,10 @@ export interface Store {
     signIns: {
       findByState(state: string): Promise<TrackerSignInRecord | null>;
       insert(signIn: New<TrackerSignInRecord>): Promise<string>;
-      patch(id: string, changes: Partial<Pick<TrackerSignInRecord, "openedAt">>): Promise<void>;
+      patch(id: string, changes: Partial<Pick<TrackerSignInRecord, "openedAt" | "claimedAt">>): Promise<void>;
       delete(id: string): Promise<void>;
+      /** A person's sign-ins under way for a tracker. */
+      listForUser(userId: string, tracker: TrackerId): Promise<TrackerSignInRecord[]>;
     };
   };
 }

@@ -845,6 +845,16 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
         insert: async (signIn) => await writer().insert("trackerSignIns", defined({ ...signIn, userId: signIn.userId as Id<"users"> })),
         patch: async (id, changes) => await writer().patch(ticketTableId("trackerSignIns", id), defined(changes)),
         delete: async (id) => await writer().delete(ticketTableId("trackerSignIns", id)),
+        listForUser: async (userId, tracker) => {
+          const user = db.normalizeId("users", userId);
+          if (user === null) return [];
+          // A person starts at most ten a minute, each kept for minutes.
+          const rows = await db
+            .query("trackerSignIns")
+            .withIndex("by_user", (q) => q.eq("userId", user).eq("tracker", tracker))
+            .take(500);
+          return rows.map(withoutCreationTime);
+        },
       },
     },
     files: {

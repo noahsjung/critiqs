@@ -1,7 +1,8 @@
-import type { TrackerAccountView, TrackerSignInStart } from "@critiqs/core";
+import type { TrackerAccountView, TrackerDisconnected, TrackerSignInStart } from "@critiqs/core";
 import {
   claimTokenRefresh,
   claimTrackerSignIn,
+  dropTrackerSignIn,
   openTrackerSignIn,
   connectTrackerWithToken,
   disconnectTracker,
@@ -44,29 +45,53 @@ export const mine = query({
   handler: async (ctx) => run(async () => listTrackerAccounts(convexStore(ctx), await identityOf(ctx))),
 });
 
-/** Removes the signed-in person's account for a tracker, and its tokens; then, in the background, ends its sign-in at the tracker where it can. */
-export const disconnect = mutation({
+const disconnectedAccount = v.object({
+  userId: v.string(),
+  tracker: trackerValidator,
+  method: v.union(v.literal("oauth"), v.literal("token")),
+  access: storedTokenValidator,
+  refresh: v.union(storedTokenValidator, v.null()),
+});
+
+/** When a sign-in that couldn't be ended at its tracker is tried again, after each failed try: a minute, ten minutes, an hour. */
+const END_RETRY_MS = [60_000, 10 * 60_000, 60 * 60_000];
+
+/**
+ * Removes the signed-in person's account for a tracker, and its tokens, and
+ * cancels their sign-ins to it under way; then ends its sign-in at the
+ * tracker where it can, and says whether it did (`TrackerDisconnected`), so
+ * the person knows when the tracker couldn't be told. A sign-in that couldn't
+ * be ended is tried again in the background for about an hour.
+ */
+export const disconnect = action({
   args: { tracker: trackerValidator },
-  handler: async (ctx, args) =>
+  handler: async (ctx, args): Promise<TrackerDisconnected> =>
     run(async () => {
-      const ended = await disconnectTracker(convexStore(ctx), await identityOf(ctx), args);
-      // Still sealed: only the action decrypts them, to end them at the tracker.
-      if (ended !== null) await ctx.scheduler.runAfter(0, internal.trackers.endAccount, { account: ended });
+      const ended = await ctx.runMutation(internal.trackers.removeAccount, args);
+      if (ended === null) return "none";
+      // Still sealed until here: only an action decrypts them, to end them at the tracker.
+      const outcome = await endTrackerAccount(ticketsDeployment(), ended);
+      if (outcome === "failed") await ctx.scheduler.runAfter(END_RETRY_MS[0]!, internal.trackers.endAccount, { account: ended, attempt: 1 });
+      return outcome;
     }),
 });
 
-/** Ends a disconnected account's sign-in at its tracker (`endTrackerAccount`). */
+export const removeAccount = internalMutation({
+  args: { tracker: trackerValidator },
+  handler: async (ctx, args) => run(async () => disconnectTracker(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/** Tries again to end a disconnected account's sign-in at its tracker (`endTrackerAccount`), as `disconnect` couldn't. */
 export const endAccount = internalAction({
-  args: {
-    account: v.object({
-      userId: v.string(),
-      tracker: trackerValidator,
-      method: v.union(v.literal("oauth"), v.literal("token")),
-      access: storedTokenValidator,
-      refresh: v.union(storedTokenValidator, v.null()),
-    }),
+  args: { account: disconnectedAccount, attempt: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<string> => {
+    const outcome = await endTrackerAccount(ticketsDeployment(), args.account);
+    // The try after `attempt` waits END_RETRY_MS[attempt]; past the last, it is left to the person.
+    const attempt = args.attempt ?? 1;
+    const next = END_RETRY_MS[attempt];
+    if (outcome === "failed" && next !== undefined) await ctx.scheduler.runAfter(next, internal.trackers.endAccount, { account: args.account, attempt: attempt + 1 });
+    return outcome;
   },
-  handler: async (_ctx, args): Promise<string> => await endTrackerAccount(ticketsDeployment(), args.account),
 });
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */
@@ -137,9 +162,15 @@ export const claimSignIn = internalMutation({
   handler: async (ctx, args) => await claimTrackerSignIn(convexStore(ctx), args, Date.now()),
 });
 
+/** Ends a claimed sign-in that saved nothing. */
+export const dropSignIn = internalMutation({
+  args: { tracker: trackerValidator, state: v.string() },
+  handler: async (ctx, args) => await dropTrackerSignIn(convexStore(ctx), args),
+});
+
 /** Stores the account of a finished sign-in for the person who started it, only when its email is theirs. */
 export const saveSignedIn = internalMutation({
-  args: { userId: v.string(), account: sealedAccount },
+  args: { userId: v.string(), account: sealedAccount, state: v.string() },
   handler: async (ctx, args) => run(async () => saveSignedInAccount(convexStore(ctx), args, Date.now())),
 });
 

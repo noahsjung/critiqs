@@ -103,6 +103,16 @@ export interface TrackerAccountView {
   attribution: boolean;
 }
 
+/**
+ * What disconnecting a tracker did there: `ended` Critiqs's access (a
+ * sign-in's tokens no longer work); `kept` a pasted token, which only the
+ * person can delete in the tracker; `failed` to end a sign-in, because the
+ * tracker couldn't be reached or refused, so it still works until the person
+ * removes Critiqs in the tracker (Critiqs tries again for a while); `none`
+ * when nothing was connected.
+ */
+export type TrackerDisconnected = "ended" | "kept" | "failed" | "none";
+
 /** The trackers a backend offers, and how each one connects; from `/critiqs/config`. */
 export interface TicketsConfig {
   trackers: { id: TrackerId; signIn: "oauth" | "token" }[];

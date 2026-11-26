@@ -360,6 +360,15 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     return { fetchFn, sent };
   }
 
+  /** A sign-in Dana started, whose window Linear has sent back: the state to save its account with. */
+  async function claimedSignIn(backend: ContractBackend): Promise<string> {
+    const state = `state-${crypto.randomUUID()}`;
+    await backend.run((store) => startTrackerSignIn(store, dana, withSignIn, { tracker: "linear", state, verifier: "v", bindingHash: "h" }, 1_000));
+    await backend.run((store) => openTrackerSignIn(store, { tracker: "linear", state, bindingHash: "h" }, 1_000));
+    expect((await backend.run((store) => claimTrackerSignIn(store, { tracker: "linear", state, bindingHash: "h" }, 1_000))).status).toBe("claimed");
+    return state;
+  }
+
   /** Connects with a pasted token as `who`, each step its own transaction, as the Convex action runs it. */
   function connect(backend: ContractBackend, who: Identity, token: string, deployment = withKey, fetchFn = linearStub().fetchFn) {
     return connectTrackerWithToken(
@@ -434,7 +443,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const { danaId } = await setup(backend);
     const save = async (email: string | null) => {
       const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email, site: null }, { access: "a", refresh: "r", expiresAt: 9_000_000 });
-      return await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed }, 1_000));
+      const state = await claimedSignIn(backend);
+      return await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state }, 1_000));
     };
     // Another Linear account, or one that shares no email: nothing is stored.
     expect(await save("someone@example.com")).toEqual({ status: "other-email" });
@@ -471,7 +481,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const backend = fresh();
     const { danaId } = await setup(backend);
     const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
-    await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed }, 1_000));
+    const state = await claimedSignIn(backend);
+    await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state }, 1_000));
     const ended = await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
     expect(await backend.run((store) => tickets(store).accounts.find(danaId, "linear"))).toBeNull();
     const linear = linearStub();
@@ -491,6 +502,109 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const quiet = linearStub();
     expect(await endTrackerAccount(withSignIn, pasted!, quiet.fetchFn)).toBe("kept");
     expect(quiet.sent).toEqual([]);
+  });
+
+  /**
+   * Linear's sign-in tokens and its revocation endpoint, as documented
+   * (https://linear.app/developers/oauth-2-0-authentication): `POST
+   * /oauth/revoke` with `token` answers 200 when it revoked it and 400 when it
+   * couldn't, as for a token already revoked; a token Linear no longer accepts
+   * is refused by its API; a refresh token is spent when used. `refuse` makes
+   * Linear turn every revocation down; `down` makes it unreachable;
+   * `endsAuthorization` makes revoking the refresh token end the access
+   * token too.
+   */
+  function linearTokens(live: string[], options: { refuse?: boolean; down?: boolean; endsAuthorization?: boolean } = {}) {
+    const alive = new Set(live);
+    const revocations: string[] = [];
+    let issued = 0;
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (options.down === true) throw new TypeError("fetch failed");
+      const url = String(input);
+      const form = new URLSearchParams(String(init?.body ?? ""));
+      if (url.endsWith("/oauth/revoke")) {
+        const value = form.get("token") ?? "";
+        revocations.push(value);
+        if (options.refuse === true || !alive.delete(value)) return new Response(null, { status: 400 });
+        if (options.endsAuthorization === true && form.get("token_type_hint") === "refresh_token") alive.clear();
+        return new Response(null, { status: 200 });
+      }
+      if (url.endsWith("/oauth/token")) {
+        const used = form.get("refresh_token") ?? "";
+        if (!alive.delete(used)) return Response.json({ error: "invalid_grant" }, { status: 400 });
+        issued++;
+        alive.add(`access-${issued}`);
+        alive.add(`refresh-${issued}`);
+        return Response.json({ access_token: `access-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 86_399 });
+      }
+      const bearer = /^Bearer (.+)$/.exec(new Headers(init?.headers).get("Authorization") ?? "")?.[1] ?? "";
+      if (!alive.has(bearer)) return Response.json({ errors: [{ message: "Authentication required", extensions: { code: "AUTHENTICATION_ERROR" } }] }, { status: 400 });
+      return Response.json({ data: { viewer: { id: "user-1", name: "Dana Smith", email: "dana@example.com" }, organization: { id: "org-1", name: "Acme" } } });
+    }) as typeof fetch;
+    return { fetchFn, alive, revocations };
+  }
+
+  test(`${name}: disconnecting says it ended a Linear sign-in only when Linear no longer accepts its tokens`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const disconnected = async () => {
+      const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
+      await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));
+      return (await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" })))!;
+    };
+    // Linear turns the revocation down while both tokens still work: not ended, and the person is told.
+    const refusing = linearTokens(["oauth-access", "oauth-refresh"], { refuse: true });
+    expect(await endTrackerAccount(withSignIn, await disconnected(), refusing.fetchFn)).toBe("failed");
+    expect(refusing.alive.has("oauth-refresh")).toBe(true);
+    // Linear can't be reached.
+    expect(await endTrackerAccount(withSignIn, await disconnected(), linearTokens(["oauth-access", "oauth-refresh"], { down: true }).fetchFn)).toBe("failed");
+    // Both revoked.
+    const normal = linearTokens(["oauth-access", "oauth-refresh"]);
+    expect(await endTrackerAccount(withSignIn, await disconnected(), normal.fetchFn)).toBe("ended");
+    expect(normal.alive.size).toBe(0);
+    // Revoking the refresh token ended the access token too, so its own revocation answers 400: still ended, as Linear no longer accepts it.
+    expect(await endTrackerAccount(withSignIn, await disconnected(), linearTokens(["oauth-access", "oauth-refresh"], { endsAuthorization: true }).fetchFn)).toBe("ended");
+    // Already revoked in Linear by the person: both 400, and neither works.
+    expect(await endTrackerAccount(withSignIn, await disconnected(), linearTokens([]).fetchFn)).toBe("ended");
+    // The access token had expired and only the refresh token's revocation was turned down: the refresh token is tried, still works, and its new tokens are revoked.
+    const halfway = linearTokens(["oauth-refresh"]);
+    const stubborn = halfway.fetchFn;
+    let refusedOnce = false;
+    const refuseFirst = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (!refusedOnce && String(input).endsWith("/oauth/revoke")) {
+        refusedOnce = true;
+        return new Response(null, { status: 400 });
+      }
+      return await stubborn(input, init);
+    }) as typeof fetch;
+    expect(await endTrackerAccount(withSignIn, await disconnected(), refuseFirst)).toBe("ended");
+    expect(halfway.alive.size).toBe(0);
+  });
+
+  test(`${name}: a sign-in under way when the person disconnects connects nothing, whether or not the tracker had sent them back yet`, async () => {
+    const backend = fresh();
+    const { danaId } = await setup(backend);
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
+    const start = async (state: string) => {
+      await backend.run((store) => startTrackerSignIn(store, dana, withSignIn, { tracker: "linear", state, verifier: "v", bindingHash: "h" }, 1_000));
+      await backend.run((store) => openTrackerSignIn(store, { tracker: "linear", state, bindingHash: "h" }, 1_001));
+    };
+    // Linear had sent the window back, and Critiqs was trading the code for tokens, when Dana disconnected.
+    await start("state-1");
+    expect((await backend.run((store) => claimTrackerSignIn(store, { tracker: "linear", state: "state-1", bindingHash: "h" }, 1_002))).status).toBe("claimed");
+    await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    expect(await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state: "state-1" }, 1_003))).toEqual({ status: "cancelled" });
+    expect(await backend.run((store) => tickets(store).accounts.find(danaId, "linear"))).toBeNull();
+    // Linear hadn't sent it back yet: it can't finish at all.
+    await start("state-2");
+    await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
+    expect((await backend.run((store) => claimTrackerSignIn(store, { tracker: "linear", state: "state-2", bindingHash: "h" }, 1_002))).status).toBe("expired");
+    // A sign-in started after disconnecting connects as usual, once.
+    await start("state-3");
+    expect((await backend.run((store) => claimTrackerSignIn(store, { tracker: "linear", state: "state-3", bindingHash: "h" }, 1_004))).status).toBe("claimed");
+    expect(await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state: "state-3" }, 1_005))).toEqual({ status: "saved" });
+    expect(await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state: "state-3" }, 1_006))).toEqual({ status: "cancelled" });
+    expect((await backend.run((store) => claimTrackerSignIn(store, { tracker: "linear", state: "state-3", bindingHash: "h" }, 1_007))).status).toBe("expired");
   });
 
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {

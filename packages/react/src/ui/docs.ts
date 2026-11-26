@@ -174,7 +174,7 @@ export const DOCS: DocTopic[] = [
       "Connect Linear opens Linear's sign-in in a window; allow Critiqs there. If nothing opens, allow pop-ups for this site.",
       "Where the deployment has no Linear sign-in, Connect Linear asks for a personal API key instead: Open Linear settings, create a key, and paste it.",
       "Created from Critiqs: whether your new tickets say they came from Critiqs, with a link to the comment. It is on until you turn it off.",
-      "Disconnect removes your account and its key from Critiqs. Tickets already linked keep their links.",
+      "Disconnect removes your account and its key from Critiqs, and ends Critiqs's sign-in in the tracker. Tickets already linked keep their links. If the tracker can't be told, or you pasted an API key, Your trackers says what still works there and how to end it.",
       "Only you see or change your connections. Keys are stored encrypted and never shown again.",
     ],
   },

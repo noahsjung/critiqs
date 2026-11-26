@@ -656,9 +656,12 @@ export default defineSchema({
     bindingHash: v.optional(v.string()),
     /** When the starting interface's window opened the sign-in; it opens once. */
     openedAt: v.optional(v.number()),
+    /** When the tracker sent the window back; kept until its tokens are saved, so disconnecting cancels it. */
+    claimedAt: v.optional(v.number()),
   })
     .index("by_state", ["state"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_expiry", ["expiresAt"])
+    .index("by_user", ["userId", "tracker"]),
 
   /** Critiqs AI credits held while a request's model answers, per payer's counter scope. */
   creditHolds: defineTable({ scope: v.string(), credits: v.number(), expiresAt: v.number() }).index("by_scope_expiry", ["scope", "expiresAt"]),

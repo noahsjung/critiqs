@@ -37,6 +37,7 @@ import type {
   ThreadDetail,
   ThreadSummary,
   TrackerAccountView,
+  TrackerDisconnected,
   TrackerId,
   TrackerSignInStart,
 } from "@critiqs/core";
@@ -279,7 +280,8 @@ export interface TicketTransport {
    * in `useTrackerAccounts` once it finishes.
    */
   startTrackerSignIn(tracker: TrackerId): Promise<TrackerSignInStart>;
-  disconnectTracker(tracker: TrackerId): Promise<void>;
+  /** Removes the person's account for the tracker, ends Critiqs's access there where it can, and says what it did there. */
+  disconnectTracker(tracker: TrackerId): Promise<TrackerDisconnected>;
   /** Whether the person's new tickets in the tracker say they came from Critiqs, by default. */
   setTrackerAttribution(tracker: TrackerId, on: boolean): Promise<void>;
 }

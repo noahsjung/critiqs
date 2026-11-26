@@ -1,5 +1,6 @@
 import type {
   AiChoiceView,
+  TrackerDisconnected,
   BillingChange,
   BillingPlan,
   BillingStatus,
@@ -114,6 +115,8 @@ export interface FakeTrackers {
   connect?: (tracker: TrackerId, token: string) => Promise<TrackerAccountView>;
   /** The started sign-in; by default one on the backend. */
   signIn?: () => Promise<TrackerSignInStart>;
+  /** What disconnecting did at the tracker; by default it ended a sign-in there and kept a pasted token. */
+  disconnected?: TrackerDisconnected;
 }
 
 /** An in-memory transport, so interface tests need no backend client. */
@@ -289,7 +292,9 @@ function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknow
     },
     disconnectTracker: async (tracker) => {
       record("disconnectTracker", { tracker });
+      const account = (trackers.accounts ?? []).find((each) => each.tracker === tracker);
       trackers.accounts = (trackers.accounts ?? []).filter((each) => each.tracker !== tracker);
+      return trackers.disconnected ?? (account === undefined ? "none" : account.method === "oauth" ? "ended" : "kept");
     },
     setTrackerAttribution: async (tracker, on) => {
       record("setTrackerAttribution", { tracker, on });

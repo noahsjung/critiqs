@@ -1,10 +1,10 @@
 import { TRACKERS, type TicketsConfig, type TrackerAccountView, type TrackerId } from "@critiqs/core";
 import { decryptToken, encryptToken, trackerTokenBinding, validEncryptionKey } from "../ai/secrets.ts";
-import { fail } from "../errors.ts";
+import { CritiqsError, fail } from "../errors.ts";
 import { normalizeEmail } from "../signin.ts";
 import { currentReviewer, requireUser } from "../operations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
-import type { SignInTokens, TrackerAdapter, TrackerIdentity, TrackerToken } from "./trackers/index.ts";
+import type { SignInTokens, TrackerAdapter, TrackerEndpointOptions, TrackerIdentity, TrackerToken } from "./trackers/index.ts";
 import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
@@ -157,16 +157,23 @@ export async function saveTrackerAccount(store: Store, userId: string, account: 
   return trackerAccountView({ _id: id, ...record });
 }
 
-export type SignedInSave = { status: "saved" } | { status: "other-email" };
+export type SignedInSave = { status: "saved" } | { status: "other-email" } | { status: "cancelled" };
 
 /**
  * Stores the account of a finished sign-in for the person who started it, but
  * only when the tracker account's email is their Critiqs email (compared as
  * sign-in compares addresses). The window that finishes a sign-in can't prove
  * it belongs to the person who started it, so a sign-in finished by someone
- * else, into another tracker account, stores nothing. One transaction.
+ * else, into another tracker account, stores nothing. Only while the
+ * sign-in `state` names is still under way, claimed by the window the tracker
+ * sent back: a person who disconnected meanwhile cancelled it, and it stores
+ * nothing either (`cancelled`). Each sign-in saves once. One transaction.
  */
-export async function saveSignedInAccount(store: Store, args: { userId: string; account: SealedAccount }, now: number): Promise<SignedInSave> {
+export async function saveSignedInAccount(store: Store, args: { userId: string; account: SealedAccount; state: string }, now: number): Promise<SignedInSave> {
+  const signIns = ticketStore(store).signIns;
+  const signIn = await signIns.findByState(args.state);
+  if (signIn === null || signIn.claimedAt === undefined || signIn.userId !== args.userId || signIn.tracker !== args.account.tracker) return { status: "cancelled" };
+  await signIns.delete(signIn._id);
   const user = await store.users.get(args.userId);
   const critiqs = user?.email == null ? null : normalizeEmail(user.email);
   const tracker = args.account.identity.email === null ? null : normalizeEmail(args.account.identity.email);
@@ -195,38 +202,86 @@ export interface DisconnectedAccount {
 }
 
 /**
- * Removes the signed-in person's account for a tracker and its tokens.
- * Tickets they linked keep their links. Returns the account removed, to end
- * at the tracker; null when there was none. One transaction.
+ * Removes the signed-in person's account for a tracker and its tokens, and
+ * cancels their sign-ins to it still under way, so none connects it again
+ * afterwards. Tickets they linked keep their links. Returns the account
+ * removed, to end at the tracker; null when there was none. One transaction.
  */
 export async function disconnectTracker(store: Store, identity: Identity | null, args: { tracker: TrackerId }): Promise<DisconnectedAccount | null> {
   const accounts = ticketStore(store).accounts;
   const user = await requireUser(store, identity);
+  const signIns = ticketStore(store).signIns;
+  for (const signIn of await signIns.listForUser(user._id, args.tracker)) await signIns.delete(signIn._id);
   const existing = await accounts.find(user._id, args.tracker);
   if (existing === null) return null;
   await accounts.delete(existing._id);
   return { userId: user._id, tracker: args.tracker, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
 }
 
+/** What disconnecting did at the tracker: ended Critiqs's access there, left a pasted token for the person to remove, or couldn't end it. */
+export type TrackerEnd = "ended" | "kept" | "failed";
+
 /**
  * Ends a disconnected account at its tracker, where an API call can: a
  * Linear sign-in is revoked, refresh token first. A pasted token can't be
  * ended by another caller in any tracker, so it is `kept`: valid until the
- * person removes it there. `failed` when the tracker couldn't be reached or
- * refused; the sign-in then ends when its tokens expire.
+ * person removes it there. `failed` when the tracker couldn't be reached,
+ * refused, or still accepts a token afterwards; the person is told, and the
+ * sign-in ends when its tokens expire or they remove Critiqs at the tracker.
  */
-export async function endTrackerAccount(deployment: TicketsDeployment, account: DisconnectedAccount, fetchFn: typeof fetch = fetch): Promise<"ended" | "kept" | "failed"> {
+export async function endTrackerAccount(deployment: TicketsDeployment, account: DisconnectedAccount, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<TrackerEnd> {
   if (account.method !== "oauth") return "kept";
   const key = deployment.encryptionKey;
   if (key === null || account.tracker !== "linear" || deployment.linear === null) return "failed";
   const binding = trackerTokenBinding(account.tracker, account.userId);
-  const endpoint = { fetch: fetchFn, baseUrl: deployment.linearApiUrl };
   const refresh = account.refresh === null ? null : await decryptToken(key, binding, account.refresh);
   const access = await decryptToken(key, binding, account.access);
-  let ended = true;
-  if (refresh !== null) ended = (await revokeLinearToken(endpoint, deployment.linear, refresh, "refresh_token")) && ended;
-  if (access !== null) ended = (await revokeLinearToken(endpoint, deployment.linear, access, "access_token")) && ended;
-  return ended && (refresh !== null || access !== null) ? "ended" : "failed";
+  if (refresh === null && access === null) return "failed";
+  return (await endTrackerSignIn(deployment, account.tracker, { access, refresh }, fetchFn, now)) ? "ended" : "failed";
+}
+
+/**
+ * Ends a sign-in's tokens at the tracker, where it offers a call that does:
+ * true when the tracker no longer accepts them. Also for tokens a sign-in
+ * got after the person cancelled it by disconnecting.
+ */
+export async function endTrackerSignIn(deployment: TicketsDeployment, tracker: TrackerId, tokens: { access: string | null; refresh: string | null }, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<boolean> {
+  if (tracker !== "linear" || deployment.linear === null) return false;
+  return await endLinearSignIn({ fetch: fetchFn, baseUrl: deployment.linearApiUrl }, deployment.linear, tokens, now);
+}
+
+/**
+ * Revokes a Linear sign-in's tokens, refresh token first, and says whether
+ * Linear no longer accepts either. Linear answers 400 when it can't revoke a
+ * token, as for one already revoked, so a 400 alone proves nothing: an access
+ * token then counts as ended only when Linear's API refuses it, and a refresh
+ * token only when Linear refuses to refresh with it; one that still works is
+ * spent on new tokens, which are revoked in turn, once.
+ */
+async function endLinearSignIn(endpoint: TrackerEndpointOptions, app: LinearApp, tokens: { access: string | null; refresh: string | null }, now: number, again = true): Promise<boolean> {
+  const refreshed = tokens.refresh === null ? "revoked" : await revokeLinearToken(endpoint, app, tokens.refresh, "refresh_token");
+  const accessed = tokens.access === null ? "revoked" : await revokeLinearToken(endpoint, app, tokens.access, "access_token");
+  if (refreshed === "unreachable" || accessed === "unreachable") return false;
+  if (accessed === "refused" && !(await linearRefuses(endpoint, tokens.access!))) return false;
+  if (refreshed === "revoked") return true;
+  let fresh: SignInTokens;
+  try {
+    fresh = await refreshLinearToken(endpoint, app, tokens.refresh!, now);
+  } catch (error: unknown) {
+    // Linear won't refresh with it: it no longer works.
+    return error instanceof CritiqsError && error.code === "invalid";
+  }
+  return again && (await endLinearSignIn(endpoint, app, fresh, now, false));
+}
+
+/** Whether Linear's API refuses an access token, so it no longer works; false when Linear accepts it or couldn't be asked. */
+async function linearRefuses(endpoint: TrackerEndpointOptions, access: string): Promise<boolean> {
+  try {
+    await linearAdapter(endpoint).verify({ method: "oauth", value: access });
+    return false;
+  } catch (error) {
+    return error instanceof CritiqsError && error.code === "invalid";
+  }
 }
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */
@@ -343,20 +398,33 @@ export async function openTrackerSignIn(store: Store, args: { tracker: TrackerId
   return { status: "opened", verifier: signIn.verifier ?? "" };
 }
 
+/** Ends a claimed sign-in that saved nothing, as when the person didn't allow Critiqs or the tracker refused its code. One transaction. */
+export async function dropTrackerSignIn(store: Store, args: { tracker: TrackerId; state: string }): Promise<void> {
+  const signIns = ticketStore(store).signIns;
+  const signIn = await signIns.findByState(args.state);
+  if (signIn !== null && signIn.tracker === args.tracker && signIn.claimedAt !== undefined) await signIns.delete(signIn._id);
+}
+
 export type ClaimedSignIn = { status: "claimed"; userId: string; verifier: string } | { status: "expired" } | { status: "other-browser" };
 
 /**
- * Ends a sign-in when the tracker sends the person back, whatever the outcome:
- * each state is used once, and only by the browser whose window opened it,
- * which holds the same secret in a cookie.
+ * Claims a sign-in when the tracker sends the person back, whatever the
+ * outcome: each state is claimed once, and only by the browser whose window
+ * opened it, which holds the same secret in a cookie. It is kept, claimed,
+ * until its tokens are saved (`saveSignedInAccount`), so disconnecting
+ * meanwhile cancels it.
  */
 export async function claimTrackerSignIn(store: Store, args: { tracker: TrackerId; state: string; bindingHash: string }, now: number): Promise<ClaimedSignIn> {
   const signIns = ticketStore(store).signIns;
   const signIn = await signIns.findByState(args.state);
   if (signIn === null || signIn.tracker !== args.tracker) return { status: "expired" };
   if (signIn.openedAt === undefined || signIn.bindingHash === undefined || signIn.bindingHash !== args.bindingHash) return { status: "other-browser" };
-  await signIns.delete(signIn._id);
-  if (signIn.expiresAt <= now) return { status: "expired" };
+  if (signIn.claimedAt !== undefined) return { status: "expired" };
+  if (signIn.expiresAt <= now) {
+    await signIns.delete(signIn._id);
+    return { status: "expired" };
+  }
+  await signIns.patch(signIn._id, { claimedAt: now });
   return { status: "claimed", userId: signIn.userId, verifier: signIn.verifier ?? "" };
 }
 

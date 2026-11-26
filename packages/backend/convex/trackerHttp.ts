@@ -1,4 +1,4 @@
-import { CritiqsError, exchangeLinearCode, linearAdapter, linearAuthorizeUrl, SIGN_IN_MINUTES, sealSignIn } from "@critiqs/server";
+import { CritiqsError, endTrackerSignIn, exchangeLinearCode, linearAdapter, linearAuthorizeUrl, SIGN_IN_MINUTES, sealSignIn } from "@critiqs/server";
 import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -123,25 +123,34 @@ export const linearCallback = httpAction(async (ctx, request) => {
     return withHeaders(notConnected("Finish connecting Linear in the same browser window that started it. Close this window and choose Connect in Your trackers again."), clear);
   }
   if (claimed.status === "expired") return withHeaders(notConnected(startAgain), clear);
+  // Whatever else happens, this sign-in is over: only a saved one ends by saving.
+  const end = async (response: Response) => {
+    await ctx.runMutation(internal.trackers.dropSignIn, { tracker: "linear", state });
+    return withHeaders(response, clear);
+  };
   const error = params.get("error");
   if (error !== null) {
-    return withHeaders(
+    return await end(
       notConnected(error === "access_denied" ? "You didn't allow Critiqs to use your Linear account. You can close this window." : "Linear didn't finish the sign-in. Close this window and try again."),
-      clear,
     );
   }
   const code = params.get("code") ?? "";
-  if (code === "") return withHeaders(notConnected("Linear didn't finish the sign-in. Close this window and try again."), clear);
+  if (code === "") return await end(notConnected("Linear didn't finish the sign-in. Close this window and try again."));
   try {
     const endpoint = { baseUrl: deployment.linearApiUrl };
     const tokens = await exchangeLinearCode(endpoint, deployment.linear, { code, redirectUri: `${siteUrl()}/trackers/linear/callback`, verifier: claimed.verifier }, Date.now());
     const identity = await linearAdapter(endpoint).verify({ method: "oauth", value: tokens.access });
     const account = await sealSignIn(deployment, "linear", claimed.userId, identity, tokens);
-    const saved = await ctx.runMutation(internal.trackers.saveSignedIn, { userId: claimed.userId, account });
+    const saved = await ctx.runMutation(internal.trackers.saveSignedIn, { userId: claimed.userId, account, state });
     if (saved.status === "other-email") return withHeaders(otherEmail(identity), clear);
+    if (saved.status === "cancelled") {
+      // Disconnected while this window was signing in: the tokens it got are ended, not kept.
+      await endTrackerSignIn(deployment, "linear", { access: tokens.access, refresh: tokens.refresh });
+      return withHeaders(notConnected("You disconnected Linear while this window was signing in, so Critiqs didn't connect it. Close this window, and connect Linear again in Your trackers if you meant to.", 409), clear);
+    }
   } catch (failure) {
     // Linear's refusals and Critiqs's own say what to do; anything else stays vague, never echoing tokens.
-    return withHeaders(notConnected(failureMessage(failure), 502), clear);
+    return await end(notConnected(failureMessage(failure), 502));
   }
   return withHeaders(messagePage("Linear is connected", "You can close this window.", 200), clear);
 });
