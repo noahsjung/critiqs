@@ -44,6 +44,8 @@ function fakeHost(signInClient?: Partial<PanelSignIn>) {
     },
     signInClient: signInClient as PanelSignIn | undefined,
     extensionUrl: "https://extension.example/critiqs",
+    // The headers the website's host sends a review page (vite.config.ts), for these frames' domain.
+    framePolicy: async () => "frame-ancestors 'none'; frame-src http://*.review.localhost:5960",
   };
   return { host, mounted, accepted };
 }

@@ -127,6 +127,7 @@ export function fakeBackend(
     reviewLinks: overrides.reviewLinks ?? null,
     openReviewLink: record("openReviewLink", overrides.openReviewLink ?? (async () => ({ kind: "unavailable" }) as const)),
     renewReviewLease: record("renewReviewLease", overrides.renewReviewLease ?? (async () => ({ kind: "renewed", expiresAt: Date.now() + 600_000 }) as const)),
+    useReviewLease: overrides.useReviewLease ?? (() => ({ status: "ready", data: { kind: "live" } }) as const),
     adoptReviewLease: record("adoptReviewLease", overrides.adoptReviewLease ?? (async () => ({ kind: "ended" }) as const)),
     recordReviewOpened: record("recordReviewOpened", overrides.recordReviewOpened ?? (async () => {})),
     useReviewLinks: (projectId) => (projectId === null ? loading : (overrides.useReviewLinks?.(projectId) ?? { status: "ready", data: [] })),

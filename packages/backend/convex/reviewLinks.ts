@@ -519,6 +519,27 @@ export const open = mutation({
  * still passes for its viewer: the renewal secret, and for a signed-in lease
  * the same person. Anything else ends it.
  */
+/**
+ * Whether a lease still serves, for the review page around its frame, which
+ * watches it: a link removed, paused, or closed to the viewer ends the session
+ * on the page as soon as it happens, rather than at the next renewal, while
+ * the proxy stops serving it within five seconds. The same checks as `renew`,
+ * without renewing.
+ */
+export const leaseState = query({
+  args: { leaseId: v.string(), renewalSecret: v.string() },
+  handler: async (ctx, args): Promise<{ kind: "live" } | { kind: "ended" }> =>
+    run(async () => {
+      const store = convexStore(ctx);
+      const now = Date.now();
+      const held = await heldLease(ctx, args.leaseId, args.renewalSecret, now);
+      if (held === null) return { kind: "ended" };
+      const { lease, link, project } = held;
+      if (lease.userId !== undefined && (await viewerId(ctx, store)) !== lease.userId) return { kind: "ended" };
+      return (await serving(ctx, store, link, project, lease.userId ?? null, now)) === "ok" ? { kind: "live" } : { kind: "ended" };
+    }),
+});
+
 export const renew = mutation({
   args: { leaseId: v.string(), renewalSecret: v.string() },
   handler: async (ctx, args): Promise<ReviewRenewal> =>

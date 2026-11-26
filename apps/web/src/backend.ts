@@ -42,6 +42,7 @@ export interface NewProject {
 export type ReviewOpen = FunctionReturnType<typeof api.reviewLinks.open>;
 export type ReviewReady = Extract<ReviewOpen, { kind: "ready" }>;
 export type ReviewRenewal = FunctionReturnType<typeof api.reviewLinks.renew>;
+export type ReviewLeaseState = FunctionReturnType<typeof api.reviewLinks.leaseState>;
 export type ReviewAdoption = FunctionReturnType<typeof api.reviewLinks.adopt>;
 export type ReviewLinkSummary = FunctionReturnType<typeof api.reviewLinks.list>[number];
 export type CreatedReviewLink = FunctionReturnType<typeof api.reviewLinks.createLive>;
@@ -134,6 +135,8 @@ export interface Backend {
   openReviewLink(key: string): Promise<ReviewOpen>;
   /** Keeps a lease for another ten minutes while every check still passes; `ended` otherwise. */
   renewReviewLease(leaseId: string, renewalSecret: string): Promise<ReviewRenewal>;
+  /** Whether a lease still serves, live: `ended` as soon as its link is removed or closed to the viewer. */
+  useReviewLease(leaseId: string, renewalSecret: string): QueryState<ReviewLeaseState>;
   /** Binds a signed-out lease to the person who just signed in, keeping the frame as it is, and names the project. */
   adoptReviewLease(leaseId: string, renewalSecret: string): Promise<ReviewAdoption>;
   /** Records that the signed-in viewer opened the project, as an install does. */
@@ -255,6 +258,7 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
     ...features,
     openReviewLink: (key) => client.mutation(api.reviewLinks.open, { key }),
     renewReviewLease: (leaseId, renewalSecret) => client.mutation(api.reviewLinks.renew, { leaseId, renewalSecret }),
+    useReviewLease: (leaseId, renewalSecret) => useQueryState(api.reviewLinks.leaseState, { leaseId, renewalSecret }),
     adoptReviewLease: (leaseId, renewalSecret) => client.mutation(api.reviewLinks.adopt, { leaseId, renewalSecret }),
     recordReviewOpened: async (leaseId, renewalSecret) => {
       await client.mutation(api.reviewLinks.recordOpened, { leaseId, renewalSecret });

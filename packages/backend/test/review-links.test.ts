@@ -737,3 +737,21 @@ test("a link's origins count only as the address list counts them, and a link ta
   await stale("https://app.acme.com");
   expect(await resolve(f.t, opened.label)).toEqual(NOT_FOUND);
 });
+
+test("the review page's watch on its lease says ended as soon as the link is revoked or the viewer loses access, without renewing", async () => {
+  const f = await fixture();
+  const { key, linkId } = await f.link();
+  const opened = await lease(f.anonymous, key);
+  const ask = () => f.anonymous.query(api.reviewLinks.leaseState, { leaseId: opened.entry.leaseId, renewalSecret: opened.entry.renewalSecret });
+  expect(await ask()).toEqual({ kind: "live" });
+  // Someone else's secret learns nothing.
+  expect(await f.anonymous.query(api.reviewLinks.leaseState, { leaseId: opened.entry.leaseId, renewalSecret: "x".repeat(43) })).toEqual({ kind: "ended" });
+  await f.dana.mutation(api.reviewLinks.revoke, { linkId });
+  expect(await ask()).toEqual({ kind: "ended" });
+
+  const other = await fixture();
+  const second = await other.link();
+  const held = await lease(other.anonymous, second.key);
+  await other.dana.mutation(api.projects.setReviewAccess, { projectId: other.projectId, reviewAccess: "organization" });
+  expect(await other.anonymous.query(api.reviewLinks.leaseState, { leaseId: held.entry.leaseId, renewalSecret: held.entry.renewalSecret })).toEqual({ kind: "ended" });
+});

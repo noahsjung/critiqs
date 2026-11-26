@@ -44,6 +44,8 @@ function fakeHost() {
     },
     signInClient: undefined as PanelSignIn | undefined,
     extensionUrl: "https://extension.example/critiqs",
+    // The headers the website's host sends a review page (vite.config.ts), for these frames' domain.
+    framePolicy: async () => "frame-ancestors 'none'; frame-src http://*.review.localhost:5960",
   };
   /** The review surface the panel has now: its first mount, with every update since. */
   const surface = () => {
@@ -172,7 +174,8 @@ describe("a narrow screen", () => {
     const { host, surface } = fakeHost();
     const container = await openReview(host);
     await click(button(container, "Browse"));
-    await click(button(container, "Comments"));
+    // In Browse the sheet shows the project, and its button says so.
+    await click(button(container, "Project"));
     expect(surface().panel).toMatchObject({ open: true });
     await click(button(container, "Comment"));
     expect(surface().panel).toMatchObject({ open: false });

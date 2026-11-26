@@ -1259,15 +1259,23 @@ page's address, with the prototype's path after `#`), and the account.
   comment was left at, with a way back.
 - **Narrow screens.** Below 960 pixels a sidebar beside the frame would leave
   the prototype too little room, so the frame takes the whole width and the
-  panel is a sheet over its lower part: **Comments** in the bar opens it, its
-  own Close button closes it, and choosing Comment or opening a thread puts it
-  down so the frame can be picked from. On a phone the bar takes two rows.
+  panel is a sheet over its lower part: **Comments** in the bar opens it
+  (**Project** in Browse, as the panel's own title says), its own Close
+  button closes it, and choosing Comment or opening a thread puts it down so
+  the frame can be picked from. On a phone the bar takes two rows and the
+  site's name is never cut. On a touch screen Comment mode's hint names a tap,
+  not a key.
 - **When part of the page can't load.** The proxy's runtime tells the page
   once when something on the prototype couldn't load through the link (a web
   socket, another site the frame's policy refuses, a file the proxy refused
   or the browser couldn't read), and the page shows one line with the
-  extension as the way to see it all. A copy of Critiqs the prototype itself
+  extension as the way to see it all, with its own Dismiss. Files held back
+  only because the viewer's request budget ran out for now get a line saying
+  to reload in a minute instead. A copy of Critiqs the prototype itself
   installed stays out of the frame.
+- **When the link ends.** The page watches its lease: a link removed, paused
+  or closed to the viewer ends the session on the page as soon as it
+  happens, while the proxy stops serving it within five seconds.
 - **Headers.** Whatever serves the website sends, for `/r/*` and
   `/review-links/*`: `Content-Security-Policy: frame-ancestors 'none';
   frame-src <lease hosts>`, `Referrer-Policy: no-referrer` and
@@ -1275,10 +1283,13 @@ page's address, with the prototype's path after `#`), and the account.
   `vite` and `vite preview` (with `CRITIQS_REVIEW_FRAMES` such as
   `https://*.critiqs-review.net`), and `apps/web/vercel.json` for the
   website's host, where `frame-src` names the proxy's domain; a test keeps the
-  two the same. The `frame-src` is what keeps a frame from being navigated to
-  another site where the browser lacks the Navigation API, so a deployment
-  without it must not serve review links. The page also refuses to show
-  inside another site's frame.
+  two the same. The `frame-src` is the only wall that keeps a frame on the
+  proxy: a prototype's own scripts can move its frame to a `blob:` document,
+  which carries no runtime, or to another site. So before it shows a frame
+  the page reads its own headers again and shows no frame, with a line for
+  the operator, unless some policy allows frames only from host sources that
+  name the lease's origin (`apps/web/src/frame-policy.ts`). The page also
+  refuses to show inside another site's frame.
 - **Owners** create, copy, open and remove a project's links at
   `/review-links/<project ID>`.
 

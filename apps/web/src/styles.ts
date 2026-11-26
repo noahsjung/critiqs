@@ -365,7 +365,10 @@ export const APP_STYLES = `
   .review.narrow .review-modes { flex: 1; }
   .review.narrow .review-modes button { flex: 1; height: 34px; }
   .review.narrow .review-comments { margin-left: auto; height: 36px; }
-  .review.narrow .review-source { flex: 1 1 60px; }
+  /* The site's name is never cut: it wraps if it must, with the path below it on one line. */
+  .review.narrow .review-source { flex: 1 1 60px; flex-direction: column; align-items: flex-start; gap: 0; white-space: normal; }
+  .review.narrow .review-source strong { overflow-wrap: anywhere; line-height: 18px; }
+  .review.narrow .review-source span { max-width: 100%; white-space: nowrap; font-size: 12px; line-height: 16px; }
   .review.narrow .review-account { max-width: 120px; }
 }
 `;

@@ -3,6 +3,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { failureMessage, type ReviewReady, useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
+import { framesOnlyFrom, ownFramePolicy } from "../frame-policy.ts";
 import { REVIEW_KEY, reviewPathOf } from "../route.ts";
 import type { Deployment, MountedPanel, PanelMount, TokenSession } from "../shared.ts";
 import { keepThreadWindowsBelow, useSidebarWidth } from "../shared.ts";
@@ -27,6 +28,8 @@ export interface ReviewHost {
   signInClient?: PanelSignIn;
   /** Where "Get the extension" goes; none hides the link. */
   extensionUrl: string | null;
+  /** The Content-Security-Policy this page was served with (`ownFramePolicy`); tests pass a fake. */
+  framePolicy?: () => Promise<string | null>;
 }
 
 export const ReviewHostContext = createContext<ReviewHost | null>(null);
@@ -41,6 +44,7 @@ function useReviewHost(): ReviewHost {
 export const DEVICE_WIDTHS = ["fit", 1440, 1280, 768, 390] as const;
 export type FrameWidth = "fit" | number;
 
+/** Where the extension banner's Dismiss is kept, across visits; the partial-load notice's lasts for the page. */
 const BANNER_KEY = "critiqs:review-extension-banner";
 /** The review bar's height on one row, in CSS pixels (`.review-bar` in styles.ts); on a phone it takes two. */
 const BAR_HEIGHT = 52;
@@ -121,6 +125,20 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
   const settled = auth.reviewer === null || auth.ready;
   const openingRef = useRef(opening);
   openingRef.current = opening;
+  // Whether the website's host sent the frame policy that keeps the frame on the review proxy (frame-policy.ts): no frame without it.
+  const [walled, setWalled] = useState<{ origin: string; walled: boolean } | null>(null);
+  const leaseOriginNow = opening.status === "ready" ? opening.ready.entry.origin : null;
+  useEffect(() => {
+    if (leaseOriginNow === null || walled?.origin === leaseOriginNow) return;
+    let cancelled = false;
+    (host.framePolicy ?? ownFramePolicy)().then(
+      (header) => !cancelled && setWalled({ origin: leaseOriginNow, walled: framesOnlyFrom(header, leaseOriginNow) }),
+      () => !cancelled && setWalled({ origin: leaseOriginNow, walled: false }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [leaseOriginNow, host]);
 
   useEffect(() => {
     document.title = "Review · Critiqs";
@@ -175,7 +193,8 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
 
   // A review page framed by another site could trick people into clicking; it shows only on its own.
   if (window.top !== window.self) return null;
-  if (opening.status === "ready") {
+  const policyKnown = opening.status === "ready" && walled?.origin === opening.ready.entry.origin;
+  if (opening.status === "ready" && policyKnown && walled.walled) {
     return (
       <>
         <ReviewCanvas
@@ -203,7 +222,8 @@ export function ReviewPage({ linkKey }: { linkKey: string }) {
         </span>
       </header>
       <main className="page narrow" aria-live="polite">
-        {opening.status === "opening" && <p className="note">{copy.review.opening}</p>}
+        {(opening.status === "opening" || (opening.status === "ready" && !policyKnown)) && <p className="note">{copy.review.opening}</p>}
+        {opening.status === "ready" && policyKnown && !walled.walled && <Message title={copy.review.unwalledTitle} line={copy.review.unwalled} />}
         {opening.status === "sign-in" && (
           <Message title={copy.review.signIn.title} line={copy.review.signIn.toOpen}>
             <button type="button" className="btn primary" onClick={() => void askToSignIn(copy.review.signIn.toOpen)}>
@@ -292,6 +312,8 @@ function ReviewCanvas({
       return false;
     }
   });
+  // The partial-load notice has its own Dismiss, for this page only: a page that partly loads is worth saying again on the next one.
+  const [partialDismissed, setPartialDismissed] = useState(false);
   const [shared, setShared] = useState(false);
   const narrow = useNarrow();
   // On a narrow screen the panel is a sheet, closed until the reviewer opens it from the bar.
@@ -317,6 +339,13 @@ function ReviewCanvas({
       keepThreadWindowsBelow(0);
     };
   }, []);
+
+  // The lease, watched: a link removed or closed to this viewer ends the session here at once, as the proxy stops serving it.
+  const leaseState = backend.useReviewLease(entry.leaseId, entry.renewalSecret);
+  const leaseEnded = leaseState.status === "ready" && leaseState.data.kind === "ended";
+  useEffect(() => {
+    if (leaseEnded) onEnded();
+  }, [leaseEnded, onEnded]);
 
   // Keep the lease while the page is open; when it can't be kept, the frame has stopped serving anyway.
   useEffect(() => {
@@ -454,22 +483,23 @@ function ReviewCanvas({
     if (copied) setTimeout(() => setShared(false), 2_000);
   };
 
-  const showBanner =
-    !bannerDismissed &&
-    notice !== null &&
-    ((notice.kind === "left" && notice.signIn) || (notice.kind === "failed" && notice.reason === "needs-sign-in") || notice.kind === "unsupported");
+  // What a notice is: a sign-in or form the extension handles (its banner, dismissed for good), part of the
+  // page not loading (its own quiet strip, dismissed for this page), files held back for a moment (a quiet
+  // line: waiting helps), or anything else (one line, as a problem).
+  const extensionNotice = notice !== null && ((notice.kind === "left" && notice.signIn) || (notice.kind === "failed" && notice.reason === "needs-sign-in") || (notice.kind === "unsupported" && (notice.feature === "form" || notice.feature === "password")));
+  const partialNotice = notice?.kind === "unsupported" && notice.feature === "load";
+  const heldNotice = notice?.kind === "unsupported" && notice.feature === "limit";
+  const showBanner = (extensionNotice && !bannerDismissed) || (partialNotice && !partialDismissed);
   const noticeLine =
-    notice === null
+    notice === null || extensionNotice || partialNotice || heldNotice
       ? null
       : notice.kind === "failed"
         ? copy.review.frame[notice.reason] ?? null
         : notice.kind === "left"
           ? copy.review.left(notice.url)
-          : notice.feature === "load"
-            ? copy.review.partial
-            : copy.review.unsupportedForm;
+          : copy.review.unsupportedForm;
   // Part of the page didn't load: one quiet line with the extension as the way to see it all.
-  const bannerLine = notice?.kind === "unsupported" && notice.feature === "load" ? copy.review.partialBanner : copy.review.extension;
+  const bannerLine = partialNotice ? copy.review.partialBanner : copy.review.extension;
   const widthLabel = (value: FrameWidth) => copy.review.widths[String(value)] ?? copy.review.customWidth(value as number);
 
   const source_ = (
@@ -535,8 +565,9 @@ function ReviewCanvas({
           <>
             {brand}
             {modes}
+            {/* The sheet shows the project in Browse and its comments in Comment, as the panel's own title says. */}
             <button type="button" className="btn small review-comments" aria-expanded={sheetOpen} onClick={() => setSheetOpen((open) => !open)}>
-              {sheetOpen ? copy.review.hideComments : copy.review.comments}
+              {sheetOpen ? copy.review.hideComments : mode === "browse" ? copy.review.project : copy.review.comments}
             </button>
             <span className="review-break" aria-hidden="true" />
             {source_}
@@ -573,6 +604,7 @@ function ReviewCanvas({
             type="button"
             className="link-btn"
             onClick={() => {
+              if (partialNotice) return setPartialDismissed(true);
               setBannerDismissed(true);
               try {
                 localStorage.setItem(BANNER_KEY, "dismissed");
@@ -585,7 +617,12 @@ function ReviewCanvas({
           </button>
         </p>
       )}
-      {(problem !== null || (noticeLine !== null && !showBanner)) && (
+      {heldNotice && (
+        <p className="review-strip" role="status">
+          {copy.review.held}
+        </p>
+      )}
+      {(problem !== null || noticeLine !== null) && (
         <p className="review-strip problem" role="alert">
           {problem ?? noticeLine}
         </p>

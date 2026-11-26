@@ -50,6 +50,7 @@ import { ThreadWindow } from "./ui/ThreadWindow.tsx";
 import { SidebarResizer, sidebarWidth, useSidebarWidth, useWindowWidth } from "./ui/sidebar-width.tsx";
 import { type Mode, Toolbar } from "./ui/Toolbar.tsx";
 import { type MockupRequest, MockupMode, type ShowPage } from "./ui/mockup/MockupMode.tsx";
+import { pickingHint as pickingHintFor, touchScreen } from "./hints.ts";
 
 interface Selected {
   /** Distinguishes each opening, including reopening the same thread from another pin. */
@@ -1010,7 +1011,7 @@ function PanelApp({
   const showPins = signedIn && !showSetup && !inMockup;
   // A review link's reviewer picks before signing in.
   const pickingShown = (signedIn || review !== undefined) && picking && !hidden;
-  const pickingHint = picked !== null ? null : reattaching !== null ? "Select the replacement element · Esc to cancel" : "Comment mode: select an element · V to leave";
+  const pickingHint = picked !== null ? null : pickingHintFor(reattaching !== null, touchScreen());
   const pickedRef = !page.overPage && composing ? picked.occurrence.ref : null;
   const display: PageDisplay = useMemo(
     () => ({
