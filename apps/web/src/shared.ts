@@ -7,6 +7,7 @@ export { Session, SignInError, type Reviewer } from "../../../packages/react/src
 export { STYLES } from "../../../packages/react/src/styles.ts";
 export { Select, StepDots } from "../../../packages/react/src/ui/ds.tsx";
 export { BackIcon } from "../../../packages/react/src/ui/icons.tsx";
+export { convexClient } from "../../../packages/react/src/convex/client.ts";
 export { useAllPages, useQueryState } from "../../../packages/react/src/convex/queries.ts";
 export { useUtcDay } from "../../../packages/react/src/hooks.ts";
 export { describeError, type QueryState } from "../../../packages/react/src/transport.ts";
