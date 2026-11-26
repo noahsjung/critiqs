@@ -123,7 +123,7 @@ test("GitHub sign-in: the window goes to GitHub with PKCE, comes back with a cod
   // An expired user access token is refreshed with GitHub before use; the refresh token used is spent.
   const spent = await decryptToken(KEY, trackerTokenBinding("github", danaId), row!.refresh!);
   await t.run((ctx) => ctx.db.patch(row!._id, { expiresAt: Date.now() - 1 }));
-  const fresh = await t.action(internal.trackers.accessToken, { userId: danaId, accountId: row!.accountId, tracker: "github" });
+  const fresh = await dana.action(internal.trackers.accessToken, { userId: danaId, accountId: row!.accountId, tracker: "github", use: { by: "person" } });
   expect(fresh.value).not.toBe(await decryptToken(KEY, trackerTokenBinding("github", danaId), row!.access));
   expect(github.refreshTokens.has(spent!)).toBe(false);
 });
@@ -136,7 +136,7 @@ test("disconnecting a GitHub sign-in deletes the app's grant at GitHub, so neith
   const access = (await decryptToken(KEY, trackerTokenBinding("github", row!.userId), row!.access))!;
   const refresh = (await decryptToken(KEY, trackerTokenBinding("github", row!.userId), row!.refresh!))!;
   expect(github.accessTokens.has(access)).toBe(true);
-  await dana.mutation(api.trackers.disconnect, { tracker: "github" });
+  await dana.action(api.trackers.disconnect, { tracker: "github" });
   await t.finishAllScheduledFunctions(() => undefined);
   expect(github.requests).toContain(`DELETE /applications/${github.app.clientId}/grant`);
   expect(github.accessTokens.has(access)).toBe(false);
@@ -293,7 +293,7 @@ test("opening a thread checks a GitHub ticket's status with the linker's token; 
   await t.finishAllScheduledFunctions(() => undefined);
   expect((await getThread(sam, { threadId })).tickets?.[0]).toMatchObject({ status: { label: "Closed as not planned", category: "canceled" }, statusStale: false });
 
-  await lee.mutation(api.trackers.disconnect, { tracker: "github" });
+  await lee.action(api.trackers.disconnect, { tracker: "github" });
   await t.run(async (ctx) => ctx.db.patch(link._id as never, { statusCheckedAt: Date.now() - STATUS_CHECK_MS - 1, statusCheckStartedAt: Date.now() - STATUS_CHECK_MS - 1 }));
   github.requests.length = 0;
   expect(await sam.mutation(api.ticketStatus.checkStatus, { threadId })).toBe(1);

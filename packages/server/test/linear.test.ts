@@ -389,9 +389,9 @@ test("a creation is the issue whose ID Critiqs chose: Linear answering with anot
   expect((await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: creationId.toUpperCase() })).status).toBe("created");
   // Looking for a lost answer by the creation's ID: another issue is not it.
   replies.push({ body: { data: { issues: { nodes: [issue("0d9c8b7a-6f5e-4d3c-8b2a-190807060504", "ENG-9")] } } } });
-  expect((await refusal(linear.findCreated(key, { creationId, link: null }))).code).toBe("unavailable");
+  expect((await refusal(linear.findCreated(key, { creationId, link: null, destinationId: "t1", since: 0 }))).code).toBe("unavailable");
   replies.push({ body: { data: { issues: { nodes: [issue(creationId, "ENG-7")] } } } });
-  expect((await linear.findCreated(key, { creationId, link: null }))?.externalId).toBe(creationId);
+  expect((await linear.findCreated(key, { creationId, link: null, destinationId: "t1", since: 0 }))?.externalId).toBe(creationId);
 });
 
 test("create applies a template and adds labels only when given them", async () => {
