@@ -20,6 +20,7 @@ import {
   setupUrl,
   webBase,
 } from "@critiqs/server";
+import { HOSTED_BACKEND_URL } from "@critiqs/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -147,7 +148,7 @@ export const deliverDeveloperEmail = internalAction({
     const site = (process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
     const reportUrl = `${site}${REPORT_PATH}?token=${encodeURIComponent(await reportToken(await linkSecret(ctx), sendId))}`;
     const outcome = await deliver({
-      prepare: () => ctx.runMutation(internal.onboarding.prepareDeveloperEmail, { sendId, idempotencyKey, setupUrl: setupUrl(setup.web, sendId), reportUrl }),
+      prepare: () => ctx.runMutation(internal.onboarding.prepareDeveloperEmail, { sendId, idempotencyKey, setupUrl: setupUrl(setup.web, sendId), reportUrl, backend: componentBackend() }),
       send: (message) => resendMailer({ apiKey: setup.apiKey, from: setup.from }).send(message),
       record: (attempt, answer) => ctx.runMutation(internal.onboarding.recordDeveloperEmail, { sendId, idempotencyKey, attempt, answer }),
     });
@@ -158,9 +159,19 @@ export const deliverDeveloperEmail = internalAction({
   },
 });
 
+/**
+ * The `backend` a prototype's Critiqs needs to reach this deployment, for the
+ * setup email to say: this deployment's own address, or null on Critiqs
+ * Cloud, the component's default.
+ */
+export function componentBackend(): string | null {
+  const own = (process.env.CONVEX_CLOUD_URL ?? "").replace(/\/$/, "");
+  return own === "" || own === HOSTED_BACKEND_URL ? null : own;
+}
+
 /** Claims an attempt at the reserved email, as first prepared; null when it isn't waiting to be tried. */
 export const prepareDeveloperEmail = internalMutation({
-  args: { sendId: v.string(), idempotencyKey: v.string(), setupUrl: v.string(), reportUrl: v.string() },
+  args: { sendId: v.string(), idempotencyKey: v.string(), setupUrl: v.string(), reportUrl: v.string(), backend: v.optional(v.union(v.string(), v.null())) },
   handler: async (ctx, args) => await prepare(convexStore(ctx), args, Date.now()),
 });
 

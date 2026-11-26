@@ -2,7 +2,8 @@
  * Critiqs Cloud's Convex deployment, used when a prototype names no backend.
  * Teams that run Critiqs on their own Convex deployment pass `backend` instead.
  */
-export const HOSTED_BACKEND_URL = "https://brazen-snail-591.convex.cloud";
+export { HOSTED_BACKEND_URL } from "@critiqs/core";
+import { HOSTED_BACKEND_URL } from "@critiqs/core";
 
 /**
  * The backend version this component needs: server-derived tags, tag groups,

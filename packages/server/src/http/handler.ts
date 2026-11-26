@@ -597,7 +597,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       for (const { sendId, idempotencyKey } of reserved) {
         const reportUrl = `${origin}${base}${REPORT_PATH}?token=${encodeURIComponent(await reportToken(reportSecret, sendId))}`;
         await deliverDeveloperEmail({
-          prepare: () => store.transaction((s) => prepareDeveloperEmail(s, { sendId, idempotencyKey, setupUrl: setupUrl(site, sendId), reportUrl }, Date.now())),
+          // The prototype's Critiqs reaches this server at its own address, which the email says to add.
+          prepare: () =>
+            store.transaction((s) => prepareDeveloperEmail(s, { sendId, idempotencyKey, setupUrl: setupUrl(site, sendId), reportUrl, backend: `${origin}${base}` }, Date.now())),
           send: (message) => sender.send(message),
           record: async (attempt, answer) => {
             const status = await store.transaction((s) => recordDeveloperEmail(s, { sendId, idempotencyKey, attempt, answer }));

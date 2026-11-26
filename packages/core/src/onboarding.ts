@@ -748,6 +748,9 @@ export function listOr(items: readonly string[]): string {
   return items.length < 3 ? items.join(" or ") : `${items.slice(0, -1).join(", ")}, or ${items.at(-1)}`;
 }
 
+/** Critiqs Cloud's Convex deployment, which a prototype uses when it names no backend. */
+export const HOSTED_BACKEND_URL = "https://brazen-snail-591.convex.cloud";
+
 /** Project IDs from either backend: Convex IDs, or SQLite's `p_` IDs. Matches critiqs-react's `PROJECT_ID_PATTERN`. */
 export const PROJECT_ID_PATTERN = /^([a-z0-9]{16,64}|p_[0-9a-f]{32})$/;
 

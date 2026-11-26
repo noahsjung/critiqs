@@ -13,7 +13,7 @@ const failed = { status: "failed" as const, failureReason: "Blocked" };
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
-  for (const name of ["RESEND_API_KEY", "CRITIQS_EMAIL_FROM", "CONVEX_SITE_URL", "CRITIQS_WEB_URL"]) delete process.env[name];
+  for (const name of ["RESEND_API_KEY", "CRITIQS_EMAIL_FROM", "CONVEX_SITE_URL", "CRITIQS_WEB_URL", "CONVEX_CLOUD_URL"]) delete process.env[name];
 });
 
 /** Turns email on and captures Resend requests, answering each with the next status (200 once they run out). */
@@ -183,4 +183,23 @@ test("the backfill marks projects that already have threads connected, at their 
   }
   expect((await dana.query(api.onboarding.projectSetup, { projectId: used })).connected).toEqual({ at: threadAt, origin: new URL(anchor.evidence.url).origin, clearable: true });
   expect((await dana.query(api.onboarding.projectSetup, { projectId: unused })).connected).toBeNull();
+});
+
+test("a setup email from a team's own deployment says to add that backend; Critiqs Cloud's doesn't", async () => {
+  for (const [cloud, expected] of [
+    ["https://happy-otter-123.convex.cloud", 'backend="https://happy-otter-123.convex.cloud"'],
+    ["https://brazen-snail-591.convex.cloud", null],
+  ] as const) {
+    const sent = resend();
+    process.env.CONVEX_CLOUD_URL = cloud;
+    const t = setup();
+    const dana = t.withIdentity(reviewer("Dana"));
+    const projectId = await dana.mutation(api.projects.create, { name: "Acme", reviewUrl: "https://acme.example", stack: "next" });
+    await dana.mutation(api.onboarding.sendDeveloperSetup, { projectId, emails: ["sam@example.com"] });
+    await t.finishAllScheduledFunctions(() => undefined);
+    // Only this test's email: one an earlier test scheduled may finish here too.
+    const text: string = sent.filter(({ body }) => body.to[0] === "sam@example.com" && String(body.text).includes(projectId)).at(-1)!.body.text;
+    if (expected === null) expect(text).not.toContain("own Critiqs backend");
+    else expect(text).toContain(`This project is on your team's own Critiqs backend, not Critiqs Cloud. Add this on the <Critiqs /> component init added, so Critiqs connects there:\n\n${expected}`);
+  }
 });

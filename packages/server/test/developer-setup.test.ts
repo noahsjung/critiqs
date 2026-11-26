@@ -194,3 +194,18 @@ test("a report link's token names its send only when Critiqs signed it", async (
 test("the server matches inboxes with core's inboxOf, so the website matches them the same way", () => {
   expect(inboxOf).toBe(coresInboxOf);
 });
+
+test("on a team's own backend, the setup email says where to add it, as the setup page does; on Critiqs Cloud it doesn't", () => {
+  const cloud = message();
+  expect(cloud.text).not.toContain("own Critiqs backend");
+  const own = message({ backend: "https://happy-otter-123.convex.cloud" });
+  expect(own.text).toContain(
+    `npx critiqs init ${PROJECT}\n\nThis project is on your team's own Critiqs backend, not Critiqs Cloud. Add this on the <Critiqs /> component init added, so Critiqs connects there:\n\nbackend="https://happy-otter-123.convex.cloud"\n\nSetup steps:`,
+  );
+  expect(own.html).toContain("<pre style=\"background:#f4f4f5;padding:12px;border-radius:6px\">backend=&#34;https://happy-otter-123.convex.cloud&#34;</pre>");
+  // Each framework's own setting, as its package reads it; a stack with no package gets the script tag's.
+  expect(message({ stack: "django", backend: "https://team.example/critiqs" }).text).toContain(
+    'Add this to the settings module (settings.py), so Critiqs connects there:\n\nCRITIQS = {"BACKEND": "https://team.example/critiqs"}',
+  );
+  expect(message({ stack: "wordpress", backend: "https://team.example/critiqs" }).text).toContain('Add this to the script tag, so Critiqs connects there:\n\ndata-backend="https://team.example/critiqs"');
+});

@@ -1,4 +1,5 @@
 import {
+  backendSetting,
   DEVELOPER_INVITES_PER_PERSON_PER_DAY,
   DEVELOPER_RESEND_AFTER_MS,
   MAX_DEVELOPER_RESENDS,
@@ -373,7 +374,7 @@ export interface PreparedEmail {
  */
 export async function prepareDeveloperEmail(
   store: Store,
-  args: { sendId: string; idempotencyKey: string; setupUrl: string; reportUrl: string },
+  args: { sendId: string; idempotencyKey: string; setupUrl: string; reportUrl: string; backend?: string | null },
   now: number,
 ): Promise<PreparedEmail | null> {
   const send = await store.developerSends.get(args.sendId);
@@ -412,6 +413,7 @@ export async function prepareDeveloperEmail(
     joining,
     // An email sent again, or its replacement after a failure, is a reminder; a replacement for a failed first email isn't.
     reminder: (send.resends ?? 0) > 0,
+    backend: args.backend ?? null,
     idempotencyKey: args.idempotencyKey,
   });
   const stored: StoredMail = message;
@@ -490,6 +492,12 @@ export function developerSetupMessage(parts: {
   joining: string | null;
   /** The steps sent again: the email says it is a reminder. */
   reminder?: boolean;
+  /**
+   * The `backend` the prototype's Critiqs needs to reach this deployment,
+   * which `init <projectId>` doesn't write; null for Critiqs Cloud, the
+   * default. The email then says where to add it, as the setup page does.
+   */
+  backend?: string | null;
   idempotencyKey: string;
 }): MailMessage & { fromName: string; replyTo: string } {
   const inviter = shorten(parts.inviterName) || "Someone";
@@ -510,6 +518,8 @@ export function developerSetupMessage(parts: {
         ? `Run this in the prototype's folder. It already has the project ID, finds the framework (${listOr(PACKAGE_STACK_NAMES)}), and adds Critiqs:`
         : "Run these in the prototype's folder. They already have the project ID:";
   const joining = parts.joining === null ? null : shorten(parts.joining);
+  const own = parts.backend == null ? null : backendSetting(stack?.id ?? null, parts.backend);
+  const ownBackend = own === null ? null : `This project is on your team's own Critiqs backend, not Critiqs Cloud. Add this ${own.where}, so Critiqs connects there:`;
   const closing = (show: (text: string) => string) =>
     `You don't need anyone's approval.${joining === null ? "" : ` Sign in to Critiqs with ${show(parts.to)} to join ${show(joining)}.`} Reply to this email to reach ${show(inviter)}.`;
   const preheader = "How to add Critiqs to the prototype, so your team can comment on it.";
@@ -519,6 +529,7 @@ export function developerSetupMessage(parts: {
     intro(inviter, parts.inviterEmail),
     facts.map(([label, value]) => `${label}: ${value}`).join("\n"),
     `${how}\n\n${commands === null ? `${SCRIPT_TAG_GUIDE}\nProject ID: ${parts.projectId}` : commands.join("\n")}`,
+    ...(own === null ? [] : [`${ownBackend}\n\n${own.setting}`]),
     `Setup steps: ${parts.setupUrl}\n${addressNote}`,
     closing((plain) => plain),
     `Didn't expect this? Report it: ${parts.reportUrl}`,
@@ -530,6 +541,7 @@ ${parts.reminder === true ? `<p>${remind(inert(inviter), inert(parts.inviterEmai
 <p>${facts.map(([label, value]) => `${escapeHtml(label)}: <strong>${inert(value)}</strong>`).join("<br>")}</p>
 <p>${escapeHtml(how)}</p>
 ${commands === null ? `<p><a href="${escapeHtml(SCRIPT_TAG_GUIDE)}">How to add the script tag</a><br>Project ID: <code>${escapeHtml(parts.projectId)}</code></p>` : `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${commands.map(escapeHtml).join("\n")}</pre>`}
+${own === null ? "" : `<p>${escapeHtml(ownBackend!)}</p>\n<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${escapeHtml(own.setting)}</pre>`}
 <p><a href="${escapeHtml(parts.setupUrl)}">Open the setup steps</a><br>${escapeHtml(addressNote)}</p>
 <p>${closing(inert)}</p>
 <p style="color:#666">Didn't expect this? <a href="${escapeHtml(parts.reportUrl)}">Report it</a>.</p>
