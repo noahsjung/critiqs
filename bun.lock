@@ -10,6 +10,17 @@
         "typescript": "^7.0.2",
       },
     },
+    "apps/review-proxy": {
+      "name": "@critiqs/review-proxy",
+      "version": "0.0.0",
+      "dependencies": {
+        "@critiqs/core": "workspace:*",
+        "@critiqs/server": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.2",
+      },
+    },
     "apps/web": {
       "name": "@critiqs/web",
       "version": "0.0.0",
@@ -475,6 +486,8 @@
     "@critiqs/example-self-host": ["@critiqs/example-self-host@workspace:examples/self-host"],
 
     "@critiqs/extension": ["@critiqs/extension@workspace:packages/extension"],
+
+    "@critiqs/review-proxy": ["@critiqs/review-proxy@workspace:apps/review-proxy"],
 
     "@critiqs/server": ["@critiqs/server@workspace:packages/server"],
 

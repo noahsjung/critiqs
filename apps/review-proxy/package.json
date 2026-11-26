@@ -1,0 +1,18 @@
+{
+  "name": "@critiqs/review-proxy",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The review-link proxy: serves a prototype in a review page's frame through short-lived lease hosts, fetching only public addresses through a pinned connection. A deployed app, never published.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@critiqs/core": "workspace:*",
+    "@critiqs/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  }
+}

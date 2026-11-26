@@ -343,7 +343,8 @@ const SIGN_IN_HOST = /^(?:accounts|login|sso)\./;
 /** A sign-in page's whole path, such as `/login` or `/sign-in/`; a query may follow, a deeper path may not. */
 const SIGN_IN_PATH = /^\/(?:login|signin|sign-in|sso|auth)\/?$/i;
 
-function isIdentityProvider(url: URL): boolean {
+/** Whether a URL is an identity provider's sign-in: a known provider, or a host that serves only sign-in. */
+export function isIdentityProvider(url: URL): boolean {
   return SIGN_IN_HOST.test(url.hostname.toLowerCase()) || IDENTITY_PROVIDERS.some((provider) => isOn(url, provider));
 }
 

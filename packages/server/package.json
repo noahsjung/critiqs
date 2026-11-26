@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./sqlite": "./src/sqlite/index.ts",
     "./http": "./src/http/index.ts",
+    "./public-web": "./src/public-web.ts",
     "./contract": "./test/contract.ts",
     "./ai-providers": "./src/ai/providers.ts",
     "./contract-ai": "./test/contract-ai.ts",
