@@ -31,7 +31,7 @@ import { ModelChoice } from "./mockup/MockupPanel.tsx";
 export const trackerLabel = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
 
 /** What a tracker calls the place a ticket goes. */
-const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project and type" };
+export const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project and type" };
 
 /** A ticket's key and status as people read it, such as `ENG-123 · In Progress`. */
 export function ticketText(ticket: { key: string; status: TicketStatus | null; lastKnown?: boolean }): string {
@@ -160,7 +160,7 @@ export function TicketBadges({ tickets }: { tickets: TicketBadge[] | undefined }
 }
 
 /** Picks the tracker among the person's connected ones; shown only when there is more than one. */
-function TrackerRow({ accounts, value, onChange, disabled }: { accounts: TrackerAccountView[]; value: TrackerId; onChange: (tracker: TrackerId) => void; disabled: boolean }) {
+export function TrackerRow({ accounts, value, onChange, disabled }: { accounts: TrackerAccountView[]; value: TrackerId; onChange: (tracker: TrackerId) => void; disabled: boolean }) {
   if (accounts.length < 2) return null;
   return (
     <SettingRow label="Tracker">

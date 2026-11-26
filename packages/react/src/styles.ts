@@ -485,6 +485,13 @@ button.hashtag { cursor: pointer; }
 .ticket-label .icon-btn { width: 20px; height: 20px; border-radius: 50%; }
 .ticket-label .icon-btn svg { width: 12px; height: 12px; }
 .ticket-check { display: flex; align-items: center; gap: var(--space-2); }
+.bulk-tickets { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-m); }
+.bulk-ticket { display: flex; align-items: center; gap: var(--space-3); min-height: 32px; padding: 0 var(--space-3); font-size: var(--text-s); }
+.bulk-ticket + .bulk-ticket { border-top: 1px solid var(--border); }
+.bulk-ticket .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bulk-state { flex: none; max-width: 55%; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.bulk-ticket.created .bulk-state { color: var(--success); }
+.bulk-ticket.failed .bulk-state { color: var(--danger); }
 .ticket-fields { display: flex; flex-direction: column; gap: var(--space-2); }
 .ticket-fields fieldset { border: 0; margin: 0; padding: 0; gap: var(--space-1); }
 .ticket-check input { margin: 0; accent-color: var(--accent); }

@@ -56,6 +56,9 @@ export interface ThreadViewProps {
   tickets?: TicketsOffer;
   /** The backend checks tickets' status when a thread opens (`tickets.ticketStatus`). */
   ticketStatus?: boolean;
+  /** Opens Create ticket once the thread shows, for a comment saved with **Also create a ticket**; `onCreateTicketStarted` says it did. */
+  startCreateTicket?: boolean;
+  onCreateTicketStarted?: () => void;
 }
 
 export function ThreadView(props: ThreadViewProps) {
@@ -164,6 +167,15 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
     if (connected.length === 0) ticketsOffer?.onYourTrackers();
     else setTicketDialog(kind);
   };
+  // Also create a ticket: once the person's trackers are known, Create ticket opens (or Your trackers, with none connected).
+  const accountsKnown = accounts?.status === "ready" || accounts?.status === "error";
+  useEffect(() => {
+    if (props.startCreateTicket !== true || !accountsKnown) return;
+    props.onCreateTicketStarted?.();
+    if (ticketsOffer !== undefined) openTicketDialog("create");
+    // Runs once per request; the props it reads are current then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.startCreateTicket, accountsKnown]);
   const addLinkBack = async (ticket: { _id: string; key: string }) => {
     try {
       await transport.tickets?.addTicketLinkBack(ticket._id);

@@ -273,9 +273,21 @@ name any site. Each person may search their tracker or list where tickets go
 60 times a minute, and create or link 20 tickets a minute; each try at
 **Add link back** counts as one of those 20.
 
-**Proposed:** an **Also create a ticket** choice in the new-comment composer,
-and **Create tickets** for a selected feedback collection, one ticket per
-thread.
+**Built:** **Also create a ticket** in the new-comment box, where threads
+can create tickets: once the comment is saved, its thread opens with Create
+ticket, so the person reviews the draft before anything is created (with no
+tracker connected, Your trackers opens instead). And **Create tickets…** for a
+selected feedback collection (the comments list's selection, beside
+**Export…**): one ticket per thread, at the destination Create ticket would
+start with, each filled from its thread without AI, created one after another
+with the person's own account. Threads that already have a ticket are
+skipped; a run holds at most 20 threads, the person's creates a minute; a
+destination whose tickets need fields beyond the title and text (a Jira
+issue type's required fields) is refused. The dialog shows each thread's
+progress, then which threads have no ticket and why; a limit refusal stops the
+run, and **Try again** retries only those, each under the submission it
+started with, so no retry makes a second ticket. Each creation is an ordinary
+Create ticket on the backend, with its checks and limits.
 
 ## Templates
 
@@ -752,7 +764,6 @@ Each step is its own pull request.
 
 ## Open questions
 
-- Whether **Also create a ticket** in the composer and bulk creation are wanted.
 - Whether matching templates to tags is wanted.
 - Creating or linking tickets from inside a mockup thread.
 - Copying comments between Critiqs and the tracker, later.

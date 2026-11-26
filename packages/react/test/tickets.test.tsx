@@ -7,6 +7,7 @@ import { App } from "../src/App.tsx";
 import type { Deployment } from "../src/deployment.ts";
 import { Session } from "../src/session.ts";
 import { TransportContext } from "../src/transport.ts";
+import { commentField, typeInto } from "./comment-field.ts";
 import { type FakeBackend, fakeTicketView, fakeTransport } from "./fake-transport.tsx";
 
 // Tickets in the interface: Create ticket… and Link ticket… in the thread
@@ -1139,4 +1140,176 @@ test("templates from an organization's .github repository say where they come fr
     on: true,
     templates: [{ tracker: "linear", destinationId: "*", templateId: "tpl-ws", name: "Workspace template" }],
   });
+});
+
+// ---------------------------------------------------------------------------
+// Also create a ticket, and Create tickets for a collection
+
+/** Selects the page's button in Comment mode (already on) and writes a comment. */
+async function startComment(shadow: ShadowRoot, text: string) {
+  const target = page!.querySelector("button")!;
+  document.elementFromPoint = () => target;
+  await act(async () => void target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: 50, clientY: 90 })));
+  await settle();
+  const form = shadow.querySelector<HTMLFormElement>('form[aria-label="New comment"]')!;
+  await typeInto(commentField(form)!, text);
+  return form;
+}
+
+test("Also create a ticket in the new-comment box opens Create ticket for the saved thread; unchecked, it doesn't", async () => {
+  const data = backend();
+  const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+  let form = await startComment(shadow, "Align the review button");
+  const also = [...form.querySelectorAll("label")].find((label) => label.textContent === "Also create a ticket")!.querySelector("input")!;
+  expect(also.checked).toBe(false);
+  await click(also);
+  await act(async () => form.requestSubmit());
+  await settle(6);
+  expect(calls(data, "createThread")).toHaveLength(1);
+  const create = dialog(shadow, "Create ticket")!;
+  expect(create).not.toBeNull();
+  expect(calls(data, "ticketDraft").at(-1)).toMatchObject({ threadId: "thread", tracker: "linear" });
+  await click(button(create, "Close"));
+  expect(dialog(shadow, "Create ticket")).toBeNull();
+  // A second comment, left unchecked, opens no dialog.
+  form = await startComment(shadow, "Another");
+  expect([...form.querySelectorAll("label")].find((label) => label.textContent === "Also create a ticket")!.querySelector("input")!.checked).toBe(false);
+  await act(async () => form.requestSubmit());
+  await settle(6);
+  expect(dialog(shadow, "Create ticket")).toBeNull();
+});
+
+test("without a tracker connected, Also create a ticket opens Your trackers; a backend without tickets on threads doesn't offer it", async () => {
+  let shadow = await mount(backend({ trackers: { accounts: [] } }), OFFERED, { sidebarOpen: true });
+  const form = await startComment(shadow, "Align the review button");
+  await click([...form.querySelectorAll("label")].find((label) => label.textContent === "Also create a ticket")!.querySelector("input"));
+  await act(async () => form.requestSubmit());
+  await settle(6);
+  expect(dialog(shadow, "Your trackers")).not.toBeNull();
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend(), { trackers: [{ id: "linear", signIn: "token" }] }, { sidebarOpen: true });
+  const plain = await startComment(shadow, "Hi");
+  expect([...plain.querySelectorAll("label")].map((label) => label.textContent)).not.toContain("Also create a ticket");
+});
+
+const thread = (id: string, body: string, tickets: TicketBadge[] = []) => ({ ...summary(tickets), _id: id, preview: { body, authorName: "Dana", authorImageUrl: null } });
+
+async function openBulk(shadow: ShadowRoot, ids: string[]) {
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  for (const entry of [...shadow.querySelectorAll<HTMLLabelElement>("label.entry")]) {
+    const excerpt = entry.querySelector(".excerpt")?.textContent ?? "";
+    if (ids.some((id) => excerpt.startsWith(id))) await click(entry.querySelector("input"));
+  }
+  await click(button(shadow, "Create tickets…"));
+  return dialog(shadow, "Create tickets")!;
+}
+
+test("Create tickets makes one ticket per selected thread, skipping ones with a ticket, with progress, at the project's default team", async () => {
+  const data = backend({
+    threads: [thread("t1", "First issue"), thread("t2", "Second issue"), thread("t3", "Third has one", [badge])],
+    trackers: {
+      accounts: [LINEAR],
+      draft: async (threadId) => ({ title: `Title ${threadId}`, body: `Body ${threadId}\n`, createdFromCritiqs: true, resumeSubmissionId: null, projectDestinationId: "team-eng" }),
+      create: async (input) => {
+        const ticket = fakeTicketView({ _id: `link-${input.threadId}`, threadId: input.threadId, key: `ENG-${input.threadId.slice(1)}` });
+        // The thread list updates with the new ticket as the backend's would, while the run goes on.
+        data.threads = data.threads!.map((each) => (each._id === input.threadId ? { ...each, tickets: [{ tracker: "linear", key: ticket.key, status: ticket.status }] } : each));
+        return ticket;
+      },
+    },
+  });
+  const shadow = await mount(data, { ...OFFERED, drafting: true }, { sidebarOpen: true });
+  const bulk = await openBulk(shadow, ["First", "Second", "Third"]);
+  expect(rowSelect(bulk, "Team")!.textContent).toContain("Engineering");
+  expect(bulk.textContent).toContain("Creates 2 tickets in Engineering.");
+  expect([...bulk.querySelectorAll(".bulk-ticket")].map((row) => row.textContent)).toContain("Third has oneSkipped: Has ENG-1");
+  await click(button(bulk, "Create tickets"));
+  await settle(4);
+  const created = calls(data, "createTicket") as { threadId: string; destinationId: string; title: string; body: string; createdFromCritiqs: boolean; submissionId: string }[];
+  expect(created.map((input) => [input.threadId, input.destinationId, input.title, input.body, input.createdFromCritiqs])).toEqual([
+    ["t1", "team-eng", "Title t1", "Body t1\n", false],
+    ["t2", "team-eng", "Title t2", "Body t2\n", false],
+  ]);
+  expect(new Set(created.map((input) => input.submissionId)).size).toBe(2);
+  expect([...bulk.querySelectorAll(".bulk-ticket.created")].map((row) => row.querySelector(".bulk-state")!.textContent)).toEqual(["Created ENG-1 · Triage", "Created ENG-2 · Triage"]);
+  expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 2 tickets.");
+  expect(shadow.textContent).toContain("Created 2 tickets");
+});
+
+test("a partial failure names the threads with no ticket; a limit stops the rest; Try again retries only those, under the same submissions", async () => {
+  let refuse = new Set(["t2"]);
+  let limited = false;
+  const data = backend({
+    threads: [thread("t1", "First issue"), thread("t2", "Second issue"), thread("t3", "Third issue"), thread("t4", "Fourth issue")],
+    trackers: {
+      accounts: [LINEAR],
+      create: async (input) => {
+        if (refuse.has(input.threadId)) throw new ConvexError({ code: "invalid", message: "Linear refused this ticket." });
+        if (limited && input.threadId === "t3") throw new ConvexError({ code: "limit", message: "Too many tickets created or linked. Wait a minute, then try again." });
+        return fakeTicketView({ _id: `link-${input.threadId}`, threadId: input.threadId, key: `ENG-${input.threadId.slice(1)}` });
+      },
+    },
+  });
+  limited = true;
+  const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+  const bulk = await openBulk(shadow, ["First", "Second", "Third", "Fourth"]);
+  await click(button(bulk, "Create tickets"));
+  await settle(4);
+  const state = () => Object.fromEntries([...bulk.querySelectorAll(".bulk-ticket")].map((row) => [row.querySelector(".grow")!.textContent, row.querySelector(".bulk-state")!.textContent]));
+  expect(state()).toEqual({
+    "First issue": "Created ENG-1 · Triage",
+    "Second issue": "Not created: Linear refused this ticket.",
+    "Third issue": "Not created: Too many tickets created or linked. Wait a minute, then try again.",
+    "Fourth issue": "Not created: Not started: the limit of tickets a minute was reached. Try again in a minute.",
+  });
+  // The fourth was never sent.
+  expect((calls(data, "createTicket") as { threadId: string }[]).map((input) => input.threadId)).toEqual(["t1", "t2", "t3"]);
+  expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 1 of 4. 3 threads have no ticket: “Second issue”, “Third issue”, “Fourth issue”.");
+  const firstTries = Object.fromEntries((calls(data, "createTicket") as { threadId: string; submissionId: string }[]).map((input) => [input.threadId, input.submissionId]));
+  refuse = new Set();
+  limited = false;
+  await click(button(bulk, "Try again"));
+  await settle(4);
+  const retries = (calls(data, "createTicket") as { threadId: string; submissionId: string }[]).slice(3);
+  expect(retries.map((input) => input.threadId)).toEqual(["t2", "t3", "t4"]);
+  expect(retries[0]!.submissionId).toBe(firstTries.t2!);
+  expect(retries[1]!.submissionId).toBe(firstTries.t3!);
+  expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 4 tickets.");
+});
+
+test("Create tickets holds at most 20 threads, and refuses an issue type whose required fields it can't fill", async () => {
+  const many = Array.from({ length: 21 }, (_, index) => thread(`t${index + 1}`, `Issue ${String(index + 1).padStart(2, "0")}`));
+  let shadow = await mount(backend({ threads: many }), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  await click(button(shadow, "Select all"));
+  await click(button(shadow, "Create tickets…"));
+  let bulk = dialog(shadow, "Create tickets")!;
+  expect(bulk.textContent).toContain("Create tickets works on up to 20 threads at a time; 21 are selected without a ticket. Select fewer.");
+  expect(button(bulk, "Create tickets")!.disabled).toBe(true);
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  const data = backend({ threads: [thread("t1", "First issue")], trackers: { accounts: [LINEAR], options: async () => ({ templates: [], labels: [], fields: [{ id: "f1", name: "Severity", kind: "text", options: [] } as never], unsupportedFields: ["Reviewer"] }) } });
+  shadow = await mount(data, { ...OFFERED, drafting: true }, { sidebarOpen: true });
+  bulk = await openBulk(shadow, ["First"]);
+  expect(bulk.textContent).toContain("This team needs Severity, Reviewer on each ticket. Choose another, or create these tickets one at a time.");
+  expect(button(bulk, "Create ticket")!.disabled).toBe(true);
+  expect(calls(data, "createTicket")).toEqual([]);
+});
+
+test("with no tracker connected, Create tickets… opens Your trackers; a backend without tickets on threads doesn't offer it", async () => {
+  let shadow = await mount(backend({ trackers: { accounts: [] } }), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  await click(shadow.querySelector("label.entry input"));
+  await click(button(shadow, "Create tickets…"));
+  expect(dialog(shadow, "Create tickets")).toBeNull();
+  expect(dialog(shadow, "Your trackers")).not.toBeNull();
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend(), { trackers: [{ id: "linear", signIn: "token" }] }, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  expect(button(shadow, "Create tickets…")).toBeNull();
 });
