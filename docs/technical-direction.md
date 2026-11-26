@@ -656,7 +656,9 @@ only. The extension's side panel uses it.
   spaces. Each must match exactly: a website origin must be a bare `https:`
   origin, or `http:` on this computer, and an ID 32 letters from a to p.
   Patterns, paths, and other entries are ignored. With neither set, no panel
-  can sign in.
+  can sign in. The extension's development ID belongs only on local and
+  development deployments, since its key is in the repository; Critiqs Cloud
+  lists the ID the Chrome Web Store assigns.
 - **Routes.** `POST /auth/panel/email` with `{ email }` starts an attempt,
   sends a code, and answers with the attempt key; with `{ email, attempt }` it
   sends a new code for the same attempt. `POST /auth/panel/code` with

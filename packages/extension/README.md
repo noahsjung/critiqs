@@ -3,7 +3,8 @@
 The Critiqs extension lets a reviewer comment on any page they can open,
 including logged-in apps, `localhost`, and VPN-only staging, without the team
 installing anything. It runs in Chromium browsers (Chrome, Edge, Brave, Arc).
-This workspace is private: it isn't published to npm.
+This workspace is private: it isn't published to npm. It ships through the
+Chrome Web Store (see [Publishing](#publishing-to-the-chrome-web-store)).
 
 ## How it works
 
@@ -69,8 +70,42 @@ panel only when its deployment lists that ID:
 bunx convex env set CRITIQS_EXTENSION_IDS pfdpnmmiemejphfghkalofichdcoandg
 ```
 
-The Chrome Web Store assigns the published extension its own ID, which is
-listed the same way.
+List the development ID only on local and development deployments: its key
+is in this repository, so anyone can load an extension with that ID.
+
+Every build takes the Critiqs packages' shared version from the `critiqs`
+package (`packages/critiqs/package.json`), which each release moves. Nothing
+in this folder holds a version.
+
+## Publishing to the Chrome Web Store
+
+```sh
+bun run package
+```
+
+builds the store's version (Critiqs Cloud, no development `key`) and zips it
+as `release/critiqs-extension-<version>.zip`, with the manifest at the zip's
+root. The same files give the same zip, byte for byte. It prints the files it
+holds.
+
+Publishing is by hand, by the account that owns the listing: upload the zip
+in the Chrome Web Store's developer dashboard and fill in the listing, the
+permission justifications, and the data use from
+[store/listing.md](store/listing.md). That file also lists what the first
+upload needs that doesn't exist yet, such as a privacy policy page.
+
+The store assigns the published extension its own ID, a fixed 32-letter ID
+shown in the dashboard once the item is created. Until Critiqs Cloud lists it,
+the published extension's sign-in is refused. Once it exists, the operator
+sets it once on the Cloud deployment, in place of the development ID:
+
+```sh
+bunx convex env set CRITIQS_EXTENSION_IDS <store ID> --prod
+```
+
+A team's own Convex deployment that wants the published extension lists the
+same ID. Several IDs, such as a deployment for development that also takes
+the published extension, are separated by commas or spaces.
 
 ## Checks
 

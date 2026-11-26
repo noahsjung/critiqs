@@ -7,12 +7,25 @@
 // a local one. CRITIQS_TEST=1 makes a test build for the automated Chrome
 // run: it exposes the worker's click handling to the test, and grants the
 // hosts in CRITIQS_TEST_HOSTS at install, which a real build never does.
+// CRITIQS_STORE=1 makes the Chrome Web Store's build (`bun run package`):
+// Critiqs Cloud only, and without the development `key`, since the store
+// gives the published extension its own ID.
+//
+// The version is the Critiqs packages' shared version, from the `critiqs`
+// package: each release moves it, and nothing here is edited by hand.
 import { cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const directory = fileURLToPath(new URL("../", import.meta.url));
 const out = process.env.CRITIQS_EXTENSION_OUT ?? `${directory}dist`;
 const test = process.env.CRITIQS_TEST === "1";
+const store = process.env.CRITIQS_STORE === "1";
+if (store && (test || (process.env.CRITIQS_BACKEND ?? "") !== "")) {
+  throw new Error("The store's build is for Critiqs Cloud: unset CRITIQS_TEST and CRITIQS_BACKEND.");
+}
+const { version } = await Bun.file(`${directory}../critiqs/package.json`).json();
+// Chrome takes one to four numbers, without a prerelease part.
+if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`The extension can't use the version ${JSON.stringify(version)}: Chrome needs MAJOR.MINOR.PATCH.`);
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 
@@ -43,7 +56,8 @@ for (const [from, to] of [["worker.js", "worker.js"], ["page.js", "page.js"], ["
 await rm(`${out}/panel`, { recursive: true });
 await rm(`${out}/mockup`, { recursive: true });
 
-const manifest = await Bun.file(`${directory}static/manifest.json`).json();
+const manifest = { ...(await Bun.file(`${directory}static/manifest.json`).json()), version };
+if (store) delete manifest.key;
 if (test) {
   const hosts = (process.env.CRITIQS_TEST_HOSTS ?? "").split(",").filter(Boolean);
   manifest.name = "Critiqs (test build)";
@@ -53,4 +67,4 @@ await Bun.write(`${out}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`
 await cp(`${directory}static/panel.html`, `${out}/panel.html`);
 await cp(`${directory}static/mockup.html`, `${out}/mockup.html`);
 await cp(`${directory}static/icons`, `${out}/icons`, { recursive: true });
-console.error(`Built the Critiqs extension in ${out}${test ? " (test build)" : ""}.`);
+console.error(`Built the Critiqs extension ${version} in ${out}${test ? " (test build)" : store ? " (for the Chrome Web Store)" : ""}.`);
