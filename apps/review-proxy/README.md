@@ -28,8 +28,9 @@ are read-only and credential-free (GET and HEAD only, no cookies or
   nothing for 3 seconds gives its read slot back and keeps its download as a
   slow read; one that then takes nothing for 3 seconds plus a second per
   4 KiB already sent has stopped, and is ended. A file being passed on has
-  no overall deadline of its own beyond the upstream's: a slow connection
-  gets a large file whole.
+  no overall deadline of its own beyond the upstream's, and `bin/serve.ts`
+  keeps an idle connection for 255 seconds (Bun's own default, 10, ends a
+  slow download): a slow connection gets a large file whole.
 - When the backend can't be asked (down, or answering with an error), that
   is never taken for a host that serves nothing and never counts as a miss.
   A host the proxy saw live keeps serving its last answer until that

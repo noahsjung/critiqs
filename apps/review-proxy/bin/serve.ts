@@ -58,6 +58,10 @@ try {
     port,
     // Never Bun's developer error page (it shows the working directory and a stack): an error is a bare 500.
     development: false,
+    // Bun's default (10 seconds) ends a request whose browser is draining a large file slowly, as if it had
+    // left: a 4 MiB file read at 30 KB/s was cut after 12 seconds. The longest Bun allows; a browser that
+    // has stopped reading is ended by the proxy's own rule (`stream` in src/server.ts).
+    idleTimeout: 255,
     error: () => new Response("", { status: 500, headers: { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" } }),
     fetch: (request, bunServer) => {
       // The header the server in front sets (read by `clientKey`, a list by its last entry), else the connection's own address.
