@@ -2011,7 +2011,8 @@ compatible fixes-only release is a patch, compatible features are a minor
 release, and any incompatible public change is a major release.
 
 **Current status:** the package is below 1.0.0 and ready to publish publicly
-(the owner approved); it is not on npm yet.
+(the owner approved); `critiqs-react` 0.3.0 is on npm, and the other
+packages are not published yet.
 Under Semantic Versioning, 0.x is initial development whose public interface
 is not yet promised stable, and `^0.1.0` accepts only 0.1.x. That describes
 the version number, not Critiqs's obligation: host apps already using Critiqs
@@ -2033,9 +2034,8 @@ package versions can share a self-hosted backend.
   interface older versions use. When an incompatible change is required, serve
   a versioned interface alongside the older supported one, and publish
   migration instructions for host developers.
-- Remove an older interface only under a deprecation and support-window policy
-  decided and documented here first. No duration is set yet, and support is
-  not promised forever.
+- Remove an older interface only under the support window and deprecation
+  rules below. Support is not promised forever.
 - Stored feedback survives upgrades through compatible migrations, as the
   SQLite store already migrates forward on start.
 
@@ -2048,9 +2048,56 @@ and a generated release pull request calculates the version and changelog
 from those notes ([releasing](releasing.md)). CI checks each note's form; reviewers
 check that its type matches the change.
 
-**Required before the first stable release, not built:** tests that run each
-supported older package version against the current Convex and SQLite
-backends, and the deprecation and support-window policy.
+**Proposed, built in the pilot:** the support window. The owner decides
+its length; 12 months is a proposal, set in `SUPPORT_MONTHS` in
+`scripts/support-window.ts` so that the window and the check below change
+together.
+
+- **Release lines.** A line is every release with the same MAJOR.MINOR
+  (0.3, 1.4). Before 1.0.0 a minor release may break, so 0.x lines are lines
+  too. Every Critiqs package follows the same rule; they share one version.
+- **Which versions are supported.** The newest line is always supported. An
+  older line stays supported for 12 months after the first stable release of
+  the line that replaced it. Within a supported line, the newest patch release
+  is the supported one: a patch is a compatible fix, so developers on an older
+  patch upgrade within the line without changing their code. Prereleases
+  (any version with a `-`, such as the name reservations on npm) and withdrawn
+  versions (deprecated on npm, yanked on RubyGems or PyPI) are never
+  supported.
+- **What support means.** Critiqs Cloud and every backend released while a
+  version is supported serve it: its sign-in, its calls and arguments, and the
+  data it reads. The self-hosted server and team-owned Convex deployments are
+  upgraded by their owners, so the promise there is that upgrading the server
+  or deployment never breaks a supported package version still pointed at it.
+- **Deprecating an interface.** A release that stops using part of the
+  backend interface says so in its release note. The backend keeps serving
+  that part until every package version that uses it has left the window;
+  only then may a release remove it, with a release note naming the versions
+  it no longer serves. Until then, an incompatible change is added beside the
+  older interface, as above. A backend never reports a lower protocol than
+  before.
+- **Withdrawing a broken version.** Deprecate or yank it (see
+  [releasing](releasing.md#publishing)) and release a fix; a withdrawn version
+  leaves the window at once, and the line's previous release becomes its
+  supported one.
+
+**Built:** a check of every supported published version against the current
+backends. `bun scripts/check-older-packages.ts` reads each released package's
+versions from npm, RubyGems, and PyPI, applies the support window, installs
+each supported version from its registry into a small app, and drives it in
+Chrome against a fresh local Convex deployment of `packages/backend` and the
+self-hosted server from `packages/server`: sign in with a development code,
+create a project, comment with a capture, reply, then reload and read the
+thread, the reply, and the capture back. `critiqs-react` has its own client;
+every other package ships the `critiqs` element at the same version, so
+`critiqs@<version>` stands for them. A supported version that can't be
+installed fails the check. `--current` runs the same flows with the
+workspace's packed packages, which proves each flow works before a release
+needs it. Today it checks `critiqs-react` 0.3.0; the other names on npm hold
+only prereleases, and nothing is on RubyGems or PyPI yet. The
+[Older packages workflow](../.github/workflows/older-packages.yml) runs it on
+pull requests and pushes that change backend code, daily, and on demand; it
+needs the registries, so it isn't a required check.
 
 ## Remaining before release
 
