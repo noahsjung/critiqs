@@ -2,7 +2,9 @@ import { DEFAULT_TAGS } from "@critiqs/core";
 import { afterEach, expect, test } from "bun:test";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { reviewer, setup } from "./harness";
+import { anchor, reviewer, setup } from "./harness";
+
+const failed = { status: "failed" as const, failureReason: "Blocked" };
 
 // Onboarding on Convex: the public functions, what the schema stores, and
 // how developer setup emails go out. The rules themselves are in the shared
@@ -147,5 +149,38 @@ test("the component's report that it loaded marks the project connected, from th
   }
   expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
   expect((await report(projectId, "https://acme.example")).status).toBe(204);
-  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toEqual({ at: expect.any(Number), origin: "https://acme.example" });
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toEqual({ at: expect.any(Number), origin: "https://acme.example", clearable: true });
+});
+
+test("a report from an origin the project doesn't list changes nothing; its review address does", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Acme", reviewUrl: "https://acme.example" });
+  const report = (body: string, origin: string) => t.fetch("/critiqs/connected", { method: "POST", body, headers: { Origin: origin } });
+  expect((await report(projectId, "https://evil.example")).status).toBe(204);
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
+  expect((await report(projectId, "https://acme.example")).status).toBe(204);
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toEqual({ at: expect.any(Number), origin: "https://acme.example", clearable: true });
+  // Its owner clears it.
+  await dana.mutation(api.onboarding.clearConnected, { projectId });
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
+});
+
+test("the backfill marks projects that already have threads connected, at their first thread, and is safe to run again", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const used = await dana.mutation(api.projects.create, { name: "Installed before", reviewUrl: "https://acme.example" });
+  const unused = await dana.mutation(api.projects.create, { name: "Never installed" });
+  await dana.mutation(api.threads.create, { projectId: used, anchor, body: "Left with the installed component", tags: [], capture: failed });
+  // As on a deployment from before Connected: the thread is there, the project never reported.
+  const threadAt = await t.run(async (ctx) => {
+    await ctx.db.patch(used as Id<"projects">, { connectedAt: undefined, connectedOrigin: undefined });
+    return (await ctx.db.query("threads").first())!.createdAt;
+  });
+  for (let run = 0; run < 2; run++) {
+    await t.mutation(internal.onboarding.backfillConnected, {});
+    await t.finishAllScheduledFunctions(() => undefined);
+  }
+  expect((await dana.query(api.onboarding.projectSetup, { projectId: used })).connected).toEqual({ at: threadAt, origin: new URL(anchor.evidence.url).origin, clearable: true });
+  expect((await dana.query(api.onboarding.projectSetup, { projectId: unused })).connected).toBeNull();
 });

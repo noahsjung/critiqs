@@ -523,7 +523,8 @@ export async function getDeveloperSetup(store: Store, identity: Identity | null,
   const theirs = sameAddress(signedIn.email!, send.email);
   if (!theirs && (await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("not-found", NO_SETUP);
   const inviter = await store.users.get(send.sentBy);
-  return { ...setupOf(project), inviterName: shorten(inviter?.name ?? "") || "Someone" };
+  const manages = theirs ? (await projectAccess(store, project, user?._id ?? null)) === "manage" : true;
+  return { ...setupOf(project, true, manages), inviterName: shorten(inviter?.name ?? "") || "Someone" };
 }
 
 /**
@@ -536,15 +537,16 @@ export async function getDeveloperSetup(store: Store, identity: Identity | null,
 export async function getProjectSetup(store: Store, identity: Identity | null, args: { projectId: string }): Promise<ProjectSetup> {
   const { user } = await currentReviewer(store, identity);
   const project = await requireProject(store, user, args.projectId);
-  return setupOf(project, (await projectAccess(store, project, user?._id ?? null)) === "manage");
+  const manages = (await projectAccess(store, project, user?._id ?? null)) === "manage";
+  return setupOf(project, manages, manages);
 }
 
 /**
  * A project's setup, with its saved stack and the origin Critiqs connected on
  * when `showStack`; otherwise as if its stack were unknown, and with when it
- * connected but not where.
+ * connected but not where. `manages`: the reader may clear Connected.
  */
-function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
+function setupOf(project: ProjectRecord, showStack: boolean, manages: boolean): ProjectSetup {
   const stack = (showStack && STACKS.find((candidate) => candidate.id === project.onboarding?.stack)) || null;
   return {
     projectId: project._id,
@@ -552,7 +554,8 @@ function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
     address: project.reviewUrl ?? null,
     stack,
     installCommands: installCommands(project._id, stack?.id ?? null),
-    connected: project.connectedAt === undefined ? null : { at: project.connectedAt, origin: showStack ? (project.connectedOrigin ?? null) : null },
+    connected:
+      project.connectedAt === undefined ? null : { at: project.connectedAt, origin: showStack ? (project.connectedOrigin ?? null) : null, ...(manages ? { clearable: true } : {}) },
   };
 }
 

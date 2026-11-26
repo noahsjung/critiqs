@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { MAX_PROJECT_NAME_LENGTH, type PageRequest, type Role, shortenProjectName, tagKey, type TeamSize } from "@critiqs/core";
+import { type Anchor, MAX_PROJECT_NAME_LENGTH, type PageRequest, type Role, shortenProjectName, tagKey, type TeamSize } from "@critiqs/core";
 import type {
   DeliveryRecord,
   DeveloperAttempt,
@@ -36,6 +36,7 @@ import type {
   ThreadTagRecord,
   UserRecord,
 } from "../store.ts";
+import { connectionFromThread } from "../onboarding.ts";
 import { backfillHashtags, STARTER_GROUPS, groupNameKey, threadTags, updateTextTags } from "../tags.ts";
 import type { Plan } from "../limits.ts";
 import type { SqlDriver, SqlValue } from "./driver.ts";
@@ -549,12 +550,28 @@ export const MIGRATIONS: Migration[] = [
   CREATE INDEX projects_by_creator_organization ON projects (created_by, organization_id, seq);
   `,
   shortenLongProjectNames,
-  // When Critiqs first loaded with each project's ID, and on which origin, for onboarding's Connected.
-  `
-  ALTER TABLE projects ADD COLUMN connected_at INTEGER;
-  ALTER TABLE projects ADD COLUMN connected_origin TEXT;
-  `,
+  addConnections,
 ];
+
+/**
+ * When Critiqs last loaded with each project's ID at its own address, and on
+ * which origin, for onboarding's Connected (migration 19). A project that
+ * already has threads was installed: each was left with Critiqs on the page,
+ * since nothing else could make one before this version. It starts connected
+ * at its first thread, on that thread's page's origin, in one pass over the
+ * threads (SQLite takes a bare column from the row `MIN` picks).
+ */
+function addConnections(sql: SqlDriver): void {
+  sql.exec("ALTER TABLE projects ADD COLUMN connected_at INTEGER");
+  sql.exec("ALTER TABLE projects ADD COLUMN connected_origin TEXT");
+  const firsts = sql.all<{ project_id: string; created_at: number; anchor: string }>(
+    "SELECT project_id, MIN(created_at) AS created_at, anchor FROM threads GROUP BY project_id",
+  );
+  for (const first of firsts) {
+    const { at, origin } = connectionFromThread({ createdAt: first.created_at, pageUrl: (JSON.parse(first.anchor) as Anchor).evidence.url });
+    sql.run("UPDATE projects SET connected_at = ?, connected_origin = ? WHERE id = ? AND connected_at IS NULL", [at, origin, first.project_id]);
+  }
+}
 
 /**
  * Shortens project names from before the length limit to fit it
@@ -1367,8 +1384,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           organization_id: changes.organizationId,
           review_access: changes.reviewAccess,
           tags: changes.tags === undefined ? undefined : JSON.stringify(changes.tags),
-          connected_at: changes.connectedAt,
-          connected_origin: changes.connectedOrigin,
+          connected_at: changes.connection === undefined ? undefined : (changes.connection?.at ?? null),
+          connected_origin: changes.connection === undefined ? undefined : (changes.connection?.origin ?? null),
         }),
       listByCreator: async (userId, request) =>
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),

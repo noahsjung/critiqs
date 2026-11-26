@@ -182,8 +182,13 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
       get: async (id) => await db.get(id as Id<"projects">),
       insert: async ({ organizationId, ...project }) =>
         await writer().insert("projects", { ...project, createdBy: project.createdBy as Id<"users">, ...organizationRef("organizationId", organizationId) }),
-      patch: async (id, { organizationId, ...changes }) =>
-        await writer().patch(id as Id<"projects">, { ...defined(changes), ...organizationRef("organizationId", organizationId) }),
+      patch: async (id, { organizationId, connection, ...changes }) =>
+        await writer().patch(id as Id<"projects">, {
+          ...defined(changes),
+          ...organizationRef("organizationId", organizationId),
+          // Convex removes a field patched to undefined, which clears it.
+          ...(connection === undefined ? {} : { connectedAt: connection?.at, connectedOrigin: connection?.origin ?? undefined }),
+        }),
       listByCreator: async (userId, request) =>
         page(
           await db

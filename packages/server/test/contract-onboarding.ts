@@ -13,7 +13,9 @@ import {
   reserveDeveloperSends,
 } from "../src/developer-setup.ts";
 import { utcDay } from "../src/limits.ts";
+import * as onboarding from "../src/onboarding.ts";
 import { reportConnected, saveAboutYou } from "../src/onboarding.ts";
+import { addProjectAddress } from "../src/project-addresses.ts";
 import * as ops from "../src/operations.ts";
 import * as organizations from "../src/organizations.ts";
 import { MailError, type MailMessage } from "../src/signin.ts";
@@ -525,7 +527,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await expect(shown(lee, projectId)).rejects.toThrow("limited to members of its organization");
   });
 
-  test(`${name}: Critiqs loading with a project's ID marks it connected once, with the page's origin, which only its owners and the developer see`, async () => {
+  test(`${name}: Critiqs loading at the project's address marks it connected, with the page's origin, which only its owners and the developer see`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
     const { reserved } = await send(backend, projectId, ["dev@corp.com"]);
@@ -536,15 +538,49 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await report("https://acme-proto.vercel.app", "not-a-project");
     await report("https://acme-proto.vercel.app", "p_00000000000000000000000000000000");
     expect((await setup(dana)).connected).toBeNull();
-    // The first page to load it is kept; later ones, from anywhere, change nothing.
-    await report("http://localhost:5173", projectId, 2_000);
-    await report("https://acme-proto.vercel.app", projectId, 3_000);
-    expect((await setup(dana)).connected).toEqual({ at: 2_000, origin: "http://localhost:5173" });
-    expect(await backend.run((store) => store.projects.get(projectId))).toMatchObject({ connectedAt: 2_000, connectedOrigin: "http://localhost:5173" });
-    // The developer it was sent to sees where; anyone else signed in sees only that it connected.
+    await report("https://acme-proto.vercel.app", projectId, 2_000);
+    expect((await setup(dana)).connected).toEqual({ at: 2_000, origin: "https://acme-proto.vercel.app", clearable: true });
+    expect(await backend.run((store) => store.projects.get(projectId))).toMatchObject({ connectedAt: 2_000, connectedOrigin: "https://acme-proto.vercel.app" });
+    // The developer it was sent to sees where; anyone else signed in sees only that it connected. Neither may clear it.
     const developer = { ...reviewer("Dev"), email: "dev@corp.com" };
-    expect((await backend.run((store) => getDeveloperSetup(store, developer, { sendId: reserved[0]!.sendId }))).connected).toEqual({ at: 2_000, origin: "http://localhost:5173" });
+    expect((await backend.run((store) => getDeveloperSetup(store, developer, { sendId: reserved[0]!.sendId }))).connected).toEqual({ at: 2_000, origin: "https://acme-proto.vercel.app" });
     expect((await setup(reviewer("Lee"))).connected).toEqual({ at: 2_000, origin: null });
+  });
+
+  test(`${name}: a load counts only from the project's own address, the latest one is kept, and its owners can clear it`, async () => {
+    const backend = fresh();
+    // A report writes at most once in this long (`CONNECTION_WRITE_MS`).
+    const CONNECTION_WRITE_MS = 10 * 60_000;
+    const projectId = await create(backend);
+    await backend.run((store) => addProjectAddress(store, dana, { projectId, address: "https://*-acme.vercel.app" }));
+    const report = (origin: string | null, at: number, id = projectId) => backend.run((store) => reportConnected(store, { projectId: id, origin }, at));
+    const connected = async (who: Identity = dana) => (await backend.run((store) => getProjectSetup(store, who, { projectId }))).connected;
+    // A stranger who knows the ID reports first from an origin the project doesn't list, or from a computer of their own: nothing.
+    await report("https://evil.example", day);
+    await report("http://localhost:5173", day);
+    expect(await connected()).toBeNull();
+    // The project's review address counts.
+    await report("https://acme-proto.vercel.app", day + 1_000);
+    expect(await connected()).toEqual({ at: day + 1_000, origin: "https://acme-proto.vercel.app", clearable: true });
+    // A forged origin afterwards still changes nothing.
+    await report("https://evil.example", day + CONNECTION_WRITE_MS * 2);
+    expect(await connected()).toEqual({ at: day + 1_000, origin: "https://acme-proto.vercel.app", clearable: true });
+    // An address the list matches by its pattern counts too, and the latest load is kept, so a wrong record corrects itself.
+    await report("https://pr-7-acme.vercel.app", day + CONNECTION_WRITE_MS * 3);
+    expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3, origin: "https://pr-7-acme.vercel.app", clearable: true });
+    // Writes are bounded: within the interval, however many reports arrive, nothing is written.
+    for (let index = 0; index < 20; index++) await report(index % 2 === 0 ? "https://acme-proto.vercel.app" : "https://pr-8-acme.vercel.app", day + CONNECTION_WRITE_MS * 3 + index);
+    expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3, origin: "https://pr-7-acme.vercel.app", clearable: true });
+    // Unknown and made-up IDs answer the same and change nothing.
+    await report("https://acme-proto.vercel.app", day, "p_00000000000000000000000000000000");
+    await report("https://acme-proto.vercel.app", day, "not-a-project");
+    // Only the people who manage the project clear it; then the next real load counts again.
+    await expect(backend.run((store) => onboarding.clearConnected(store, lee, { projectId }))).rejects.toThrow("Only the people who manage");
+    await backend.run((store) => onboarding.clearConnected(store, dana, { projectId }));
+    expect(await connected()).toBeNull();
+    expect(await backend.run((store) => store.projects.get(projectId))).not.toHaveProperty("connectedAt");
+    await report("https://acme-proto.vercel.app", day + CONNECTION_WRITE_MS * 3 + 100);
+    expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3 + 100, origin: "https://acme-proto.vercel.app", clearable: true });
   });
 
   test(`${name}: a setup link opens only for the exact address it was sent to, ignoring case and spaces, not another +tag of the same inbox`, async () => {

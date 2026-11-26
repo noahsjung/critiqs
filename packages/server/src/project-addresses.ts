@@ -229,8 +229,9 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
   const patterns = new Map<string, ProjectAddressRecord>();
   const collect = (rows: ProjectAddressRecord[]) => {
     for (const row of rows) {
-      if (row.key === keys.origin) exact.set(row.projectId, row);
-      else if (patternMatches(row.address, keys.origin)) patterns.set(row.projectId, row);
+      const match = listedMatch(row, keys);
+      if (match === "exact") exact.set(row.projectId, row);
+      else if (match === "pattern") patterns.set(row.projectId, row);
     }
   };
   const searchKeys: [string, number][] = [[keys.origin, MAX_EXACT_ROWS]];
@@ -264,6 +265,42 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
   found.sort((a, b) => a.name.localeCompare(b.name) || (a._id < b._id ? -1 : 1));
   const projects = await Promise.all(found.slice(0, MAX_LOOKUP_CHOICES).map((project) => projectInfo(store, project, user._id)));
   return projects.length === 1 && !keys.ambiguous && !partial ? { status: "found", project: projects[0]! } : { status: "choose", projects };
+}
+
+/** What the lookup searches for a page's origin (`originLookupKeys`). */
+type OriginKeys = NonNullable<ReturnType<typeof originLookupKeys>>;
+
+/**
+ * How a listed address matches a page's origin: as the origin itself, by its
+ * pattern, or not at all. The one place that decides it, for the extension's
+ * lookup and for Connected.
+ */
+export function listedMatch(row: Pick<ProjectAddressRecord, "address" | "key">, keys: OriginKeys): "exact" | "pattern" | null {
+  if (row.key === keys.origin) return "exact";
+  return patternMatches(row.address, keys.origin) ? "pattern" : null;
+}
+
+/**
+ * Whether a page's origin is the project's own address: its review address's
+ * origin, or an address its list matches (`listedMatch`).
+ */
+export async function isProjectAddress(store: Store, project: ProjectRecord, origin: string): Promise<boolean> {
+  const keys = originLookupKeys(origin);
+  if (keys === null) return false;
+  if (project.reviewUrl !== undefined && reviewOrigin(project.reviewUrl) === keys.origin) return true;
+  for (const key of [keys.origin, keys.patternKey]) {
+    if (key === null) continue;
+    for (const row of await store.projectAddresses.inProject(project._id, key)) if (listedMatch(row, keys) !== null) return true;
+  }
+  return false;
+}
+
+function reviewOrigin(reviewUrl: string): string | null {
+  try {
+    return originLookupKeys(new URL(reviewUrl).origin)?.origin ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

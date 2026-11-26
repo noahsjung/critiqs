@@ -1,7 +1,9 @@
 import { connectionOrigin, parseOnboardingAnswers } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { countWithinAll } from "./limits.ts";
-import { requireUser } from "./operations.ts";
+import { requireProject, requireUser } from "./operations.ts";
+import { projectAccess } from "./organizations.ts";
+import { isProjectAddress } from "./project-addresses.ts";
 import type { Identity, Store, UserChanges } from "./store.ts";
 
 // Onboarding on the Critiqs website. The address check itself fetches from
@@ -50,21 +52,60 @@ export async function saveAboutYou(store: Store, identity: Identity | null, args
 }
 
 /**
+ * How often one project's Connected record may be written: a report within
+ * this long of the recorded load changes nothing, so however many reports
+ * arrive, a project is written at most six times an hour.
+ */
+export const CONNECTION_WRITE_MS = 10 * 60_000;
+
+/** The largest report body read: a project ID is far shorter. */
+export const MAX_CONNECTION_REPORT_BYTES = 200;
+
+/**
  * Records that Critiqs loaded on a page with this project's ID, for
- * onboarding's Connected: the first time only, with the page's origin as its
- * browser sent it. The installed component reports it on its own, before
- * anyone signs in, so it takes no identity and answers the same whether or
- * not the project exists. A report from a page that isn't `http:` or
- * `https:`, such as the browser extension's panel, or that names no origin,
- * changes nothing: the extension is not an install. Since anyone who knows a
- * project's ID could report it, it only ever sets the one time and origin,
- * which only the project's owners and its setup page see.
+ * onboarding's Connected: the latest load from the project's own address,
+ * with that page's origin as its browser sent it. The installed component
+ * reports it on its own, before anyone signs in, so it takes no identity and
+ * answers the same whether or not the project exists. A report counts only
+ * when its origin is the project's review address or matches its address
+ * list (`isProjectAddress`, the matching the extension's lookup uses), so a
+ * stranger who knows the ID can claim nothing but an address the owners
+ * listed, and the next real load replaces a wrong record. The extension's
+ * panel, a page that names no origin, and a developer's own computer don't
+ * count. At most one write per `CONNECTION_WRITE_MS`, and nothing is ever
+ * inserted, so reports can't grow any table.
  */
 export async function reportConnected(store: Store, args: { projectId: string; origin: string | null }, now: number): Promise<void> {
   const origin = connectionOrigin(args.origin);
   const id = store.normalizeId("projects", args.projectId);
   if (origin === null || id === null) return;
   const project = await store.projects.get(id);
-  if (project === null || project.connectedAt !== undefined) return;
-  await store.projects.patch(project._id, { connectedAt: now, connectedOrigin: origin });
+  if (project === null) return;
+  if (project.connectedAt !== undefined && now < project.connectedAt + CONNECTION_WRITE_MS) return;
+  if (!(await isProjectAddress(store, project, origin))) return;
+  await store.projects.patch(project._id, { connection: { at: now, origin } });
+}
+
+/** Clears a project's Connected record, for the people who manage it; the next load from its own address records it again. */
+export async function clearConnected(store: Store, identity: Identity | null, args: { projectId: string }): Promise<void> {
+  const user = await requireUser(store, identity);
+  const project = await requireProject(store, user, args.projectId);
+  if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", "Only the people who manage this project can clear Connected.");
+  if (project.connectedAt !== undefined) await store.projects.patch(project._id, { connection: null });
+}
+
+/**
+ * The Connected record a thread from before Connected stands for: it was
+ * left with Critiqs installed, so the project was connected when it was
+ * made, on the origin of the page it was left on. For backends' one-off
+ * upgrade of projects that already have threads.
+ */
+export function connectionFromThread(thread: { createdAt: number; pageUrl: string }): { at: number; origin: string | null } {
+  let origin: string | null = null;
+  try {
+    origin = connectionOrigin(new URL(thread.pageUrl).origin);
+  } catch {
+    // A page address that can't be read still shows the project was installed, just not where.
+  }
+  return { at: thread.createdAt, origin };
 }

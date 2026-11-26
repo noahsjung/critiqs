@@ -152,6 +152,7 @@ export const ARGUMENTS: Record<string, Check> = {
   sendDeveloperSetup: object({ projectId: string, emails: array(string, MAX_DEVELOPER_INVITES_PER_PROJECT) }),
   developerSetup: object({ sendId: string }),
   projectSetup: object({ projectId: string }),
+  clearConnected: object({ projectId: string }),
   developerSends: object({ projectId: string }),
   setReviewUrl: object({ projectId: string, reviewUrl: string }),
   setReviewAccess: object({ projectId: string, reviewAccess: literal("anyone", "organization") }),

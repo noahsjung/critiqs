@@ -960,19 +960,29 @@ off with `createCritiqsHandler({ addressCheck: false })`, which `/critiqs/config
 reports as `addressCheck: false`. Critiqs Cloud keeps the check on.
 
 **Built: Connected.** Onboarding on the Critiqs website says when Critiqs
-first loads on the prototype. The component, on the prototype's own `http:`
-or `https:` page, posts the project ID as plain text to
-`/critiqs/connected` (no preflight), once per browser, before anyone signs
-in. The backend keeps only the first report, as `connectedAt` and the origin
-the browser sent (`connectedOrigin`), and answers every report the same, so it
-reveals no project. A report from anything but a web page, such as the
-extension's side panel, changes nothing. Anyone who knows a project's ID can
-send one, so it sets nothing but that one time and origin. Setup pages return
-it as `connected`, with the origin only for the project's owners and the
-developer a setup email went to. `/critiqs/config` reports `connections`; the
-component reports only where it does. The website shows it live on the setup
-screen and the setup page; nothing is emailed, since no notification rule
-covers it.
+loads on the prototype at the project's own address. The component, on the
+prototype's own `http:` or `https:` page, posts the project ID as plain text
+to `/critiqs/connected` (no preflight), at most once an hour per browser,
+before anyone signs in. The backend reads at most 200 bytes of the body. It
+counts a report only when the origin the browser sent is the project's
+review address or matches its address list, with the same matching the
+extension's lookup uses, so anyone who knows a project's ID can claim
+nothing but an address its owners listed, and a developer's own computer or
+the extension's side panel doesn't count. It keeps the latest such load, as
+`connectedAt` and that origin (`connectedOrigin`), writing at most once every
+ten minutes per project and inserting nothing, so a wrong record is replaced
+by the next real load and no table grows. Every report gets the same empty
+answer, so it reveals no project. The project's owners can clear it
+(`clearConnected`). A project that already had threads before this version
+was installed: SQLite marks it connected at its first thread, on that
+thread's page's origin, when it upgrades to schema version 19; on Convex,
+run `npx convex run onboarding:backfillConnected` once after deploying.
+Setup pages return it as `connected`, with the origin only for the
+project's owners and the developer a setup email went to, and `clearable`
+for its owners. `/critiqs/config` reports `connections`; the component
+reports only where it does. The website shows it live on the setup screen
+and the setup page; nothing is emailed, since no notification rule covers
+it.
 
 **Proposed, built in the pilot:** Critiqs renders in its own React root inside a
 shadow root, so its events, contexts, and styles stay separate from the host

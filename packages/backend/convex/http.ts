@@ -7,12 +7,14 @@ import {
   codeDigest,
   generateCode,
   MailError,
+  MAX_CONNECTION_REPORT_BYTES,
   normalizeEmail,
   readPreferenceToken,
   readReportToken,
   REPORT_DONE,
   REPORT_PATH,
   REPORT_QUESTION,
+  readBody,
   resendMailer,
   signInCodeMessage,
 } from "@critiqs/server";
@@ -104,8 +106,9 @@ http.route({
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
       // takes `onboarding` and `stack`.
-      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), and setup
-      // pages say when it first did (`connected` on `onboarding:projectSetup` and `onboarding:developerSetup`).
+      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
+      // say when it last did at the project's own address (`connected` on `onboarding:projectSetup` and
+      // `onboarding:developerSetup`), and its owners clear it (`onboarding:clearConnected`).
       // `developerEmails`: a project's owners email its setup steps to developers (`onboarding:sendDeveloperSetup`,
       // `onboarding:developerSends`), and setup links show them (`onboarding:developerSetup`); false without email. A copied
       // message's setup page shows the project and its install commands (`onboarding:projectSetup`), with or without email.
@@ -228,14 +231,16 @@ function customerOf(body: string): string | null {
 /**
  * The component reporting that it loaded with a project's ID, for
  * onboarding's Connected. The body is the project ID, as plain text, so the
- * browser sends it without asking first; the origin is the one the browser
- * sent. Always the same empty answer, so it says nothing about which projects exist.
+ * browser sends it without asking first, read only up to
+ * `MAX_CONNECTION_REPORT_BYTES`; the origin is the one the browser sent.
+ * Always the same empty answer, so it says nothing about which projects exist.
  */
 http.route({
   path: "/critiqs/connected",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const projectId = (await request.text().catch(() => "")).trim().slice(0, 100);
+    const body = await readBody(request, MAX_CONNECTION_REPORT_BYTES).catch(() => new Uint8Array());
+    const projectId = new TextDecoder().decode(body).trim();
     if (projectId !== "") await ctx.runMutation(internal.onboarding.reportConnected, { projectId, origin: request.headers.get("origin") });
     return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
   }),

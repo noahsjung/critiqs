@@ -111,6 +111,7 @@ export function fakeBackend(
     useDeveloperSends: () => ({ status: "ready", data: overrides.sends ?? [] }),
     useDeveloperSetup: (sendId) => (sendId === null ? loading : (overrides.sendSetup ?? loading)),
     useProjectSetup: (projectId) => (projectId === null ? loading : (overrides.projectSetupState ?? loading)),
+    clearConnected: record("clearConnected", overrides.clearConnected ?? (async () => {})),
     useThreadPage: (key) => {
       if (key !== null) calls.push({ name: "useThreadPage", args: [key] });
       return key === null ? loading : (overrides.threadPageState ?? loading);

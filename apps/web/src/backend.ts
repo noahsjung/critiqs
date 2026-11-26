@@ -72,6 +72,8 @@ export interface Backend {
   useDeveloperSetup(sendId: string | null): QueryState<DeveloperSetup>;
   /** A project's setup, from a copied message's link; null skips it. */
   useProjectSetup(projectId: string | null): QueryState<ProjectSetup>;
+  /** Clears a project's Connected record, for the people who manage it. */
+  clearConnected(projectId: string): Promise<void>;
   /**
    * A thread page by its key, live: new replies arrive as they are posted.
    * Anyone who may not open it, and a key that opens nothing, get the same
@@ -193,6 +195,9 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
     useDeveloperSends: (projectId) => useQueryState(api.onboarding.developerSends, projectId === null ? "skip" : { projectId }),
     useDeveloperSetup: (sendId) => useQueryState(api.onboarding.developerSetup, sendId === null ? "skip" : { sendId }),
     useProjectSetup: (projectId) => useQueryState(api.onboarding.projectSetup, projectId === null ? "skip" : { projectId }),
+    clearConnected: async (projectId) => {
+      await client.mutation(api.onboarding.clearConnected, { projectId });
+    },
     useThreadPage: (key) => {
       const pages = useAllPages(api.threads.page, key === null ? "skip" : { key });
       if (pages.status !== "ready") return pages;

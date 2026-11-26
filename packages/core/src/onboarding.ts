@@ -633,18 +633,20 @@ export interface ProjectSetup {
   /** `installCommands` for the stack. Newer clients work them out from `stack` instead, so older backends' answers show today's commands. */
   installCommands: readonly string[] | null;
   /**
-   * Whether Critiqs has loaded on a page with this project's ID: when it
-   * first did, and that page's origin (only for the people the saved stack
-   * is shown to). Null until then; absent from older backends, which don't
-   * record it.
+   * Whether Critiqs has loaded at the project's own address (its review
+   * address, or an address its list matches): when it last did, and that
+   * page's origin (only for the people the saved stack is shown to). Null
+   * until then; absent from older backends, which don't record it.
    */
   connected?: ProjectConnection | null;
 }
 
-/** When Critiqs first loaded with a project's ID, and on which origin, if the reader may see it. */
+/** When Critiqs last loaded at a project's own address, and on which origin, if the reader may see it. */
 export interface ProjectConnection {
   at: number;
   origin: string | null;
+  /** True for the people who manage the project, who may clear it; absent otherwise, and from older backends. */
+  clearable?: boolean;
 }
 
 /**

@@ -110,10 +110,10 @@ test("reports itself as a server in the host app, current with the component", a
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
 
-test("the component's report that it loaded marks the project connected once, from the page's origin", async () => {
+test("the component's report that it loaded at the project's address marks the project connected, from the page's origin", async () => {
   const { handler, sent } = await server();
   const dana = await signIn(handler, sent, "dana@example.com", "Dana");
-  const projectId = (await dana.api("createProject", { name: "Pilot" })).body.value;
+  const projectId = (await dana.api("createProject", { name: "Pilot", reviewUrl: SITE })).body.value;
   const report = (body: string, origin?: string) =>
     handler.fetch(new Request(`${SITE}/critiqs/critiqs/connected`, { method: "POST", body, headers: origin === undefined ? {} : { Origin: origin } }));
   for (const response of [await report(projectId), await report(projectId, "chrome-extension://abc"), await report("p_00000000000000000000000000000000", SITE)]) {
@@ -122,7 +122,10 @@ test("the component's report that it loaded marks the project connected once, fr
   expect((await dana.api("projectSetup", { projectId })).body.value.connected).toBeNull();
   expect((await report(projectId, SITE)).status).toBe(204);
   expect((await report(projectId, "https://elsewhere.example")).status).toBe(204);
-  expect((await dana.api("projectSetup", { projectId })).body.value.connected).toEqual({ at: expect.any(Number), origin: SITE });
+  expect((await dana.api("projectSetup", { projectId })).body.value.connected).toEqual({ at: expect.any(Number), origin: SITE, clearable: true });
+  // Its owner clears it.
+  expect((await dana.api("clearConnected", { projectId })).body).toEqual({ value: null });
+  expect((await dana.api("projectSetup", { projectId })).body.value.connected).toBeNull();
 });
 
 test("serves address lists, recording opened projects, and the project lookup, without telling other tabs anything changed", async () => {
@@ -1211,3 +1214,19 @@ test("the report page's form posts back to its own address, so a proxy prefix in
   expect([action.pathname, posted.status]).toEqual(["/outside/critiqs/developer-emails/report", 200]);
   expect(await posted.text()).toContain("Critiqs won&#39;t email this address again.");
 });
+
+test("the component's report reads a small body only, so a huge one is never held in memory", async () => {
+  const { handler } = await server();
+  let pulled = 0;
+  // 32 MB, sent as it is read: a server that reads it whole pulls all of it.
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulled >= 32 * 1024 * 1024) return controller.close();
+      pulled += 65_536;
+      controller.enqueue(new Uint8Array(65_536).fill(120));
+    },
+  });
+  const response = await handler.fetch(new Request(`${SITE}/critiqs/critiqs/connected`, { method: "POST", body, duplex: "half" } as RequestInit));
+  expect([response.status, response.headers.get("Access-Control-Allow-Origin")]).toEqual([204, "*"]);
+  expect(pulled).toBeLessThan(1_000_000);
+}, 10_000);

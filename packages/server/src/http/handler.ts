@@ -77,7 +77,8 @@ import {
   setupUrl,
   webBase,
 } from "../developer-setup.ts";
-import { claimAddressCheck, reportConnected, saveAboutYou } from "../onboarding.ts";
+import { readBody } from "./body.ts";
+import { claimAddressCheck, clearConnected, MAX_CONNECTION_REPORT_BYTES, reportConnected, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
   addProjectAddress,
@@ -293,33 +294,6 @@ function cookie(request: Request, name: string, value: string, path: string, max
   return `${name}=${value}; Path=${path}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure(request) ? "; Secure" : ""}`;
 }
 
-/** Reads a request body, stopping as soon as it is larger than `limit`. */
-async function readBody(request: Request, limit: number, tooLarge = "This request is too large."): Promise<Uint8Array> {
-  const declared = Number(request.headers.get("Content-Length") ?? "0");
-  if (declared > limit) fail("invalid", tooLarge);
-  if (request.body === null) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel().catch(() => undefined);
-      fail("invalid", tooLarge);
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
-}
-
 async function readForm(request: Request): Promise<URLSearchParams> {
   return new URLSearchParams(new TextDecoder().decode(await readBody(request, MAX_FORM_BYTES)));
 }
@@ -498,6 +472,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     sync: () => (s, id) => ops.syncReviewer(s, id),
     createProject: (args) => (s, id) => ops.createProject(s, id, args),
     saveAboutYou: (args) => (s, id) => saveAboutYou(s, id, args),
+    clearConnected: (args) => (s, id) => clearConnected(s, id, args),
     setReviewUrl: (args) => (s, id) => ops.setReviewUrl(s, id, args),
     setReviewAccess: (args) => (s, id) => ops.setReviewAccess(s, id, args),
     setProjectAddresses: (args) => (s, id) => setProjectAddresses(s, id, args),
@@ -1132,12 +1107,13 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
 
   /**
    * The component reporting that it loaded with a project's ID, for
-   * onboarding's Connected: the body is the project ID, and the origin is the
-   * one the browser sent. Always the same empty answer, so it says nothing
-   * about which projects exist.
+   * onboarding's Connected: the body is the project ID, read only up to
+   * `MAX_CONNECTION_REPORT_BYTES`, and the origin is the one the browser sent.
+   * Always the same empty answer, so it says nothing about which projects exist.
    */
   async function connected(request: Request): Promise<Response> {
-    const projectId = (await request.text().catch(() => "")).trim().slice(0, 100);
+    const body = await readBody(request, MAX_CONNECTION_REPORT_BYTES).catch(() => new Uint8Array());
+    const projectId = new TextDecoder().decode(body).trim();
     if (projectId !== "") await store.transaction((s) => reportConnected(s, { projectId, origin: request.headers.get("origin") }, Date.now()));
     return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
   }
@@ -1210,8 +1186,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // projects whose lists a person may change (`manageableProjects`).
       // `createKeys`: `idempotencyKey` on `createProject`, so a retried create returns the same project.
       // `presetTags`: a project's owner changes its preset tags (`setPresetTags`).
-      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), and setup
-      // pages say when it first did (`connected` on `projectSetup` and `developerSetup`).
+      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
+      // say when it last did at the project's own address (`connected` on `projectSetup` and `developerSetup`), and its
+      // owners clear it (`clearConnected`).
       return json({
         protocol: PROTOCOL,
         transport: "http",

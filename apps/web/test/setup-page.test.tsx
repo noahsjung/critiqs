@@ -48,14 +48,20 @@ describe("the setup page", () => {
     expect(clipboard.text).toBe(`npm install critiqs-react && npx critiqs init ${PROJECT_ID}`);
   });
 
-  test("waiting, then Connected with where and when; nothing on a backend that doesn't record it", async () => {
+  test("waiting, then Connected with where and when, which owners can clear; nothing on a backend that doesn't record it", async () => {
     const waiting = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="dev@acme.com" onSignOut={noop} />);
     expect(waiting.querySelector(".connection")?.textContent).toBe(
-      "Waiting for Critiqs to load on acme-proto.vercel.app…Once it's added, this page says Connected when Critiqs loads on the prototype.",
+      "Waiting for Critiqs to load on acme-proto.vercel.app…Once it's added, this page says Connected when Critiqs loads at the prototype's address.",
     );
     const at = Date.UTC(2026, 10, 25, 15, 4);
     const connected = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: { at, origin: "http://localhost:5173" } } }} email="dev@acme.com" onSignOut={noop} />);
-    expect(connected.querySelector(".connection.connected")?.textContent).toStartWith("Connected. Critiqs loaded on localhost:5173.First loaded Nov 25, 2026");
+    expect(connected.querySelector(".connection.connected")?.textContent).toStartWith("Connected. Critiqs loaded on localhost:5173.Last loaded Nov 25, 2026");
+    // Only the people who manage the project are offered Clear; it asks the backend to clear it.
+    expect(button(connected, "Clear")).toBeUndefined();
+    const backend = fakeBackend();
+    const owner = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: { at, origin: "https://acme-proto.vercel.app", clearable: true } } }} email="dana@acme.com" onSignOut={noop} />, { backend });
+    await click(button(owner, "Clear"));
+    expect(backend.calls.filter(({ name }) => name === "clearConnected").map(({ args }) => args)).toEqual([[SETUP.projectId]]);
     const older = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />);
     expect(older.querySelector(".connection")).toBeNull();
   });

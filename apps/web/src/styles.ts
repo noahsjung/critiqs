@@ -128,6 +128,7 @@ export const APP_STYLES = `
 .connection.connected { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--line)); }
 .connection.connected .icon { margin-top: 3px; }
 .connection .note { color: var(--muted); }
+.connection .grow { flex: 1; min-width: 0; }
 .stacked.tight { gap: 2px; }
 .pulse { flex: none; width: 8px; height: 8px; margin: 7px 4px 0; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }

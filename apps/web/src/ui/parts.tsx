@@ -1,6 +1,6 @@
 import { backendSetting, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useAuth } from "../backend.ts";
+import { useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
 import type { QueryState } from "../shared.ts";
@@ -231,11 +231,15 @@ export function Account() {
 }
 
 /**
- * Whether Critiqs has loaded with the project's ID yet, live: waiting, then
- * Connected with where and when. Nothing on a backend that doesn't record
- * it (no `connected` in its setup), so it never waits forever.
+ * Whether Critiqs has loaded at the project's own address yet, live:
+ * waiting, then Connected with where and when. The people who manage the
+ * project can clear it, and the next load from its address records it
+ * again. Nothing on a backend that doesn't record it (no `connected` in its
+ * setup), so it never waits forever.
  */
 export function ConnectionStatus({ setup, host, waitingNote }: { setup: QueryState<ProjectSetup>; host: string | null; waitingNote?: string }) {
+  const { clearConnected } = useBackend();
+  const [clearing, setClearing] = useState<"idle" | "clearing" | "failed">("idle");
   if (setup.status !== "ready" || setup.data.connected === undefined) return null;
   const connected = setup.data.connected;
   if (connected === null) {
@@ -249,13 +253,26 @@ export function ConnectionStatus({ setup, host, waitingNote }: { setup: QuerySta
       </div>
     );
   }
+  const clear = () => {
+    setClearing("clearing");
+    clearConnected(setup.data.projectId).then(
+      () => setClearing("idle"),
+      () => setClearing("failed"),
+    );
+  };
   return (
     <div className="connection connected" role="status">
       <CheckIcon />
-      <span className="stacked tight">
+      <span className="stacked tight grow">
         <span>{copy.connection.connected(connected.origin)}</span>
         <span className="note">{copy.connection.when(connected.at)}</span>
+        {clearing === "failed" && <span className="note">{copy.connection.clearFailed}</span>}
       </span>
+      {connected.clearable === true && (
+        <button type="button" className="quiet" disabled={clearing === "clearing"} title={copy.connection.clearHint} onClick={clear}>
+          {copy.connection.clear}
+        </button>
+      )}
     </div>
   );
 }

@@ -143,8 +143,11 @@ export const copy = {
   connection: {
     waiting: (host: string | null) => `Waiting for Critiqs to load on ${host ?? "your prototype"}…`,
     connected: (origin: string | null) => (origin === null ? "Connected. Critiqs loaded on the prototype." : `Connected. Critiqs loaded on ${origin.replace(/^https?:\/\//, "")}.`),
-    when: (at: number) => `First loaded ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}.`,
-    setupWaiting: "Once it's added, this page says Connected when Critiqs loads on the prototype.",
+    when: (at: number) => `Last loaded ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(at)}.`,
+    clear: "Clear",
+    clearHint: "Not right? Clear it. Critiqs records it again the next time it loads at the project's address.",
+    clearFailed: "Couldn't clear it. Try again.",
+    setupWaiting: "Once it's added, this page says Connected when Critiqs loads at the prototype's address.",
   },
 
   ways: {

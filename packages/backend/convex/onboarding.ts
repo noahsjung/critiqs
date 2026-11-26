@@ -10,6 +10,8 @@ import {
   recordDeveloperEmail as record,
   REPORT_PATH,
   reportToken,
+  clearConnected as clearConnectedOp,
+  connectionFromThread,
   reportConnected as reportConnectedOp,
   reportUnwantedEmail as report,
   reserveDeveloperSends,
@@ -35,13 +37,44 @@ export const claimAddressCheck = internalMutation({
 });
 
 /**
- * Records that Critiqs loaded with a project's ID, the first time only, for
- * onboarding's Connected. Called by the `/critiqs/connected` route with the
- * origin the browser sent; anything but an http or https origin changes nothing.
+ * Records that Critiqs loaded with a project's ID at the project's own
+ * address, for onboarding's Connected. Called by the `/critiqs/connected`
+ * route with the origin the browser sent; any other origin changes nothing.
  */
 export const reportConnected = internalMutation({
   args: { projectId: v.string(), origin: v.union(v.string(), v.null()) },
   handler: async (ctx, args) => await reportConnectedOp(convexStore(ctx), args, Date.now()),
+});
+
+/** Clears a project's Connected record, for the people who manage it. */
+export const clearConnected = mutation({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => run(async () => clearConnectedOp(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * Marks projects that already have threads connected, at their first
+ * thread, on its page's origin (`connectionFromThread`): they were installed
+ * before Connected was recorded. A page of projects at a time; projects
+ * already connected are left as they are, so running it again changes
+ * nothing. Run once after deploying: `npx convex run onboarding:backfillConnected`.
+ */
+export const backfillConnected = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("projects").paginate({ numItems: 100, cursor: cursor ?? null });
+    for (const project of page.page) {
+      if (project.connectedAt !== undefined) continue;
+      const first = await ctx.db
+        .query("threads")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .first();
+      if (first === null) continue;
+      const { at, origin } = connectionFromThread({ createdAt: first.createdAt, pageUrl: first.anchor.evidence.url });
+      await ctx.db.patch(project._id, { connectedAt: at, ...(origin === null ? {} : { connectedOrigin: origin }) });
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.onboarding.backfillConnected, { cursor: page.continueCursor });
+  },
 });
 
 /** Saves the signed-in person's "About you" answers. Unknown values are dropped; a skipped answer changes nothing. */
