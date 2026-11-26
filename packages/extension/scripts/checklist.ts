@@ -815,8 +815,12 @@ await step("22", "In the Mockup tab, start a thread on an element of the copy: c
 await step("23", "Leave Mockup mode (V): the Mockup tab closes and the page's tab, with its side panel, is in front again", async (shots) => {
   await mockupTab.bringToFront();
   await mockupTab.locator("body").click({ position: { x: 5, y: 5 } }).catch(() => undefined);
-  await mockupTab.keyboard.press("v");
-  await waitUntil("the Mockup tab to close", async () => mockupTab.isClosed(), 10_000);
+  const closed = mockupTab.waitForEvent("close", { timeout: 10_000 });
+  // V leaves Mockup mode on its key-down, which closes this tab, so the key-up can find the tab gone.
+  await mockupTab.keyboard.press("v").catch((error: Error) => {
+    if (!/closed/i.test(error.message)) throw error;
+  });
+  await closed;
   const active = await inWorker(() => (globalThis as any).chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((tabs: { id: number }[]) => tabs[0]!.id));
   focus(other, panel);
   await panel.waitFor({ css: ".xt-title", text: "Erin's storefront" });
