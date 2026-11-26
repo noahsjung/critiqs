@@ -49,7 +49,7 @@
     "test": "bun test --isolate",
     "build": "bun scripts/build.ts",
     "prepack": "bun run build",
-    "check:consumer": "bun scripts/check-consumer.ts"
+    "check:consumer": "bun scripts/check-consumer.ts && bun scripts/check-two-documents.ts"
   },
   "dependencies": {
     "convex": "^1.46.0"

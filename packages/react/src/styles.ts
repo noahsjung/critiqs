@@ -50,6 +50,8 @@ button { cursor: pointer; }
 .layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; }
 .layer > * { pointer-events: auto; }
 .layer > .passive { pointer-events: none; }
+/* What the page layer draws (pins, outlines, Comment mode's selection) stays under the panel's toolbar, sidebar, and windows. */
+.layer.page-layer { z-index: 2147482999; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface);

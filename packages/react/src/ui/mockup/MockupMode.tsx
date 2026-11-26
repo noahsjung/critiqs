@@ -1,10 +1,10 @@
-import { type Anchor, type MockupDetail, type MockupSource, removeLink, type ThreadMockup, type ViewState } from "@critiqs/core";
+import { type Anchor, type MockupDetail, type MockupSource, type PageCopy, removeLink, type ThreadMockup, type ViewState } from "@critiqs/core";
 import { type MutableRefObject, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { isTyping, useStoredState } from "../../hooks.ts";
 import type { ResolvedContext } from "../../host.ts";
 import { type DescribeCopy, runAiTurn, type TurnStatus, turnFailure } from "../../mockup/ai-turn.ts";
 import { describeHidden, describeShown } from "../../mockup/describe.ts";
-import { type FrozenPage, freezePage } from "../../mockup/freeze.ts";
+import { type FrozenPage, pageRecordKey } from "../../mockup/freeze.ts";
 import {
   closestCopy,
   copyHint,
@@ -70,8 +70,8 @@ export function MockupMode(props: {
   host: HTMLElement;
   projectId: string;
   context: ResolvedContext;
-  /** Reads the host's context now, rather than as of the latest render. */
-  readContext: () => ResolvedContext;
+  /** Freezes the page as it is now, with the page's details (the page layer's page copy). */
+  copyPage: () => Promise<PageCopy>;
   /** The prototype's version, recorded with each message. */
   version: string | null;
   /** The project's normal threads, which "+ Add existing comment" offers. */
@@ -165,26 +165,28 @@ export function MockupMode(props: {
   const freezing = state.view === "list" && state.frozen === null;
   const versionRef = useRef(props.version);
   versionRef.current = props.version;
-  const { readContext } = props;
+  const { copyPage } = props;
   useEffect(() => {
     if (!freezing) return;
     let cancelled = false;
-    const current = readContext();
-    const source: MockupSource = {
-      url: removeLink(window.location.href),
-      screen: current.screen,
-      viewState: current.viewState,
-      revision: versionRef.current,
-      persona: current.persona,
-      recordKey: pageRecordKey(document.body),
-    };
-    freezePage()
-      .then((page) => !cancelled && dispatch({ type: "frozen", frozen: { page, source } }))
+    copyPage()
+      .then(({ url, context: current, recordKey, ...page }) => {
+        if (cancelled) return;
+        const source: MockupSource = {
+          url: removeLink(url),
+          screen: current.screen,
+          viewState: current.viewState,
+          revision: versionRef.current,
+          persona: current.persona,
+          recordKey,
+        };
+        dispatch({ type: "frozen", frozen: { page, source } });
+      })
       .catch((error) => !cancelled && notify(`The page couldn't be frozen: ${errorMessage(error)}`));
     return () => {
       cancelled = true;
     };
-  }, [freezing, readContext, notify]);
+  }, [freezing, copyPage, notify]);
 
   // "Open mockup" names only the mockup: open its thread.
   const requestedMockup = useRef(props.request?.threadId === null ? props.request.mockupId : null);
@@ -374,7 +376,7 @@ export function MockupMode(props: {
     setTaking(true);
     try {
       // The live page is still there beneath the copy, at the window's width.
-      const frozen = await freezePage();
+      const frozen = await copyPage();
       const storageId = await mockups.uploadSnapshot(projectId, frozen.html);
       const layout = snapshotLayout(frozen);
       const snapshotId = await mockups.addSnapshot({ mockupId: mockup._id, snapshot: { storageId, ...layout } });
@@ -815,15 +817,4 @@ function missingChanges(detail: MockupDetail, snapshotId: string, version: numbe
 function showsMockupPage(source: Pick<MockupSource, "screen" | "recordKey">, screen: string): boolean {
   const recordKey = source.recordKey ?? null;
   return source.screen === screen && (recordKey === null || recordKey === pageRecordKey(document.body));
-}
-
-/** The record the page shows: its one `data-critiqs-record` outside Critiqs, or null when it shows none or several. */
-export function pageRecordKey(root: HTMLElement): string | null {
-  const keys = new Set<string>();
-  for (const element of Array.from(root.querySelectorAll("[data-critiqs-record]"))) {
-    if (element.closest("critiqs-root") !== null) continue;
-    const key = element.getAttribute("data-critiqs-record");
-    if (key) keys.add(key);
-  }
-  return keys.size === 1 ? [...keys][0]! : null;
 }

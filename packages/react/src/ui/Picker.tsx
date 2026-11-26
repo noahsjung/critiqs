@@ -148,7 +148,7 @@ export interface NewComment {
 }
 
 /** Record-specific by default, so feedback is never shown on a different record (F7). */
-export function emptyComment(picked: PickedTarget): NewComment {
+export function emptyComment(picked: Pick<PickedTarget, "target">): NewComment {
   return { body: EMPTY_MENTION_TEXT, tags: [], scope: picked.target.recordKey === null ? "shared" : "record" };
 }
 
@@ -170,7 +170,8 @@ export function Composer({
 }: {
   /** Lets the global Escape handler dismiss hovered help without moving focus. */
   dismissHelpRef: { current: (() => void) | null };
-  picked: PickedTarget;
+  /** The element is null where the panel isn't drawn over the page; the popover then waits at the top. */
+  picked: { element: Element | null; target: Target };
   comment: NewComment;
   onChange: (comment: NewComment) => void;
   context: ResolvedContext;
