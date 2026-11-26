@@ -155,6 +155,12 @@ After upgrading an older deployment that already had comments before hashtags we
 npx convex run --prod tags:backfill
 ```
 
+Project names are limited to 200 characters. After upgrading a deployment whose projects may have longer names, run this once to shorten them: each keeps its start, followed by "… " and a short code computed from the whole name. It changes nothing when every name already fits:
+
+```sh
+npx convex run --prod projects:shortenLongNames
+```
+
 ## Related pages
 
 - [Command line reference](/docs/cli)

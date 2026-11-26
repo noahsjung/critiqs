@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { type PageRequest, type Role, tagKey, type TeamSize } from "@critiqs/core";
+import { MAX_PROJECT_NAME_LENGTH, type PageRequest, type Role, shortenProjectName, tagKey, type TeamSize } from "@critiqs/core";
 import type {
   DeliveryRecord,
   DeveloperAttempt,
@@ -45,7 +45,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -548,7 +548,34 @@ export const MIGRATIONS: Migration[] = [
   CREATE INDEX project_creations_by_user_time ON project_creations (user_id, created_at);
   CREATE INDEX projects_by_creator_organization ON projects (created_by, organization_id, seq);
   `,
+  shortenLongProjectNames,
 ];
+
+/**
+ * Shortens project names from before the length limit to fit it
+ * (`shortenProjectName`, migration 18). Names are found and read as stored
+ * bytes, in the database's text encoding, because SQLite's `length` and some
+ * drivers stop at a NUL character; a name's bytes are never fewer than its
+ * code units. A few names are read at a time, since each may be large.
+ */
+function shortenLongProjectNames(sql: SqlDriver): void {
+  const encoding = sql.get<{ encoding: string }>("PRAGMA encoding")?.encoding.toLowerCase() ?? "utf-8";
+  const decoder = new TextDecoder(encoding);
+  let after = 0;
+  for (;;) {
+    const rows = sql.all<{ seq: number; id: string; name: Uint8Array }>(
+      "SELECT seq, id, CAST(name AS BLOB) AS name FROM projects WHERE seq > ? AND length(CAST(name AS BLOB)) > ? ORDER BY seq LIMIT 16",
+      [after, MAX_PROJECT_NAME_LENGTH],
+    );
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      after = row.seq;
+      const name = decoder.decode(row.name);
+      const shortened = shortenProjectName(name);
+      if (shortened !== name) sql.run("UPDATE projects SET name = ? WHERE id = ?", [shortened, row.id]);
+    }
+  }
+}
 
 /**
  * Reads hashtags from every existing message, a batch at a time, and records

@@ -156,6 +156,9 @@ export declare function readiness(result: {
   connected?: boolean;
 }): Stage[];
 export declare function defaultProjectName(root: string): string;
+export declare const MAX_PROJECT_NAME_LENGTH: number;
+export declare function shortenProjectName(name: string): string;
+export declare function checkProjectName(name: string | null | undefined): void;
 export interface SetupResult {
   projectId: string;
   projectName: string;

@@ -144,6 +144,21 @@ export async function personalQuota(store: Store, userId: string): Promise<Cover
 }
 
 /**
+ * "<name>'s organization", within an organization name's limit. Names from a
+ * host app's own sign-in, or an email address, can be longer than a display
+ * name chosen in Critiqs; those are cut between characters and marked "…".
+ */
+function homeName(owner: string): string {
+  const suffix = "'s organization";
+  const room = MAX_ORGANIZATION_NAME - suffix.length;
+  if (owner.length <= room) return `${owner}${suffix}`;
+  let end = room - 1;
+  const last = owner.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end--;
+  return `${owner.slice(0, end).trimEnd()}…${suffix}`;
+}
+
+/**
  * The person's home organization, where their new projects go. Someone with
  * none, or removed from theirs, gets a new one with them as its admin.
  * Someone from before organizations keeps their plan, and the projects they
@@ -155,7 +170,7 @@ export async function homeOrganization(store: Store, user: UserRecord, now: numb
   if (existing !== null && (await isMember(store, existing, user._id))) return existing;
   const fromBefore = user.homeOrganizationId === undefined;
   const record: Omit<OrganizationRecord, "_id"> = {
-    name: `${user.name.trim() || user.email || "Critiqs"}'s organization`,
+    name: homeName(user.name.trim() || user.email || "Critiqs"),
     createdBy: user._id,
     createdAt: now,
     ...(fromBefore && user.plan !== undefined ? { plan: user.plan } : {}),

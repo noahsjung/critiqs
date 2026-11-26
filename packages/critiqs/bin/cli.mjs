@@ -10,7 +10,7 @@ import { relative } from "node:path";
 import { beginSignIn, signInStatus, signOutComputer } from "./agent.mjs";
 import { workspaceApps } from "./app.mjs";
 import { runInit } from "./init.mjs";
-import { beginSetup, CLOUD_BACKEND_URL, DOCTOR_NOTE, doctor, doctorReport, isConvexCloudPair, openBrowser, readiness, SetupError } from "./setup.mjs";
+import { beginSetup, checkProjectName, CLOUD_BACKEND_URL, DOCTOR_NOTE, doctor, doctorReport, isConvexCloudPair, openBrowser, readiness, SetupError } from "./setup.mjs";
 
 export const USAGE = `Usage:
   critiqs init                 Add Critiqs to the prototype and connect it to a new Critiqs Cloud project
@@ -183,6 +183,8 @@ async function runSetup(options, { cwd, print }) {
     const target = options.target ?? "cloud";
     const keys = {};
     if (target === "own-convex") {
+      // A new deployment means a new project, so a name it can't take is refused before asking for keys.
+      checkProjectName(options.name);
       if (!process.env.CONVEX_DEPLOY_KEY && !process.env.CONVEX_SELF_HOSTED_ADMIN_KEY) {
         if (io === null) throw new SetupError("Set CONVEX_DEPLOY_KEY to a production deploy key from your Convex project's settings.");
         keys.convexDeployKey = await io.ask("Convex production deploy key (from your Convex project's settings): ", { hidden: true });

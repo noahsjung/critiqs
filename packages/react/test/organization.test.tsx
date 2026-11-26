@@ -550,6 +550,11 @@ test("setup creates a project in the home organization unless the person picks a
   expect(data.calls).toEqual([{ name: "createProject", args: { name: "Studio prototype", reviewUrl: null, organizationId: "studio" } }]);
 });
 
+test("setup's name field holds at most as many characters as a project's name can have", async () => {
+  const setup = await renderSetup(backend({ project: undefined, organizations: [acme] }), true);
+  expect(projectName(setup)!.maxLength).toBe(200);
+});
+
 test("setup forgets a picked organization the person is no longer in", async () => {
   const data = backend({ project: undefined, organizations: [studio, acme] });
   const node = (

@@ -64,6 +64,15 @@ export const anchor: Anchor = {
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 
+/** A copy of a project with a name longer than today's limit, as one created before it was set. */
+async function insertNamed(backend: ContractBackend, like: string, name: string): Promise<string> {
+  const project = (await backend.run((store) => store.projects.get(like)))!;
+  const { tags, createdBy, createdAt, organizationId, reviewUrl } = project;
+  return await backend.run((store) =>
+    store.projects.insert({ name, tags, createdBy, createdAt, ...(organizationId === undefined ? {} : { organizationId }), ...(reviewUrl === undefined ? {} : { reviewUrl }) }),
+  );
+}
+
 /**
  * The behavior every Critiqs backend must share. Each backend's tests call this
  * with a fresh, empty backend per test.
@@ -334,9 +343,42 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(listed.page[0]!.preview?.body).toBe("Earliest");
   });
 
+  test(`${name}: project names are limited to 200 characters, counted after trimming`, async () => {
+    const backend = fresh();
+    const create = (projectName: string) => backend.run((store) => ops.createProject(store, dana, { name: projectName }));
+    await expect(create("P".repeat(201))).rejects.toThrow("A project's name can have at most 200 characters.");
+    // Characters outside the Basic Multilingual Plane count twice, as a browser's maxlength counts them.
+    await expect(create("😀".repeat(101))).rejects.toThrow("at most 200 characters");
+    await expect(create("P".repeat(900_000))).rejects.toThrow("at most 200 characters");
+    const fits = await create(`  ${"P".repeat(200)}  `);
+    expect((await backend.run((store) => ops.getProject(store, dana, { projectId: fits }))).name).toBe("P".repeat(200));
+    const listed = await backend.run((store) => ops.listMyProjects(store, dana, page));
+    expect(listed.page.map((project) => project.name)).toEqual(["P".repeat(200)]);
+  });
+
+  test(`${name}: a new home organization's name fits an organization's 80 characters, however long the person's name`, async () => {
+    const backend = fresh();
+    const host = reviewer("H".repeat(300));
+    await backend.run((store) => ops.createProject(store, host, { name: "Prototype" }));
+    const [home] = await backend.run((store) => organizations.listMyOrganizations(store, host));
+    expect(home!.name.length).toBeLessThanOrEqual(organizations.MAX_ORGANIZATION_NAME);
+    expect(home!.name).toMatch(/^H+…'s organization$/);
+    await backend.run((store) => ops.createProject(store, dana, { name: "Prototype" }));
+    expect((await backend.run((store) => organizations.listMyOrganizations(store, dana)))[0]!.name).toBe("Dana's organization");
+  });
+
+  test(`${name}: a project named before the limit keeps working with its whole name`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Admin prototype" }));
+    const longName = "P".repeat(5_000);
+    const olderId = await insertNamed(backend, projectId, longName);
+    expect((await backend.run((store) => ops.getProject(store, dana, { projectId: olderId }))).name).toBe(longName);
+    await backend.run((store) => ops.createThread(store, lee, { projectId: olderId, anchor, body: "Still works", tags: [], capture: failed }));
+  });
+
   test(`${name}: names, revisions, and failure reasons are kept as given`, async () => {
     const backend = fresh();
-    const longName = "P".repeat(201);
+    const longName = "P".repeat(200);
     const projectId = await backend.run((store) => ops.createProject(store, dana, { name: longName }));
     expect((await backend.run((store) => ops.getProject(store, dana, { projectId }))).name).toBe(longName);
     const reason = "R".repeat(501);
@@ -1250,7 +1292,9 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
   test(`${name}: very long names are shortened in the email, which still carries every comment`, async () => {
     const backend = fresh();
     const huge = "<".repeat(900_000);
-    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: huge, reviewUrl: "https://proto.example/" }));
+    // Names longer than today's limit can remain from before it, until the backfill shortens them.
+    const created = await backend.run((store) => ops.createProject(store, dana, { name: "Named later", reviewUrl: "https://proto.example/" }));
+    const projectId = await insertNamed(backend, created, huge);
     await backend.run((store) => ops.createThread(store, lee, { projectId, anchor, body: "Hi", tags: [], capture: failed }));
     const leeId = await idOf(backend, lee);
     await longThread(backend, projectId, leeId, 400, failed);

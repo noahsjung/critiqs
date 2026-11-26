@@ -8,6 +8,7 @@ import {
   type ExportPage,
   isThreadPageKey,
   isUnread,
+  MAX_PROJECT_NAME_LENGTH,
   type Page,
   type PageRequest,
   type ProjectInfo,
@@ -235,6 +236,7 @@ export async function createProject(
   }
   const name = args.name.trim();
   if (name === "") fail("invalid", "A project needs a name.");
+  if (name.length > MAX_PROJECT_NAME_LENGTH) fail("invalid", `A project's name can have at most ${MAX_PROJECT_NAME_LENGTH} characters.`);
   const reviewUrl = args.reviewUrl == null ? null : validReviewUrl(args.reviewUrl.trim());
   const onboarding = projectOnboarding(args.onboarding, args.stack);
   const organization = args.organizationId === undefined ? await homeOrganization(store, user, now) : await chosenOrganization(store, user, args.organizationId);
