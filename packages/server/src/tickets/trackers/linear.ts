@@ -56,6 +56,8 @@ const UPLOAD = "mutation CritiqsUpload($contentType: String!, $filename: String!
 const KEY_PATTERN = /^([A-Za-z][A-Za-z0-9_]*)-(\d{1,9})$/;
 /** Linear accepts an issue ID chosen by the caller only in UUID v4 form. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Whether two UUIDs are the same, as Linear answers them in lower case. */
+const sameId = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 function endpointOf(endpoint: TrackerEndpointOptions): TrackerEndpoint {
   return trackerEndpoint(endpoint, LINEAR_API_URL);
@@ -101,10 +103,17 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
       if (!written.done) return { status: "refused", error: new TrackerRefusal("invalid", "Linear didn't create the issue. Try again, or choose another team.") };
       // Made, but Critiqs can't read all of it: the next attempt finds it by the creation's ID.
       const ticket = parseIssue(written.payload.issue);
-      return ticket === null || !written.clean ? { status: "unknown", error: unexpected(ticket === null ? "issue unreadable" : "errors with the issue") } : { status: "created", ticket };
+      if (ticket === null || !written.clean) return { status: "unknown", error: unexpected(ticket === null ? "issue unreadable" : "errors with the issue") };
+      // The issue Critiqs named is the one it made: an answer about another issue is never linked, and the next attempt looks again.
+      return sameId(ticket.externalId, input.creationId) || !UUID_PATTERN.test(input.creationId) ? { status: "created", ticket } : { status: "unknown", error: unexpected("another issue") };
     },
-    // The creation's ID became the issue's ID, so the issue is found by it alone.
-    findCreated: async (token, created) => (UUID_PATTERN.test(created.creationId) ? await issueById(token, created.creationId) : null),
+    // The creation's ID became the issue's ID, so the issue is found by it alone, and only that issue is it.
+    findCreated: async (token, created) => {
+      if (!UUID_PATTERN.test(created.creationId)) return null;
+      const found = await issueById(token, created.creationId);
+      if (found !== null && !sameId(found.externalId, created.creationId)) throw unexpected("another issue");
+      return found;
+    },
     linkBack: async (token, ticket, link) => {
       const written = await write(to, token, LINK_BACK, { input: { issueId: ticket.externalId, url: link.url, title: link.title } }, "attachmentCreate");
       if (!written.done) throw new TrackerRefusal("invalid", "Linear didn't add the link back to the thread.");

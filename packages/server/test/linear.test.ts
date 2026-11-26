@@ -367,3 +367,20 @@ test("a ticket Critiqs holds whose address doesn't agree with its key is never w
   expect((await refusal(linear.comment(key, held as never, md("Text")))).code).toBe("invalid");
   expect(requests).toHaveLength(0);
 });
+
+test("a creation is the issue whose ID Critiqs chose: Linear answering with another issue, now or when a lost answer is looked for, links nothing", async () => {
+  const creationId = "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b";
+  const linear = linearAdapter({ baseUrl });
+  // Linear took the creation's ID as the new issue's; an answer about another issue is unknown, so the next attempt looks again.
+  replies.push({ body: { data: { issueCreate: { success: true, issue: issue("0d9c8b7a-6f5e-4d3c-8b2a-190807060504", "ENG-9") } } } });
+  const created = await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId });
+  expect(created.status).toBe("unknown");
+  // Linear answers IDs in lower case; the one Critiqs chose may be written either way.
+  replies.push({ body: { data: { issueCreate: { success: true, issue: issue(creationId, "ENG-7") } } } });
+  expect((await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], creationId: creationId.toUpperCase() })).status).toBe("created");
+  // Looking for a lost answer by the creation's ID: another issue is not it.
+  replies.push({ body: { data: { issues: { nodes: [issue("0d9c8b7a-6f5e-4d3c-8b2a-190807060504", "ENG-9")] } } } });
+  expect((await refusal(linear.findCreated(key, { creationId, link: null }))).code).toBe("unavailable");
+  replies.push({ body: { data: { issues: { nodes: [issue(creationId, "ENG-7")] } } } });
+  expect((await linear.findCreated(key, { creationId, link: null }))?.externalId).toBe(creationId);
+});
