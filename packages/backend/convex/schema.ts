@@ -735,6 +735,22 @@ export default defineSchema({
    */
   panelSessionOrigins: defineTable({ origin: v.string() }).index("by_origin", ["origin"]),
 
+  /**
+   * Refresh tokens a refresh replaced. Sending one again with exactly the
+   * token that replaced it, before that is used, repeats a refresh whose
+   * answer was lost; any other use means someone else holds it, and its
+   * session ends. Kept until the session's absolute end (at most 90 days
+   * after sign-in), however often it is renewed.
+   */
+  replacedRefreshTokens: defineTable({
+    refreshHash: v.string(),
+    sessionId: v.id("sessions"),
+    nextRefreshHash: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_refresh_hash", ["refreshHash"])
+    .index("by_expiry", ["expiresAt"]),
+
   /** Personal read state (F5). Never affects other reviewers or thread status. */
   readStates: defineTable({
     userId: v.id("users"),

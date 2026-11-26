@@ -574,16 +574,29 @@ tokens, avoiding the host's domain and third-party cookies.
   posts it only to that site.
 - **Refresh.** A refresh token, stored hashed, works only from the same site,
   for 30 days from its last use and never more than 90 days after sign-in. Every successful refresh replaces it atomically;
-  old, reused, expired, or wrong-site tokens cannot refresh the session. The
-  component persists the replacement and serializes same-site refreshes with
-  Web Locks, or an atomic IndexedDB claim for each refresh token. Claims
-  are never taken over on timeout: a suspended tab may already have rotated
-  its token on the server. Other tabs wait for up to 30 seconds and then
-  preserve their stored session for a later retry. If the owner tab crashes,
-  sign in again to obtain a new token; its claim is independent. An
-  in-flight refresh that completes after sign-out revokes its replacement.
-  If a rotation response is lost after the server consumes the old token,
-  retrying cannot reuse that token; the reviewer signs in again.
+  expired or wrong-site tokens cannot refresh the session. The client
+  chooses the replacement (32 random bytes, base64url) and saves it before
+  sending it as `nextRefreshToken`; older clients send none and the service
+  chooses. The service remembers each replaced token until its session's
+  absolute end (90 days after sign-in at most). Sending a replaced token again together with
+  the replacement it was switched to, before the replacement is used, repeats
+  the refresh without replacing anything (it renews the session like any
+  refresh): so a refresh whose answer was lost (the page closed, the network
+  dropped, the process stopped) finishes on the next try, as long as the
+  session hasn't expired meanwhile (30 days unused). Any other use of a replaced token means
+  someone else holds it, and the session ends. Signing out with a replaced
+  token ends its session too, and clients sign out both the saved token and a
+  saved replacement, so a sign-out that crosses a refresh still ends the
+  session. A client cleaning up after a refresh answered late signs out with
+  `onlyIfCurrent`, which ends a session only by its current token, so it
+  can't end a session another tab has renewed since. The component also builds its Convex client
+  with `initialAuthTokenReuse`, so a page load uses a still-valid access token
+  instead of refreshing at once. The component serializes same-site refreshes with
+  Web Locks, or an atomic IndexedDB claim for each refresh token. A claim
+  is taken over after 30 seconds only when the saved replacement is there,
+  since sending that saved pair again is safe from any tab; otherwise other
+  tabs preserve their stored session for a later retry. An in-flight refresh
+  that completes after sign-out revokes its replacement while it is current.
 - **Start limits.** Transactional one-minute counters allow 20 popup sign-in
   starts per requesting origin, Critiqs's own included, and 200 starts of any
   kind across the deployment; panel starts count differently (see **Panel
@@ -781,17 +794,31 @@ tool, instead of approving every session.
   the heartbeat again and renames the lock aside before removing it, so a
   lock taken meanwhile, being fresh, is left alone. Before every write the
   holder checks that its token is still in the lock; if another process took
-  it over, the holder writes nothing and writes again under a fresh lock. A
-  renewal's new refresh token is never dropped: it replaces the sign-in it
-  renewed, or, if that sign-in was replaced meanwhile, is kept aside
-  (`recovered`) for signing out to end. Earlier versions' locks are files at
-  the same name, waited for and taken over the same way; earlier versions
-  can't remove a directory, so they wait. A session that ended is
-  removed, and the agent is told to sign in again. Signing out cancels a
-  sign-in still waiting for approval, and forgets the computer's sign-in only
-  once the service answers; `/auth/sign-out` adds `Critiqs-Session-Ended`, so
-  a session it didn't find is reported (one replaced by a renewal whose answer
-  was lost: no one holds its token, and it ends after 30 days without use). Not the operating system's keychain: Linux machines without a desktop
+  it over, the holder writes nothing and writes again under a fresh lock;
+  requests under the lock time out well before another process may take it
+  over. A renewal saves its chosen replacement in the file before sending it,
+  as the component does, so a renewal whose answer was lost finishes on the
+  next one, and a renewal another process finished with the same replacement
+  is kept, with any replacement that process saved since for its next
+  renewal. An answer whose access token expired before it arrived is saved
+  but not used; the caller is asked to try again. A renewal's new refresh
+  token is never dropped: it replaces the sign-in it renewed, or, if that
+  sign-in was replaced meanwhile, is kept aside (`recovered`) and ended with
+  `onlyIfCurrent` after the lock is released, so it can't end a session
+  another process renewed since and no one waits for it; it stays aside for
+  signing out to end until the service answers. Earlier versions' locks are files at the
+  same name, waited for and taken over the same way; earlier versions can't
+  remove a directory, so they wait. A session that ended is removed, and the
+  agent is told to sign in again. Signing out cancels a sign-in still waiting
+  for approval, ends both the saved token and a saved replacement, and
+  forgets the computer's sign-in only once the service answers, including a
+  sign-in another process renewed to that replacement meanwhile. It never
+  reports a clean sign-out while a session it couldn't end stays saved, or
+  while another process changed the sign-in meanwhile: it says what is left
+  and fails;
+  `/auth/sign-out` adds `Critiqs-Session-Ended`, so a session it didn't find
+  is reported (for example one a sign-in from an older version left behind
+  after a lost renewal; it ends after 30 days without use). Not the operating system's keychain: Linux machines without a desktop
   have none.
 - **Bound to backends.** Each entry records the backends it was approved for,
   each with where it serves screenshots and page copies (its Convex HTTP

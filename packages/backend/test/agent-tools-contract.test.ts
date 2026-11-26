@@ -615,17 +615,59 @@ test("signing out cancels a sign-in still waiting for approval, and a late appro
   expect(grants.every((grant) => grant.status === "approved")).toBe(true);
 });
 
-test("signing out says so when the service has no session for this computer, such as after a renewal's answer was lost", async () => {
+test("signing out says so when the service has no session for this computer", async () => {
   const { t, config, tools } = local();
   await signIn(t, tools());
-  const { origin, refreshToken } = JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services[SITE];
-  // The service renews the session, but its answer never reaches this computer.
-  const renewed = await t.fetch("/auth/refresh", { method: "POST", headers: { Origin: origin }, body: JSON.stringify({ refreshToken }) });
-  expect(renewed.status).toBe(200);
+  // The session already ended on the service, for example after 30 days without use.
+  await t.run(async (ctx) => {
+    for (const session of await ctx.db.query("sessions").collect()) await ctx.db.delete(session._id);
+  });
   const out = await tools().call("critiqs_sign_out", { backend: BACKEND });
   expect(out.content[0]!.text).toContain("The service had no session for it");
   expect(out.content[0]!.text).toContain("ends after 30 days without use");
   expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services).toEqual({});
+});
+
+test("a renewal whose answer was lost is finished by the next request, and the computer stays signed in", async () => {
+  const { t, config, env, fetchFn, tools } = local();
+  const ids = await feedback(t);
+  await signIn(t, tools());
+  expireToken(config);
+  // The service renews the session, but the answer never reaches this computer (the process stopped).
+  let lose = true;
+  const losing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetchFn(input, init);
+    if (lose && new URL(String(input)).pathname === "/auth/refresh") {
+      lose = false;
+      throw new TypeError("The answer never arrived.");
+    }
+    return response;
+  }) as typeof fetch;
+  const first = await createTools({ cwd: config, env, fetchFn: losing, now: Date.now, open: () => {}, sleep: () => new Promise((done) => setTimeout(done, 5)) })
+    .call("critiqs_comments", { projectId: ids.projectId, backend: BACKEND });
+  expect(first.isError).toBe(true);
+
+  const again = await tools().call("critiqs_comments", { projectId: ids.projectId, backend: BACKEND });
+  expect(again.isError).toBeUndefined();
+  // Signing out then ends the session on the service.
+  expect((await tools().call("critiqs_sign_out", { backend: BACKEND })).content[0]!.text).toBe("Signed this computer out of Critiqs (Dana).");
+  expect(await t.run(async (ctx) => await ctx.db.query("sessions").collect())).toEqual([]);
+});
+
+test("signing out after a lost renewal ends the session the service switched to", async () => {
+  const { t, config, env, fetchFn, tools } = local();
+  const ids = await feedback(t);
+  await signIn(t, tools());
+  expireToken(config);
+  const losing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetchFn(input, init);
+    if (new URL(String(input)).pathname === "/auth/refresh") throw new TypeError("The answer never arrived.");
+    return response;
+  }) as typeof fetch;
+  await createTools({ cwd: config, env, fetchFn: losing, now: Date.now, open: () => {}, sleep: () => new Promise((done) => setTimeout(done, 5)) })
+    .call("critiqs_comments", { projectId: ids.projectId, backend: BACKEND });
+  expect((await tools().call("critiqs_sign_out", { backend: BACKEND })).content[0]!.text).toBe("Signed this computer out of Critiqs (Dana).");
+  expect(await t.run(async (ctx) => await ctx.db.query("sessions").collect())).toEqual([]);
 });
 
 test("an agent replies as the signed-in person, marked as an agent, mentioning people by name or ID, and everyone in the thread is told", async () => {

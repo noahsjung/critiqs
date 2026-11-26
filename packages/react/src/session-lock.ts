@@ -2,7 +2,12 @@
 const queues = new Map<string, Promise<unknown>>();
 const WAIT_MS = 30_000;
 
-export async function withSessionLock<T>(name: string, refreshToken: string, operation: () => Promise<T>): Promise<T> {
+/**
+ * `safeWithoutClaim` is asked when a claim (browsers without Web Locks) is
+ * still held after the wait: true means the operation is safe to repeat
+ * alongside its owner, so it runs anyway.
+ */
+export async function withSessionLock<T>(name: string, refreshToken: string, operation: () => Promise<T>, safeWithoutClaim: () => boolean = () => false): Promise<T> {
   const previous = queues.get(name) ?? Promise.resolve();
   const current = previous.catch(() => undefined).then(async () => {
     if (typeof navigator.locks?.request === "function") return await navigator.locks.request(name, operation);
@@ -11,7 +16,7 @@ export async function withSessionLock<T>(name: string, refreshToken: string, ope
     // suspended after the server has rotated but before it stores the response.
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(refreshToken));
     const tokenKey = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-    return await withIndexedDbLock(`${name}:${tokenKey}`, operation);
+    return await withIndexedDbLock(`${name}:${tokenKey}`, operation, safeWithoutClaim);
   });
   queues.set(name, current);
   try { return await current; }
@@ -23,13 +28,16 @@ export async function withSessionLock<T>(name: string, refreshToken: string, ope
  * not authorize takeover: a crashed owner leaves an ambiguous single-use
  * token. Its claimant may finish later; signing in again uses a different key.
  */
-async function withIndexedDbLock<T>(name: string, operation: () => Promise<T>): Promise<T> {
+async function withIndexedDbLock<T>(name: string, operation: () => Promise<T>, safeWithoutClaim: () => boolean): Promise<T> {
   const db = await openLocks();
   const owner = crypto.randomUUID();
   const deadline = Date.now() + WAIT_MS;
   try {
     while (!(await acquire(db, name, owner))) {
-      if (Date.now() >= deadline) throw new Error("Critiqs session refresh is pending in another tab. Retry, or sign in again if that tab was closed.");
+      if (Date.now() >= deadline) {
+        if (safeWithoutClaim()) return await operation();
+        throw new Error("Critiqs session refresh is pending in another tab. Retry, or sign in again if that tab was closed.");
+      }
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     return await operation();

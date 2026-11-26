@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -240,7 +240,10 @@ test("an older version's Critiqs Cloud session the service doesn't confirm endin
   save(config, { [CLOUD_SIGN_IN]: { refreshToken: "sam-r", reviewer: { name: "Sam", email: "sam@example.com" }, signedInAt: Date.now() - 500 } }, 1);
   await signInStatus({ backendUrl: CLOUD, env, fetchFn: flaky });
 
-  await signOutComputer({ backendUrl: CLOUD, env, fetchFn: flaky });
+  // Signing out says so, rather than reporting a clean sign-out.
+  await expect(signOutComputer({ backendUrl: CLOUD, env, fetchFn: flaky })).rejects.toThrow(
+    `Signed out Dana, but Critiqs's sign-in service at ${CLOUD_SIGN_IN} didn't confirm ending an earlier session from this computer, so it stays saved here.`,
+  );
   // Out of the older version's file, but its token is kept until the service confirms the session ended.
   expect(legacyRead(config).services).toEqual({});
   expect(file(config).recovered?.map((spare: { refreshToken: string }) => spare.refreshToken)).toEqual(["sam-r"]);
@@ -308,6 +311,115 @@ test("signing out also ends sessions kept aside by a renewal that lost the lock"
   ]);
   expect(file(config).services).toEqual({});
   expect(file(config).recovered).toEqual([spare(CLOUD_SIGN_IN, "cloud-spare")]);
+});
+
+test("signing out ends the saved token, a saved replacement and every spare, and keeps a spare the service didn't confirm", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const { fetchFn, requests } = network({ [TEAM_SITE]: TEAM_SITE, [CLOUD_SIGN_IN]: CLOUD_SIGN_IN });
+  let reachable = false;
+  const flaky = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!reachable && String(input).endsWith("/auth/sign-out") && JSON.parse(String(init?.body)).refreshToken === "team-spare-2") throw new Error("offline");
+    return fetchFn(input, init);
+  }) as typeof fetch;
+  const spare = (signInUrl: string, refreshToken: string) => ({ signInUrl, origin: signInUrl, refreshToken });
+  writeFileSync(
+    join(config, "sign-in.v2.json"),
+    JSON.stringify({
+      version: 2,
+      // A renewal whose answer was lost left its replacement saved, and two renewals that lost a race left spares.
+      services: { [TEAM_SITE]: { origin: TEAM_SITE, refreshToken: "team-r", nextRefreshToken: "team-n", accessToken: "a1", accessExpiresAt: 0, bindings: [binding(TEAM, TEAM_SITE)] } },
+      recovered: [spare(TEAM_SITE, "team-spare-1"), spare(TEAM_SITE, "team-spare-2"), spare(CLOUD_SIGN_IN, "cloud-spare")],
+    }),
+  );
+  const endedTokens = () => requests.filter((request) => request.url.endsWith("/auth/sign-out")).map((request) => [new URL(request.url).origin, JSON.parse(request.body)]);
+  await expect(signOutComputer({ backendUrl: TEAM, env, fetchFn: flaky })).rejects.toThrow(
+    `Signed out, but Critiqs's sign-in service at ${TEAM_SITE} didn't confirm ending an earlier session from this computer, so it stays saved here. Sign out again when it's reachable.`,
+  );
+  expect(endedTokens()).toEqual([
+    [TEAM_SITE, { refreshToken: "team-r" }],
+    [TEAM_SITE, { refreshToken: "team-n" }],
+    [TEAM_SITE, { refreshToken: "team-spare-1" }],
+  ]);
+  expect(file(config).services).toEqual({});
+  expect(file(config).recovered).toEqual([spare(TEAM_SITE, "team-spare-2"), spare(CLOUD_SIGN_IN, "cloud-spare")]);
+
+  // The next sign-out ends the one left, though this computer is already signed out.
+  reachable = true;
+  expect(await signOutComputer({ backendUrl: TEAM, env, fetchFn: flaky })).toBeNull();
+  expect(endedTokens().at(-1)).toEqual([TEAM_SITE, { refreshToken: "team-spare-2" }]);
+  expect(file(config).recovered).toEqual([spare(CLOUD_SIGN_IN, "cloud-spare")]);
+});
+
+test("a lost renewal is sent again with the same replacement once another process lets go of the lock, and only for an approved backend", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const { fetchFn, requests } = network({ [TEAM_SITE]: TEAM_SITE });
+  save(config, { [TEAM_SITE]: { accessExpiresAt: 0, bindings: [binding(TEAM, TEAM_SITE)] } });
+  let lose = true;
+  const losing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetchFn(input, init);
+    if (lose && String(input).endsWith("/auth/refresh")) throw new TypeError("The answer never arrived.");
+    return response;
+  }) as typeof fetch;
+  await expect(accessTokenFor(TEAM_SITE, { backendUrl: TEAM, env, fetchFn: losing })).rejects.toThrow("Can't reach");
+  const pending = saved(config, TEAM_SITE).nextRefreshToken;
+  expect(pending).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(saved(config, TEAM_SITE)).toMatchObject({ refreshToken: "r1", bindings: [binding(TEAM, TEAM_SITE)] });
+
+  // The saved replacement goes nowhere the sign-in wasn't approved for.
+  const before = requests.length;
+  await expect(accessTokenFor(TEAM_SITE, { backendUrl: "https://other.convex.cloud", env, fetchFn })).rejects.toThrow("isn't approved for the backend at https://other.convex.cloud");
+  expect(requests.length).toBe(before);
+
+  // Another process holds the lock (its heartbeat is fresh), so this one waits, then sends the same pair.
+  const lock = join(config, "sign-in.v2.json.lock");
+  mkdirSync(lock);
+  writeFileSync(join(lock, "owner"), "another-process");
+  setTimeout(() => rmSync(lock, { recursive: true, force: true }), 300);
+  lose = false;
+  const started = Date.now();
+  expect(await accessTokenFor(TEAM_SITE, { backendUrl: TEAM, env, fetchFn: losing })).toBe(token({ sub: "dana" }));
+  expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+  const refreshes = requests.filter((request) => request.url.endsWith("/auth/refresh")).map((request) => JSON.parse(request.body));
+  expect(refreshes).toEqual([
+    { refreshToken: "r1", nextRefreshToken: pending },
+    { refreshToken: "r1", nextRefreshToken: pending },
+  ]);
+  // The replacement was used: saved as the refresh token, and no longer pending; the approval is kept.
+  expect(saved(config, TEAM_SITE)).toMatchObject({ refreshToken: "r2", bindings: [binding(TEAM, TEAM_SITE)] });
+  expect(saved(config, TEAM_SITE).nextRefreshToken).toBeUndefined();
+});
+
+test("a renewal that lost a race to a new sign-in keeps its session aside when the clean-up isn't answered, and signing out ends it", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const { fetchFn, requests } = network({ [TEAM_SITE]: TEAM_SITE });
+  save(config, { [TEAM_SITE]: { accessExpiresAt: 0, bindings: [binding(TEAM, TEAM_SITE)] } });
+  let offline = true;
+  const racing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/refresh")) {
+      // While this renewal was on its way, another process signed this computer in again.
+      save(config, { [TEAM_SITE]: { refreshToken: "other-r", accessToken: "other-a", bindings: [binding(TEAM, TEAM_SITE)] } });
+    }
+    if (offline && String(input).endsWith("/auth/sign-out")) {
+      requests.push({ url: String(input), authorization: null, body: String(init?.body) });
+      throw new TypeError("offline");
+    }
+    return fetchFn(input, init);
+  }) as typeof fetch;
+  expect(await accessTokenFor(TEAM_SITE, { backendUrl: TEAM, env, fetchFn: racing })).toBe("other-a");
+  const signOuts = () => requests.filter((request) => request.url.endsWith("/auth/sign-out")).map((request) => JSON.parse(request.body));
+  // It tried to end the renewed session, only while current; unanswered, it is kept aside rather than dropped.
+  expect(signOuts()).toEqual([{ refreshToken: "r2", onlyIfCurrent: true }]);
+  expect(file(config).recovered).toEqual([{ signInUrl: TEAM_SITE, origin: TEAM_SITE, refreshToken: "r2" }]);
+  expect(saved(config, TEAM_SITE)).toMatchObject({ refreshToken: "other-r" });
+
+  offline = false;
+  expect(await signOutComputer({ backendUrl: TEAM, env, fetchFn: racing })).toMatchObject({ found: true });
+  expect(signOuts().slice(1)).toEqual([{ refreshToken: "other-r" }, { refreshToken: "r2" }]);
+  expect(file(config).services).toEqual({});
+  expect(file(config).recovered).toBeUndefined();
 });
 
 test("signing in for another backend adds it for the same person, and starts over for someone else", async () => {

@@ -96,8 +96,10 @@ console.log(JSON.stringify({ token, events }));
  * lock aside a moment after this process took it, believing it still the
  * abandoned one, and the third takes the now empty lock. This process, still
  * renewing, must not write while the third holds the lock, and must not lose
- * the refresh token it was given. The other two are played here through
- * `node:fs`, in whichever form this process made the lock.
+ * the refresh token it was given. Its first write, before it asks, saves the
+ * replacement it will send, while the lock is still its own. The other two
+ * are played here through `node:fs`, in whichever form this process made the
+ * lock.
  */
 const THREE_WAITERS = `${PRELUDE}
 const [third] = rest;
@@ -105,6 +107,7 @@ fs.mkdirSync(config, { recursive: true });
 fs.writeFileSync(file, JSON.stringify({ version: 2, services: { [SITE]: entry } }));
 const events = [];
 let thirdHolds = false;
+const signOuts = [];
 const realRename = fs.renameSync;
 fs.renameSync = function (from, to, ...more) {
   if (String(to) === file) events.push(thirdHolds ? "wrote while the third waiter held the lock" : "wrote");
@@ -112,7 +115,13 @@ fs.renameSync = function (from, to, ...more) {
 };
 syncBuiltinESMExports();
 const read = (path) => { try { return fs.readFileSync(path, "utf8"); } catch { return null; } };
-const fetchFn = async () => {
+const fetchFn = async (url, init) => {
+  if (String(url).endsWith("/auth/sign-out")) {
+    // Ending the renewed session after the sign-in was replaced: unreachable unless the service answers.
+    signOuts.push(JSON.parse(init.body));
+    if (third === "replaces") throw new TypeError("offline");
+    return new Response(null, { status: 204 });
+  }
   // The first waiter moves this process's lock aside, and the third takes the lock.
   const aside = lock + ".first-waiter";
   realRename(lock, aside);
@@ -124,7 +133,7 @@ const fetchFn = async () => {
   const ownerFile = directory ? lock + "/owner" : lock;
   setTimeout(() => {
     const still = read(ownerFile) === "third-waiter";
-    if (third === "replaces") {
+    if (third !== "reads") {
       // The third waiter signed in again meanwhile, replacing the sign-in this process was renewing.
       const stored = JSON.parse(fs.readFileSync(file, "utf8"));
       stored.services[SITE] = { ...entry, refreshToken: "r-third", accessToken: "third", accessExpiresAt: Date.now() + 900_000 };
@@ -141,13 +150,13 @@ let token;
 try { token = await accessTokenFor(SITE, { backendUrl: BACKEND, env, fetchFn }); } catch (error) { token = "error: " + error.message; }
 await new Promise((done) => setTimeout(done, 450));
 const stored = JSON.parse(fs.readFileSync(file, "utf8"));
-console.log(JSON.stringify({ token, events, refreshToken: stored.services[SITE]?.refreshToken, recovered: stored.recovered ?? [] }));
+console.log(JSON.stringify({ token, events, refreshToken: stored.services[SITE]?.refreshToken, recovered: stored.recovered ?? [], signOuts }));
 `;
 
 test("a holder whose lock was moved aside and taken by a third waiter writes only after that one is done, keeping its new refresh token", async () => {
   const config = join(folder(), "config");
   const output = JSON.parse(await node(THREE_WAITERS, config, "reads"));
-  expect(output).toEqual({ token: "new", events: ["third waiter finishes, finding the lock still its own", "wrote"], refreshToken: "r2", recovered: [] });
+  expect(output).toEqual({ token: "new", events: ["wrote", "third waiter finishes, finding the lock still its own", "wrote"], refreshToken: "r2", recovered: [], signOuts: [] });
   expect(readdirSync(config).filter((name) => name.includes(".lock"))).toEqual([]);
 });
 
@@ -156,9 +165,23 @@ test("a holder whose sign-in was replaced while another process held its lock ke
   const output = JSON.parse(await node(THREE_WAITERS, config, "replaces"));
   expect(output).toEqual({
     token: "third",
-    events: ["third waiter finishes, finding the lock still its own", "wrote"],
+    events: ["wrote", "third waiter finishes, finding the lock still its own", "wrote"],
     refreshToken: "r-third",
     recovered: [{ signInUrl: "https://team.convex.site", origin: "https://team.convex.site", refreshToken: "r2" }],
+    // It tried to end that session at once, only while current, but the service didn't answer.
+    signOuts: [{ refreshToken: "r2", onlyIfCurrent: true }],
+  });
+});
+
+test("a holder whose sign-in was replaced meanwhile ends its renewed session only while current, and keeps nothing aside once the service confirms", async () => {
+  const config = join(folder(), "config");
+  const output = JSON.parse(await node(THREE_WAITERS, config, "replaces-ended"));
+  expect(output).toEqual({
+    token: "third",
+    events: ["wrote", "third waiter finishes, finding the lock still its own", "wrote", "wrote"],
+    refreshToken: "r-third",
+    recovered: [],
+    signOuts: [{ refreshToken: "r2", onlyIfCurrent: true }],
   });
 });
 
@@ -197,3 +220,40 @@ for (let turn = 0; turn < 4; turn++) await accessTokenFor(SITE, { backendUrl: BA
   // Nothing is left behind: no lock, and nothing moved aside.
   expect(readdirSync(config).filter((name) => name.includes(".lock"))).toEqual([]);
 });
+
+test("a renewal whose lock another process took over before it saved the replacement writes nothing and sends nothing", async () => {
+  const config = join(folder(), "config");
+  const output = await node(
+    `${PRELUDE}
+fs.mkdirSync(config, { recursive: true });
+fs.writeFileSync(file, JSON.stringify({ version: 2, services: { [SITE]: entry } }));
+const realRead = fs.readFileSync;
+let taken = false;
+fs.readFileSync = function (path, ...options) {
+  const result = realRead.call(this, path, ...options);
+  if (!taken && String(path) === file && fs.existsSync(lock + "/owner")) {
+    taken = true;
+    // Right after this process read the sign-in under the lock, another process took the lock over.
+    fs.writeFileSync(lock + "/owner", "another-process");
+  }
+  return result;
+};
+syncBuiltinESMExports();
+let sent = 0;
+const fetchFn = async () => {
+  sent++;
+  return Response.json({ accessToken: "new", refreshToken: "r2", expiresAt: Date.now() + 900_000 });
+};
+let outcome;
+try { outcome = await accessTokenFor(SITE, { backendUrl: BACKEND, env, fetchFn }); } catch (error) { outcome = "error: " + error.message; }
+console.log(JSON.stringify({ outcome, sent, saved: JSON.parse(realRead(file, "utf8")).services[SITE] }));
+`,
+    config,
+  );
+  // Nothing was sent, and no replacement saved.
+  expect(JSON.parse(output)).toEqual({
+    outcome: "error: Another Critiqs process took over this computer's sign-in. Try again.",
+    sent: 0,
+    saved: { origin: "https://team.convex.site", bindings: [{ backend: "https://team.convex.cloud", site: "https://team.convex.site" }], refreshToken: "r1", accessToken: "old", accessExpiresAt: 0 },
+  });
+}, 30_000);

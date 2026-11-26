@@ -17,11 +17,42 @@ test("a successful refresh atomically consumes the old token and rejects wrong o
     refreshHash: "first", origin: prototype, profile, createdAt: Date.now(), expiresAt: Date.now() + 1_000,
   }));
   expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "first", nextRefreshHash: "wrong", origin: "https://other.example" })).toBeNull();
-  expect((await t.mutation(internal.signIn.refreshSession, { refreshHash: "first", nextRefreshHash: "second", origin: prototype }))?.profile).toEqual(profile);
-  expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "first", nextRefreshHash: "reused", origin: prototype })).toBeNull();
-  expect((await t.mutation(internal.signIn.refreshSession, { refreshHash: "second", nextRefreshHash: "third", origin: prototype }))?.profile).toEqual(profile);
+  expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "first", nextRefreshHash: "second", origin: prototype })).toMatchObject({ profile });
+  expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "second", nextRefreshHash: "third", origin: prototype })).toMatchObject({ profile });
   await t.run(ctx => ctx.db.patch(sessionId, { expiresAt: Date.now() - 1 }));
   expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "third", nextRefreshHash: "expired", origin: prototype })).toBeNull();
+  // Reusing a replaced token ends the session, even for the token that replaced it.
+  await t.run(ctx => ctx.db.insert("sessions", { refreshHash: "fourth", origin: prototype, profile, createdAt: Date.now(), expiresAt: Date.now() + 60_000 }));
+  expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "fourth", nextRefreshHash: "fifth", origin: prototype })).toMatchObject({ profile });
+  expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "fourth", nextRefreshHash: "reused", origin: prototype })).toBeNull();
+  expect(await t.mutation(internal.signIn.refreshSession, { refreshHash: "fifth", nextRefreshHash: "sixth", origin: prototype })).toBeNull();
+});
+
+test("a replaced token is remembered while its session can live, so clean-up never strands a repeat or hides reuse", async () => {
+  const t = setup();
+  const day = 24 * 60 * 60 * 1000;
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    const subject = await t.run(ctx => ctx.db.insert("reviewers", { email: "dana@example.com", name: "Dana", nameVersion: 1, createdAt: now }));
+    const profile = { subject: subject as string, name: "Dana", email: "dana@example.com", pictureUrl: null, profileVersion: 1 };
+    await t.run(ctx => ctx.db.insert("sessions", { refreshHash: "first", origin: prototype, profile, createdAt: now, expiresAt: now + 30 * day, endsAt: now + 90 * day }));
+    const refresh = (refreshHash: string, nextRefreshHash: string) => t.mutation(internal.signIn.refreshSession, { refreshHash, nextRefreshHash, origin: prototype });
+    // Day 0: the answer is lost. Day 29: the repeat's answer is lost too, but it keeps the session alive.
+    expect(await refresh("first", "second")).toMatchObject({ profile });
+    now += 29 * day;
+    expect(await refresh("first", "second")).toMatchObject({ profile });
+    // Day 31: clean-up runs, then the page comes back and repeats the refresh once more.
+    now += 2 * day;
+    await t.mutation(internal.signIn.cleanUp, {});
+    expect(await refresh("first", "second")).toMatchObject({ profile });
+    // And reuse of the replaced token is still recognized after clean-up.
+    expect(await refresh("second", "third")).toMatchObject({ profile });
+    now += 2 * day;
+    await t.mutation(internal.signIn.cleanUp, {});
+    expect(await refresh("first", "stolen")).toBeNull();
+    expect(await refresh("third", "fourth")).toBeNull();
+  } finally { clock.mockRestore(); }
 });
 
 test("sign-in start counts origin and deployment limits, resets a window and stores no rejected attempt", async () => {

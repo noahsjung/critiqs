@@ -1,8 +1,9 @@
-import { ConvexReactClient } from "convex/react";
+import type { ConvexReactClient } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App, type SupplyCapture } from "./App.tsx";
 import { HOST_TAG } from "./constants.ts";
+import { convexClient } from "./convex/client.ts";
 import { convexTransport } from "./convex/transport.tsx";
 import { checkProject, type Deployment, HOSTED_BACKEND_URL, resolveDeployment } from "./deployment.ts";
 import type { CritiqsProps } from "./host.ts";
@@ -138,7 +139,7 @@ function ConnectedConvex({ props, host, deployment, page, supplyCapture, session
   // remounts would otherwise reuse a closed one.
   const [client, setClient] = useState<ConvexReactClient | null>(null);
   useEffect(() => {
-    const created = new ConvexReactClient(deployment.backendUrl);
+    const created = convexClient(deployment.backendUrl);
     setClient(created);
     // Close after the Convex provider's own cleanup, which still uses the client.
     return () => void setTimeout(() => void created.close());

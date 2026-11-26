@@ -14,6 +14,9 @@ import { startRemoteSignIn } from "../bin/setup.mjs";
 
 const folders: string[] = [];
 afterEach(() => folders.splice(0).forEach((folder) => rmSync(folder, { recursive: true, force: true })));
+/** A sign-in approved for the backend at https://team.example, which serves its own screenshots. */
+const TEAM_BINDING = { backend: "https://team.example", site: "https://team.example" };
+
 const folder = () => {
   const made = mkdtempSync(join(tmpdir(), "critiqs-agent-cli-"));
   folders.push(made);
@@ -70,12 +73,79 @@ test("a lock left by a process that died is taken over, so renewal doesn't hang"
     return Response.json({ accessToken: "new", refreshToken: "r2", expiresAt: Date.now() + 900_000 });
   }) as unknown as typeof fetch;
   expect(await accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).toBe("new");
-  expect(requests).toEqual([{ url: "https://auth.example/auth/refresh", origin: "https://auth.example", body: '{"refreshToken":"r1"}' }]);
+  expect(requests.map(({ body, ...request }) => ({ ...request, refreshToken: JSON.parse(body).refreshToken }))).toEqual([
+    { url: "https://auth.example/auth/refresh", origin: "https://auth.example", refreshToken: "r1" },
+  ]);
   expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services["https://auth.example"]).toMatchObject({ refreshToken: "r2", accessToken: "new" });
   expect(existsSync(lock)).toBe(false);
   // Fresh tokens are reused without asking again.
   expect(await accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).toBe("new");
   expect(requests).toHaveLength(1);
+});
+
+test("a renewal that finishes after this computer signed out doesn't sign it back in, and ends the new session", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const file = join(config, "sign-in.v2.json");
+  writeFileSync(file, JSON.stringify({ version: 2, services: { "https://auth.example": { origin: "https://auth.example", bindings: [TEAM_BINDING], refreshToken: "r1", accessToken: "old", accessExpiresAt: 0 } } }));
+  const ended: string[] = [];
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    if (url.endsWith("/auth/sign-out")) {
+      ended.push(JSON.parse(String(init.body)).refreshToken);
+      return new Response(null, { status: 204 });
+    }
+    // While this process waited (suspended past the lock's age), another signed this computer out.
+    writeFileSync(file, JSON.stringify({ version: 2, services: {} }));
+    return Response.json({ accessToken: "new", refreshToken: "r2", expiresAt: Date.now() + 900_000 });
+  }) as unknown as typeof fetch;
+  await expect(accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).rejects.toThrow("isn't signed in");
+  expect(JSON.parse(readFileSync(file, "utf8")).services).toEqual({});
+  expect(ended).toEqual(["r2"]);
+});
+
+test("a renewal another process already finished with the same replacement is kept, not ended", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const file = join(config, "sign-in.v2.json");
+  writeFileSync(file, JSON.stringify({ version: 2, services: { "https://auth.example": { origin: "https://auth.example", bindings: [TEAM_BINDING], refreshToken: "r1", accessToken: "old", accessExpiresAt: 0 } } }));
+  const ended: string[] = [];
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    if (url.endsWith("/auth/sign-out")) {
+      ended.push(body.refreshToken);
+      return new Response(null, { status: 204 });
+    }
+    // While this process was suspended, another took over the lock, repeated the same renewal, and saved it.
+    const stored = JSON.parse(readFileSync(file, "utf8"));
+    stored.services["https://auth.example"] = { origin: "https://auth.example", bindings: [TEAM_BINDING], refreshToken: body.nextRefreshToken, accessToken: "theirs", accessExpiresAt: Date.now() + 900_000 };
+    writeFileSync(file, JSON.stringify(stored));
+    return Response.json({ accessToken: "mine", refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+  }) as unknown as typeof fetch;
+  expect(await accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).toBeString();
+  expect(ended).toEqual([]);
+  expect(JSON.parse(readFileSync(file, "utf8")).services["https://auth.example"].accessToken).toBe("theirs");
+});
+
+test("a renewal answered after another process renewed further ends its token only if still current", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const file = join(config, "sign-in.v2.json");
+  writeFileSync(file, JSON.stringify({ version: 2, services: { "https://auth.example": { origin: "https://auth.example", bindings: [TEAM_BINDING], refreshToken: "r1", accessToken: "old", accessExpiresAt: 0 } } }));
+  const signOuts: unknown[] = [];
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    if (url.endsWith("/auth/sign-out")) {
+      signOuts.push(body);
+      return new Response(null, { status: 204 });
+    }
+    // While suspended, another process finished this renewal and then renewed again, to r3.
+    const stored = JSON.parse(readFileSync(file, "utf8"));
+    stored.services["https://auth.example"] = { origin: "https://auth.example", bindings: [TEAM_BINDING], refreshToken: "r3", accessToken: "theirs", accessExpiresAt: Date.now() + 900_000 };
+    writeFileSync(file, JSON.stringify(stored));
+    return Response.json({ accessToken: "mine", refreshToken: body.nextRefreshToken, expiresAt: Date.now() + 900_000 });
+  }) as unknown as typeof fetch;
+  expect(await accessTokenFor("https://auth.example", { backendUrl: "https://team.example", env, fetchFn })).toBe("theirs");
+  expect(signOuts).toEqual([{ refreshToken: expect.any(String), onlyIfCurrent: true }]);
 });
 
 test("a sign-in service that can't keep a computer signed in yet is refused clearly, before any code is shown", async () => {

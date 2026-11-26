@@ -117,7 +117,7 @@ Credentials are saved in `sign-in.v2.json` under `$CRITIQS_CONFIG_DIR`, `$XDG_CO
 
 ### `critiqs sign-out`
 
-Ends this computer's saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of `critiqs-react` saved on this computer.
+Ends this computer's saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of `critiqs-react` saved on this computer. If the sign-in service doesn't confirm ending every session saved on this computer, the command says what is left and exits with status 1; run it again once the service is reachable.
 
 ```sh
 npx critiqs-react sign-out [--backend <url>]
