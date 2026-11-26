@@ -102,6 +102,8 @@ test("reports itself as a server in the host app, current with the component", a
     reviewAccess: true,
     threadPages: true,
     addressLists: true,
+    addressEdits: true,
+    createKeys: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -122,6 +124,27 @@ test("serves address lists, recording opened projects, and the project lookup, w
   expect((await lee.api("recordProjectOpened", { projectId })).body).toEqual({ value: null });
   expect((await (await lee.request("/critiqs/changes")).json()).version).toBe(before);
   expect((await lee.api("findProjectsForOrigin", { origin: "https://proto.example" })).body.value).toMatchObject({ status: "found", project: { _id: projectId } });
+});
+
+test("serves adding and removing one address, the projects a person manages, and keyed creates", async () => {
+  const { handler, sent } = await server();
+  const dana = await signIn(handler, sent, "dana@example.com", "Dana");
+  const create = { name: "proto.example", idempotencyKey: "8d0c4f1e-2a3b-4c5d-9e8f-0a1b2c3d4e5f" };
+  const projectId = (await dana.api("createProject", create)).body.value;
+  expect((await dana.api("createProject", create)).body).toEqual({ value: projectId });
+  expect((await dana.api("createProject", { ...create, idempotencyKey: 7 })).body.error?.code).toBe("invalid");
+  expect((await dana.api("addProjectAddress", { projectId, address: "https://Proto.Example/" })).body).toEqual({ value: ["https://proto.example"] });
+  expect((await dana.api("addProjectAddress", { projectId, address: "https://*.proto.example" })).body).toEqual({
+    value: ["https://proto.example", "https://*.proto.example"],
+  });
+  expect((await dana.api("removeProjectAddress", { projectId, address: "https://proto.example" })).body).toEqual({ value: ["https://*.proto.example"] });
+  expect((await dana.api("addProjectAddress", { projectId, addresses: ["https://proto.example"] })).body.error?.code).toBe("invalid");
+  const manageable = (await dana.api("manageableProjects")).body.value;
+  expect(manageable).toMatchObject({ projects: [{ _id: projectId, name: "proto.example", isOwner: true }], complete: true });
+
+  const lee = await signIn(handler, sent, "lee@example.com", "Lee");
+  expect((await lee.api("addProjectAddress", { projectId, address: "https://lee.example" })).body.error?.code).toBe("forbidden");
+  expect((await lee.api("manageableProjects")).body).toEqual({ value: { projects: [], complete: true } });
 });
 
 test("an admin invites someone by email, who joins when they sign in; members can't invite", async () => {

@@ -135,3 +135,17 @@ export type ProjectLookup =
   | { status: "choose"; projects: ProjectInfo[] }
   /** Nothing the person can reach lists this origin. */
   | { status: "none" };
+
+/** Most projects `projects:manageable` (`manageableProjects`) returns. */
+export const MAX_MANAGEABLE_PROJECTS = 200;
+
+/**
+ * The projects whose address lists a person may change, by name, for adding a
+ * site to one: those in organizations they're an admin of, and those they
+ * created while still a member. At most `MAX_MANAGEABLE_PROJECTS`; `complete`
+ * is false when there may be more.
+ */
+export interface ManageableProjects {
+  projects: ProjectInfo[];
+  complete: boolean;
+}

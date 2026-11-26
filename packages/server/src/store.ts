@@ -88,6 +88,19 @@ export interface OpenedProjectRecord {
   openedAt: number;
 }
 
+/**
+ * A project created with an idempotency key, so a retry of the same request
+ * by the same person returns that project instead of creating another.
+ * Kept for `CREATE_KEY_MS` after the create.
+ */
+export interface ProjectCreationRecord {
+  userId: string;
+  /** Chosen by the client, unique to one person's create request. */
+  key: string;
+  projectId: string;
+  createdAt: number;
+}
+
 /** A group of people that owns projects and the Critiqs Cloud plan covering them. */
 export interface OrganizationRecord {
   _id: string;
@@ -620,6 +633,18 @@ export interface Store {
     patch(id: string, changes: ProjectChanges): Promise<void>;
     /** Projects a reviewer created, oldest first. */
     listByCreator(userId: string, request: PageRequest): Promise<PageResult<ProjectRecord>>;
+    /** Projects a reviewer created in an organization (null: from before organizations), oldest first; at most `limit`. */
+    createdIn(userId: string, organizationId: string | null, limit: number): Promise<ProjectRecord[]>;
+    /** An organization's projects, oldest first; at most `limit`. */
+    inOrganization(organizationId: string, limit: number): Promise<ProjectRecord[]>;
+  };
+  /** Projects created with an idempotency key, by person and key. */
+  projectCreations: {
+    find(userId: string, key: string): Promise<ProjectCreationRecord | null>;
+    /** Records the project a person's key created, replacing an expired record of the same key. */
+    put(record: ProjectCreationRecord): Promise<void>;
+    /** Removes up to `limit` of a person's records created before `before`, oldest first. */
+    removeBefore(userId: string, before: number, limit: number): Promise<void>;
   };
   /** Projects' address lists. */
   projectAddresses: {

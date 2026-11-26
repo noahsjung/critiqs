@@ -6,6 +6,7 @@ import { reserveCredits, settleCredits } from "../src/ai/credits.ts";
 import * as operations from "../src/operations.ts";
 import { saveAboutYou } from "../src/onboarding.ts";
 import { listMyOrganizations } from "../src/organizations.ts";
+import { listManageableProjects } from "../src/project-addresses.ts";
 import type { Plan } from "../src/limits.ts";
 import { anchor, type ContractBackend, defineContract, reviewer } from "./contract.ts";
 import { defineAddressContract } from "./contract-addresses.ts";
@@ -485,4 +486,26 @@ test("SQLite: upgrading a version 14 database gives older threads a page key onl
   expect(keyOf(newer)).toMatch(/^[A-Za-z0-9_-]{22}$/);
   // Keys are unique.
   expect(() => driver.run("UPDATE threads SET page_key = ? WHERE id = ?", [shared, newer])).toThrow();
+});
+
+test("SQLite: upgrading a version 16 database keeps its projects and remembers keyed creates", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 16)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 16");
+  const ids = { dana: `u_${"1".repeat(32)}`, organization: `o_${"2".repeat(32)}`, project: `p_${"3".repeat(32)}` };
+  driver.run("INSERT INTO users (id, token, name, email, home_organization_id) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com', ?)", [ids.dana, ids.organization]);
+  driver.run("INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Dana''s organization', ?, 1)", [ids.organization, ids.dana]);
+  driver.run("INSERT INTO memberships (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'admin', 1)", [`b_${"4".repeat(32)}`, ids.organization, ids.dana]);
+  driver.run("INSERT INTO projects (id, name, tags, created_by, created_at, organization_id) VALUES (?, 'One', '[]', ?, 1, ?)", [ids.project, ids.dana, ids.organization]);
+  const store = new SqliteStore(driver, {});
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  const dana = reviewer("Dana");
+  const keyed = () => store.transaction((s) => operations.createProject(s, dana, { name: "Two", idempotencyKey: "upgrade-key-0001" }));
+  const two = await keyed();
+  expect(await keyed()).toBe(two);
+  const listed = await store.transaction((s) => listManageableProjects(s, dana));
+  expect(listed.projects.map((project) => project.name)).toEqual(["One", "Two"]);
 });

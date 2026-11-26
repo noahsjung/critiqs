@@ -96,6 +96,9 @@ http.route({
       // **Share** and emails link (`<website>/t/<key>`); absent without `CRITIQS_WEB_URL`, where they link to the prototype.
       // `addressLists`: projects' address lists (`projects:addresses`, `projects:setAddresses`), recording projects a
       // person opened (`projects:recordOpened`), and the browser extension's lookup (`projects:findForOrigin`).
+      // `addressEdits`: adding or removing one address (`projects:addAddress`, `projects:removeAddress`), and the
+      // projects whose lists a person may change (`projects:manageable`).
+      // `createKeys`: `idempotencyKey` on `projects:create`, so a retried create returns the same project.
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
@@ -125,6 +128,8 @@ http.route({
         ...(threadPageWebsite() === null ? {} : { website: threadPageWebsite() }),
         panelSignIn: true,
         addressLists: true,
+        addressEdits: true,
+        createKeys: true,
         ...(billingConfig() === null ? {} : { billing: true }),
         addressCheck: true,
         onboardingAnswers: true,

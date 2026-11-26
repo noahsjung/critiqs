@@ -1,4 +1,13 @@
-import { findProjectsForOrigin, getProjectAddresses, operations, recordProjectOpened, setProjectAddresses } from "@critiqs/server";
+import {
+  addProjectAddress,
+  findProjectsForOrigin,
+  getProjectAddresses,
+  listManageableProjects,
+  operations,
+  recordProjectOpened,
+  removeProjectAddress,
+  setProjectAddresses,
+} from "@critiqs/server";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -13,6 +22,8 @@ export { DEFAULT_TAGS } from "@critiqs/server";
  * prototype is reviewed, in an organization they belong to (their home one
  * unless `organizationId` names another). Onboarding also sends its answers
  * about the project and the stack; what it's for picks the starting tags.
+ * With `idempotencyKey`, a retry by the same person within a day returns the
+ * project the first call created.
  */
 export const create = mutation({
   args: {
@@ -21,6 +32,7 @@ export const create = mutation({
     organizationId: v.optional(v.string()),
     onboarding: v.optional(projectAnswersArgs),
     stack: v.optional(v.string()),
+    idempotencyKey: v.optional(v.string()),
   },
   handler: async (ctx, args) =>
     run(async () => (await operations.createProject(convexStore(ctx), await identityOf(ctx), args)) as Id<"projects">),
@@ -76,6 +88,31 @@ export const usage = query({
 export const setAddresses = mutation({
   args: { projectId: v.id("projects"), addresses: v.array(v.string()) },
   handler: async (ctx, args) => run(async () => setProjectAddresses(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * Adds one address to the project's list in one transaction, so people adding
+ * at the same time keep every address; returns the list. An address already
+ * listed changes nothing. Only the project's owners may.
+ */
+export const addAddress = mutation({
+  args: { projectId: v.id("projects"), address: v.string() },
+  handler: async (ctx, args) => run(async () => addProjectAddress(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/** Removes one address from the project's list; returns the list. Only the project's owners may. */
+export const removeAddress = mutation({
+  args: { projectId: v.id("projects"), address: v.string() },
+  handler: async (ctx, args) => run(async () => removeProjectAddress(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * The projects whose address lists the signed-in person may change: those in
+ * organizations they're an admin of, and those they created while a member.
+ */
+export const manageable = query({
+  args: {},
+  handler: async (ctx) => run(async () => listManageableProjects(convexStore(ctx), await identityOf(ctx))),
 });
 
 /** The project's address list, for its owners. */

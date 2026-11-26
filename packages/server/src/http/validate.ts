@@ -146,6 +146,7 @@ export const ARGUMENTS: Record<string, Check> = {
     "organizationId?": string,
     "onboarding?": object({ "codeAccess?": string, "feedbackFrom?": array(string, 10), "purpose?": string }),
     "stack?": string,
+    "idempotencyKey?": string,
   }),
   saveAboutYou: object({ "role?": string, "teamSize?": string }),
   sendDeveloperSetup: object({ projectId: string, emails: array(string, MAX_DEVELOPER_INVITES_PER_PROJECT) }),
@@ -158,6 +159,9 @@ export const ARGUMENTS: Record<string, Check> = {
   setProjectAddresses: object({ projectId: string, addresses: array(string, 100) }),
   recordProjectOpened: object({ projectId: string }),
   findProjectsForOrigin: object({ origin: string }),
+  manageableProjects: object({}),
+  addProjectAddress: object({ projectId: string, address: string }),
+  removeProjectAddress: object({ projectId: string, address: string }),
   setOverageCap: object({ organizationId: string, cap: union(nullable(number), literal("default")) }),
   createThread: object({
     projectId: string,

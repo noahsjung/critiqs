@@ -199,6 +199,15 @@ async function requireManager(store: Store, project: ProjectRecord, userId: stri
 }
 
 /**
+ * How long a create's idempotency key returns its project. It covers a client
+ * retrying after a lost response, a panel reopened, or a page reloaded while
+ * the create was pending, including a laptop that slept through it; a later
+ * create with the same key makes a new project.
+ */
+export const CREATE_KEY_MS = 24 * 60 * 60 * 1000;
+const CREATE_KEY = /^[A-Za-z0-9_-]{8,100}$/;
+
+/**
  * Project setup: any signed-in reviewer can create a project, optionally with
  * its review address, in an organization they belong to: the one they choose,
  * or else their home organization. Setup checks the address first; an
@@ -206,21 +215,31 @@ async function requireManager(store: Store, project: ProjectRecord, userId: stri
  * rather than refused. Onboarding also sends its answers about the project
  * and the stack: what it's for picks the starting tags, and without it the
  * project starts with the default tags.
+ * With an idempotency key, a retry of the same request
+ * by the same person within `CREATE_KEY_MS` returns the project the first one
+ * created, whatever its other arguments; clients make a new key for each new
+ * project. Another person's identical key is a different request.
  */
 export async function createProject(
   store: Store,
   identity: Identity | null,
-  args: { name: string; reviewUrl?: string | null; organizationId?: string; onboarding?: ProjectAnswersInput; stack?: string },
+  args: { name: string; reviewUrl?: string | null; organizationId?: string; onboarding?: ProjectAnswersInput; stack?: string; idempotencyKey?: string },
 ): Promise<string> {
   const user = await requireUser(store, identity);
+  const key = args.idempotencyKey;
+  if (key !== undefined && !CREATE_KEY.test(key)) fail("invalid", "An idempotency key is 8 to 100 letters, digits, - or _.");
+  const now = Date.now();
+  if (key !== undefined) {
+    const earlier = await store.projectCreations.find(user._id, key);
+    if (earlier !== null && now - earlier.createdAt < CREATE_KEY_MS && (await store.projects.get(earlier.projectId)) !== null) return earlier.projectId;
+  }
   const name = args.name.trim();
   if (name === "") fail("invalid", "A project needs a name.");
   const reviewUrl = args.reviewUrl == null ? null : validReviewUrl(args.reviewUrl.trim());
   const onboarding = projectOnboarding(args.onboarding, args.stack);
-  const now = Date.now();
   const organization = args.organizationId === undefined ? await homeOrganization(store, user, now) : await chosenOrganization(store, user, args.organizationId);
   await useQuota(store, { plan: await planFor(store, organization), metric: "projects", accountId: organization._id, projectId: null, now });
-  return await store.projects.insert({
+  const projectId = await store.projects.insert({
     name,
     tags: [...startingTags(onboarding?.purpose)],
     createdBy: user._id,
@@ -229,6 +248,10 @@ export async function createProject(
     ...(reviewUrl === null ? {} : { reviewUrl }),
     ...(onboarding === null ? {} : { onboarding }),
   });
+  // Expired keys go as the person creates projects, so what's kept stays bounded by how many they create in a day.
+  await store.projectCreations.removeBefore(user._id, now - CREATE_KEY_MS, 20);
+  if (key !== undefined) await store.projectCreations.put({ userId: user._id, key, projectId, createdAt: now });
+  return projectId;
 }
 
 /** The answers worth keeping on a new project; null when every one was skipped or unknown. */
