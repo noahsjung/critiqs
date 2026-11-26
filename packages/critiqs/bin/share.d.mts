@@ -27,6 +27,10 @@ export interface BuildFolder {
 /** Reads a build folder without following symbolic links; throws a `SetupError` naming the first file that can't be shared. */
 export declare function readBuild(folder: string): BuildFolder;
 export declare function looksLikeSpa(files: readonly { path: string }[]): boolean;
+/** A date as the review page shows it: in this computer's time zone and words, such as "Dec 2, 2026". */
+export declare function day(time: number): string;
+/** A sign-in message written for agents and people, for a person at a terminal: only the command. */
+export declare function terminalSignIn(message: string): string;
 export declare function shareTarget(value: string): { key: string } | { buildId: string };
 
 export interface ShareOptions {
