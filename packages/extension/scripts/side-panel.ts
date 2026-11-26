@@ -119,17 +119,18 @@ export class SidePanel {
     return result.result.value as T;
   }
 
-  /** The middle of the element `find` matches, or null while there is none. */
-  async box(find: Find): Promise<{ x: number; y: number } | null> {
+  /** The middle of the element `find` matches, or null while there is none (or, with `enabled`, while it is disabled). */
+  async box(find: Find, enabled = false): Promise<{ x: number; y: number } | null> {
     return await this.evaluate(
-      ([source, query]: [string, Record<string, string>]) => {
+      ([source, query, enabled]: [string, Record<string, string>, boolean]) => {
         const element = (0, eval)(`(${source})`)(query) as Element | null;
         if (element === null) return null;
+        if (enabled && (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true")) return null;
         element.scrollIntoView({ block: "center", inline: "center" });
         const box = element.getBoundingClientRect();
         return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       },
-      [locate.toString(), serialize(find)],
+      [locate.toString(), serialize(find), enabled],
     );
   }
 
@@ -137,19 +138,24 @@ export class SidePanel {
     return (await this.box(find)) !== null;
   }
 
-  async waitFor(find: Find, timeoutMs = 20_000): Promise<void> {
+  /** Waits until the panel shows an element `find` matches, and with `enabled`, until it can be used. */
+  async waitFor(find: Find, timeoutMs = 20_000, enabled = false): Promise<{ x: number; y: number }> {
     const end = Date.now() + timeoutMs;
     while (Date.now() < end) {
-      if (await this.has(find).catch(() => false)) return;
+      const found = await this.box(find, enabled).catch(() => null);
+      if (found !== null) return found;
       await Bun.sleep(150);
     }
-    throw new Error(`The side panel never showed ${JSON.stringify(serialize(find))}. It shows: "${(await this.text().catch(() => "")).slice(0, 400)}"`);
+    throw new Error(`The side panel never showed ${JSON.stringify(serialize(find))}${enabled ? " enabled" : ""}. It shows: "${(await this.text().catch(() => "")).slice(0, 400)}"`);
   }
 
-  /** A real click: the mouse moves to the element and presses there. */
+  /**
+   * A real click: the mouse moves to the element and presses there, once it is
+   * enabled. A control the panel shows disabled while it loads (the Settings
+   * switch, until Chrome says whether the site is allowed) ignores a click.
+   */
   async click(find: Find): Promise<void> {
-    await this.waitFor(find);
-    const { x, y } = (await this.box(find))!;
+    const { x, y } = await this.waitFor(find, 20_000, true);
     for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
       await this.devtools.send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 });
     }
