@@ -17,7 +17,7 @@ import type {
 import type { ConvexReactClient } from "convex/react";
 import type { GenericId as Id } from "convex/values";
 import { createContext, useContext } from "react";
-import { describeError, type QueryState, type Reviewer, useAllPages, useQueryState, useUtcDay } from "./shared.ts";
+import { type Deployment, describeError, type QueryState, resolveDeployment, type Reviewer, useAllPages, useQueryState, useUtcDay } from "./shared.ts";
 
 // What the pages need from Critiqs's backend, so they can be tested with a
 // fake one. `convexBackend` is the real one: Critiqs Cloud's Convex functions.
@@ -31,6 +31,8 @@ export interface NewProject {
   organizationId: string | null;
   answers: Pick<OnboardingAnswers, "codeAccess" | "feedbackFrom" | "purpose">;
   stack: StackId | null;
+  /** Sent only to backends with `createKeys`: a retry with the same key returns the project the first request created. */
+  idempotencyKey?: string;
 }
 
 /**
@@ -46,6 +48,8 @@ export interface Backend {
    * <projectId>` doesn't write it, so the install steps say to add it.
    */
   componentBackend: string | null;
+  /** The backend takes `idempotencyKey` on creates; older ones refuse arguments they don't know. */
+  createKeys: boolean;
   checkAddress(address: string): Promise<AddressCheck>;
   saveAboutYou(answers: { role?: Role; teamSize?: TeamSize }): Promise<void>;
   createProject(project: NewProject): Promise<string>;
@@ -127,18 +131,40 @@ export function failureCode(error: unknown): string {
   return describeError(error).code;
 }
 
-export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess): Backend {
+/**
+ * The deployment at `given`, as critiqs-react's `resolveDeployment` finds
+ * it, and whether it takes create keys: `createKeys` in the same reading of
+ * its `/critiqs/config`, so a backend that reports it is never treated as
+ * one that doesn't. Backends that don't say get no keys, so an older one is
+ * never sent an argument it refuses.
+ */
+export async function resolveBackend(given: string, fetchFn: typeof fetch = fetch): Promise<{ deployment: Deployment; createKeys: boolean }> {
+  const configs = new Map<string, unknown>();
+  const reading = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetchFn(input, init);
+    const url = String(input);
+    if (url.endsWith("/critiqs/config") && response.ok) configs.set(url, await response.clone().json().catch(() => null));
+    return response;
+  }) as typeof fetch;
+  const deployment = await resolveDeployment(given, reading);
+  const config = configs.get(`${deployment.siteUrl}/critiqs/config`) as { createKeys?: unknown } | null | undefined;
+  return { deployment, createKeys: config?.createKeys === true };
+}
+
+export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, createKeys: boolean): Backend {
   return {
     componentBackend,
+    createKeys,
     checkAddress: (address) => client.action(api.addressCheck.check, { address }),
     saveAboutYou: async (answers) => {
       await client.mutation(api.onboarding.saveAboutYou, answers);
     },
-    createProject: async ({ name, reviewUrl, organizationId, answers, stack }) =>
+    createProject: async ({ name, reviewUrl, organizationId, answers, stack, idempotencyKey }) =>
       await client.mutation(api.projects.create, {
         name,
         reviewUrl,
         ...(organizationId === null ? {} : { organizationId }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         onboarding: { codeAccess: answers.codeAccess, purpose: answers.purpose, feedbackFrom: answers.feedbackFrom === undefined ? undefined : [...answers.feedbackFrom] },
         ...(stack === null ? {} : { stack }),
       }),

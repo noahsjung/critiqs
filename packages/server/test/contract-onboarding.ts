@@ -224,6 +224,22 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect((await send(backend, two, ["f@acme.com"], Date.UTC(2026, 10, 26, 0, 0))).results[0]!.status).toBe("sent");
   });
 
+  test(`${name}: each email counts on the UTC day it was queued, whenever it's delivered, so no day queues more than 5`, async () => {
+    const backend = fresh();
+    const midnight = Date.UTC(2026, 10, 26, 0, 0);
+    const projects = [await create(backend), await create(backend, dana, { name: "Second" }), await create(backend, dana, { name: "Third" }), await create(backend, dana, { name: "Fourth" })];
+    // Five queued in the last second of the day are delivered in the first seconds of the next.
+    const late = [await send(backend, projects[0]!, ["a@acme.com", "b@acme.com", "c@acme.com"], midnight - 1000), await send(backend, projects[1]!, ["d@acme.com", "e@acme.com"], midnight - 500)];
+    expect((await send(backend, projects[1]!, ["f@acme.com"], midnight - 1)).results[0]).toMatchObject({ status: "limit", limit: "person" });
+    const delivered = await Promise.all(late.map((each) => deliver(backend, each.reserved, "ok", midnight + 2000)));
+    expect(delivered.flatMap((each) => each.outcomes)).toEqual(["sent", "sent", "sent", "sent", "sent"]);
+    // The new day has all 5 of its own, and no more.
+    const next = [await send(backend, projects[2]!, ["g@acme.com", "h@acme.com", "i@acme.com"], midnight + 3000), await send(backend, projects[3]!, ["j@acme.com", "k@acme.com", "l@acme.com"], midnight + 4000)];
+    expect(next.flatMap((each) => each.results.map((result) => result.status))).toEqual(["sent", "sent", "sent", "sent", "sent", "limit"]);
+    const sender = (await backend.run((store) => store.users.byToken(dana.tokenIdentifier)))!._id;
+    expect([await counter(backend, `developerEmails:${sender}:${utcDay(midnight - 1)}`), await counter(backend, `developerEmails:${sender}:${utcDay(midnight)}`)]).toEqual([5, 5]);
+  });
+
   test(`${name}: developer and invite emails share each inbox's day and the deployment's hour`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
@@ -641,6 +657,90 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     for (const projectName of ["Acme v2.0", "Q4 plan"]) {
       const projectId = await create(backend, dana, { name: projectName });
       expect((await send(backend, projectId, ["sam@acme.com"])).results[0]).toMatchObject({ status: "sent" });
+    }
+  });
+
+  test(`${name}: an organization name with a web address in it refuses a request whose email would name it; code names pass`, async () => {
+    const backend = fresh();
+    const lee = reviewer("Lee");
+    const projectId = await create(backend);
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: lee.email!, role: "member" }, day));
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    const leesProject = await create(backend, lee, { organizationId });
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: "kim@acme.com", role: "member" }, day));
+    for (const organizationName of ["acme.com", "See https://elsewhere.example.test", "www.acme"]) {
+      await backend.run((store) => organizations.renameOrganization(store, dana, { organizationId, name: organizationName }));
+      // An admin's email invites the developer, so it names the organization.
+      await expect(send(backend, projectId, ["sam@acme.com"])).rejects.toThrow("Organization names in setup emails can't contain web addresses. Rename the organization and try again.");
+      // A member's email names it only for a developer already invited, here by the admin.
+      await expect(send(backend, leesProject, ["lou@acme.com", "kim@acme.com"], day, lee)).rejects.toThrow("Organization names in setup emails can't contain web addresses. Ask an admin to rename it, or copy the message instead.");
+      expect([organizationName, await listed(backend, projectId), await listed(backend, leesProject, lee)]).toEqual([organizationName, [], []]);
+    }
+    // A member's email to a developer who isn't invited doesn't name it, so it goes.
+    expect((await send(backend, leesProject, ["lou@acme.com"], day, lee)).results[0]).toMatchObject({ status: "sent", invite: "none" });
+    await backend.run((store) => organizations.renameOrganization(store, dana, { organizationId, name: "Next.js team v2.0" }));
+    expect((await send(backend, projectId, ["sam@acme.com"])).results[0]).toMatchObject({ status: "sent", invite: "created" });
+  });
+
+  test(`${name}: an invited developer whose email already went doesn't make a renamed organization refuse another's`, async () => {
+    const backend = fresh();
+    const lee = reviewer("Lee");
+    const projectId = await create(backend);
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: lee.email!, role: "member" }, day));
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    const leesProject = await create(backend, lee, { organizationId });
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: "kim@acme.com", role: "member" }, day));
+    await deliver(backend, (await send(backend, leesProject, ["kim@acme.com"], day, lee)).reserved);
+    await backend.run((store) => organizations.renameOrganization(store, dana, { organizationId, name: "acme.com" }));
+    // Kim's email went before the rename and isn't sent again; Lou isn't invited, so Lou's email won't name it.
+    expect((await send(backend, leesProject, [" Kim@Acme.com ", "lou@acme.com"], day + HOUR, lee)).results.map((each) => each.status)).toEqual(["already-sent", "sent"]);
+  });
+
+  test(`${name}: a renamed organization doesn't refuse an admin's email to a member, which doesn't name it, or one past a limit`, async () => {
+    const backend = fresh();
+    const lee = reviewer("Lee");
+    const projectId = await create(backend);
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: lee.email!, role: "member" }, day));
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    await backend.run((store) => organizations.renameOrganization(store, dana, { organizationId, name: "acme.com" }));
+    const toMember = await send(backend, projectId, [lee.email!]);
+    expect(toMember.results[0]).toMatchObject({ status: "sent", invite: "member" });
+    const { asked } = await deliver(backend, toMember.reserved);
+    expect(asked[0]!.text).not.toContain("acme.com");
+    // An address a limit refuses reports the limit, not the name.
+    const sender = (await backend.run((store) => store.users.byToken(dana.tokenIdentifier)))!._id;
+    await backend.run(async (store) => {
+      const counter = (await store.usage.find(`developerEmails:${sender}:${utcDay(day)}`))!;
+      await store.usage.patch(counter._id, { count: 5 });
+    });
+    const second = await create(backend, dana, { name: "Second" });
+    expect((await send(backend, second, ["sam@acme.com"])).results[0]).toMatchObject({ status: "limit", limit: "person" });
+  });
+
+  test(`${name}: an organization or sender renamed to hold a web address after an email was queued fails that email instead of sending it`, async () => {
+    const renames: [string, (backend: ContractBackend, projectId: string) => Promise<unknown>][] = [
+      [
+        "organization",
+        async (backend, projectId) => {
+          const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+          await backend.run((store) => organizations.renameOrganization(store, dana, { organizationId, name: "acme.com" }));
+        },
+      ],
+      ["sender", (backend) => backend.run(async (store) => await store.users.patch((await store.users.byToken(dana.tokenIdentifier))!._id, { name: "evil.com" }))],
+    ];
+    for (const [what, rename] of renames) {
+      const backend = fresh();
+      const projectId = await create(backend);
+      const first = await send(backend, projectId, ["sam@acme.com"]);
+      await rename(backend, projectId);
+      const { asked, outcomes } = await deliver(backend, first.reserved);
+      expect([what, asked, outcomes, (await listed(backend, projectId))[0]?.status]).toEqual([what, [], ["skipped"], "failed"]);
     }
   });
 }

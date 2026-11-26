@@ -219,6 +219,32 @@ test('a sign-in that is briefly not ready calls off the waiting create, and the 
   expect(button(page, createChoice)?.disabled).toBe(false);
 });
 
+test('a sign-in back before the check settles opens the choice at once, and the old create never goes out', async () => {
+  const { backend, check } = pendingCheck();
+  const page = await chooseWhileChecking(backend);
+  await rerender(<Onboarding />, { backend, auth: { ...sam, ready: false } });
+  await rerender(<Onboarding />, { backend, auth: sam });
+  expect(button(page, 'Back')?.disabled).toBe(false);
+  expect(button(page, createChoice)?.disabled).toBe(false);
+  expect(button(page, developerChoice)?.disabled).toBe(false);
+  await act(async () => check.resolve({ kind: 'public', stack: 'react' }));
+  await settle();
+  expect(callsOf(backend, 'createProject')).toEqual([]);
+  expect(button(page, createChoice)?.disabled).toBe(false);
+});
+
+test('choosing again while the old check still runs creates once, for the new choice', async () => {
+  const { backend, check } = pendingCheck();
+  const page = await chooseWhileChecking(backend);
+  await rerender(<Onboarding />, { backend, auth: { ...sam, ready: false } });
+  await rerender(<Onboarding />, { backend, auth: sam });
+  await click(button(page, developerChoice));
+  await act(async () => check.resolve({ kind: 'public', stack: 'react' }));
+  await settle();
+  expect(callsOf(backend, 'createProject').map(call => (call.args[0] as { answers: { codeAccess: string } }).answers.codeAccess)).toEqual(['teammate']);
+  expect(page.querySelector('h1')?.textContent).toBe('Send the steps to your developer');
+});
+
 test('switching to the command and back while an email sends keeps its answer, invite included', async () => {
   sessionStorage.clear();
   const send = deferred<Awaited<ReturnType<ReturnType<typeof fakeBackend>['sendDeveloperSetup']>>>();

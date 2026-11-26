@@ -115,6 +115,8 @@ export const copy = {
     invalid: (email: string, message: string) => `${email}: ${message}`,
     failedRequest: "The emails couldn't be sent. Try again, or copy the message instead.",
     organizationFailed: "Critiqs can't email yet. Copy the message instead, or try again later.",
+    /** While the project's organization loads: an admin's send invites the developer to it, and says so before sending. */
+    organizationLoading: "Checking your organization before sending…",
     copyMessageInstead: "Copy message instead",
     sendAnother: "Send to another developer",
     switch: "I'll add it myself",

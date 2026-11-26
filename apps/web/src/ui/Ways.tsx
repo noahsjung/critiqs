@@ -8,7 +8,7 @@ import {
   type ProjectInfo,
   STACKS,
 } from "@critiqs/core";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { failureMessage, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
@@ -204,6 +204,7 @@ export function SendPanelView({
   onDone?: () => void;
 }) {
   const { componentBackend } = useBackend();
+  const waitingId = useId();
   const [results, setResults] = useState<readonly DeveloperSendResult[]>([]);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -259,6 +260,8 @@ export function SendPanelView({
   );
   // Sending waits for the project's organization, so an admin always sees the invite note first.
   const known = organization.status === "ready";
+  // While it loads, the disabled buttons name why they wait.
+  const waiting = organization.status === "loading" ? waitingId : undefined;
   const org = known ? organization.data : null;
   const admin = org?.role === "admin" ? org : null;
   // One line per address, however often it was typed.
@@ -287,7 +290,7 @@ export function SendPanelView({
             <CopyButton text={message} label={copy.send.copyMessageShort} copiedLabel={copy.send.messageCopied} name={copy.send.copyMessageFor(address)} className="btn small" onCopied={onDone} />
           )}
           {line.action === "send-again" && (
-            <button type="button" className="btn small" disabled={sending || !known} aria-label={copy.send.sendAgainTo(address)} onClick={() => void run([address])}>
+            <button type="button" className="btn small" disabled={sending || !known} aria-label={copy.send.sendAgainTo(address)} aria-describedby={waiting} onClick={() => void run([address])}>
               {copy.send.sendAgain}
             </button>
           )}
@@ -343,9 +346,14 @@ export function SendPanelView({
           </div>
         )}
         {organization.status === "error" && <p className="error">{copy.send.organizationFailed}</p>}
+        {waiting !== undefined && (
+          <p className="note" role="status" id={waiting}>
+            {copy.send.organizationLoading}
+          </p>
+        )}
         <div className="actions">
           {(unsent.length > 0 || filled.length === 0) && (
-            <button type="submit" className="btn primary large" disabled={sending || !known}>
+            <button type="submit" className="btn primary large" disabled={sending || !known} aria-describedby={waiting}>
               {sending ? copy.send.sending : unsent.length > 1 ? copy.send.sendMany : copy.send.sendOne}
             </button>
           )}

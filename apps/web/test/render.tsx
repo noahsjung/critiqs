@@ -31,6 +31,13 @@ export async function render(node: ReactNode, { backend = fakeBackend(), auth = 
   return container;
 }
 
+/** A reload of the page: the page now showing goes away, with whatever it was waiting on, and `node` renders fresh. Storage stays. */
+export async function reload(node: ReactNode, options: { backend?: Backend; auth?: Auth } = {}) {
+  await act(async () => root?.unmount());
+  container?.remove();
+  return await render(node, options);
+}
+
 export async function rerender(node: ReactNode, { backend = fakeBackend(), auth = fakeAuth() }: { backend?: Backend; auth?: Auth } = {}) {
   await act(async () =>
     root!.render(
@@ -57,7 +64,8 @@ export interface FakeBackend extends Backend {
 const loading = { status: "loading" } as const;
 
 /**
- * A backend whose calls the test sees. Queries answer from the overrides:
+ * A backend whose calls the test sees, without create keys unless
+ * `createKeys` says so. Queries answer from the overrides:
  * `organizations` (or `organizationsState` for an error), `sends`, `project`,
  * the person's own projects (`mine`), the deployment's `upgradeUrl`, and a
  * setup link's send (`sendSetup`) or project (`projectSetupState`), and a
@@ -88,6 +96,7 @@ export function fakeBackend(
   return {
     calls,
     componentBackend: overrides.componentBackend ?? null,
+    createKeys: overrides.createKeys ?? false,
     checkAddress: record("checkAddress", overrides.checkAddress ?? (async () => ({ kind: "public", stack: null }) as const)),
     saveAboutYou: record("saveAboutYou", overrides.saveAboutYou ?? (async () => {})),
     createProject: record("createProject", overrides.createProject ?? (async () => "k57abcdefghijklmnop")),

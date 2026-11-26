@@ -146,7 +146,9 @@ export interface ReservedEmail {
  * Reserves a setup email to each address, for the people who manage the
  * project. A project or sender name with a web address in it refuses the
  * whole request (`invalid`), since plain-text emails would show it as a
- * link. Otherwise every address is decided on its own, in order: an invalid
+ * link; so does an organization name with one, when a new email in the
+ * request would name it: the sender is its admin, whose send invites, or that
+ * developer already has an invite to it waiting. Otherwise every address is decided on its own, in order: an invalid
  * or suppressed address, one that already got this project's email (or may
  * have), a project at its developers, or a full limit refuses that address,
  * recording nothing and counting nothing. An email waiting for a retry is
@@ -175,6 +177,8 @@ export async function reserveDeveloperSends(
   }
   if (hasWebAddress(project.name)) fail("invalid", "Project names in setup emails can't contain web addresses. Rename the project and try again.");
   if (hasWebAddress(user.name)) fail("invalid", "Names in setup emails can't contain web addresses. Change your name and try again.");
+  /** The organization's name, when it has a web address in it and so can't be in an email. */
+  const unsafeOrganization = organization !== null && hasWebAddress(organization.name) ? organization : null;
   const inviteTo = organization?.role === "admin" ? organization.id : null;
   const invite = async (email: string): Promise<DeveloperInvite> => (inviteTo === null ? "none" : await inviteDeveloper(store, inviteTo, email, user._id, now));
   const inviteNow = async (email: string): Promise<DeveloperInvite> => (inviteTo === null ? "none" : ((await inviteState(store, inviteTo, email)) ?? "none"));
@@ -199,6 +203,11 @@ export async function reserveDeveloperSends(
   }
   return { results, reserved };
 
+  async function namesOrganization(organizationId: string, email: string): Promise<boolean> {
+    if (await joins(store, organizationId, email)) return true;
+    return inviteTo !== null && !(await hasMemberAt(store, organizationId, email));
+  }
+
   async function decide(email: string): Promise<DeveloperSendResult> {
     const inbox = inboxOf(email);
     if (await store.emailSuppressions.has(inbox)) return { email, status: "suppressed" };
@@ -211,11 +220,10 @@ export async function reserveDeveloperSends(
     if (existing === null && (await store.developerSends.forProject(project._id, MAX_DEVELOPER_INVITES_PER_PROJECT)).length >= MAX_DEVELOPER_INVITES_PER_PROJECT) {
       return { email, status: "limit", limit: "developers", message: LIMIT_MESSAGES.developers(email) };
     }
-    // Counted now, when the email is reserved, by the day and hour it was
-    // reserved in. One queued just before UTC midnight and delivered after it
-    // counts toward the day before, so a day can see a few more than its cap
-    // reach the mail service; that's accepted, since delivery normally takes
-    // seconds.
+    // Counted now, on the UTC day and hour the email is queued, and never
+    // again when it's delivered or retried, so no day queues more than its
+    // cap. One queued just before midnight still counts toward that day when
+    // the mail service gets it just after.
     const shared = inviteEmailLimits(inbox, now);
     const refused = await countOrRefuse<DeveloperLimit>(store, [
       [`developerEmails:${user._id}:${utcDay(now)}`, DEVELOPER_INVITES_PER_PERSON_PER_DAY, "person"],
@@ -223,6 +231,17 @@ export async function reserveDeveloperSends(
       [...shared.hour, "deployment"],
     ]);
     if (refused !== null) return { email, status: "limit", limit: refused, message: LIMIT_MESSAGES[refused](email) };
+    // A new email names the organization when the developer joins it: the sender is its admin, whose send invites
+    // anyone not already a member, or an invite already waits. Refusing throws, so the transaction keeps nothing from
+    // this request, its counts included.
+    if (unsafeOrganization !== null && (await namesOrganization(unsafeOrganization.id, email))) {
+      fail(
+        "invalid",
+        inviteTo !== null
+          ? "Organization names in setup emails can't contain web addresses. Rename the organization and try again."
+          : "Organization names in setup emails can't contain web addresses. Ask an admin to rename it, or copy the message instead.",
+      );
+    }
     const next = await reserve(store, existing, { projectId: project._id, email, sentBy: user._id }, now);
     reserved.push(next);
     return { email, status: "sent", sendId: next.sendId, invite: await invite(email) };
@@ -284,7 +303,10 @@ export interface PreparedEmail {
  * Critiqs's email as unwanted, which is checked again here, at delivery. An
  * opted-out email never tried certainly wasn't sent, so its claim is
  * recorded as refused, which settles it `failed`; one already tried may have
- * gone out, so it stays uncertain and isn't tried again.
+ * gone out, so it stays uncertain and isn't tried again. The same goes for
+ * an email whose sender or organization was renamed to hold a web address
+ * after it was queued: the first attempt reads the names again, and settles
+ * it `failed` rather than sending it.
  *
  * The first attempt prepares the email from the project as it is now and
  * keeps it, so every retry sends the same request. Each attempt is recorded,
@@ -312,6 +334,12 @@ export async function prepareDeveloperEmail(
   if (project === null || sender === null || sender.email === null) return null;
   const organization = project.organizationId === undefined ? null : await store.organizations.get(project.organizationId);
   const joining = organization !== null && (await joins(store, organization._id, send.email)) ? organization.name : null;
+  // The sender or organization renamed to hold a web address since the email was queued (project names don't change):
+  // never tried, so it certainly wasn't sent, and sending again says why.
+  if (hasWebAddress(sender.name) || (joining !== null && hasWebAddress(joining))) {
+    await store.developerSends.patch(send._id, { attempts: [{ at: now, answer: "refused" }] });
+    return null;
+  }
   const { idempotencyKey, ...message } = developerSetupMessage({
     to: send.email,
     inviterName: sender.name,
