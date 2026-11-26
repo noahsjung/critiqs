@@ -1,7 +1,8 @@
 """Critiqs for Flask: `Critiqs(app)`, then `{{ critiqs() }}` in the base template.
 
 Config: CRITIQS_PROJECT_ID (else, when the key is absent, the CRITIQS_PROJECT_ID
-environment variable; None or "" means no project),
+environment variable, else, under Flask's development server only, that one key
+from the nearest .env file; None or "" means no project),
 CRITIQS_REQUIRE_PROJECT_ID (default True), CRITIQS_BACKEND, CRITIQS_VERSION.
 """
 
@@ -10,12 +11,15 @@ import os
 import re
 
 from flask import Blueprint, Flask, current_app, has_request_context, request, url_for
+from flask.helpers import get_load_dotenv
 from jinja2 import Undefined
 from markupsafe import Markup
 
 __all__ = ["Critiqs", "critiqs"]
 
 ENV_VARIABLE = "CRITIQS_PROJECT_ID"
+# CRITIQS_PROJECT_ID=value in a .env file, optionally after `export`.
+ENV_LINE = re.compile(rf"^[ \t]*(?:export[ \t]+)?{ENV_VARIABLE}[ \t]*=[ \t]*(.*?)[ \t]*$")
 # A rule's variable, such as <int:id>; <path:…> spans segments.
 VARIABLE = re.compile(r"<(?:(\w+)(?:\([^)]*\))?:)?(\w+)>")
 
@@ -43,6 +47,55 @@ def _text(value):
     if value is None or isinstance(value, Undefined) or str(value) == "":
         return None
     return str(value)
+
+
+def _nearest_env_file() -> str | None:
+    # Where `flask run` looks for .env: the working directory, then each folder above it.
+    folder = os.getcwd()
+    while True:
+        path = os.path.join(folder, ".env")
+        if os.path.isfile(path):
+            return path
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return None
+        folder = parent
+
+
+def _env_file_value(text: str) -> str | None:
+    """The last CRITIQS_PROJECT_ID in a .env file's text, unquoted; None when there is none."""
+    value = None
+    for line in text.splitlines():
+        match = ENV_LINE.match(line)
+        if match is None:
+            continue
+        raw = match.group(1)
+        if raw[:1] in ("'", '"') and raw.find(raw[0], 1) != -1:
+            value = raw[1 : raw.find(raw[0], 1)]
+        else:
+            value = re.sub(r"[ \t]+#.*$", "", raw)
+    return value
+
+
+def _development_project_id() -> str | None:
+    """CRITIQS_PROJECT_ID from the nearest .env file, the one `npx critiqs init`
+    writes, when this request is served by Werkzeug's development server (`flask
+    run`, `app.run()`) and Flask's own FLASK_SKIP_DOTENV doesn't turn .env files
+    off. Only that key is read, and nothing is put in os.environ, so the app's
+    other .env settings stay as the app loads them. Production servers such as
+    Gunicorn and Waitress never read it."""
+    if not has_request_context() or not str(request.environ.get("SERVER_SOFTWARE", "")).startswith("Werkzeug/"):
+        return None
+    if not get_load_dotenv():
+        return None
+    path = _nearest_env_file()
+    if path is None:
+        return None
+    try:
+        with open(path, encoding="utf-8") as file:
+            return _env_file_value(file.read())
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def route_context(screen: str | None = None) -> dict | None:
@@ -78,7 +131,13 @@ def critiqs(nonce: str | None = None, screen: str | None = None) -> Markup:
     Security Policy."""
     config = current_app.config
     # As in Django: the variable applies only when the config doesn't have the key at all.
-    project_id = _text(config["CRITIQS_PROJECT_ID"] if "CRITIQS_PROJECT_ID" in config else os.environ.get(ENV_VARIABLE))
+    # A variable in the environment, even an empty one, wins over .env, as with python-dotenv.
+    if "CRITIQS_PROJECT_ID" in config:
+        project_id = _text(config["CRITIQS_PROJECT_ID"])
+    elif ENV_VARIABLE in os.environ:
+        project_id = _text(os.environ[ENV_VARIABLE])
+    else:
+        project_id = _text(_development_project_id())
     require = bool(config.get("CRITIQS_REQUIRE_PROJECT_ID", True))
     if require and project_id is None:
         return Markup("")

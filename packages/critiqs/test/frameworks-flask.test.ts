@@ -116,9 +116,11 @@ function apply(plan: Plan) {
   return plan;
 }
 
-test("reads the project ID from CRITIQS_PROJECT_ID on each request; on this computer from .env, which flask-critiqs's python-dotenv loads", () => {
+test("reads the project ID from CRITIQS_PROJECT_ID on each request; on this computer from .env, which flask-critiqs reads under flask run", () => {
   expect(flask.env(quickstart(), "")).toMatchObject({ variable: "CRITIQS_PROJECT_ID", expression: 'os.environ.get("CRITIQS_PROJECT_ID")', readsAt: "runtime", localFile: ".env" });
+  // Another variable is read by the app's own os.environ.get(…): from .env only where the app's python-dotenv loads it.
   expect(flask.env(quickstart({ "requirements.txt": "flask\npython-dotenv>=1\n" }), "_WEB")).toMatchObject({ variable: "CRITIQS_PROJECT_ID_WEB", localFile: ".env" });
+  expect(flask.env(quickstart(), "_WEB")).toMatchObject({ variable: "CRITIQS_PROJECT_ID_WEB", localFile: null });
 });
 
 test("init writes the project to .env for flask run, and keeps it there on a second run", () => {

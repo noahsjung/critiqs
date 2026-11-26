@@ -3,7 +3,10 @@
 // environment, and Critiqs added by the setup adapter's plan, served by
 // Waitress as in production. With CRITIQS_PROJECT_ID set, Chrome checks that
 // Critiqs's toolbar appears on both pages and that each reports its route; with
-// it unset, the page carries no Critiqs at all.
+// it unset, the page carries no Critiqs at all. Then, as `npx critiqs init`
+// leaves it on a developer's computer, the ID is in the app's own .env beside
+// keys the app never loaded: `flask run` shows Critiqs and leaves those keys
+// unset, and Waitress reads nothing from .env.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -23,7 +26,7 @@ await mkdir(join(root, "templates"), { recursive: true });
 await writeFile(join(root, "requirements.txt"), "Flask\nflask-critiqs\nwaitress\n");
 await writeFile(
   join(root, "app.py"),
-  'from flask import Flask, render_template\n\napp = Flask(__name__)\n\n\n@app.route("/")\ndef index():\n    return render_template("index.html")\n\n\n@app.route("/items/<int:id>")\ndef item(id):\n    return render_template("item.html", id=id)\n',
+  'from flask import Flask, render_template\n\napp = Flask(__name__)\n\n\n@app.route("/")\ndef index():\n    return render_template("index.html")\n\n\n@app.route("/items/<int:id>")\ndef item(id):\n    return render_template("item.html", id=id)\n\n\n@app.route("/env")\ndef env():\n    import os\n\n    return {"loaded": sorted(key for key in os.environ if key in ("DATABASE_URL", "FLASK_DEBUG") or key.startswith("CRITIQS"))}\n',
 );
 await writeFile(
   join(root, "templates/base.html"),
@@ -50,16 +53,20 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** Serves the app with Waitress and `env` until `check` finishes. */
-async function serve<T>(env: Record<string, string | undefined>, check: (url: string) => Promise<T>): Promise<T> {
+/** Serves the app with Waitress, or with `flask run`, and `env` until `check` finishes. */
+async function serve<T>(env: Record<string, string | undefined>, check: (url: string) => Promise<T>, server: "waitress" | "flask run" = "waitress"): Promise<T> {
   const port = await freePort();
-  const server = Bun.spawn([join(dir, "venv/bin/waitress-serve"), `--listen=127.0.0.1:${port}`, "app:app"], { cwd: root, env, stdout: "ignore", stderr: "pipe" });
+  const command =
+    server === "waitress"
+      ? [join(dir, "venv/bin/waitress-serve"), `--listen=127.0.0.1:${port}`, "app:app"]
+      : [join(dir, "venv/bin/flask"), "--app", "app", "run", "--host", "127.0.0.1", "--port", String(port)];
+  const child = Bun.spawn(command, { cwd: root, env, stdout: "ignore", stderr: "pipe" });
   try {
     await waitForServer(`http://127.0.0.1:${port}/`);
     return await check(`http://127.0.0.1:${port}/`);
   } finally {
-    server.kill();
-    await server.exited;
+    child.kill();
+    await child.exited;
   }
 }
 
@@ -80,6 +87,17 @@ try {
   assert.match(page, /A Flask page/);
   assert.doesNotMatch(page, /critiqs-app|element\.js/);
   console.log(`Flask: Critiqs's toolbar appears with CRITIQS_PROJECT_ID set (${JSON.stringify(configured.toolbar)}), /items/7 reports the screen items/:id, and the page has no Critiqs without it.`);
+
+  // This computer, after init: the ID in .env, next to keys the app never loaded. flask-critiqs doesn't install python-dotenv.
+  await writeFile(join(root, ".env"), `DATABASE_URL=postgres://db:5432/app\nFLASK_DEBUG=1\nCRITIQS_PROJECT_ID=${PROJECT}\n`);
+  const { DATABASE_URL: _url, FLASK_DEBUG: _debug, ...clean } = unset;
+  const [development, loaded] = await serve(clean, async (url) => [await expectToolbar(url, "flask-run"), await (await fetch(`${url}env`)).json()] as const, "flask run");
+  assert.deepEqual(development.errors, []);
+  assert.doesNotMatch(development.toolbar, /Set up Critiqs/);
+  assert.deepEqual(loaded, { loaded: [] });
+  const production = await serve(clean, async (url) => (await fetch(url)).text());
+  assert.doesNotMatch(production, /critiqs-app|element\.js/);
+  console.log("Flask: with the ID in .env, `flask run` shows Critiqs and leaves the app's other .env keys unset; Waitress shows none.");
 } finally {
   backend.stop();
 }

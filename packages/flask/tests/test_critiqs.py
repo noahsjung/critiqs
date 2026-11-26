@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 import pytest
@@ -171,3 +172,101 @@ def test_renders_outside_a_request_with_the_screen_it_is_given():
     with app.app_context():
         assert reported(render_template_string('{{ critiqs(screen="preview") }}')) == {"screen": "preview", "viewState": {}}
         assert reported(render_template_string("{{ critiqs() }}")) is None
+
+
+# On this computer `npx critiqs init` writes CRITIQS_PROJECT_ID to .env. The
+# extension reads that one key there itself, only for Flask's development server.
+
+DEV_SERVER = {"SERVER_SOFTWARE": "Werkzeug/3.1.0"}
+OTHER_KEYS = ("DATABASE_URL", "FLASK_DEBUG", "GREETING")
+ENV_FILE = f"DATABASE_URL=postgres://db:5432/app\nFLASK_DEBUG=1\nGREETING=hello\nCRITIQS_PROJECT_ID={PROJECT}\n"
+SHOWN = f'<critiqs-app project-id="{PROJECT}" require-project-id>'
+
+
+@pytest.fixture
+def app_folder(tmp_path, monkeypatch):
+    """A working directory holding the app's .env, with none of its keys in the environment."""
+    for key in (*OTHER_KEYS, "FLASK_SKIP_DOTENV"):
+        monkeypatch.delenv(key, raising=False)
+    (tmp_path / ".env").write_text(ENV_FILE)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def served(environ_base, template="<body>{{ critiqs() }}</body>"):
+    app = make_app()
+    app.add_url_rule("/", "home", lambda: render_template_string(template))
+    return app.test_client().get("/", environ_base=environ_base).get_data(as_text=True)
+
+
+def test_the_development_server_reads_the_project_id_from_env_and_nothing_else(app_folder):
+    import threading
+    import urllib.request
+
+    from werkzeug.serving import make_server
+
+    app = make_app()
+    app.add_url_rule("/", "home", lambda: render_template_string("<body>{{ critiqs() }}</body>"))
+    app.add_url_rule("/env", "env", lambda: json.dumps({key: os.environ.get(key) for key in (*OTHER_KEYS, "CRITIQS_PROJECT_ID")}))
+    # The server `flask run` and app.run() start.
+    server = make_server("127.0.0.1", 6251, app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        home = urllib.request.urlopen("http://127.0.0.1:6251/").read().decode()
+        seen = json.loads(urllib.request.urlopen("http://127.0.0.1:6251/env").read())
+    finally:
+        server.shutdown()
+        thread.join()
+    assert SHOWN in home
+    # The app's other .env keys, and Critiqs's own, stay out of its environment.
+    assert seen == {key: None for key in (*OTHER_KEYS, "CRITIQS_PROJECT_ID")}
+    assert all(key not in os.environ for key in (*OTHER_KEYS, "CRITIQS_PROJECT_ID"))
+
+
+def test_production_servers_never_read_env(app_folder):
+    for software in ("gunicorn/23.0.0", "waitress", None):
+        assert served({} if software is None else {"SERVER_SOFTWARE": software}) == "<body></body>"
+    assert all(key not in os.environ for key in OTHER_KEYS)
+
+
+def test_an_environment_variable_wins_over_env(app_folder, monkeypatch):
+    other = "j99999999999999999999999999999999"
+    monkeypatch.setenv("CRITIQS_PROJECT_ID", other)
+    assert f'project-id="{other}"' in served(DEV_SERVER)
+    # An empty variable means no project, as when python-dotenv loads .env.
+    monkeypatch.setenv("CRITIQS_PROJECT_ID", "")
+    assert served(DEV_SERVER) == "<body></body>"
+
+
+def test_the_config_wins_over_env(app_folder):
+    app = make_app(CRITIQS_PROJECT_ID=None)
+    app.add_url_rule("/", "home", lambda: render_template_string("<body>{{ critiqs() }}</body>"))
+    assert app.test_client().get("/", environ_base=DEV_SERVER).get_data(as_text=True) == "<body></body>"
+
+
+def test_flask_skip_dotenv_turns_it_off(app_folder, monkeypatch):
+    monkeypatch.setenv("FLASK_SKIP_DOTENV", "1")
+    assert served(DEV_SERVER) == "<body></body>"
+
+
+def test_finds_env_above_the_working_directory_as_flask_run_does(app_folder, monkeypatch):
+    (app_folder / "src").mkdir()
+    monkeypatch.chdir(app_folder / "src")
+    assert SHOWN in served(DEV_SERVER)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [f"CRITIQS_PROJECT_ID={PROJECT}", f'export CRITIQS_PROJECT_ID="{PROJECT}"', f"CRITIQS_PROJECT_ID = '{PROJECT}'  # Critiqs", f"CRITIQS_PROJECT_ID={PROJECT} # set by init"],
+)
+def test_reads_the_forms_a_env_file_writes(app_folder, line):
+    (app_folder / ".env").write_text(f"# Critiqs\nCRITIQS_PROJECT_ID_WEB=other\n{line}\n")
+    assert SHOWN in served(DEV_SERVER)
+
+
+def test_no_env_file_or_no_key_means_no_project(app_folder):
+    (app_folder / ".env").write_text("DATABASE_URL=postgres://db:5432/app\nCRITIQS_PROJECT_ID_WEB=other\n")
+    assert served(DEV_SERVER) == "<body></body>"
+    (app_folder / ".env").unlink()
+    assert served(DEV_SERVER) == "<body></body>"
