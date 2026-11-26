@@ -2,7 +2,7 @@
   "name": "@critiqs/web",
   "version": "0.0.0",
   "private": true,
-  "description": "The Critiqs website's app: onboarding at /start, the developer's setup page at /setup/<id>, and thread pages at /t/<key>.",
+  "description": "The Critiqs website's app: onboarding at /start, the developer's setup page at /setup/<id>, thread pages at /t/<key>, and review links at /r/<key>.",
   "type": "module",
   "scripts": {
     "dev": "vite",

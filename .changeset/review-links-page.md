@@ -1,0 +1,5 @@
+---
+"critiqs-react": minor
+---
+
+Critiqs's panel can run beside a review link's frame: `mountPanel` takes a `review` option for the page around it, which owns Browse and Comment, signs a reviewer in when they post their first comment (keeping what they picked and wrote), and opens a thread at the frame width it was left at. In that mode the panel always applies the untrusted message limits, maps every address the frame reports to the prototype's own and refuses others, and sends threads to the frame only as aliases with a generic name. `Session` gains `acceptPanelSignIn` for tokens from Critiqs's own panel sign-in. Installed Critiqs and the extension's panel behave as before.

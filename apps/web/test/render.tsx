@@ -124,6 +124,15 @@ export function fakeBackend(
     syncReviewer: record("syncReviewer", overrides.syncReviewer ?? (async () => {})),
     replyOnThreadPage: record("replyOnThreadPage", overrides.replyOnThreadPage ?? (async () => {})),
     loadThreadPageCapture: record("loadThreadPageCapture", overrides.loadThreadPageCapture ?? (async () => new Blob([new Uint8Array([137])], { type: "image/png" }))),
+    reviewLinks: overrides.reviewLinks ?? null,
+    openReviewLink: record("openReviewLink", overrides.openReviewLink ?? (async () => ({ kind: "unavailable" }) as const)),
+    renewReviewLease: record("renewReviewLease", overrides.renewReviewLease ?? (async () => ({ kind: "renewed", expiresAt: Date.now() + 600_000 }) as const)),
+    adoptReviewLease: record("adoptReviewLease", overrides.adoptReviewLease ?? (async () => ({ kind: "ended" }) as const)),
+    recordReviewOpened: record("recordReviewOpened", overrides.recordReviewOpened ?? (async () => {})),
+    useReviewLinks: (projectId) => (projectId === null ? loading : (overrides.useReviewLinks?.(projectId) ?? { status: "ready", data: [] })),
+    createReviewLink: record("createReviewLink", overrides.createReviewLink ?? (async () => { throw new Error("Not offered"); })),
+    copyReviewLink: record("copyReviewLink", overrides.copyReviewLink ?? (async () => "http://localhost/r/key")),
+    revokeReviewLink: record("revokeReviewLink", overrides.revokeReviewLink ?? (async () => {})),
   };
 }
 

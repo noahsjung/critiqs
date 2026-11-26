@@ -16,3 +16,11 @@ export { describeError, type QueryState } from "../../../packages/react/src/tran
 export { Avatar } from "../../../packages/react/src/ui/common.tsx";
 export { fullTime, relativeTime } from "../../../packages/react/src/ui/format.ts";
 export { activeMention, MessageBody, mentionsInText, tagDisplay } from "../../../packages/react/src/ui/MentionInput.tsx";
+// A review link's page: Critiqs's panel beside the frame, loaded only there.
+export type { MountedPanel, PanelOptions } from "../../../packages/react/src/page-layer/mount.tsx";
+export type { TokenSession } from "../../../packages/react/src/session.ts";
+export { useSidebarWidth } from "../../../packages/react/src/ui/sidebar-width.tsx";
+/** Loads the panel's code and gives its mount function. */
+export type PanelMount = () => Promise<(container: Element, options: import("../../../packages/react/src/page-layer/mount.tsx").PanelOptions) => import("../../../packages/react/src/page-layer/mount.tsx").MountedPanel>;
+export const loadPanel: PanelMount = async () => (await import("../../../packages/react/src/page-layer/mount.tsx")).mountPanel;
+export { keepThreadWindowsBelow } from "../../../packages/react/src/ui/ThreadWindow.tsx";

@@ -1179,8 +1179,9 @@ A review link lets someone review a prototype with nothing installed: the
 Critiqs website shows the prototype in a frame served by a review proxy on its
 own domain, with the comment panel beside it.
 
-**Built (backend only; the proxy and the review page come next):** Convex
-stores the links and decides every request the proxy serves.
+**Built:** the proxy (`apps/review-proxy`), the backend below, and the
+review page. Convex stores the links and decides every request the proxy
+serves.
 
 - **Links.** A project's owners create a link for a public `https:` address
   (`reviewLinks:createLive`). Its exact origin, and any of up to four other
@@ -1228,6 +1229,42 @@ apart from the website's and the backend's (siblings such as
 | `CRITIQS_PROXY_SECRET_PREVIOUS` | Only during a rotation: the secret proxies not yet updated still send. Remove it once every proxy has the new one |
 | `CRITIQS_WEB_URL` | The website that serves `/r/<key>` |
 | `CRITIQS_WEB_RISK_API_KEY` | Google Web Risk Lookup API key; without it, links aren't served except on a `*.localhost` proxy |
+
+### The review page
+
+`/r/<key>` on the website (`apps/web/src/ui/ReviewPage.tsx`) opens the link and
+shows the prototype in a frame on its lease host,
+`sandbox="allow-scripts allow-same-origin"`, with Critiqs's panel beside it
+(`mountPanel` with its `review` option). Its own bar holds Browse and Comment
+(Comment first), the frame's width (Fit, 1440, 1280, 768, 390), Share (this
+page's address, with the prototype's path after `#`), and the account.
+
+- **Sign-in at the first comment.** Someone signed out picks and writes as
+  anyone else does; posting asks for an email code inside the page
+  (`panelSignIn`, then `Session.acceptPanelSignIn`, so the website keeps one
+  session), adopts the lease to learn the project, and posts the same draft.
+  The panel keeps the selection and the text through that first sign-in
+  (`ReviewSurface`, `App.tsx`); if the frame showed another page meanwhile, it
+  drops the selection, keeps the text, and posts nothing about the old page.
+  Existing feedback shows once signed in.
+- **The frame is untrusted.** Its page layer shares a window with the
+  prototype's scripts, so the panel takes the untrusted message limits, maps
+  every address it reports to the prototype's origin and path (never the
+  query) and refuses any other origin (`reviewEndpoint`), and sends threads to
+  it only as aliases (`p1`, `p2`, …) with one generic name. Tokens, names,
+  emails, thread IDs and the project ID never enter the frame. Its own
+  messages (`critiqs:review-frame`) only choose what the page says, such as
+  the extension banner after a sign-in redirect.
+- **Widths.** Opening a thread from the list shows the frame at the width the
+  comment was left at, with a way back.
+- **Headers.** Whatever serves the website sends, for `/r/*`:
+  `Content-Security-Policy: frame-ancestors 'none'; frame-src <lease hosts>`,
+  `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex, nofollow`
+  (`apps/web/vite.config.ts` sets them for `vite` and `vite preview`, with
+  `CRITIQS_REVIEW_FRAMES` such as `https://*.critiqs-review.net`). The page
+  also refuses to show inside another site's frame.
+- **Owners** create, copy, open and remove a project's links at
+  `/review-links/<project ID>`.
 
 ## Private R2 screenshot storage
 

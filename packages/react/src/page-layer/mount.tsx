@@ -1,11 +1,12 @@
-import { type PageLimits, type PageTransport, panelEndpoint } from "@critiqs/core";
+import { type PageLimits, type PageTransport, panelEndpoint, UNTRUSTED_PAGE_LIMITS } from "@critiqs/core";
 import { createRoot } from "react-dom/client";
-import type { MockupPlace, SupplyCapture } from "../App.tsx";
+import type { MockupPlace, ReviewSurface, SupplyCapture } from "../App.tsx";
 import { attachHost, Connect } from "../connect.tsx";
 import type { CritiqsProps } from "../host.ts";
 import type { TokenSession } from "../session.ts";
 import { createPageLayer, type PageHost } from "./layer.tsx";
 import { PageLink } from "./link.ts";
+import { type ReviewFrame, reviewEndpoint } from "./review.ts";
 
 // Critiqs's two halves in two documents. Installed, `mountCritiqs` runs both
 // in the page; a review link runs the page layer in the prototype's frame and
@@ -49,12 +50,24 @@ export type PanelOptions = Omit<CritiqsProps, "getContext" | "restoreContext"> &
   mockups?: MockupPlace;
   /** How much the page layer's messages may carry: `UNTRUSTED_PAGE_LIMITS` for a frame Critiqs doesn't trust, such as a review link's. */
   pageLimits?: PageLimits;
+  /**
+   * A review link's page around the frame: the frame's addresses checked and
+   * mapped, threads sent to it only as aliases (`reviewEndpoint`), the
+   * untrusted limits, and the review page's own mode, sign-in and widths
+   * (`ReviewSurface`).
+   */
+  review?: ReviewFrame & ReviewSurface;
 };
+
+/** What a mounted panel's page may change while it runs, keeping its drafts and open thread. */
+export type PanelUpdate = Pick<PanelOptions, "projectId" | "review">;
 
 /** A running panel: remove it, closing its connection to the page layer. */
 export interface MountedPanel {
   /** Resolves once the page layer has answered and the panel is shown. */
   ready: Promise<void>;
+  /** Shows the panel with these settings instead, keeping everything it holds. */
+  update(changes: PanelUpdate): void;
   destroy(): void;
 }
 
@@ -66,11 +79,17 @@ export interface MountedPanel {
  * page layer answers, and connects again whenever the page layer restarts,
  * such as after the frame loads another page.
  */
-export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, mockups, pageLimits, ...props }: PanelOptions): MountedPanel {
+export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, mockups, pageLimits, review, ...props }: PanelOptions): MountedPanel {
   const { host, container: inner } = attachHost(container);
   const root = createRoot(inner);
-  const link = new PageLink(panelEndpoint(transport, { channel, ...(pageLimits === undefined ? {} : { limits: pageLimits }) }));
+  // A review frame is never trusted: its limits are always the untrusted ones.
+  const limits = review !== undefined ? UNTRUSTED_PAGE_LIMITS : pageLimits;
+  const endpoint = panelEndpoint(transport, { channel, ...(limits === undefined ? {} : { limits }) });
+  const link = new PageLink(review === undefined ? endpoint : reviewEndpoint(endpoint, review));
   let destroyed = false;
+  let shown = false;
+  let current = { props, review };
+  const render = () => root.render(<Connect props={current.props} host={host} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} mockups={mockups} review={current.review} />);
   const ready = new Promise<void>((resolve) => {
     const stop = link.subscribe(() => {
       stop();
@@ -80,10 +99,16 @@ export function mountPanel(container: Element, { transport, channel, supplyCaptu
     // starts, it says so and the link connects then.
     void link.connect({ timeoutMs: 5000 }).catch(() => undefined);
   }).then(() => {
-    if (!destroyed) root.render(<Connect props={props} host={host} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} mockups={mockups} />);
+    if (destroyed) return;
+    shown = true;
+    render();
   });
   return {
     ready,
+    update({ projectId, review: nextReview }) {
+      current = { props: { ...current.props, ...(projectId === undefined ? {} : { projectId }) }, review: nextReview ?? current.review };
+      if (shown && !destroyed) render();
+    },
     destroy() {
       destroyed = true;
       link.close();
