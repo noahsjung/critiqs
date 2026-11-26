@@ -117,3 +117,37 @@ heading is `#` or skips a level, or a link points nowhere. A link with a
 `#fragment`, including a same-page `#link`, must name a heading on its target
 page: heading ids are the heading text in lowercase, with punctuation dropped
 and spaces turned into hyphens.
+
+# The website app beside the landing page
+
+The landing page's **Get started** goes to `/start`, the website app's
+onboarding (`apps/web`), on the same origin as the landing page. Setup links
+(`/setup/<id>`) and thread pages (`/t/<key>`) are served there too, because a
+backend with `CRITIQS_WEB_URL=https://critiqs.app` links to them.
+
+`site/vercel.json` does it: its build command builds the app into `site/app/`
+(`bun run --cwd apps/web build:site`, with `--base=/app/`), and its rewrites
+send `/start`, `/setup/<id>` and `/t/<key>` to `site/app/index.html`. Files
+still win over rewrites, so every other page is the static site as before.
+`site/app/` is built at deploy time and not committed.
+
+Try it on one local server, which applies the same file's rewrites, clean
+URLs, and headers:
+
+```sh
+VITE_CRITIQS_BACKEND=http://127.0.0.1:3210 bun run --cwd apps/web build:site   # omit the variable for Critiqs Cloud
+bun site-src/preview-site.ts 6560                                               # http://127.0.0.1:6560
+```
+
+At the host, the Vercel project that serves `site/` needs:
+
+- **Root Directory** `site`, as now, with **Include files outside the root
+  directory in the Build Step** on, since the build reads `apps/web` and
+  `packages/`.
+- Bun available to the build (the build command runs `bun install` at the
+  repository root). Vercel's build image has it; otherwise set the install
+  command to install Bun first.
+- `VITE_CRITIQS_BACKEND` left unset, so the app talks to Critiqs Cloud, or set
+  to another backend's Convex URL.
+- On that backend, `CRITIQS_WEB_URL=https://critiqs.app`, so setup emails and
+  thread links point here.

@@ -38,9 +38,9 @@
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Web",
     "url": "https://critiqs.app/",
-    "description": "Comments and AI mockups on your React app, for team reviews and coding agents.",
+    "description": "Comments and AI mockups on your web app, for team reviews and coding agents. Packages for React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Rails, Django and Flask.",
     "license": "https://opensource.org/licenses/MIT",
-    "downloadUrl": "https://www.npmjs.com/package/critiqs-react"
+    "downloadUrl": "https://critiqs.app/docs/install"
   }
   </script>
 </head>
@@ -58,7 +58,7 @@
         <a href="/docs">Docs</a>
         <a href="/blog">Blog</a>
       </div>
-      <a class="btn btn-primary button-sm nav-cta" href="#install">Get started</a>
+      <a class="btn btn-primary button-sm nav-cta" href="/start">Get started</a>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
         <span class="bar"></span><span class="bar"></span>
       </button>
@@ -67,7 +67,7 @@
       <a href="#pricing">Pricing</a>
       <a href="/docs">Docs</a>
       <a href="/blog">Blog</a>
-      <a href="#install">Get started</a>
+      <a href="/start">Get started</a>
     </div>
   </header>
 
@@ -79,9 +79,10 @@
           <h1 id="hero-title" class="heading-1">Team review, right on your<br> staging and preview builds</h1>
           <p class="lede title-1">Product, design, QA and clients open your build in a browser, click an element and talk it through together. Every thread keeps a capture and the screen it was on, ready for a developer or coding agent.</p>
           <div class="actions" id="install">
+            <a class="btn btn-primary button-md" href="/start">Get started</a>
             <div class="install">
-              <code><span class="prompt">$ </span>npm install critiqs-react</code>
-              <button class="btn btn-primary button-sm" type="button" data-copy="npm install critiqs-react">
+              <code><span class="prompt">$ </span>npx critiqs init</code>
+              <button class="btn btn-primary button-sm" type="button" data-copy="npx critiqs init">
                 <svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg>
                 <svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg>
                 <span class="copy-label">Copy command</span>
@@ -408,15 +409,15 @@
       <div class="wrap">
         <div class="section-head">
           <h2 id="how-title" class="heading-2">Add it to your staging build</h2>
-          <p class="title-2">Two commands to install. Critiqs Cloud handles storage, sign-in and email, so there are no keys to enter.</p>
+          <p class="title-2">Two commands, or send them to your developer from <a href="/start">Get started</a>. Critiqs Cloud handles storage, sign-in and email, so there are no keys to enter.</p>
         </div>
         <ol class="steps">
           <li class="step">
             <span class="step-num caption-3" aria-hidden="true">1</span>
             <h3 class="title-1">Add Critiqs to your app</h3>
-            <p class="body-3">Setup adds <code class="inline">&lt;Critiqs /&gt;</code> where your app renders, signs you in, and creates your project.</p>
-            <pre><code>npm install critiqs-react
-npx critiqs-react init</code></pre>
+            <p class="body-3">Install your framework’s package: React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Rails, Django or Flask. Setup finds the framework, adds Critiqs where your app renders, signs you in, and creates your project. Any other site can use <a href="/docs/install">one script tag</a>.</p>
+            <pre><code>npm install critiqs-vue   # or critiqs-react, bundle add critiqs-rails…
+npx critiqs init</code></pre>
           </li>
           <li class="step">
             <span class="step-num caption-3" aria-hidden="true">2</span>
@@ -427,7 +428,7 @@ npx critiqs-react init</code></pre>
             <span class="step-num caption-3" aria-hidden="true">3</span>
             <h3 class="title-1">Build from the threads</h3>
             <p class="body-3">Export threads for an issue, or add the Critiqs MCP server to your coding agent so it reads them with their context.</p>
-            <pre><code>npx critiqs-react mcp</code></pre>
+            <pre><code>npx critiqs mcp</code></pre>
           </li>
         </ol>
       </div>
@@ -531,7 +532,7 @@ npx critiqs-react init</code></pre>
         <div class="faq">
           <details>
             <summary class="title-2">Which apps does Critiqs work with?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
-            <div class="answer body-3">Any React 18 or 19 app, including Vite, Next.js (App Router or Pages Router), Remix, Create React App, or your own setup. React and React DOM are its only peer dependencies, and setup needs Node.js 20 or later.</div>
+            <div class="answer body-3">React 18 or 19 apps (Vite, Next.js App Router and Pages Router, Remix, Create React App, or your own setup), Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django and Flask each have a Critiqs package, and any other site can use the script tag. Setup needs Node.js 20 or later. See the <a href="/docs/install">install guide</a>.</div>
           </details>
           <details>
             <summary class="title-2">Do reviewers need an extension, an account or a password?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
@@ -543,7 +544,7 @@ npx critiqs-react init</code></pre>
           </details>
           <details>
             <summary class="title-2">How do coding agents use the feedback?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
-            <div class="answer body-3"><code>npx critiqs-react mcp</code> gives your agent tools that list threads with their context, read whole discussions, fetch captures, read mockups, and reply marked “via coding agent”. Agent tools work with Critiqs Cloud and Convex deployments. You can also export threads as Markdown or JSON.</div>
+            <div class="answer body-3"><code>npx critiqs mcp</code> gives your agent tools that list threads with their context, read whole discussions, fetch captures, read mockups, and reply marked “via coding agent”. Agent tools work with Critiqs Cloud and Convex deployments. You can also export threads as Markdown or JSON.</div>
           </details>
           <details>
             <summary class="title-2">Where is the feedback stored?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
@@ -551,7 +552,7 @@ npx critiqs-react init</code></pre>
           </details>
           <details>
             <summary class="title-2">Will our real users see Critiqs?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
-            <div class="answer body-3">Only where you turn it on. In Vite and Next.js apps, setup adds <code>requireProjectId</code>, so Critiqs appears only in builds that set a project ID. A build without one adds nothing to the page and contacts no server.</div>
+            <div class="answer body-3">Only where you turn it on. Setup makes Critiqs appear only in builds that set a project ID, such as staging and previews. A build without one adds nothing to the page and contacts no server.</div>
           </details>
           <details>
             <summary class="title-2">What happens to comments when the UI changes?<svg class="icon" aria-hidden="true"><use href="/icons.svg#plus"></use></svg></summary>
@@ -571,13 +572,16 @@ npx critiqs-react init</code></pre>
         <div class="inner">
           <h2 id="final-title" class="heading-2">Add Critiqs to your next staging build</h2>
           <p class="title-2">Start free on Critiqs Cloud, or host it yourself under the MIT license.</p>
-          <div class="install">
-            <code><span class="prompt">$ </span>npm install critiqs-react</code>
-            <button class="btn btn-primary button-sm" type="button" data-copy="npm install critiqs-react">
-              <svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg>
-              <svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg>
-              <span class="copy-label">Copy command</span>
-            </button>
+          <div class="actions">
+            <a class="btn btn-primary button-md" href="/start">Get started</a>
+            <div class="install">
+              <code><span class="prompt">$ </span>npx critiqs init</code>
+              <button class="btn btn-primary button-sm" type="button" data-copy="npx critiqs init">
+                <svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg>
+                <svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg>
+                <span class="copy-label">Copy command</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
