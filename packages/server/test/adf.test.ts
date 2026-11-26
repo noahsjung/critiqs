@@ -120,7 +120,7 @@ test("text escaped for ticket Markdown reaches Jira as exactly that text, in eac
       const nodes = converted.content.flatMap((block) => (block.type === "paragraph" || block.type === "heading" ? (block.content ?? []) : []));
       expect({ value, blocks: converted.content.length, marks: nodes.some((node) => node.type === "text" && node.marks !== undefined) }).toEqual({ value, blocks: 1, marks: false });
     }
-    // A paragraph of the text alone reads as the text, word for word.
-    expect({ value, text: adfText(doc(markdownText(value))) }).toEqual({ value, text: `${written}\n` });
+    // A paragraph of the text alone reads as the text, word for word; the word joiners after `@`, `#` and the like show nothing.
+    expect({ value, text: adfText(doc(markdownText(value))).replace(/\u2060/g, "") }).toEqual({ value, text: `${written}\n` });
   }
 });
