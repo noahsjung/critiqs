@@ -22,9 +22,10 @@ when a thread opens, and **Resolve when done**. Also built, on Convex for
 GitHub Issues: Your trackers through the operator's GitHub App or a pasted
 fine-grained token, creating and linking issues, repository templates and
 issue forms, labels from tags, status from GitHub's webhooks and the check
-when a thread opens, and **Resolve when done**; see
-[GitHub Issues](#github-issues). Not built yet: a project's default
-destination, and Jira.
+when a thread opens, and **Resolve when done** (see
+[GitHub Issues](#github-issues)); and the same for Jira Cloud, through
+Atlassian sign-in or a pasted API token (see [Jira Cloud](#jira-cloud)). Not
+built yet: a project's default destination.
 
 ## Outcomes
 
@@ -62,7 +63,13 @@ template is applied when an issue is created; how Jira proves and expires the
 webhooks an app registers; and how GitHub renders issue-form answers.
 Confirmed for Linear: an OAuth app's webhook is created for a workspace when
 someone in it first authorizes the app, and covers that workspace's issues
-([Linear's webhooks](https://linear.app/developers/webhooks)). A pasted token
+([Linear's webhooks](https://linear.app/developers/webhooks)). Confirmed for
+Jira from its documentation, not yet against a real site: an OAuth app
+registers webhooks with a user's token, at most five per app and user on a
+site, each filtered by a limited JQL (projects, issue types, statuses, and a
+few more); they expire after 30 days unless extended; and Jira signs each
+delivery with a bearer token made with the app's client secret
+([Jira's webhooks](https://developer.atlassian.com/cloud/jira/platform/webhooks/)). A pasted token
 brings no webhook in any tracker, so issues in a Linear workspace where
 everyone pasted an API key get none. Where a webhook can't be had, status
 comes from the check when a thread opens (see
@@ -445,6 +452,86 @@ finished, except one whose status someone changed after the setting was
 turned on, or one with a ticket whose status is only last known, which may
 have been reopened since.
 Only linked tickets count, not ones still being created.
+
+## Jira Cloud
+
+**Built on Convex**, against a stand-in that follows Jira's documented REST
+API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
+
+- **Connecting.** Your trackers asks for the Jira site first, such as
+  `your-team.atlassian.net`; only Atlassian's cloud hosts (`*.atlassian.net`,
+  `*.jira.com`) are accepted, so a token is never sent anywhere else. With the
+  operator's Atlassian app, **Connect Jira** opens Atlassian's sign-in for that
+  site, and it is saved only when the sign-in reaches that site and the
+  Atlassian account's email is the Critiqs account's. **Use an API token
+  instead**, or a deployment without the app, takes an Atlassian API token
+  with the person's email and site. Critiqs records the site (its cloud ID and
+  address) on the account and on each link, including links still being made;
+  Jira's issue and account IDs are unique only within a site, so Critiqs's IDs
+  for them start with the site's cloud ID.
+- **Where a ticket goes:** a project and issue type, one choice, since the
+  issue type decides the fields. Subtask types aren't offered.
+- **Required fields.** The Create dialog asks for the fields the issue type
+  requires beyond the title and text, reading them from Jira for each choice:
+  text, paragraphs, numbers, dates, and fields with a list of options. A
+  required field Critiqs can't fill, such as a person, is named, and Create
+  stays off for that issue type.
+- **Ticket text** is the Markdown the person edited, converted to Atlassian
+  Document Format: headings, paragraphs, quotes, lists, code, rules, and
+  inline code, emphasis, and links, with anything else kept as its text. Only
+  web and email links stay links.
+- **Capture and link back.** The capture is attached to the issue after it is
+  created (if that fails, a comment says to open the thread); the thread is a
+  remote link on the issue, one per thread, which adding again updates.
+- **Each creation makes one issue.** Jira doesn't take an ID from the caller,
+  so the issue is created with an issue property naming the creation, and a
+  retry whose answer was lost looks for it among the person's 50 most recent
+  issues. Jira's search can lag a creation by a moment, so a retry within that
+  moment could still make a second issue.
+- **Search** by key, or by words through JQL's text search, with what the
+  person typed always a quoted JQL value.
+- **Labels** are the site's labels whose names match the thread's tags,
+  offered only where the issue type's create screen has labels.
+- **Templates.** Jira keeps none, so a project's owners paste a template's text
+  for a project and issue type in Tags and AI, under Tickets; Create ticket
+  offers it there, and drafts fill it as they fill Linear's.
+- **Status.** Jira's status categories map as To Do → open, In Progress →
+  started, and Done → done; Jira has no canceled category, and a deleted issue
+  shows **Deleted**. When someone signed in to Jira links or creates a ticket,
+  their sign-in registers one webhook per site following the projects of the
+  tickets they linked there; a daily job renews each a week before it expires,
+  or registers it again if it lapsed, and drops it when its person
+  disconnects. A delivery is used only after its bearer token checks out with
+  the app's client secret, and only on a site its webhook was registered for
+  that the issue's own address names too: Jira's webhook and issue IDs are
+  unique only within a site, so a delivery from another site's webhook with
+  the same ID, or one whose issue address names no site, changes nothing. Pasted API tokens can't register webhooks, so their tickets'
+  status comes from the check when a thread opens.
+- **Safety.** As for Linear and GitHub: every call goes through Critiqs's
+  tracker endpoint (Atlassian's gateway, or the person's own site, which must
+  be an Atlassian cloud host each time it is used; no redirects, 15 seconds,
+  2 MB), every answer is checked, the text Jira gets is built from Critiqs's
+  ticket Markdown (escaped characters stay literal; only checked web and
+  email addresses become links), and JQL values are always quoted strings.
+- **Not built:** Jira Data Center and Server; Jira's own canceled resolutions
+  (Won't Do) counting differently from Done; issue types with a required person
+  or other unsupported field.
+
+### What an operator sets up for Jira sign-in
+
+1. In Atlassian's developer console, create an OAuth 2.0 integration.
+2. Under Permissions, add the Jira API with the scopes `read:jira-work`,
+   `write:jira-work`, `read:jira-user`, and `manage:jira-webhook`, and the User
+   Identity API (`read:me`).
+3. Under Authorization, set the callback URL to
+   `<deployment site>/trackers/jira/callback`.
+4. Under Distribution, share the app, so its webhooks reach Critiqs for people
+   other than the app's owner.
+5. Set `CRITIQS_JIRA_CLIENT_ID` and `CRITIQS_JIRA_CLIENT_SECRET` on the
+   deployment, with `CRITIQS_AI_ENCRYPTION_KEY`. Webhooks arrive at
+   `<deployment site>/trackers/jira/webhook`; nothing else is needed for them.
+
+Without the app, people connect Jira with an API token.
 
 ## Attribution
 

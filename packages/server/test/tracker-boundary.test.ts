@@ -96,7 +96,8 @@ test("destinations a tracker sends keep only IDs Critiqs can use, with names cut
 
 test("every tracker Critiqs offers has its answers checked", async () => {
   const { TRACKER_ADAPTERS } = await import("../src/tickets/trackers/index.ts");
-  for (const [tracker, make] of Object.entries(TRACKER_ADAPTERS)) expect({ tracker, checked: isCheckedAdapter(make!({})) }).toEqual({ tracker, checked: true });
+  expect(Object.keys(TRACKER_ADAPTERS).sort()).toEqual(["github", "jira", "linear"]);
+  for (const [tracker, make] of Object.entries(TRACKER_ADAPTERS)) expect({ tracker, checked: isCheckedAdapter(make({})) }).toEqual({ tracker, checked: true });
 });
 
 test("an upload goes only to a public HTTPS address, with only the storage headers the tracker names, and its asset address must be a web address", async () => {

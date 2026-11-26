@@ -21,12 +21,13 @@ import {
 import type { Identity, Store } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { NO_GITHUB } from "./github-standin.ts";
+import { NO_JIRA } from "./jira-standin.ts";
 import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB, ...NO_JIRA };
 const DONE: TicketStatus = { label: "Done", category: "done" };
 const STARTED: TicketStatus = { label: "In Progress", category: "started" };
 const CANCELED: TicketStatus = { label: "Canceled", category: "canceled" };

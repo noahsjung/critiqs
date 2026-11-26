@@ -647,7 +647,7 @@ export interface TicketSettingsRecord {
   /** Whether the Create dialog offers the chosen tracker templates; absent means off. */
   templatesOn?: boolean;
   /** Tracker templates the project offers while templates are on, by destination. */
-  templates: { tracker: TrackerId; destinationId: string; templateId: string; name: string }[];
+  templates: { tracker: TrackerId; destinationId: string; templateId: string; name: string; body?: string }[];
   /** Resolve a thread when every ticket linked to it is done. */
   resolveWhenDone: boolean;
   /** Where the project's new tickets go by default, per tracker. */
@@ -679,6 +679,30 @@ export interface TrackerSignInRecord {
    * meanwhile, which removes it, cancels it.
    */
   claimedAt?: number;
+  /** The site the person chose to connect, where the tracker has several (a Jira site's host). */
+  site?: string;
+}
+
+/**
+ * A status webhook a person's sign-in registered with a tracker that sends
+ * webhooks only to those its users register, and expires them (Jira): one per
+ * person, tracker, and site, following the tickets of `scopes` (Jira
+ * projects) that the person linked or created there.
+ */
+export interface TrackerWebhookRecord {
+  _id: string;
+  userId: string;
+  tracker: TrackerId;
+  /** The tracker account it was registered as (the tracker's ID for it); renewed only with that account's token. */
+  accountId: string;
+  site: { id: string; name: string };
+  /** The tracker's ID for the webhook; unique within its site only. */
+  hookId: string;
+  scopes: string[];
+  expiresAt: number;
+  updatedAt: number;
+  /** A registration or renewal in progress, so only one runs at a time. */
+  lease?: { id: string; until: number };
 }
 
 export interface FileInfo {
@@ -1066,6 +1090,22 @@ export interface Store {
       delete(id: string): Promise<void>;
       /** A person's sign-ins under way for a tracker. */
       listForUser(userId: string, tracker: TrackerId): Promise<TrackerSignInRecord[]>;
+    };
+    /** Status webhooks registered with people's sign-ins (Jira). */
+    webhooks: {
+      /** The webhook record, or null when `id` isn't one of this backend's. */
+      get(id: string): Promise<TrackerWebhookRecord | null>;
+      /** A person's webhook for a tracker and site. */
+      find(userId: string, tracker: TrackerId, siteId: string): Promise<TrackerWebhookRecord | null>;
+      /** A person's webhooks for a tracker, on every site. */
+      listForUser(userId: string, tracker: TrackerId): Promise<TrackerWebhookRecord[]>;
+      /** Webhooks with this tracker ID, on any site. */
+      findByHook(tracker: TrackerId, hookId: string): Promise<TrackerWebhookRecord[]>;
+      /** Webhooks that expire before `before`, soonest first; at most `limit`. */
+      listExpiring(before: number, limit: number): Promise<TrackerWebhookRecord[]>;
+      insert(webhook: New<TrackerWebhookRecord>): Promise<string>;
+      patch(id: string, changes: Partial<Pick<TrackerWebhookRecord, "hookId" | "scopes" | "expiresAt" | "updatedAt" | "accountId">> & { lease?: TrackerWebhookRecord["lease"] | null }): Promise<void>;
+      delete(id: string): Promise<void>;
     };
   };
 }

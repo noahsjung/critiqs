@@ -52,11 +52,12 @@ const createdTicket = v.object({
   status: ticketStatusValidator,
   site: v.union(v.string(), v.null()),
   asOf: v.union(v.number(), v.null()),
+  webhookScope: v.optional(v.string()),
 });
 const hold = { linkId: v.string(), holder: v.string() };
 /** Critiqs's standard format (no template, or null), or a template the project offers in the destination. */
 const format = { destinationId: v.optional(v.string()), templateId: v.optional(v.union(v.string(), v.null())) };
-const templateChoice = v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string() });
+const templateChoice = v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string(), body: v.optional(v.string()) });
 
 /** Where the signed-in person can create tickets in a tracker, such as their Linear teams. */
 export const destinations = action({
@@ -141,6 +142,7 @@ export const create = action({
     createdFromCritiqs: v.boolean(),
     templateId: v.optional(v.union(v.string(), v.null())),
     labelIds: v.optional(v.array(v.string())),
+    fields: v.optional(v.record(v.string(), v.union(v.string(), v.array(v.string())))),
   },
   handler: async (ctx, args): Promise<TicketLinkView> =>
     run(() => {
@@ -156,6 +158,7 @@ export const create = action({
           now: () => Date.now(),
           // Random here, in the action; a mutation's randomness is replayed.
           newId: () => crypto.randomUUID(),
+          watch: (person, ticket) => watchTicket(ctx, tracker, person, ticket),
         },
         ticketsDeployment(),
         args,
@@ -193,12 +196,19 @@ export const link = action({
           now: () => Date.now(),
           // Random here, in the action; a mutation's randomness is replayed.
           newId: () => crypto.randomUUID(),
+          watch: (person, ticket) => watchTicket(ctx, args.tracker, person, ticket),
         },
         ticketsDeployment(),
         args,
       ),
     ),
 });
+
+/** Has the person's status webhook follow a new ticket's scope, where trackers send webhooks only to those people register (Jira); in the background. */
+async function watchTicket(ctx: ActionCtx, tracker: "linear" | "github" | "jira", person: { userId: string; accountId: string }, ticket: { webhookScope?: string }): Promise<void> {
+  if (ticket.webhookScope === undefined) return;
+  await ctx.scheduler.runAfter(0, internal.trackerWebhooks.follow, { ...person, tracker, scope: ticket.webhookScope });
+}
 
 /** Removes a ticket's link from its thread, in Critiqs only. */
 export const unlink = mutation({

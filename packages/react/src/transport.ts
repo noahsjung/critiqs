@@ -289,14 +289,19 @@ export interface BillingTransport {
 export interface TicketTransport {
   /** The signed-in person's tracker accounts; skipped while `enabled` is false. */
   useTrackerAccounts(enabled: boolean): QueryState<TrackerAccountView[]>;
-  /** Connects a tracker with a personal token the person pasted, after the tracker confirms whose it is. */
-  connectTrackerWithToken(tracker: TrackerId, token: string): Promise<TrackerAccountView>;
+  /**
+   * Connects a tracker with a personal token the person pasted, after the
+   * tracker confirms whose it is; for Jira, with the email of their Atlassian
+   * account and their Jira site's address.
+   */
+  connectTrackerWithToken(tracker: TrackerId, token: string, site?: { email: string; site: string }): Promise<TrackerAccountView>;
   /**
    * Starts the tracker's sign-in; returns where the sign-in window posts the
    * state and binding secret, which only this caller gets. The account appears
-   * in `useTrackerAccounts` once it finishes.
+   * in `useTrackerAccounts` once it finishes. For Jira, `site` is the Jira
+   * site the person connects.
    */
-  startTrackerSignIn(tracker: TrackerId): Promise<TrackerSignInStart>;
+  startTrackerSignIn(tracker: TrackerId, site?: string): Promise<TrackerSignInStart>;
   /** Removes the person's account for the tracker, ends Critiqs's access there where it can, and says what it did there. */
   disconnectTracker(tracker: TrackerId): Promise<TrackerDisconnected>;
   /** Whether the person's new tickets in the tracker say they came from Critiqs, by default. */

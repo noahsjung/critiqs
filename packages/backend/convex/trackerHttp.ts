@@ -1,4 +1,4 @@
-import { CritiqsError, endTrackerSignIn, readGithubWebhook, readLinearWebhook, SIGN_IN_MINUTES, sealSignIn, trackerAdapter, trackerSignIn } from "@critiqs/server";
+import { CritiqsError, endTrackerSignIn, readGithubWebhook, readJiraWebhook, readLinearWebhook, SIGN_IN_MINUTES, sealSignIn, trackerAdapter, trackerSignIn } from "@critiqs/server";
 import { ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -51,7 +51,7 @@ async function browserBinding(request: Request, name: string): Promise<string> {
 }
 
 /** What a tracker's sign-in window calls it. */
-const SIGN_IN_NAME = { linear: "Linear", github: "GitHub" } as const;
+const SIGN_IN_NAME = { linear: "Linear", github: "GitHub", jira: "Jira" } as const;
 type SignInTracker = keyof typeof SIGN_IN_NAME;
 
 /** The page shown when a tracker wasn't connected; the window is otherwise done. */
@@ -65,10 +65,13 @@ const fromYourTrackers = (name: string) => `This link only works in the window Y
 /** A sign-in into a tracker account none of whose verified emails is the Critiqs account's. It never names the Critiqs account's email: whoever is in this window may not own it. */
 function otherEmail(name: string, identity: { accountName: string; emails: string[] }): Response {
   const used = identity.emails[0] ?? identity.accountName;
-  const which = identity.emails.length > 1 ? `The ${name} account you signed in with (${used} and its other addresses)` : `The ${name} account you signed in with (${used})`;
+  // Jira's people sign in to their Atlassian account.
+  const account = name === "Jira" ? "Atlassian" : name;
+  const which = identity.emails.length > 1 ? `The ${account} account you signed in with (${used} and its other addresses)` : `The ${account} account you signed in with (${used})`;
+  const pasted = name === "GitHub" ? "a fine-grained personal access token" : name === "Jira" ? "an Atlassian API token" : `a ${name} API key`;
   return notConnected(
     name,
-    `${which} doesn't use the same email address as the Critiqs account that started connecting, so nothing was connected. Sign in to ${name} with the email address you use for Critiqs, or connect with ${name === "GitHub" ? "a fine-grained personal access token" : `a ${name} API key`} in Your trackers instead.`,
+    `${which} doesn't use the same email address as the Critiqs account that started connecting, so nothing was connected. Sign in to ${account} with the email address you use for Critiqs, or connect with ${pasted} in Your trackers instead.`,
     403,
   );
 }
@@ -149,7 +152,9 @@ function signInRoutes(tracker: SignInTracker) {
     if (code === "") return await end(notConnected(name, `${name} didn't finish the sign-in. Close this window and try again.`));
     try {
       const tokens = await ready.signIn.exchange({ code, redirectUri: callbackUrl(), verifier: claimed.verifier }, Date.now());
-      const identity = await trackerAdapter(tracker, ready.deployment).verify({ method: "oauth", value: tokens.access });
+      // Where the tracker has sites (Jira), only the site the person chose, and only when this sign-in reaches it.
+      const site = ready.signIn.site === undefined ? null : await ready.signIn.site(tokens.access, claimed.site ?? "");
+      const identity = await trackerAdapter(tracker, ready.deployment).verify({ method: "oauth", value: tokens.access, ...(site === null ? {} : { site }) });
       const account = await sealSignIn(ready.deployment, tracker, claimed.userId, identity, tokens);
       const saved = await ctx.runMutation(internal.trackers.saveSignedIn, { userId: claimed.userId, account, state });
       if (saved.status === "other-email") return withHeaders(otherEmail(name, identity), clear);
@@ -164,7 +169,9 @@ function signInRoutes(tracker: SignInTracker) {
       }
     } catch (failure) {
       // The tracker's refusals and Critiqs's own say what to do; anything else stays vague, never echoing tokens.
-      return await end(notConnected(name, failureMessage(failure, name), 502));
+      // A sign-in that doesn't reach the site the person chose (Jira) is refused, as for another email; anything else failed.
+      const refused = failure instanceof CritiqsError && failure.code === "forbidden";
+      return await end(notConnected(name, failureMessage(failure, name), refused ? 403 : 502));
     }
     return withHeaders(messagePage(`${name} is connected`, "You can close this window.", 200), clear);
   });
@@ -184,6 +191,17 @@ const github = signInRoutes("github");
 export const githubStartLink = github.startLink;
 export const githubStart = github.start;
 export const githubCallback = github.callback;
+
+const jira = signInRoutes("jira");
+/**
+ * The same three routes for the operator's Atlassian app (OAuth 2.0, 3LO),
+ * which has no PKCE: the state, bound to this browser, and the app's client
+ * secret protect the code. The person chose their Jira site in Your trackers
+ * before starting; the sign-in connects them to that site only.
+ */
+export const jiraStartLink = jira.startLink;
+export const jiraStart = jira.start;
+export const jiraCallback = jira.callback;
 
 /** What a failed sign-in says: Critiqs's own refusals as written, anything else vaguely, never echoing tokens. */
 export function failureMessage(failure: unknown, name: string): string {
@@ -254,5 +272,25 @@ export const githubWebhook = httpAction(async (ctx, request) => {
   const read = await readGithubWebhook(secret, body, request.headers.get("X-Hub-Signature-256"), request.headers.get("X-GitHub-Event"), Date.now());
   if (read.status === "refused") return new Response("Not a delivery from GitHub.", { status: 401 });
   if (read.status === "update" && (await ctx.runMutation(internal.ticketStatus.apply, { update: read.update })).limited) return tooManyUpdates();
+  return new Response(null, { status: 200 });
+});
+
+/**
+ * Jira's webhooks for the webhooks people's sign-ins registered
+ * (trackerWebhooks.ts): each delivery's bearer token must be signed with the
+ * operator's Atlassian app's client secret, before anything in it is used.
+ * An issue's new status reaches every thread that links it on the site the
+ * matched webhook was registered for; other events are answered 200 and
+ * ignored, so Jira doesn't retry them.
+ */
+export const jiraWebhook = httpAction(async (ctx, request) => {
+  const app = ticketsDeployment().jira;
+  if (app === null) return new Response("Jira webhooks aren't set up on this deployment.", { status: 404 });
+  const body = await readBoundedBody(request, MAX_WEBHOOK_BYTES);
+  if (body === "invalid") return new Response("Content-Length isn't a number.", { status: 400 });
+  if (body === "too-large") return new Response("Too large.", { status: 413 });
+  const read = await readJiraWebhook(app.clientSecret, body, request.headers.get("Authorization"), Date.now());
+  if (read.status === "refused") return new Response("Not a current delivery from Jira.", { status: 401 });
+  if (read.status === "update") await ctx.runMutation(internal.trackerWebhooks.applyJira, { delivery: read });
   return new Response(null, { status: 200 });
 });

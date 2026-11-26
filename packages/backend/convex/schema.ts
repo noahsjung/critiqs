@@ -662,7 +662,8 @@ export default defineSchema({
     projectId: v.id("projects"),
     /** Whether the Create dialog offers the chosen templates; absent means off. */
     templatesOn: v.optional(v.boolean()),
-    templates: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string() })),
+    /** `body` is the text of a template the owners pasted, for trackers without templates of their own (Jira). */
+    templates: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string(), body: v.optional(v.string()) })),
     resolveWhenDone: v.boolean(),
     defaults: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), name: v.string() })),
     updatedBy: v.id("users"),
@@ -683,10 +684,34 @@ export default defineSchema({
     openedAt: v.optional(v.number()),
     /** When the tracker sent the window back; kept until its tokens are saved, so disconnecting cancels it. */
     claimedAt: v.optional(v.number()),
+    /** The site the person chose to connect (a Jira site's host). */
+    site: v.optional(v.string()),
   })
     .index("by_state", ["state"])
     .index("by_expiry", ["expiresAt"])
     .index("by_user", ["userId", "tracker"]),
+
+  /**
+   * A status webhook a person's sign-in registered with Jira, which sends
+   * webhooks only to those its users register and expires them after 30 days:
+   * one per person, tracker, and site, following the projects of the tickets
+   * they linked there, renewed on a schedule.
+   */
+  trackerWebhooks: defineTable({
+    userId: v.id("users"),
+    tracker: trackerValidator,
+    accountId: v.string(),
+    site: v.object({ id: v.string(), name: v.string() }),
+    /** Jira's ID for the webhook, unique within its site; empty while the first registration runs. */
+    hookId: v.string(),
+    scopes: v.array(v.string()),
+    expiresAt: v.number(),
+    updatedAt: v.number(),
+    lease: v.optional(v.object({ id: v.string(), until: v.number() })),
+  })
+    .index("by_user_tracker_site", ["userId", "tracker", "site.id"])
+    .index("by_tracker_hook", ["tracker", "hookId"])
+    .index("by_expiry", ["expiresAt"]),
 
   /** Critiqs AI credits held while a request's model answers, per payer's counter scope. */
   creditHolds: defineTable({ scope: v.string(), credits: v.number(), expiresAt: v.number() }).index("by_scope_expiry", ["scope", "expiresAt"]),

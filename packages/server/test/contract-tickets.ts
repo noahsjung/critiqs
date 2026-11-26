@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { TicketsConfig } from "@critiqs/core";
 import { decryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
 import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
@@ -32,6 +33,7 @@ import {
 import type { Identity, Store, TicketLinkRecord, TrackerAccountRecord } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { NO_GITHUB } from "./github-standin.ts";
+import { NO_JIRA } from "./jira-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
@@ -373,7 +375,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   // Your trackers: the rules over this storage.
 
   const KEY = "operator-encryption-key-".padEnd(48, "x");
-  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
+  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB, ...NO_JIRA };
   const withSignIn: TicketsDeployment = { ...withKey, linear: { clientId: "client", clientSecret: "secret" } };
 
   /** A stand-in for Linear's API: its viewer, from the token sent; and its token endpoint, answering `refreshes` in turn. */
@@ -468,7 +470,6 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     // Refused before the token is sent anywhere.
     expect(linear.sent).toEqual([]);
     expect(await backend.run((store) => tickets(store).accounts.list(danaId))).toEqual([]);
-    expect((await refusal(backend.run((store) => requireTrackerPerson(store, dana, withKey, { tracker: "jira" }, Date.now())))).message).toBe("Critiqs can't connect Jira yet.");
     expect((await refusal(backend.run((store) => requireTrackerPerson(store, null, withKey, { tracker: "linear" }, Date.now())))).code).toBe("unauthenticated");
   });
 
@@ -643,8 +644,9 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
     expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
-    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
-    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
+    const offered = (linear: "oauth" | "token") => [{ id: "linear", signIn: linear }, { id: "github", signIn: "token" }, { id: "jira", signIn: "token" }] satisfies TicketsConfig["trackers"];
+    expect(ticketsConfig(withKey)).toEqual({ trackers: offered("token"), threadTickets: true, drafting: true, ticketStatus: true });
+    expect(ticketsConfig(withSignIn)).toEqual({ trackers: offered("oauth"), threadTickets: true, drafting: true, ticketStatus: true });
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id" }).linear).toBeNull();
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id", CRITIQS_LINEAR_CLIENT_SECRET: "s" })).toEqual({
       encryptionKey: KEY,
@@ -656,6 +658,10 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       githubWebhookSecret: null,
       githubApiUrl: "https://api.github.com",
       githubAppUrl: "https://github.com",
+      jira: null,
+      jiraApiUrl: "https://api.atlassian.com",
+      jiraAuthUrl: "https://auth.atlassian.com",
+      jiraSitesUrl: null,
     });
   });
 
@@ -679,7 +685,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     expect(await open("s1", "secret-s1")).toEqual({ status: "used" });
     expect(await open("unknown", "secret-s1")).toEqual({ status: "expired" });
     expect(await claim("s1", "secret-other")).toEqual({ status: "other-browser" });
-    expect(await claim("s1", "secret-s1")).toEqual({ status: "claimed", userId: danaId, verifier: "v-s1" });
+    expect(await claim("s1", "secret-s1")).toEqual({ status: "claimed", userId: danaId, verifier: "v-s1", site: null });
     // Used once.
     expect(await claim("s1", "secret-s1")).toEqual({ status: "expired" });
     // Expired before it was opened, or before the person came back.

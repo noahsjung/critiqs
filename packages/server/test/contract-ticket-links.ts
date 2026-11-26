@@ -29,12 +29,13 @@ import { prepareDraft, ticketDraft } from "../src/tickets/drafts.ts";
 import type { Identity, Store } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { NO_GITHUB } from "./github-standin.ts";
+import { NO_JIRA } from "./jira-standin.ts";
 import { type LinearStandIn, linearStandIn, STAND_IN_UPDATED_AT } from "./linear-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB, ...NO_JIRA };
 const REVIEW = "https://review.example/app?tab=users";
 
 function tickets(store: Store) {

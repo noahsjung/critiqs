@@ -36,7 +36,7 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
     isDone: result.isDone,
     continueCursor: result.continueCursor,
   });
-  const ticketTableId = <T extends "trackerAccounts" | "ticketLinks" | "ticketSettings" | "trackerSignIns">(table: T, raw: string): Id<T> => {
+  const ticketTableId = <T extends "trackerAccounts" | "ticketLinks" | "ticketSettings" | "trackerSignIns" | "trackerWebhooks">(table: T, raw: string): Id<T> => {
     const id = db.normalizeId(table, raw);
     if (id === null) throw new Error(`Not a ${table} ID: ${raw}`);
     return id;
@@ -870,6 +870,49 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .take(500);
           return rows.map(withoutCreationTime);
         },
+      },
+      webhooks: {
+        get: async (raw) => {
+          const id = db.normalizeId("trackerWebhooks", raw);
+          const row = id === null ? null : await db.get(id);
+          return row === null ? null : withoutCreationTime(row);
+        },
+        find: async (userId, tracker, siteId) => {
+          const id = db.normalizeId("users", userId);
+          if (id === null) return null;
+          const row = await db
+            .query("trackerWebhooks")
+            .withIndex("by_user_tracker_site", (q) => q.eq("userId", id).eq("tracker", tracker).eq("site.id", siteId))
+            .unique();
+          return row === null ? null : withoutCreationTime(row);
+        },
+        listForUser: async (userId, tracker) => {
+          const id = db.normalizeId("users", userId);
+          if (id === null) return [];
+          // One per site the person connected, so the range is small.
+          const rows = await db
+            .query("trackerWebhooks")
+            .withIndex("by_user_tracker_site", (q) => q.eq("userId", id).eq("tracker", tracker))
+            .collect();
+          return rows.map(withoutCreationTime);
+        },
+        findByHook: async (tracker, hookId) => {
+          const rows = await db
+            .query("trackerWebhooks")
+            .withIndex("by_tracker_hook", (q) => q.eq("tracker", tracker).eq("hookId", hookId))
+            .take(20);
+          return rows.map(withoutCreationTime);
+        },
+        listExpiring: async (before, limit) => {
+          const rows = await db
+            .query("trackerWebhooks")
+            .withIndex("by_expiry", (q) => q.lt("expiresAt", before))
+            .take(limit);
+          return rows.map(withoutCreationTime);
+        },
+        insert: async (webhook) => await writer().insert("trackerWebhooks", defined({ ...webhook, userId: webhook.userId as Id<"users"> })),
+        patch: async (id, changes) => await writer().patch(ticketTableId("trackerWebhooks", id), clearingNulls(changes) as Partial<Doc<"trackerWebhooks">>),
+        delete: async (id) => await writer().delete(ticketTableId("trackerWebhooks", id)),
       },
     },
     files: {

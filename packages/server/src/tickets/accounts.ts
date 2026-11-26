@@ -5,8 +5,9 @@ import { normalizeEmail } from "../signin.ts";
 import { currentReviewer, requireUser } from "../operations.ts";
 import { canReview } from "../organizations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
-import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken } from "./trackers/index.ts";
+import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerSite, type TrackerToken } from "./trackers/index.ts";
 import { deleteGithubGrant, exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
+import { exchangeJiraCode, JIRA_API_URL, JIRA_AUTH_URL, type JiraApp, jiraAuthorizeUrl, jiraSignInSite, parseJiraSite, refreshJiraToken } from "./trackers/jira.ts";
 import { exchangeLinearCode, LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, linearAuthorizeUrl, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
@@ -33,6 +34,15 @@ export interface TicketsDeployment {
   /** GitHub's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
   githubApiUrl: string;
   githubAppUrl: string;
+  /**
+   * The operator's Atlassian OAuth app; without it, people paste a Jira API
+   * token. Its client secret also checks the webhooks Jira sends it.
+   */
+  jira: JiraApp | null;
+  /** Atlassian's API gateway and sign-in addresses, and where Jira sites are reached with a pasted token. Only tests change them, to reach a local stand-in. */
+  jiraApiUrl: string;
+  jiraAuthUrl: string;
+  jiraSitesUrl: string | null;
 }
 
 /**
@@ -40,12 +50,16 @@ export interface TicketsDeployment {
  * `CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` (both, or
  * neither), `CRITIQS_LINEAR_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`;
  * `CRITIQS_GITHUB_CLIENT_ID`, `CRITIQS_GITHUB_CLIENT_SECRET`, and `CRITIQS_GITHUB_APP_SLUG` (all three, or none),
- * `CRITIQS_GITHUB_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_GITHUB_API_URL` and `CRITIQS_GITHUB_APP_URL`.
+ * `CRITIQS_GITHUB_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_GITHUB_API_URL` and `CRITIQS_GITHUB_APP_URL`;
+ * `CRITIQS_JIRA_CLIENT_ID` and `CRITIQS_JIRA_CLIENT_SECRET` (both, or neither), and, for tests only,
+ * `CRITIQS_JIRA_API_URL`, `CRITIQS_JIRA_AUTH_URL`, and `CRITIQS_JIRA_SITES_URL`.
  */
 export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>): TicketsDeployment {
   const clientId = env.CRITIQS_LINEAR_CLIENT_ID?.trim();
   const clientSecret = env.CRITIQS_LINEAR_CLIENT_SECRET?.trim();
   const github = { clientId: env.CRITIQS_GITHUB_CLIENT_ID?.trim(), clientSecret: env.CRITIQS_GITHUB_CLIENT_SECRET?.trim(), slug: env.CRITIQS_GITHUB_APP_SLUG?.trim() };
+  const jiraClientId = env.CRITIQS_JIRA_CLIENT_ID?.trim();
+  const jiraClientSecret = env.CRITIQS_JIRA_CLIENT_SECRET?.trim();
   return {
     encryptionKey: validEncryptionKey(env.CRITIQS_AI_ENCRYPTION_KEY) ? env.CRITIQS_AI_ENCRYPTION_KEY! : null,
     linear: clientId && clientSecret ? { clientId, clientSecret } : null,
@@ -56,11 +70,18 @@ export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>
     githubWebhookSecret: env.CRITIQS_GITHUB_WEBHOOK_SECRET?.trim() || null,
     githubApiUrl: env.CRITIQS_GITHUB_API_URL?.trim() || GITHUB_API_URL,
     githubAppUrl: env.CRITIQS_GITHUB_APP_URL?.trim() || GITHUB_APP_URL,
+    jira: jiraClientId && jiraClientSecret ? { clientId: jiraClientId, clientSecret: jiraClientSecret } : null,
+    jiraApiUrl: env.CRITIQS_JIRA_API_URL?.trim() || JIRA_API_URL,
+    jiraAuthUrl: env.CRITIQS_JIRA_AUTH_URL?.trim() || JIRA_AUTH_URL,
+    jiraSitesUrl: env.CRITIQS_JIRA_SITES_URL?.trim() || null,
   };
 }
 
 /** The trackers people can connect so far. */
-export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear", "github"];
+export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear", "github", "jira"];
+
+/** Whether connecting a tracker names the site the account is on (Jira Cloud). */
+export const trackerHasSites = (tracker: TrackerId) => tracker === "jira";
 
 /**
  * What `/critiqs/config` reports: the trackers offered and how each connects,
@@ -83,14 +104,13 @@ export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | nu
 
 /** A tracker's API address on this deployment. */
 function apiUrlOf(tracker: TrackerId, deployment: TicketsDeployment): string {
-  return tracker === "github" ? deployment.githubApiUrl : deployment.linearApiUrl;
+  return tracker === "github" ? deployment.githubApiUrl : tracker === "jira" ? deployment.jiraApiUrl : deployment.linearApiUrl;
 }
 
 /** The adapter that talks to a tracker, at the deployment's addresses. */
 export function trackerAdapter(tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): TrackerAdapter {
-  const adapter = TRACKER_ADAPTERS[tracker];
-  if (adapter === undefined || !OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
-  return adapter({ fetch: fetchFn, baseUrl: apiUrlOf(tracker, deployment) });
+  requireOffered(tracker);
+  return TRACKER_ADAPTERS[tracker]({ fetch: fetchFn, baseUrl: apiUrlOf(tracker, deployment), ...(tracker === "jira" && deployment.jiraSitesUrl !== null ? { sitesUrl: deployment.jiraSitesUrl } : {}) });
 }
 
 /** A tracker's sign-in on this deployment, through the operator's app: its pages and token requests. */
@@ -107,6 +127,12 @@ export interface TrackerSignIn {
    * (GitHub's grant), so a sign-in they made since would end with it.
    */
   endsEveryToken?: boolean;
+  /**
+   * The site a sign-in's token is for, where the tracker has several (Jira):
+   * the one the person chose before signing in, once the tracker confirms the
+   * token reaches it; refused otherwise.
+   */
+  site?(accessToken: string, chosen: string, fetchFn?: typeof fetch): Promise<TrackerSite>;
   /**
    * Ends a sign-in at the tracker, where it offers a call that does: true
    * when the tracker no longer accepts its tokens. Where ending it ends every
@@ -158,6 +184,17 @@ export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment)
       },
     };
   }
+  if (tracker === "jira" && deployment.jira !== null) {
+    const app = deployment.jira;
+    const auth = (fetchFn?: typeof fetch) => ({ baseUrl: deployment.jiraAuthUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) });
+    return {
+      // Atlassian doesn't offer PKCE: the state, bound to the browser that started, and the client secret protect the code.
+      authorizeUrl: ({ redirectUri, state }) => jiraAuthorizeUrl(deployment.jiraAuthUrl, { clientId: app.clientId, redirectUri, state }),
+      exchange: ({ code, redirectUri }, now, fetchFn) => exchangeJiraCode(auth(fetchFn), app, { code, redirectUri }, now),
+      refresh: (refreshToken, now, signal, fetchFn) => refreshJiraToken(auth(fetchFn), app, refreshToken, now, signal),
+      site: (accessToken, chosen, fetchFn) => jiraSignInSite({ baseUrl: deployment.jiraApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) }, accessToken, chosen),
+    };
+  }
   return null;
 }
 
@@ -177,8 +214,9 @@ function requireKey(deployment: TicketsDeployment): string {
   return deployment.encryptionKey;
 }
 
+/** Refuses a tracker ID Critiqs doesn't know, from a caller that didn't check it. */
 export function requireOffered(tracker: TrackerId) {
-  if (!OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
+  if (!OFFERED_TRACKERS.includes(tracker)) fail("invalid", "Choose Linear, GitHub Issues, or Jira.");
 }
 
 /** An account as Your trackers shows it: never a token. */
@@ -321,6 +359,9 @@ export async function disconnectTracker(store: Store, identity: Identity | null,
   const signIns = ticketStore(store).signIns;
   for (const signIn of await signIns.listForUser(user._id, args.tracker)) await signIns.delete(signIn._id);
   const existing = await accounts.find(user._id, args.tracker);
+  // Nothing can renew their webhooks now; Jira's own expire on their own.
+  const webhooks = ticketStore(store).webhooks;
+  for (const hook of await webhooks.listForUser(user._id, args.tracker)) await webhooks.delete(hook._id);
   if (existing === null) return null;
   await accounts.delete(existing._id);
   return { userId: user._id, tracker: args.tracker, accountId: existing.accountId, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
@@ -441,6 +482,7 @@ export async function setTrackerAttribution(store: Store, identity: Identity | n
 }
 
 const MAX_TOKEN_LENGTH = 500;
+const MAX_EMAIL_LENGTH = 254;
 
 /** A pasted token, trimmed, or why it can't be one. */
 export function parsePastedToken(raw: string): string {
@@ -457,18 +499,35 @@ export interface ConnectSteps {
 }
 
 /**
- * Connects a tracker with a personal token the person pasted: checks they may,
- * asks the tracker whose token it is, and stores it encrypted for them.
+ * What a pasted token is sent with: for Jira, the token with the person's
+ * Atlassian email, as Basic authentication sends them (`email:token`), and
+ * the site's host; for other trackers, the token alone.
+ */
+export function pastedCredential(args: { tracker: TrackerId; token: string; email?: string | null; site?: string | null }): TrackerToken {
+  const value = parsePastedToken(args.token);
+  if (!trackerHasSites(args.tracker)) return { method: "token", value };
+  const site = parseJiraSite(args.site ?? "");
+  const email = (args.email ?? "").trim();
+  if (email === "") fail("invalid", "Enter the email address of your Atlassian account.");
+  if (email.length > MAX_EMAIL_LENGTH || !/^[^\s:@]+@[^\s:@]+$/.test(email)) fail("invalid", "That doesn't look like an email address. Enter the one you sign in to Atlassian with.");
+  return { method: "token", value: `${email}:${value}`, site: { id: "", name: site } };
+}
+
+/**
+ * Connects a tracker with a personal token the person pasted (for Jira, with
+ * their email and the site): checks they may, asks the tracker whose token
+ * it is, and stores it encrypted for them.
  */
 export async function connectTrackerWithToken(
   steps: ConnectSteps,
   deployment: TicketsDeployment,
-  args: { tracker: TrackerId; token: string },
+  args: { tracker: TrackerId; token: string; email?: string | null; site?: string | null },
   fetchFn: typeof fetch = fetch,
 ): Promise<TrackerAccountView> {
-  const value = parsePastedToken(args.token);
+  const credential = pastedCredential(args);
+  const { value } = credential;
   const { userId } = await steps.requirePerson();
-  const identity = await trackerAdapter(args.tracker, deployment, fetchFn).verify({ method: "token", value });
+  const identity = await trackerAdapter(args.tracker, deployment, fetchFn).verify(credential);
   const access = await encryptToken(requireKey(deployment), trackerTokenBinding(args.tracker, userId), value);
   return await steps.save(userId, { tracker: args.tracker, method: "token", identity, access, refresh: null, expiresAt: null });
 }
@@ -504,13 +563,15 @@ export async function startTrackerSignIn(
   store: Store,
   identity: Identity | null,
   deployment: TicketsDeployment,
-  args: { tracker: TrackerId; state: string; verifier: string; bindingHash: string },
+  args: { tracker: TrackerId; state: string; verifier: string; bindingHash: string; site?: string | null },
   now: number,
 ): Promise<void> {
   const tickets = ticketStore(store);
   requireKey(deployment);
   requireOffered(args.tracker);
   if (trackerSignIn(args.tracker, deployment) === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
+  // The site the person chose: the sign-in connects them to it, and only to it.
+  const site = trackerHasSites(args.tracker) ? parseJiraSite(args.site ?? "") : null;
   const user = await requireUser(store, identity);
   await requireConnectRoom(store, "sign-in", user._id, now);
   await tickets.signIns.insert({
@@ -520,6 +581,7 @@ export async function startTrackerSignIn(
     verifier: args.verifier,
     bindingHash: args.bindingHash,
     expiresAt: now + SIGN_IN_MINUTES * 60 * 1000,
+    ...(site === null ? {} : { site }),
   });
 }
 
@@ -551,7 +613,7 @@ export async function dropTrackerSignIn(store: Store, args: { tracker: TrackerId
   if (signIn !== null && signIn.tracker === args.tracker && signIn.claimedAt !== undefined) await signIns.delete(signIn._id);
 }
 
-export type ClaimedSignIn = { status: "claimed"; userId: string; verifier: string } | { status: "expired" } | { status: "other-browser" };
+export type ClaimedSignIn = { status: "claimed"; userId: string; verifier: string; site: string | null } | { status: "expired" } | { status: "other-browser" };
 
 /**
  * Claims a sign-in when the tracker sends the person back, whatever the
@@ -571,7 +633,7 @@ export async function claimTrackerSignIn(store: Store, args: { tracker: TrackerI
     return { status: "expired" };
   }
   await signIns.patch(signIn._id, { claimedAt: now });
-  return { status: "claimed", userId: signIn.userId, verifier: signIn.verifier ?? "" };
+  return { status: "claimed", userId: signIn.userId, verifier: signIn.verifier ?? "", site: signIn.site ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -593,12 +655,12 @@ export type RefreshClaim =
   | { status: "missing" }
   /** The person's account for the tracker is another tracker account than the one asked for: they reconnected meanwhile. */
   | { status: "changed" }
-  /** The access token is good as it is. */
-  | { status: "ready"; method: "oauth" | "token"; access: StoredToken }
+  /** The access token is good as it is, for the account's site, if it has one. */
+  | { status: "ready"; method: "oauth" | "token"; access: StoredToken; site: TrackerSite | null }
   /** Another refresh is running; ask again shortly. */
   | { status: "busy" }
   /** This caller holds the lease until `until`, and refreshes the connection made at `connectedAt` with this token. */
-  | { status: "claimed"; refresh: StoredToken; until: number; connectedAt: number }
+  | { status: "claimed"; refresh: StoredToken; until: number; connectedAt: number; site: TrackerSite | null }
   /** The access token expired and there's no refresh token. */
   | { status: "ended" }
   /** The token may not be used as asked (`TokenUse`): not the person's own request, or a job for a project they may no longer review. */
@@ -649,12 +711,13 @@ export async function claimTokenRefresh(
   const account = await accounts.find(args.userId, args.tracker);
   if (account === null) return { status: "missing" };
   if (account.accountId !== args.accountId) return { status: "changed" };
-  if (account.expiresAt === undefined || account.expiresAt > now + REFRESH_MARGIN_MS) return { status: "ready", method: account.method, access: account.access };
+  const site = account.site ?? null;
+  if (account.expiresAt === undefined || account.expiresAt > now + REFRESH_MARGIN_MS) return { status: "ready", method: account.method, access: account.access, site };
   if (account.refreshLease !== undefined && account.refreshLease.until > now && account.refreshLease.id !== args.leaseId) return { status: "busy" };
   if (account.refresh === undefined) return { status: "ended" };
   const until = now + REFRESH_LEASE_MS;
   await accounts.patch(account._id, { refreshLease: { id: args.leaseId, until } });
-  return { status: "claimed", refresh: account.refresh, until, connectedAt: account.connectedAt };
+  return { status: "claimed", refresh: account.refresh, until, connectedAt: account.connectedAt, site };
 }
 
 /** A person's account for a tracker as it is now: which connection, and its access token. */
@@ -663,6 +726,7 @@ export interface CurrentConnection {
   method: "oauth" | "token";
   access: StoredToken;
   expiresAt: number | null;
+  site: TrackerSite | null;
 }
 
 export type RefreshFinish =
@@ -686,7 +750,7 @@ export async function finishTokenRefresh(
   const account = await accounts.find(args.userId, args.tracker);
   if (account === null) return { status: "rejected", current: null };
   if (account.refreshLease?.id !== args.leaseId) {
-    return { status: "rejected", current: { connectedAt: account.connectedAt, method: account.method, access: account.access, expiresAt: account.expiresAt ?? null } };
+    return { status: "rejected", current: { connectedAt: account.connectedAt, method: account.method, access: account.access, expiresAt: account.expiresAt ?? null, site: account.site ?? null } };
   }
   if (args.tokens === null) {
     await accounts.patch(account._id, { refreshLease: null });
@@ -728,6 +792,8 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
   const label = trackerLabel(args.tracker);
   const unreadable = (): never => fail("invalid", `Critiqs can no longer read your ${label} connection. Connect ${label} again in Your trackers.`);
   const leaseId = steps.leaseId();
+  // Only a tracker reached at each site's own address gets the site with the token.
+  const siteFor = (site: TrackerSite | null) => (trackerHasSites(args.tracker) ? { site } : {});
   // Waits at most a lease's length for another refresh, then takes over.
   for (let waited = 0; ; waited += BUSY_WAIT_MS) {
     const claim = await steps.claim(leaseId);
@@ -742,7 +808,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
         fail("invalid", `Your ${label} sign-in has ended. Connect ${label} again in Your trackers.`);
       case "ready": {
         const value = await decryptToken(key, binding, claim.access);
-        return { method: claim.method, value: value ?? unreadable() };
+        return { method: claim.method, value: value ?? unreadable(), ...siteFor(claim.site) };
       }
       case "busy":
         if (waited >= REFRESH_LEASE_MS) fail("unavailable", `Critiqs couldn't refresh your ${label} sign-in. Try again in a moment.`);
@@ -780,7 +846,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
           refresh: tokens.refresh === null ? null : await encryptToken(key, binding, tokens.refresh),
           expiresAt: tokens.expiresAt,
         });
-        if (saved.status === "saved") return { method: "oauth", value: tokens.access };
+        if (saved.status === "saved") return { method: "oauth", value: tokens.access, ...siteFor(claim.site) };
         // Not saved, so never returned: the account as it is now decides.
         const current = saved.current;
         if (current === null) fail("not-found", `Connect ${label} in Your trackers first.`);
@@ -790,7 +856,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
         }
         // Another caller refreshed this connection and saved first.
         const value = await decryptToken(key, binding, current.access);
-        return { method: current.method, value: value ?? unreadable() };
+        return { method: current.method, value: value ?? unreadable(), ...siteFor(current.site) };
       }
     }
   }

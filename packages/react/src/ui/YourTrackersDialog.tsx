@@ -8,7 +8,11 @@ import { DialogHeader, NavRow, SettingRow, Switch, usePageFocus } from "./ds.tsx
 const TOKEN_PAGES: Partial<Record<TrackerId, string>> = {
   linear: "https://linear.app/settings/account/security",
   github: "https://github.com/settings/personal-access-tokens/new",
+  jira: "https://id.atlassian.com/manage-profile/security/api-tokens",
 };
+
+/** Trackers whose accounts are on one of several sites, chosen when connecting (Jira Cloud): the site, and for a pasted token the account's email, go with it. */
+const hasSites = (tracker: TrackerId) => tracker === "jira";
 
 /** What each tracker calls the personal token people paste, and how to make one; an API key where a tracker isn't listed. */
 const TOKEN_KINDS: Partial<Record<TrackerId, { field: string; instead: string; help: string; settings: string }>> = {
@@ -17,6 +21,12 @@ const TOKEN_KINDS: Partial<Record<TrackerId, { field: string; instead: string; h
     instead: "Use a personal access token instead",
     help: "Create a fine-grained personal access token for the repositories you want, with read and write access to Issues and read access to Contents, then paste it here.",
     settings: "Open GitHub token settings",
+  },
+  jira: {
+    field: "API token",
+    instead: "Use an API token instead",
+    help: "Create an API token in your Atlassian account's security settings, then paste it here with your Jira site and the email you sign in to Atlassian with.",
+    settings: "Open Atlassian settings",
   },
 };
 
@@ -112,7 +122,7 @@ function postToWindow(start: TrackerSignInStart, parent: HTMLElement) {
 export function YourTrackersDialog({ offered, onClose, notify }: { offered: TicketsConfig; onClose: () => void; notify: (message: string) => void }) {
   const tickets = useTransport().tickets!;
   const state = tickets.useTrackerAccounts(true);
-  const [page, setPage] = useState<{ kind: "main" } | { kind: "token"; tracker: TrackerId }>({ kind: "main" });
+  const [page, setPage] = useState<{ kind: "main" } | { kind: "token"; tracker: TrackerId } | { kind: "site"; tracker: TrackerId }>({ kind: "main" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // What the last disconnect left working at the tracker, said plainly.
@@ -151,7 +161,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
     }
   };
 
-  const signIn = (tracker: TrackerId) => {
+  const signIn = (tracker: TrackerId, site?: string) => {
     // Opened at once, from the click, so the browser allows it; the address follows.
     const popup = window.open("", SIGN_IN_WINDOW, "popup,width=520,height=720");
     if (popup === null) {
@@ -160,7 +170,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
     }
     void attempt(async () => {
       try {
-        const start = await tickets.startTrackerSignIn(tracker);
+        const start = await tickets.startTrackerSignIn(tracker, site);
         watchBlocked(tracker, popup, start.url);
         postToWindow(start, mainRef.current ?? document.body);
         setWaiting(tracker);
@@ -204,6 +214,23 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
     setConfirming(null);
     setPage(next);
   };
+
+  if (page.kind === "site") {
+    return (
+      <Dialog label="Your trackers" onClose={onClose}>
+        <SitePage
+          tracker={page.tracker}
+          busy={busy}
+          onBack={() => go({ kind: "main" })}
+          onToken={() => go({ kind: "token", tracker: page.tracker })}
+          onSignIn={(site) => {
+            signIn(page.tracker, site);
+            setPage({ kind: "main" });
+          }}
+        />
+      </Dialog>
+    );
+  }
 
   if (page.kind === "token") {
     return (
@@ -250,7 +277,11 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                 <h4 className="ds-group-label">{label(id)}</h4>
                 {account === undefined ? (
                   <>
-                    <NavRow label={`Connect ${label(id)}`} disabled={busy} onClick={() => (method === "oauth" ? signIn(id) : go({ kind: "token", tracker: id }))} />
+                    <NavRow
+                      label={`Connect ${label(id)}`}
+                      disabled={busy}
+                      onClick={() => (method !== "oauth" ? go({ kind: "token", tracker: id }) : hasSites(id) ? go({ kind: "site", tracker: id }) : signIn(id))}
+                    />
                     {method === "oauth" && (
                       <div className="row">
                         <button type="button" className="link-btn" disabled={busy} onClick={() => go({ kind: "token", tracker: id })}>
@@ -359,6 +390,10 @@ function Connected({
 /** Connecting with a pasted personal token: where the backend has no sign-in for the tracker, or instead of it. */
 function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: TrackerId; tickets: TicketTransport; onBack: () => void; onConnected: (account: TrackerAccountView) => void }) {
   const [token, setToken] = useState("");
+  const [site, setSite] = useState("");
+  const [email, setEmail] = useState("");
+  const sited = hasSites(tracker);
+  const filled = token.trim() !== "" && (!sited || (site.trim() !== "" && email.trim() !== ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -366,11 +401,11 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
   const name = label(tracker);
   const kind = tokenKind(tracker);
   const submit = async () => {
-    if (busy || token.trim() === "") return;
+    if (busy || !filled) return;
     setBusy(true);
     setError(null);
     try {
-      onConnected(await tickets.connectTrackerWithToken(tracker, token));
+      onConnected(await (sited ? tickets.connectTrackerWithToken(tracker, token, { email, site }) : tickets.connectTrackerWithToken(tracker, token)));
     } catch (failure) {
       setError(errorMessage(failure));
       setBusy(false);
@@ -387,6 +422,18 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
       >
         <DialogHeader title={`Connect ${name}`} onBack={onBack} />
         <p className="note">{kind.help}</p>
+        {sited && (
+          <>
+            <label className="stacked">
+              <span className="field-label">Jira site</span>
+              <input className="field" autoComplete="url" value={site} placeholder="your-team.atlassian.net" onChange={(event) => setSite(event.target.value)} />
+            </label>
+            <label className="stacked">
+              <span className="field-label">Atlassian email</span>
+              <input className="field" type="email" autoComplete="email" value={email} placeholder="you@example.com" onChange={(event) => setEmail(event.target.value)} />
+            </label>
+          </>
+        )}
         <label className="stacked">
           <span className="field-label">{kind.field}</span>
           <input className="field" type="password" autoComplete="off" value={token} placeholder={`Paste the ${kind.field === "API key" ? "key" : "token"}`} onChange={(event) => setToken(event.target.value)} />
@@ -404,8 +451,44 @@ function TokenPage({ tracker, tickets, onBack, onConnected }: { tracker: Tracker
           ) : (
             <span />
           )}
-          <button type="submit" className="btn primary" disabled={busy || token.trim() === ""}>
+          <button type="submit" className="btn primary" disabled={busy || !filled}>
             {busy ? "Connecting…" : "Connect"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * Choosing the site before a tracker's sign-in, where accounts are on one of
+ * several sites (Jira Cloud): the sign-in connects that site only.
+ */
+function SitePage({ tracker, busy, onBack, onToken, onSignIn }: { tracker: TrackerId; busy: boolean; onBack: () => void; onToken: () => void; onSignIn: (site: string) => void }) {
+  const [site, setSite] = useState("");
+  const pageRef = useRef<HTMLDivElement>(null);
+  usePageFocus(pageRef, tracker, { initial: true });
+  return (
+    <div ref={pageRef}>
+      <form
+        className="ds-page"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy && site.trim() !== "") onSignIn(site.trim());
+        }}
+      >
+        <DialogHeader title={`Connect ${label(tracker)}`} onBack={onBack} />
+        <p className="note">Enter your Jira site's address, then sign in with Atlassian and allow Critiqs. If Atlassian asks which site to use, choose this one.</p>
+        <label className="stacked">
+          <span className="field-label">Jira site</span>
+          <input className="field" autoComplete="url" value={site} placeholder="your-team.atlassian.net" onChange={(event) => setSite(event.target.value)} />
+        </label>
+        <div className="ds-actions between">
+          <button type="button" className="link-btn" disabled={busy} onClick={onToken}>
+            {tokenKind(tracker).instead}
+          </button>
+          <button type="submit" className="btn primary" disabled={busy || site.trim() === ""}>
+            Sign in with Atlassian
           </button>
         </div>
       </form>

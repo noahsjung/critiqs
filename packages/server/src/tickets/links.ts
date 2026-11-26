@@ -1,4 +1,5 @@
 import {
+  ticketCaptureMissing,
   type NewTicket,
   type TicketDestination,
   type TicketLinkInput,
@@ -33,6 +34,9 @@ export const MAX_TICKET_BODY_LENGTH = 50_000;
 export const MAX_TICKET_SEARCH_LENGTH = 200;
 /** The most labels a new ticket is created with. */
 export const MAX_TICKET_LABELS = 20;
+/** The most required fields a new ticket fills, and the longest value of one. */
+export const MAX_TICKET_FIELDS = 50;
+export const MAX_FIELD_LENGTH = 5_000;
 
 type Tickets = NonNullable<Store["tickets"]>;
 
@@ -311,10 +315,15 @@ export function parseNewTicket(input: NewTicket): NewTicket {
   if (input.destinationId.trim() === "") fail("invalid", "Choose where the ticket goes.");
   const labelIds = input.labelIds ?? [];
   if (labelIds.length > MAX_TICKET_LABELS) fail("invalid", `Add at most ${MAX_TICKET_LABELS} labels.`);
+  const fields = Object.entries(input.fields ?? {});
+  const fieldTooLong = (value: string) => value.length > MAX_FIELD_LENGTH;
+  if (fields.length > MAX_TICKET_FIELDS || fields.some(([id, value]) => id.trim() === "" || id.length > 200 || (Array.isArray(value) ? value.length > MAX_TICKET_FIELDS || value.some(fieldTooLong) : fieldTooLong(value)))) {
+    fail("invalid", "Fill the ticket's fields from the dialog.");
+  }
   if (labelIds.some((id) => id.trim() === "" || id.length > 200) || (input.templateId != null && (input.templateId.trim() === "" || input.templateId.length > 200))) {
     fail("invalid", "Choose labels and templates from the dialog's lists.");
   }
-  return { ...input, submissionId, title, labelIds: [...new Set(labelIds)], templateId: input.templateId ?? null };
+  return { ...input, submissionId, title, labelIds: [...new Set(labelIds)], templateId: input.templateId ?? null, fields: Object.fromEntries(fields) };
 }
 
 /**
@@ -502,6 +511,8 @@ export interface CreateSteps {
   now(): number;
   /** A fresh random ID, for an attempt's lease. */
   newId(): string;
+  /** Asks for the ticket's status webhooks where people register them (Jira); never fails the creation. */
+  watch?(person: TrackerPerson, ticket: CreatedTicket): Promise<void>;
 }
 
 /** The tracker's adapter for a held creation or link: its requests end before the lease does. */
@@ -515,14 +526,17 @@ function heldAdapter(steps: { now(): number }, tracker: TrackerId, deployment: T
  * tracker didn't add is saved as missing, for the creator to add again; the
  * ticket is linked either way, never created again.
  */
-async function linkCreated(steps: CreateSteps, adapter: TrackerAdapter, token: TrackerToken, hold: HeldCreation, ticket: CreatedTicket) {
+async function linkCreated(steps: CreateSteps, adapter: TrackerAdapter, token: TrackerToken, hold: HeldCreation, ticket: CreatedTicket, person: TrackerPerson) {
   // Without a thread link there is no link back to add.
-  if (hold.linkBack === null) return await steps.finish(hold, ticket, true);
-  const added = await adapter.linkBack(token, ticket, hold.linkBack).then(
-    () => true,
-    () => false,
-  );
-  return await steps.finish(hold, ticket, added);
+  const added =
+    hold.linkBack === null ||
+    (await adapter.linkBack(token, ticket, hold.linkBack).then(
+      () => true,
+      () => false,
+    ));
+  const view = await steps.finish(hold, ticket, added);
+  await steps.watch?.(person, ticket).catch(() => undefined);
+  return view;
 }
 
 /** Runs an attempt's work on a held creation; anything unexpected gives it up as `end`, since the tracker may have made the ticket. */
@@ -567,20 +581,30 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
   return await holding(steps, held, "unknown", async () => {
     if (held.resumed) {
       const made = await found();
-      if (made !== null) return await linkCreated(steps, adapter, token, held, made);
+      if (made !== null) return await linkCreated(steps, adapter, token, held, made, creator);
     }
     // Checked only before the tracker is asked to create: a ticket made already is linked whatever the project offers now.
     if (!held.templateOffered) fail("invalid", TEMPLATE_NOT_OFFERED);
     const capture = held.captureFileId === null || adapter.uploadImage === undefined ? null : await uploadCapture(steps, adapter.uploadImage, token, held.captureFileId);
     const body = ticketBody(ticket.body, { capture, attribution: ticket.createdFromCritiqs ? { name: held.name } : null, link: held.linkBack?.url ?? null });
-    const outcome = await adapter.create(token, { destinationId: ticket.destinationId, title: ticket.title, body, labels: ticket.labelIds ?? [], templateId, creationId: held.creationId });
+    const outcome = await adapter.create(token, {
+      destinationId: ticket.destinationId,
+      title: ticket.title,
+      body,
+      labels: ticket.labelIds ?? [],
+      templateId,
+      creationId: held.creationId,
+      fields: ticket.fields ?? {},
+    });
     switch (outcome.status) {
       case "created":
-        return await linkCreated(steps, adapter, token, held, outcome.ticket);
+        // Where the tracker keeps images as attachments (Jira), the capture goes on the ticket now that it exists.
+        if (held.captureFileId !== null && adapter.attachImage !== undefined) await attachCapture(steps, adapter, token, outcome.ticket, held);
+        return await linkCreated(steps, adapter, token, held, outcome.ticket, creator);
       case "refused": {
         // A tracker refuses an ID it has already: an earlier attempt's request may have landed after all.
         const made = held.resumed ? await found() : null;
-        if (made !== null) return await linkCreated(steps, adapter, token, held, made);
+        if (made !== null) return await linkCreated(steps, adapter, token, held, made, creator);
         await steps.release(held, "nothing");
         throw outcome.error;
       }
@@ -588,6 +612,22 @@ export async function createTicket(steps: CreateSteps, deployment: TicketsDeploy
         throw outcome.error;
     }
   });
+}
+
+/**
+ * Attaches the thread's capture to a ticket just created; when it can't be
+ * read or attached, a comment says to open the thread to view it. The ticket
+ * stays created either way.
+ */
+async function attachCapture(steps: CreateSteps, adapter: TrackerAdapter, token: TrackerToken, ticket: CreatedTicket, held: HeldCreation & { captureFileId: string | null }) {
+  try {
+    const image = held.captureFileId === null ? null : await steps.capture(held.captureFileId);
+    if (image === null) throw new Error("unreadable");
+    const extension = image.contentType.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
+    await adapter.attachImage!(token, ticket, { data: image.data, contentType: image.contentType, name: `critiqs-capture.${extension}` });
+  } catch {
+    await adapter.comment(token, ticket, ticketCaptureMissing(held.linkBack?.url ?? null)).catch(() => undefined);
+  }
 }
 
 /** The capture uploaded into the tracker, or `missing` when it couldn't be read or uploaded; the ticket is created either way. */
@@ -820,6 +860,8 @@ export interface LinkSteps {
   now(): number;
   /** A fresh random ID, for an attempt's lease. */
   newId(): string;
+  /** Asks for the ticket's status webhooks where people register them (Jira); never fails the link. */
+  watch?(person: TrackerPerson, ticket: CreatedTicket): Promise<void>;
 }
 
 /**
@@ -856,6 +898,7 @@ export async function linkTicket(steps: LinkSteps, deployment: TicketsDeployment
     throw error;
   }
   const { view, created } = await steps.finish(hold, ticket);
+  if (created) await steps.watch?.(claim.person, ticket).catch(() => undefined);
   if (!created || !input.comment) return view;
   try {
     await adapter.comment(token, ticket, ticketLinkComment(claim.summary, { link: claim.link, attribution: claim.attribution }));

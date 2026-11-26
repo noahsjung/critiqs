@@ -22,7 +22,8 @@
     "./contract-ticket-drafts": "./test/contract-ticket-drafts.ts",
     "./contract-ticket-status": "./test/contract-ticket-status.ts",
     "./linear-standin": "./test/linear-standin.ts",
-    "./github-standin": "./test/github-standin.ts"
+    "./github-standin": "./test/github-standin.ts",
+    "./jira-standin": "./test/jira-standin.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

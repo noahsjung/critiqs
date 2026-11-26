@@ -25,12 +25,13 @@ import {
 import { claimTicketCreation, createTicket, finishTicketCreation, releaseTicketHold, requireTicketCreator, requireTrackerAccount } from "../src/tickets/links.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { NO_GITHUB } from "./github-standin.ts";
+import { NO_JIRA } from "./jira-standin.ts";
 import { deployment as aiDeployment, fakeModel } from "./contract-ai.ts";
 import { type LinearStandIn, linearStandIn } from "./linear-standin.ts";
 
 const failed = { status: "failed" as const, failureReason: "Blocked" };
 const KEY = "operator-encryption-key-".padEnd(48, "x");
-const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
+const deployment: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB, ...NO_JIRA };
 const REVIEW = "https://review.example/app";
 const bug: TicketTemplateChoice = { tracker: "linear", destinationId: "team-eng", templateId: "tpl-bug", name: "Bug report" };
 const copy: TicketTemplateChoice = { tracker: "linear", destinationId: "team-des", templateId: "tpl-copy", name: "Copy change" };
@@ -187,7 +188,8 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
     expect(await backend.run((store) => getTicketTemplateSettings(store, dana, { projectId }))).toEqual({ on: false, templates: [bug, copy] });
     expect((await refusal(save(backend, dana, projectId, true, Array.from({ length: 51 }, (_, index) => ({ ...bug, templateId: `tpl-${index}` }))))).code).toBe("invalid");
     expect((await refusal(save(backend, dana, projectId, true, [{ ...bug, templateId: " " }]))).code).toBe("invalid");
-    expect((await refusal(save(backend, dana, projectId, true, [{ ...bug, tracker: "jira" }]))).message).toContain("can't connect Jira yet");
+    // Jira keeps no templates: one offered for it is the text an owner pasted.
+    expect((await refusal(save(backend, dana, projectId, true, [{ ...bug, tracker: "jira" }]))).message).toBe("Paste the template's text.");
 
     // Choosing which to offer lists the owner's own Linear teams' templates, as them.
     const steps = (who: Identity) => ({ requirePerson: () => backend.run((store) => requireTemplateOwner(store, who, { projectId, tracker: "linear" }, 1_000)), token: () => token(who)() });

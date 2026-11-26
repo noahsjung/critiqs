@@ -130,7 +130,7 @@ export const setAttribution = mutation({
 
 /** Connects a tracker with a personal token the person pasted, after the tracker confirms whose it is. */
 export const connectWithToken = action({
-  args: { tracker: trackerValidator, token: v.string() },
+  args: { tracker: trackerValidator, token: v.string(), email: v.optional(v.string()), site: v.optional(v.string()) },
   handler: async (ctx, args): Promise<TrackerAccountView> =>
     run(() =>
       connectTrackerWithToken(
@@ -150,13 +150,19 @@ export const connectWithToken = action({
  * ever gets the secret, and only its hash is stored.
  */
 export const startSignIn = action({
-  args: { tracker: trackerValidator },
+  args: { tracker: trackerValidator, site: v.optional(v.string()) },
   handler: async (ctx, args): Promise<TrackerSignInStart> =>
     run(async () => {
       // Secrets come from an action, whose randomness is not replayed.
       const state = randomSecret();
       const binding = randomSecret();
-      await ctx.runMutation(internal.trackers.createSignIn, { tracker: args.tracker, state, verifier: randomSecret(), bindingHash: await hashSecret(binding) });
+      await ctx.runMutation(internal.trackers.createSignIn, {
+        tracker: args.tracker,
+        state,
+        verifier: randomSecret(),
+        bindingHash: await hashSecret(binding),
+        ...(args.site === undefined ? {} : { site: args.site }),
+      });
       return { url: `${siteUrl()}/trackers/${args.tracker}/start`, state, binding };
     }),
 });
@@ -174,7 +180,7 @@ export const saveOwn = internalMutation({
 });
 
 export const createSignIn = internalMutation({
-  args: { tracker: trackerValidator, state: v.string(), verifier: v.string(), bindingHash: v.string() },
+  args: { tracker: trackerValidator, state: v.string(), verifier: v.string(), bindingHash: v.string(), site: v.optional(v.string()) },
   handler: async (ctx, args) => run(async () => startTrackerSignIn(convexStore(ctx), await identityOf(ctx), ticketsDeployment(), args, Date.now())),
 });
 

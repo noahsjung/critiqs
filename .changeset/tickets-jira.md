@@ -1,0 +1,5 @@
+---
+"critiqs-react": minor
+---
+
+Jira Cloud joins Linear and GitHub Issues in Your trackers and tickets. **Connect Jira** asks for the Jira site (such as `your-team.atlassian.net`), then opens Atlassian's sign-in for it where the deployment has an Atlassian app, or takes an Atlassian API token with the person's email. Create ticket offers each project and issue type, asks for the fields the issue type requires (and names any it can't fill), sends the text as Atlassian Document Format, attaches the capture, adds the thread as a remote link, and suggests the site's labels that match the thread's tags. Link ticket searches by key or words. Project owners paste Jira templates in Tags and AI, under Tickets. Status comes back from the webhooks a Jira sign-in registers, renewed daily before they expire, and from the check when a thread opens; Resolve when done works for Jira tickets. Deploy the matching backend; operators set `CRITIQS_JIRA_CLIENT_ID` and `CRITIQS_JIRA_CLIENT_SECRET` for sign-in.

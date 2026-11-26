@@ -338,16 +338,16 @@ function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknow
   const replace = (account: TrackerAccountView) => (trackers.accounts = [...(trackers.accounts ?? []).filter((each) => each.tracker !== account.tracker), account]);
   return {
     useTrackerAccounts: (enabled) => (enabled && trackers.accounts !== undefined ? { status: "ready", data: trackers.accounts } : { status: "loading" }),
-    connectTrackerWithToken: async (tracker, token) => {
-      record("connectTrackerWithToken", { tracker, token });
+    connectTrackerWithToken: async (tracker, token, site) => {
+      record("connectTrackerWithToken", { tracker, token, ...site });
       const account = trackers.connect
         ? await trackers.connect(tracker, token)
         : { tracker, method: "token" as const, accountName: "Dana Smith", site: "Acme", connectedAt: 1, attribution: true };
       replace(account);
       return account;
     },
-    startTrackerSignIn: async (tracker) => {
-      record("startTrackerSignIn", { tracker });
+    startTrackerSignIn: async (tracker, site) => {
+      record("startTrackerSignIn", { tracker, ...(site === undefined ? {} : { site }) });
       return (await trackers.signIn?.()) ?? { url: `https://backend.convex.site/trackers/${tracker}/start`, state: "s1", binding: "secret-1" };
     },
     disconnectTracker: async (tracker) => {
