@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as addressCheck from "../addressCheck.js";
 import type * as ai from "../ai.js";
 import type * as aiSettings from "../aiSettings.js";
 import type * as billing from "../billing.js";
@@ -29,6 +30,7 @@ import type * as lib_validators from "../lib/validators.js";
 import type * as mockups from "../mockups.js";
 import type * as notificationEmails from "../notificationEmails.js";
 import type * as notifications from "../notifications.js";
+import type * as onboarding from "../onboarding.js";
 import type * as organizationEmails from "../organizationEmails.js";
 import type * as organizations from "../organizations.js";
 import type * as planAlerts from "../planAlerts.js";
@@ -47,6 +49,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  addressCheck: typeof addressCheck;
   ai: typeof ai;
   aiSettings: typeof aiSettings;
   billing: typeof billing;
@@ -68,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   mockups: typeof mockups;
   notificationEmails: typeof notificationEmails;
   notifications: typeof notifications;
+  onboarding: typeof onboarding;
   organizationEmails: typeof organizationEmails;
   organizations: typeof organizations;
   planAlerts: typeof planAlerts;

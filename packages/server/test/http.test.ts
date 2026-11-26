@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
+import type { AddressCheckDeps } from "../src/address-check.ts";
 import { createCritiqsHandler, type CritiqsAiOptions, type CritiqsHandler, type HostUser } from "../src/http/index.ts";
+import { ADDRESS_CHECKS_PER_HOUR, ADDRESS_CHECKS_PER_PERSON_PER_HOUR, claimAddressCheck } from "../src/onboarding.ts";
 import type { MailMessage } from "../src/signin.ts";
 import { bunDriver } from "../src/sqlite/index.ts";
 import { anchor } from "./contract.ts";
@@ -12,7 +14,14 @@ afterEach(() => {
 });
 
 async function server(
-  options: { identify?: (request: Request) => HostUser | null; mail?: MailMessage[]; database?: Database; ai?: CritiqsAiOptions; aiFetch?: typeof fetch } = {},
+  options: {
+    identify?: (request: Request) => HostUser | null;
+    mail?: MailMessage[];
+    database?: Database;
+    ai?: CritiqsAiOptions;
+    aiFetch?: typeof fetch;
+    addressCheck?: AddressCheckDeps | false;
+  } = {},
 ) {
   const sent = options.mail ?? [];
   const handler = await createCritiqsHandler({
@@ -20,6 +29,7 @@ async function server(
     identify: options.identify,
     ai: options.ai,
     ...(options.aiFetch === undefined ? {} : { aiFetch: options.aiFetch }),
+    ...(options.addressCheck === undefined ? {} : { addressCheck: options.addressCheck }),
     mailer: { send: async (message) => void sent.push(message) },
   });
   handlers.push(handler);
@@ -81,6 +91,7 @@ test("reports itself as a server in the host app, current with the component", a
     organizations: true,
     organizationMembers: true,
     overageCap: true,
+    addressCheck: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });
@@ -715,4 +726,74 @@ test("a server lists providers' models for a project's owner and for each person
   const choice = (await b.api("aiChoice", { projectId })).body.value;
   expect(choice).toEqual({ source: "project", models: [{ id: "gpt-test", label: "gpt-test" }, { id: "gpt-big", label: "gpt-big" }], defaultModel: "gpt-test" });
   expect(JSON.stringify(choice)).not.toContain("sk-");
+});
+
+test("checks a prototype's address for signed-in people, never connecting to private addresses, within hourly limits", async () => {
+  const connected: string[] = [];
+  const addressCheck: AddressCheckDeps = {
+    resolve: async (hostname) => [{ address: hostname === "inside.example.com" ? "10.0.0.8" : "93.184.215.14", family: 4 }],
+    fetchPinned: async ({ url }) => {
+      connected.push(url.href);
+      const html = '<html><script id="__NEXT_DATA__" type="application/json">{}</script></html>';
+      return { status: 200, headers: {}, body: (async function* () { yield new TextEncoder().encode(html); })() };
+    },
+  };
+  const who = { current: null as HostUser | null };
+  const { handler } = await server({ identify: () => who.current, addressCheck });
+  const b = browser(handler);
+  expect((await b.api("checkPrototypeAddress", { address: "https://proto.example.com" })).status).toBe(401);
+  expect(connected).toEqual([]);
+
+  who.current = { id: "1", name: "Dana", email: "dana@acme.test" };
+  expect((await b.api("checkPrototypeAddress", { address: "https://proto.example.com" })).body.value).toEqual({ kind: "public", stack: "next" });
+  expect((await b.api("checkPrototypeAddress", { address: "https://inside.example.com" })).body.value).toEqual({ kind: "unreachable" });
+  expect((await b.api("checkPrototypeAddress", { address: "http://localhost:3000" })).body.value).toEqual({ kind: "local" });
+  expect(connected).toEqual(["https://proto.example.com/"]);
+
+  // Invalid input is an error to show, and isn't counted.
+  expect((await b.api("checkPrototypeAddress", { address: "https://dana:pw@proto.example.com" })).body.error).toEqual({
+    code: "invalid",
+    message: "Leave the username and password out of the address.",
+  });
+  expect((await b.api("checkPrototypeAddress", { address: 5 })).status).toBe(400);
+  expect((await b.api("checkPrototypeAddress", { address: "https://proto.example.com", extra: 1 })).status).toBe(400);
+
+  for (let used = 3; used < ADDRESS_CHECKS_PER_PERSON_PER_HOUR; used++) {
+    expect((await b.api("checkPrototypeAddress", { address: "http://localhost:3000" })).status).toBe(200);
+  }
+  const limited = await b.api("checkPrototypeAddress", { address: "https://proto.example.com" });
+  expect(limited).toMatchObject({ status: 429, body: { error: { code: "limit", message: "You've checked 20 addresses this hour. Try again later, or skip this step." } } });
+  expect(connected).toHaveLength(1);
+  // Someone else still can.
+  who.current = { id: "2", name: "Lee", email: "lee@acme.test" };
+  expect((await b.api("checkPrototypeAddress", { address: "http://localhost:3000" })).body.value).toEqual({ kind: "local" });
+});
+
+test("address checks stop for everyone past the deployment's hourly limit, and start again the next hour", async () => {
+  const { handler } = await server();
+  const person = (n: number) => ({ tokenIdentifier: `host|${n}`, name: `P${n}`, email: `p${n}@acme.test`, emailVerified: true, pictureUrl: null, profileVersion: null });
+  const hour = Date.UTC(2026, 10, 25, 9);
+  const people = ADDRESS_CHECKS_PER_HOUR / ADDRESS_CHECKS_PER_PERSON_PER_HOUR;
+  for (let n = 0; n < people; n++) {
+    for (let i = 0; i < ADDRESS_CHECKS_PER_PERSON_PER_HOUR; i++) await handler.store.transaction((s) => claimAddressCheck(s, person(n), hour + n * 1000));
+  }
+  const refused = await handler.store.transaction((s) => claimAddressCheck(s, person(people), hour + 3_599_000)).catch((error: unknown) => error);
+  expect(refused).toMatchObject({ code: "limit", message: "Critiqs is checking a lot of addresses right now. Try again in a few minutes, or skip this step." });
+  // The next hour, a full hour's worth of checks again.
+  for (let i = 0; i < ADDRESS_CHECKS_PER_PERSON_PER_HOUR; i++) await handler.store.transaction((s) => claimAddressCheck(s, person(people), hour + 3_600_000));
+});
+
+test("a server can turn the address check off, and says so in its configuration", async () => {
+  const { handler } = await server({ identify: () => ({ id: "1", name: "Dana", email: "dana@acme.test" }), addressCheck: false });
+  expect((await (await handler.fetch(new Request(`${SITE}/critiqs/critiqs/config`))).json()).addressCheck).toBe(false);
+  const b = browser(handler);
+  for (const address of ["https://proto.example.com", "http://localhost:3000"]) {
+    expect(await b.api("checkPrototypeAddress", { address })).toEqual({
+      status: 410,
+      body: { error: { code: "unavailable", message: "This Critiqs server doesn't check prototype addresses." } },
+    });
+  }
+  // Nothing was counted: the hourly limit is untouched.
+  const person = { tokenIdentifier: "host|1", name: "Dana", email: "dana@acme.test", emailVerified: true, pictureUrl: null, profileVersion: null };
+  for (let i = 0; i < ADDRESS_CHECKS_PER_PERSON_PER_HOUR; i++) await handler.store.transaction((s) => claimAddressCheck(s, person, Date.now()));
 });

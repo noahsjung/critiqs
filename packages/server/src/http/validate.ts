@@ -180,4 +180,5 @@ export const ARGUMENTS: Record<string, Check> = {
   listAiModels: object({ projectId: string, "draft?": modelListDraft }),
   listPersonalAiModels: object({ "draft?": modelListDraft }),
   aiChoice: object({ projectId: string }),
+  checkPrototypeAddress: object({ address: string }),
 };

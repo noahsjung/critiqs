@@ -81,6 +81,7 @@ http.route({
       // `revokeInvite`, `setRole`, `removeMember`), `home` on organizations, and `organizationId` on `projects:create`.
       // `overageCap`: an organization's admins set its cap on extra Critiqs AI credits (`organizations:setOverageCap`).
       // `billing`: this deployment takes payment (`billing:status`, `billing:changePlan`, `billing:setStorageAddOn`, `billing:portal`).
+      // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       {
         signInUrl: signInUrl(),
         protocol: 5,
@@ -95,6 +96,7 @@ http.route({
         organizationMembers: true,
         overageCap: true,
         ...(billingConfig() === null ? {} : { billing: true }),
+        addressCheck: true,
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),

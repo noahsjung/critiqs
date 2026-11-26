@@ -22,6 +22,37 @@ import { OTHER_ADDRESSES, PRIVATE_ADDRESSES } from "./review-addresses.ts";
 
 const page = (body: string) => `<!doctype html><html><head><meta charset="utf-8"><title>Prototype</title></head><body>${body}</body></html>`;
 
+/**
+ * Whether `run` takes about 8 times as long on a page 8 times the size (2 MB
+ * against 256 KB), as a linear scan does, rather than the 64 times a scan
+ * that grows with the square of the size takes. Each size counts its fastest
+ * of 5 runs, each after a full garbage collection: other work on the machine
+ * and collector pauses only ever add time, so the fastest run is the scan's
+ * own. Allowing 24 times leaves 3 times room above linear and stays well
+ * under quadratic. A pass on any of 3 tries counts, since load on a shared
+ * machine can slow one measurement, but a quadratic scan fails every try.
+ */
+function growsLinearly<T>(make: (size: number) => T, run: (input: T) => unknown): boolean {
+  const fastest = (input: T) => {
+    let best = Infinity;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      Bun.gc(true);
+      const began = performance.now();
+      run(input);
+      best = Math.min(best, performance.now() - began);
+    }
+    return best;
+  };
+  const small = make(256_000);
+  const large = make(2_048_000);
+  run(small);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // The 5 ms covers a timer's resolution on pages that take well under a millisecond.
+    if (fastest(large) < 24 * fastest(small) + 5) return true;
+  }
+  return false;
+}
+
 describe("onboarding answers", () => {
   test("keep known values and drop everything else, as if skipped", () => {
     const cases: [unknown, OnboardingAnswers][] = [
@@ -171,10 +202,20 @@ describe("stacks", () => {
     for (const [name, body, expected] of cases) expect([name, detectStack({ html: page(body), headers: {} })]).toEqual([name, expected]);
   });
 
+  test("the linear-time check fails a scan that grows with the square of the page", () => {
+    // A stand-in for a scanner that rescans: the work for a page is (its length / 200) squared.
+    const quadratic = (input: { html: string }) => {
+      const n = Math.floor(input.html.length / 200);
+      let sum = 0;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) sum += (i ^ j) & 1;
+      return sum;
+    };
+    expect(growsLinearly((size) => ({ html: "x".repeat(size) }), quadratic)).toBe(false);
+  });
+
   test("stay linear in the page's size on hostile pages", () => {
     // Each scenario builds a page of about `size` characters. A pattern that
-    // backtracks across tags or rescans grows with the square of the size, so
-    // four times the input must take about four times as long, never sixteen.
+    // backtracks across tags or rescans grows with the square of the size.
     const fill = (piece: string, size: number) => piece.repeat(Math.ceil(size / piece.length));
     const scenarios: [string, (size: number) => { html: string; headers: Record<string, string> }][] = [
       ...["<a", "<script", "<meta", "<input", "src=", "href=", "__sveltekit_", "<div data-v-", "<!--", "<!x", "</a", "&#"].map(
@@ -217,22 +258,7 @@ describe("stacks", () => {
       classifyAddress({ hops: [{ url: "https://acme.com/", status: 403, headers }], html });
       classifyAddress({ hops: [{ url: "https://acme.com/", status: 200, headers }], html });
     };
-    const median = (input: { html: string; headers: Record<string, string> }) => {
-      const times = [0, 1, 2, 3, 4].map(() => {
-        const began = performance.now();
-        run(input);
-        return performance.now() - began;
-      });
-      return times.sort((a, b) => a - b)[2]!;
-    };
-    const sizes = [256_000, 512_000, 1_024_000, 2_048_000];
-    for (const [name, make] of scenarios) {
-      const inputs = sizes.map(make);
-      run(inputs[0]!);
-      const [, half, , two] = inputs.map(median) as [number, number, number, number];
-      // Generous for a busy machine, and far below the 16 times a quadratic scan takes.
-      expect([name, two < 6 * half + 25]).toEqual([name, true]);
-    }
+    for (const [name, make] of scenarios) expect([name, growsLinearly(make, run)]).toEqual([name, true]);
   }, 120_000);
 
   test("are each listed once, with React (Vite) and Next.js installable today", () => {
