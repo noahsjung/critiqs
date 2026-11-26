@@ -2,6 +2,8 @@ import type { CopyElement } from "./markup.mjs";
 import { SetupError, type Fetch } from "./setup.mjs";
 
 export declare class NotSignedInError extends SetupError {}
+/** The saved sign-in isn't approved for the backend, so its token wasn't sent there. */
+export declare class BackendNotApprovedError extends SetupError {}
 
 interface Services {
   env?: Record<string, string | undefined>;
@@ -9,20 +11,47 @@ interface Services {
   now?: () => number;
 }
 
+/** Where this computer keeps its sign-ins, in format version 2. */
 export declare function credentialsFile(env?: Record<string, string | undefined>, platform?: string): string;
+/** Where versions before format version 2 kept their sign-ins, beside `file`. */
+export declare function legacyCredentialsFile(file: string): string;
 export declare function savedSignIn(
   signInUrl: string,
   options?: { env?: Record<string, string | undefined> },
-): { reviewer: { name: string | null; email: string | null }; signedInAt: number; endsAt: number | null } | null;
-export declare function accessTokenFor(signInUrl: string, options?: Services): Promise<string>;
+): { reviewer: { name: string | null; email: string | null }; signedInAt: number; endsAt: number | null; bindings: SignInBinding[] } | null;
+/**
+ * A token to send to `backendUrl` (and to `siteUrl`, where it serves screenshots and page copies),
+ * refused unless the saved sign-in was approved for those origins.
+ */
+export declare function accessTokenFor(signInUrl: string, options: Services & { backendUrl: string; siteUrl?: string }): Promise<string>;
+/** Quotes a value for a POSIX shell. */
+export declare function shellQuote(value: string): string;
+
+/** A backend a saved sign-in was approved for, and where it serves screenshots and page copies, as origins. */
+export interface SignInBinding {
+  backend: string;
+  site: string;
+}
 
 export interface PendingSignIn {
   method: "remote" | "browser";
   url: string;
   userCode: string;
   signInUrl: string;
+  backendUrl: string;
+  /** The origins this sign-in will be approved for, which the approval page names. */
+  binding: SignInBinding;
+  /** Whether the approval page names the backend; false only for Critiqs Cloud through an older Critiqs Cloud sign-in service. */
+  confirmed: boolean;
   cancel(): void;
-  finish(): Promise<{ reviewer: { name: string | null; email: string | null }; endsAt: number | null; signInUrl: string }>;
+  finish(): Promise<{
+    reviewer: { name: string | null; email: string | null };
+    endsAt: number | null;
+    signInUrl: string;
+    backendUrl: string;
+    /** Everything the saved sign-in is approved for. */
+    bindings: SignInBinding[];
+  }>;
 }
 export declare function beginSignIn(
   options?: Services & { backendUrl?: string; method?: "auto" | "remote" | "browser"; sleep?: (ms: number) => Promise<void> },
@@ -168,7 +197,7 @@ export declare function readScreenshot(
 
 export declare function signInStatus(
   options?: Services & { backendUrl?: string },
-): Promise<{ signInUrl: string; saved: ReturnType<typeof savedSignIn> }>;
+): Promise<{ signInUrl: string; backendUrl: string; saved: ReturnType<typeof savedSignIn>; approved: boolean }>;
 
 export declare const MAX_REPLY_LENGTH: number;
 export declare function postReply(

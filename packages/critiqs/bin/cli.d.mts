@@ -18,4 +18,14 @@ export interface CommandOptions {
   envFile: string | null;
 }
 export declare function parseCommand(argv: string[]): CommandOptions | { error: string };
-export declare function runCli(argv: string[], options?: { cwd?: string; print?: (message: string) => void }): Promise<number>;
+export declare function runCli(
+  argv: string[],
+  options?: {
+    cwd?: string;
+    print?: (message: string) => void;
+    /** Stand-ins for `sign-in`. */
+    env?: Record<string, string | undefined>;
+    fetchFn?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<number>;

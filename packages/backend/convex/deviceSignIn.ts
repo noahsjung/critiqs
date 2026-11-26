@@ -54,8 +54,14 @@ async function grantByCode(ctx: MutationCtx, userCodeHash: string, now: number) 
 
 /** Starts a grant. A code already waiting is refused, so the caller draws another. */
 export const start = internalMutation({
-  args: { deviceHash: v.string(), userCodeHash: v.string(), keepSignedIn: v.optional(v.boolean()) },
-  handler: async (ctx, { deviceHash, userCodeHash, keepSignedIn }) => {
+  args: {
+    deviceHash: v.string(),
+    userCodeHash: v.string(),
+    keepSignedIn: v.optional(v.boolean()),
+    backend: v.optional(v.string()),
+    site: v.optional(v.string()),
+  },
+  handler: async (ctx, { deviceHash, userCodeHash, keepSignedIn, backend, site }) => {
     const now = Date.now();
     if ((await grantByCode(ctx, userCodeHash, now)) !== null) return { status: "collision" as const };
     const limit = await take(ctx, "device-start:global", DEVICE_START_LIMIT, now);
@@ -68,6 +74,8 @@ export const start = internalMutation({
       interval: DEVICE_INTERVAL_SECONDS,
       status: "pending",
       ...(keepSignedIn === true ? { keepSignedIn: true } : {}),
+      ...(backend === undefined ? {} : { backend }),
+      ...(site === undefined ? {} : { site }),
     });
     return { status: "started" as const, expiresIn: DEVICE_MINUTES * 60, interval: DEVICE_INTERVAL_SECONDS };
   },
@@ -156,12 +164,14 @@ export const poll = internalMutation({
       const reviewer = id === null ? null : await ctx.db.get(id);
       if (reviewer === null) return { status: "invalid" as const };
       const profile = { ...grant.profile, name: reviewer.name, profileVersion: reviewer.nameVersion };
+      // What the approval page named, so the command line can check it is what it asked for.
+      const shown = { backend: grant.backend ?? null, site: grant.site ?? null };
       if (grant.keepSignedIn !== true || refreshHash === undefined || origin === undefined) {
-        return { status: "approved" as const, profile, session: null };
+        return { status: "approved" as const, profile, session: null, ...shown };
       }
       const endsAt = now + SESSION_MAX_DAYS * DAY_MS;
       await ctx.db.insert("sessions", { refreshHash, origin, profile, createdAt: now, expiresAt: now + SESSION_DAYS * DAY_MS, endsAt });
-      return { status: "approved" as const, profile, session: { endsAt } };
+      return { status: "approved" as const, profile, session: { endsAt }, ...shown };
     }
     const early = grant.lastPolledAt !== undefined && now - grant.lastPolledAt < grant.interval * 1000;
     // Each early poll lengthens the wait, as RFC 8628 asks.

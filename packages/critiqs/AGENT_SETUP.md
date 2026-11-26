@@ -75,7 +75,10 @@ Then init signs the person in and creates the project:
   let init choose it. It prints an address and a code such as `BCDF-GHJK`. Give
   both to the person exactly and ask them to open the address on any device,
   enter the code, sign in, and choose Approve. The code expires after 10
-  minutes. Never ask them to send you the email code.
+  minutes. Never ask them to send you the email code. The address is always
+  the sign-in service's own `/auth/device` page. For a backend other than
+  Critiqs Cloud, the sign-in service must confirm that its page names the
+  backend, as for `sign-in` below.
 
 With `--json`, standard output is one JSON object; progress, including the
 address and code, goes to standard error. The result's `stages` say where
@@ -155,6 +158,7 @@ the person to open the deployed prototype and leave a comment.
 | `sets projectId from code` | The code computes the ID (a wrapper or fallback); init leaves it alone. Put the printed ID where that code reads it, without making it secret. |
 | `doesn't support approving setup from another device yet` | Run init where a browser can open, using the chosen backend, or create the project in the matching prototype's Critiqs sidebar, then run `npx critiqs init <projectId>`, which keeps its backend. |
 | `Setup was denied` or `The setup code expired` | Run init again; nothing was created. |
+| `doesn't confirm its approval page names the backend`, `on its approval page, not`, `didn't say clearly which addresses`, or `didn't confirm it with the approval` | The sign-in service can't show, or didn't confirm, the backend the person would approve, so nothing was created. Tell the person; its operator deploys the current Critiqs backend. Don't retry with another backend without asking. |
 | Source became unreadable or unwritable after approval | Keep the returned project ID and backend. Restore access, then apply the complete instructions it printed, at the file it names, and the `.env` line. Update an existing Critiqs setup; do not use an ID-only command that would lose the selected backend. |
 | `The code already uses project …` | Nothing changed. Use `--review-url` to set its address, or `--new-project` only if asked. |
 | `Critiqs Cloud isn't ready for this version` | The hosted backend is older than the package; tell the person. Don't switch backends without asking. |
@@ -225,7 +229,13 @@ app's own server.
    People can instead run `npx critiqs sign-in`. The sign-in is kept on the
    computer, readable only by its user, and is reused by later sessions until
    `critiqs_sign_out` (or `npx critiqs sign-out`), 30 days without use,
-   or 90 days. Never ask for the code the person receives by email.
+   or 90 days. It is sent only to the backends it was approved for, and to
+   where each serves screenshots and page copies; the approval page names
+   them, and the person should check it does. Signing in for a backend other
+   than Critiqs Cloud needs a sign-in service that names it there (the
+   current Critiqs backend). Critiqs Cloud's older sign-in service names no
+   backend; then check only that the page's address is the one given. Never
+   ask for the code the person receives by email.
 2. **`critiqs_comments`** (`projectId`, required; `status`: `"open"` by
    default, `"resolved"`, or `"all"`; `author`: a display name or an author ID;
    `since` and `until`: a date such as `2026-10-01`, a date and time, or an age
@@ -279,6 +289,13 @@ app's own server.
 | Message | What to do |
 | --- | --- |
 | `isn't signed in` or `sign-in ended` | Call `critiqs_sign_in` and have the person approve. |
+| `isn't approved for the backend at` | Nothing was sent to that backend. Ask the person whether they trust it; only then call `critiqs_sign_in` with that `backend`, and have them check that the approval page names it. |
+| `with screenshots and page copies from` | The sign-in was approved for other download addresses than the backend now uses. Nothing was sent. Ask the person whether they trust the new address; only then sign in again for that `backend`. |
+| `doesn't use HTTPS` | Critiqs sends sign-ins over plain http only to this computer (`localhost`, `127.0.0.1`, or `[::1]`). Use the backend's HTTPS address. |
+| `answered with a redirect` | Critiqs doesn't follow redirects with a sign-in, and sent it nowhere else. Use the backend's own address; tell the person if it keeps happening. |
+| `doesn't confirm its approval page names the backend` | The sign-in service is older than the package, so its approval page can't show the backend. Tell the person; its operator deploys the current backend. |
+| `on its approval page, not` | The sign-in service would show a different address than this backend, so the sign-in stopped. Tell the person; don't retry. |
+| `didn't say clearly which addresses` or `didn't confirm it with the approval` | The sign-in service didn't confirm both addresses the page showed, so the computer kept nothing. Tell the person; its operator deploys the current Critiqs backend. |
 | `people are named` | Use one of the listed author IDs. |
 | `No one named … has commented in this project` | Mention only people who have commented there, by the names or author IDs `critiqs_thread` shows. |
 | `can't post agent replies yet` | The backend is older than the package; tell the person. Its operator deploys the current backend. |

@@ -26,8 +26,10 @@ function bridge() {
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/critiqs/config")) return Response.json({ protocol: 5, signInUrl: "https://team.convex.site", deviceSignIn: true });
-    if (url.endsWith("/auth/device/start")) return Response.json({ deviceCode: "synthetic-device", userCode: "BCDF-GHJK", verificationUrl: "https://team.convex.site/auth/device", expiresIn: 600, interval: 5 });
-    if (url.endsWith("/auth/device/token")) return Response.json({ accessToken: "synthetic-access", expiresAt: Date.now() + 900_000 });
+    // A current sign-in service names the backend and its site, at the start and with the tokens.
+    const shown = { backend: TEAM, site: "https://team.convex.site" };
+    if (url.endsWith("/auth/device/start")) return Response.json({ deviceCode: "synthetic-device", userCode: "BCDF-GHJK", verificationUrl: "https://team.convex.site/auth/device", expiresIn: 600, interval: 5, ...shown });
+    if (url.endsWith("/auth/device/token")) return Response.json({ accessToken: "synthetic-access", expiresAt: Date.now() + 900_000, ...shown });
     const { path, args } = JSON.parse(String(init?.body));
     calls.push({ path, args });
     try {

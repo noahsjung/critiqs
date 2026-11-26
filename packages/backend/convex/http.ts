@@ -387,7 +387,7 @@ http.route({
       case "needs-name":
         return namePage(key, {});
       case "verified":
-        if (result.device) return deviceApprovalPage(key, consent, result.profile, { keepSignedIn: result.keepSignedIn });
+        if (result.device) return deviceApprovalPage(key, consent, result.profile, { keepSignedIn: result.keepSignedIn, backend: result.backend, site: result.site });
         if (result.allowed) return await finishSignIn(ctx, key, binding, null, true);
         return consentPage(key, consent, result.origin, result.profile);
     }
@@ -411,7 +411,7 @@ http.route({
     });
     if (result.status === "expired") return expiredPage();
     if (result.status === "invalid-name") return namePage(key, { error: "Use a name of 1 to 60 characters." });
-    if (result.device) return deviceApprovalPage(key, consent, result.profile, { keepSignedIn: result.keepSignedIn });
+    if (result.device) return deviceApprovalPage(key, consent, result.profile, { keepSignedIn: result.keepSignedIn, backend: result.backend, site: result.site });
     if (result.allowed) return await finishSignIn(ctx, key, binding, null, true);
     return consentPage(key, consent, result.origin, result.profile);
   }),
@@ -480,14 +480,31 @@ function deviceError(error: string, status: number, extra: Record<string, unknow
   return Response.json({ error, ...extra }, { status, headers: { ...DEVICE_HEADERS, ...headers } });
 }
 
+/** An address a command line names (its backend, or where that serves downloads), as an origin to show; undefined when absent or not an http(s) address. */
+function shownOrigin(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 300) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 http.route({
   path: "/auth/device/start",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     if (signInMode() === "unavailable") return deviceError("unavailable", 503);
     let keepSignedIn = false;
+    let backend: string | undefined;
+    let site: string | undefined;
     try {
-      keepSignedIn = ((await request.json()) as { keepSignedIn?: unknown } | null)?.keepSignedIn === true;
+      const body = (await request.json()) as { keepSignedIn?: unknown; backend?: unknown; site?: unknown } | null;
+      keepSignedIn = body?.keepSignedIn === true;
+      backend = shownOrigin(body?.backend);
+      // Shown only beside a backend.
+      site = backend === undefined ? undefined : shownOrigin(body?.site);
     } catch {}
     const deviceCode = randomSecret();
     const deviceHash = await hashSecret(deviceCode);
@@ -498,13 +515,24 @@ http.route({
         deviceHash,
         userCodeHash: await setupCodeHash(userCode.replace("-", "")),
         ...(keepSignedIn ? { keepSignedIn: true } : {}),
+        ...(backend === undefined ? {} : { backend }),
+        ...(site === undefined ? {} : { site }),
       });
       if (started.status === "rate-limited") {
         return deviceError("slow_down", 429, { retryAfter: started.retryAfter }, { "Retry-After": String(started.retryAfter) });
       }
       if (started.status === "started") {
         return Response.json(
-          { deviceCode, userCode, verificationUrl: `${signInUrl()}/auth/device`, expiresIn: started.expiresIn, interval: started.interval },
+          {
+            deviceCode,
+            userCode,
+            verificationUrl: `${signInUrl()}/auth/device`,
+            expiresIn: started.expiresIn,
+            interval: started.interval,
+            // What the approval page will name, so the command line knows this service shows it.
+            backend: backend ?? null,
+            site: site ?? null,
+          },
           { headers: DEVICE_HEADERS },
         );
       }
@@ -548,6 +576,9 @@ http.route({
         accessToken,
         expiresAt,
         reviewer: { name: result.profile.name, email: result.profile.email },
+        // What the approval page named.
+        backend: result.backend,
+        site: result.site,
         ...(session === null ? {} : { refreshToken, sessionEndsAt: session.endsAt }),
       },
       { headers: DEVICE_HEADERS },

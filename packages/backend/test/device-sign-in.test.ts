@@ -110,6 +110,49 @@ test("approval in another browser gives the command line one short-lived token, 
   expect(await decide(t, approval, "approve")).toContain("Setup approval expired");
 });
 
+test("the approval page names the backend the command line signs in for and where it serves downloads, and says so to the command line", async () => {
+  const t = local();
+  for (const [body, backend, site, line] of [
+    [
+      { keepSignedIn: true, backend: "https://team.convex.cloud/some/path", site: "https://team.convex.site/x" },
+      "https://team.convex.cloud",
+      "https://team.convex.site",
+      "This is for the Critiqs backend at <strong>https://team.convex.cloud</strong>, which serves screenshots and page copies from <strong>https://team.convex.site</strong>. Approve only if you recognize these addresses.",
+    ],
+    [
+      { keepSignedIn: true, backend: "https://team.example:8443", site: "https://team.example:8444" },
+      "https://team.example:8443",
+      "https://team.example:8444",
+      "This is for the Critiqs backend at <strong>https://team.example:8443</strong>, which serves screenshots and page copies from <strong>https://team.example:8444</strong>.",
+    ],
+    [
+      { backend: "http://127.0.0.1:3210" },
+      "http://127.0.0.1:3210",
+      null,
+      "This is for the Critiqs backend at <strong>http://127.0.0.1:3210</strong>. Approve only if you recognize this address.",
+    ],
+    // Not a web address, a download address without a backend, or from an older command line that doesn't say: nothing is named.
+    [{ keepSignedIn: true, backend: "javascript:alert(1)", site: "https://team.convex.site" }, null, null, null],
+    [{ keepSignedIn: true }, null, null, null],
+  ] as const) {
+    const response = await t.fetch("/auth/device/start", { method: "POST", body: JSON.stringify(body) });
+    const started = (await response.json()) as { userCode: string; deviceCode: string; backend: unknown; site: unknown };
+    // What the page will name, so the command line can refuse a service that wouldn't.
+    expect({ backend: started.backend, site: started.site }).toEqual({ backend, site });
+    const approval = await approveIn(t, started.userCode);
+    if (line === null) expect(approval.page).not.toContain("Critiqs backend at");
+    else expect(approval.page).toContain(line);
+    // The grant names it again, with the tokens.
+    expect(await decide(t, approval, "approve")).toContain("approved");
+    await t.run(async (ctx) => {
+      for (const grant of await ctx.db.query("deviceGrants").collect()) await ctx.db.patch(grant._id, { lastPolledAt: 0 });
+    });
+    const granted = await poll(t, started.deviceCode);
+    expect(granted.status).toBe(200);
+    expect({ backend: granted.body.backend, site: granted.body.site }).toEqual({ backend, site });
+  }
+});
+
 test("denial ends the grant, and the command line is told once", async () => {
   const t = local();
   const { body } = await startDevice(t);

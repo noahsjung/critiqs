@@ -6,37 +6,220 @@
  * Dependency-free, like setup.mjs, so it runs under Node and Bun without a build.
  */
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { callConvex, CLOUD_BACKEND_URL, isHeadless, resolveBackend, SetupError, startRemoteSignIn } from "./setup.mjs";
+import {
+  callConvex,
+  CLOUD_BACKEND_URL,
+  CLOUD_BINDING,
+  CLOUD_SIGN_IN_URL,
+  isHeadless,
+  RedirectRefusedError,
+  requireSecureTokenTarget,
+  resolveBackend,
+  sendCredential,
+  SetupError,
+  startRemoteSignIn,
+} from "./setup.mjs";
 import { findElements } from "./markup.mjs";
 
 /** Raised when this computer has no usable sign-in; the message says how to sign in. */
 export class NotSignedInError extends SetupError {}
 
-const SIGN_IN_HINT = "Sign in once on this computer with the critiqs_sign_in tool, or run `npx critiqs sign-in`.";
+/** Raised when the saved sign-in isn't approved for a backend, so its token isn't sent there. */
+export class BackendNotApprovedError extends SetupError {}
+
+const CLOUD_ORIGIN = CLOUD_BINDING.backend;
+
+/** A value quoted for a POSIX shell: single quotes, with each `'` closed, escaped, and reopened. */
+export const shellQuote = (value) => `'${value.replace(/'/g, "'\\''")}'`;
+
+/** How to sign in for a backend (an origin), with the origin shown on its own and quoted in the command. */
+const signInFor = (backend) =>
+  `call the critiqs_sign_in tool with backend ${JSON.stringify(backend)}, or run \`npx critiqs sign-in --backend ${shellQuote(backend)}\``;
+
+const signInHint = (backend) =>
+  backend === CLOUD_ORIGIN
+    ? "Sign in once on this computer with the critiqs_sign_in tool, or run `npx critiqs sign-in`."
+    : `Sign in once on this computer for the Critiqs backend at ${backend}: ${signInFor(backend)}.`;
 
 // ---------------------------------------------------------------------------
 // The sign-in kept on this computer
 
 /**
- * Where this computer keeps its Critiqs sign-in: `CRITIQS_CONFIG_DIR`, or the
- * user's configuration folder. Only the owner can read it.
+ * Where this computer keeps its Critiqs sign-ins: `CRITIQS_CONFIG_DIR`, or
+ * the user's configuration folder. Only the owner can read it.
+ *
+ * Versions of this package that wrote format version 1 kept it in
+ * `sign-in.json` beside this file (`legacyCredentialsFile`). This version
+ * writes format version 2, which records the backends each sign-in was
+ * approved for, to a file of its own, so an older version still running on
+ * this computer can't write over it.
  */
 export function credentialsFile(env = process.env, platform = process.platform) {
-  if (env.CRITIQS_CONFIG_DIR) return join(env.CRITIQS_CONFIG_DIR, "sign-in.json");
-  const base =
-    platform === "win32" ? env.APPDATA || join(homedir(), "AppData", "Roaming") : env.XDG_CONFIG_HOME || join(homedir(), ".config");
-  return join(base, "critiqs", "sign-in.json");
+  const folder = env.CRITIQS_CONFIG_DIR
+    ? env.CRITIQS_CONFIG_DIR
+    : join(platform === "win32" ? env.APPDATA || join(homedir(), "AppData", "Roaming") : env.XDG_CONFIG_HOME || join(homedir(), ".config"), "critiqs");
+  return join(folder, "sign-in.v2.json");
 }
 
-function readSignIns(file) {
+/** The file versions before this one kept their sign-ins in, as format version 1. */
+export const legacyCredentialsFile = (file) => join(dirname(file), "sign-in.json");
+
+const FORMAT = 2;
+
+function readFile(file) {
   try {
     const stored = JSON.parse(readFileSync(file, "utf8"));
-    if (stored?.version === 1 && typeof stored.services === "object" && stored.services !== null) return stored;
+    if (typeof stored?.services === "object" && stored.services !== null) return stored;
   } catch {}
-  return { version: 1, services: {} };
+  return null;
+}
+
+/** The computer's sign-ins in this format. */
+function readSignIns(file) {
+  const stored = readFile(file);
+  return stored?.version === FORMAT ? stored : { version: FORMAT, services: {} };
+}
+
+/** A version 1 file's sign-ins, or null when it holds none. */
+function readLegacy(file) {
+  const stored = readFile(file);
+  return stored?.version === 1 && Object.keys(stored.services).length > 0 ? stored : null;
+}
+
+/**
+ * A version 1 entry in this format. Version 1 recorded no backends, so an
+ * entry counts only for Critiqs Cloud, and only when it came from Critiqs
+ * Cloud's sign-in service; others are approved for no backend, kept only so
+ * signing out can end them.
+ */
+function fromLegacy(signInUrl, entry) {
+  const { backends: _unrecorded, bindings: _unrecordedToo, ...rest } = entry;
+  return { ...rest, bindings: signInUrl === CLOUD_SIGN_IN_URL ? [{ ...CLOUD_BINDING }] : [] };
+}
+
+/**
+ * What to take from a version 1 file (`legacy`) into this one (`current`,
+ * null while this version has never saved a sign-in here), as the writes to
+ * make in order, or null to take nothing: `current` and `legacy` are the next
+ * contents of each file, and `finished` this file's once the move is done.
+ *
+ * The first time, every entry moves, and the version 1 file is left signed
+ * out, empty but valid for older versions. This file records the move as
+ * pending (`legacyMovePending`) until the version 1 file is signed out, so a
+ * move that stops between the two is done again in full. After that, an
+ * older version that signs in again writes a new version 1 sign-in, which is
+ * left to it, except a Critiqs Cloud sign-in from Critiqs Cloud's sign-in
+ * service when this file has none and none was signed out after it was made
+ * (`cloudSignedOutAt`): that one moves. One this file already holds, copied
+ * by such a move that stopped before removing it there, is removed there.
+ */
+function legacyMove(current, legacy) {
+  if (legacy === null) {
+    if (current?.legacyMovePending !== true) return null;
+    const { legacyMovePending: _done, ...finished } = current;
+    return { finished };
+  }
+  const entries = Object.entries(legacy.services).filter(([, entry]) => entry !== null && typeof entry === "object");
+  if (current === null || current.legacyMovePending === true) {
+    // Until the move is finished, the version 1 file holds the latest of its sign-ins.
+    const moved = Object.fromEntries(entries.map(([url, entry]) => [url, fromLegacy(url, entry)]));
+    const copied = { ...(current ?? { version: FORMAT }), services: { ...(current?.services ?? {}), ...moved }, legacyMovePending: true };
+    const { legacyMovePending: _done, ...finished } = copied;
+    return { current: copied, legacy: { version: 1, services: {} }, finished };
+  }
+  const cloud = entries.find(([url]) => url === CLOUD_SIGN_IN_URL)?.[1];
+  if (cloud === undefined) return null;
+  const { [CLOUD_SIGN_IN_URL]: _moved, ...left } = legacy.services;
+  const rest = { ...legacy, services: left };
+  const here = current.services[CLOUD_SIGN_IN_URL];
+  if (here !== undefined) {
+    if (here.refreshToken === cloud.refreshToken) return { legacy: rest };
+    // Renewing keeps when it was signed in, and replaces the refresh token: the same sign-in, renewed on one side
+    // since it was copied. Keep the one renewed last, so a spent token never wins over the live one.
+    if (typeof cloud.signedInAt === "number" && here.signedInAt === cloud.signedInAt) {
+      const newer = (typeof cloud.accessExpiresAt === "number" ? cloud.accessExpiresAt : 0) > (typeof here.accessExpiresAt === "number" ? here.accessExpiresAt : 0);
+      if (!newer) return { legacy: rest };
+      return { current: { ...current, services: { ...current.services, [CLOUD_SIGN_IN_URL]: fromLegacy(CLOUD_SIGN_IN_URL, cloud) } }, legacy: rest };
+    }
+    return null;
+  }
+  if (typeof current.cloudSignedOutAt === "number" && !(typeof cloud.signedInAt === "number" && cloud.signedInAt > current.cloudSignedOutAt)) return null;
+  return { current: { ...current, services: { ...current.services, [CLOUD_SIGN_IN_URL]: fromLegacy(CLOUD_SIGN_IN_URL, cloud) } }, legacy: rest };
+}
+
+/** This file's sign-ins, or null when no version of this format has saved any. */
+const readCurrent = (file) => (existsSync(file) ? readSignIns(file) : null);
+
+/**
+ * Moves sign-ins from the version 1 file, as `legacyMove` says, holding this
+ * file's lock and then the version 1 file's, which older versions also take.
+ * Runs before anything reads or writes this file's sign-ins. If the version 1
+ * file can't be signed out, nothing goes on until it can.
+ */
+async function migrateLegacy(file) {
+  const legacyFile = legacyCredentialsFile(file);
+  if (legacyMove(readCurrent(file), readLegacy(legacyFile)) === null) return;
+  await withLockRetry(file, (heldHere) =>
+    withLock(legacyFile, (heldThere) => {
+      const move = legacyMove(readCurrent(file), readLegacy(legacyFile));
+      if (move === null) return;
+      const held = () => (heldHere(), heldThere());
+      if (move.current) held(), writeSignIns(file, move.current);
+      if (move.legacy) {
+        held();
+        try {
+          writeSignIns(legacyFile, move.legacy);
+        } catch (error) {
+          throw new SetupError(`Couldn't sign out the earlier sign-in file ${legacyFile} (${error?.code ?? error}). Make it writable, or delete it, and try again.`);
+        }
+      }
+      if (move.finished) held(), writeSignIns(file, move.finished);
+    }),
+  );
+}
+
+/**
+ * Signing out of Critiqs Cloud here also signs out a Critiqs Cloud sign-in an
+ * older version keeps in the version 1 file, so the next command can't move
+ * it in, and records when (`cloudSignedOutAt`), so a version 1 sign-in made
+ * before then never moves in. Returns who that one was, or null.
+ */
+async function signOutLegacyCloud(file, fetchFn) {
+  const legacyFile = legacyCredentialsFile(file);
+  const taken = await withLockRetry(file, (heldHere) =>
+    withLock(legacyFile, (heldThere) => {
+      const current = readSignIns(file);
+      const legacy = readLegacy(legacyFile);
+      const entry = legacy?.services[CLOUD_SIGN_IN_URL];
+      const found = entry !== null && typeof entry === "object" && typeof entry.refreshToken === "string";
+      // Kept aside in this file (`recovered`) until the service confirms it ended, so its token is never just dropped.
+      const recovered = found ? [...recoveredOf(current), { signInUrl: CLOUD_SIGN_IN_URL, origin: entry.origin, refreshToken: entry.refreshToken }] : null;
+      heldHere(), heldThere();
+      writeSignIns(file, { ...current, cloudSignedOutAt: Date.now(), ...(recovered === null ? {} : { recovered }) });
+      if (!found) return null;
+      const { [CLOUD_SIGN_IN_URL]: _ended, ...left } = legacy.services;
+      heldHere(), heldThere();
+      writeSignIns(legacyFile, { ...legacy, services: left });
+      return entry;
+    }),
+  );
+  if (taken === null) return null;
+  const ended = await endSession(fetchFn, CLOUD_SIGN_IN_URL, taken);
+  if (ended.answered) {
+    await withLockRetry(file, (held) => {
+      const latest = readSignIns(file);
+      const kept = recoveredOf(latest).filter((spare) => spare.refreshToken !== taken.refreshToken);
+      if (kept.length > 0) latest.recovered = kept;
+      else delete latest.recovered;
+      held();
+      writeSignIns(file, latest);
+    });
+  }
+  // Unconfirmed, it stays in `recovered`, and the next sign-out tries to end it again.
+  return { reviewer: taken.reviewer ?? null, found: ended.found };
 }
 
 /** Replaces the file in one step, readable only by its owner. */
@@ -55,43 +238,191 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 /** Requests made while holding the lock give up long before the lock counts as abandoned. */
 const REQUEST_TIMEOUT_MS = 10_000;
 const STALE_LOCK_MS = 30_000;
+const HEARTBEAT_MS = 5_000;
 
-/** A request to the sign-in service that gives up after `REQUEST_TIMEOUT_MS`. */
+/** A request to the sign-in service carrying a refresh token: it gives up after `REQUEST_TIMEOUT_MS`, and follows no redirect. */
 function timed(fetchFn, url, init) {
-  return fetchFn(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  return sendCredential(fetchFn, url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 }
 
 /**
- * Runs `work` while holding a lock beside the file, so two agents on this
- * computer don't both spend the same refresh token. A lock left by a process
- * that died is taken over after `staleMs`; work under the lock makes only
- * requests that time out sooner. A lock is removed only by its owner.
+ * Ends a saved session with its sign-in service. `answered` is whether the
+ * service confirmed, and `found` whether it had the session to end.
+ */
+async function endSession(fetchFn, signInUrl, entry) {
+  try {
+    const response = await timed(fetchFn, `${signInUrl}/auth/sign-out`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: entry.origin ?? new URL(signInUrl).origin },
+      body: JSON.stringify({ refreshToken: entry.refreshToken }),
+    });
+    return { answered: response.ok, found: response.headers.get("Critiqs-Session-Ended") !== "false" };
+  } catch (error) {
+    if (error instanceof RedirectRefusedError) throw error;
+    return { answered: false, found: true };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The lock beside a sign-in file
+//
+// One process at a time reads and writes a sign-in file, so two agents on this
+// computer don't both spend the same refresh token. Node has no advisory file
+// lock without a native module, so the lock is made from steps the file system
+// does in one go:
+//
+// - The lock is a directory, `<file>.lock`, made with mkdir, which fails for
+//   every process but one. Its `owner` file holds a token unique to the holder,
+//   who touches it every HEARTBEAT_MS while working.
+// - A lock whose heartbeat is older than STALE_LOCK_MS was left by a process
+//   that died. Waiters take one over one at a time, each holding
+//   `<file>.lock.break` (another mkdir) while it checks the heartbeat again and
+//   renames the lock to a name of its own before removing it. A lock taken
+//   since the waiter first looked has a fresh heartbeat, so it is left alone.
+// - Before every write, the holder checks its token is still in the lock
+//   (`held()`); if not, it writes nothing and throws LockLostError, and the
+//   caller writes again under a fresh lock (`withLockRetry`, `persist`). So
+//   even a holder that stalled past STALE_LOCK_MS never writes while another
+//   holds the lock.
+// - A file at `<file>.lock` is an earlier version's lock, waited for and taken
+//   over the same way. Earlier versions can't remove a directory, so they wait.
+
+/** Thrown before a write by a holder whose lock another process took over. */
+class LockLostError extends SetupError {}
+
+/** Who holds the lock (`token`, null while it is being made) and how long since its heartbeat, or null when no one does. */
+function lockState(lock) {
+  try {
+    const stats = statSync(lock);
+    if (!stats.isDirectory()) return { token: readFileSync(lock, "utf8"), age: Date.now() - stats.mtimeMs };
+    try {
+      const owner = join(lock, "owner");
+      return { token: readFileSync(owner, "utf8"), age: Date.now() - statSync(owner).mtimeMs };
+    } catch {
+      return { token: null, age: Date.now() - stats.mtimeMs };
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** Removes a lock (or breaker): renamed in one step to a name of `token`'s, so nothing taken meanwhile is half removed. */
+function bury(path, token) {
+  const tombstone = `${path}.${token}.gone`;
+  try {
+    renameSync(path, tombstone);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  rmSync(tombstone, { recursive: true, force: true });
+}
+
+/** Removes the lock if its heartbeat is still stale, holding the breaker; true when the caller may try again at once. */
+function takeOverAbandoned(lock, token, staleMs) {
+  const breaker = `${lock}.break`;
+  try {
+    mkdirSync(breaker, { mode: 0o700 });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    // Holding the breaker takes microseconds; one this old was left by a waiter that died holding it.
+    try {
+      if (Date.now() - statSync(breaker).mtimeMs > staleMs) bury(breaker, token);
+    } catch {}
+    return false;
+  }
+  try {
+    const state = lockState(lock);
+    if (state === null) return true;
+    if (state.age <= staleMs) return false;
+    bury(lock, token);
+    return true;
+  } finally {
+    rmSync(breaker, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Runs `work(held)` holding the lock beside the file (see above). `held()`
+ * throws LockLostError unless this process still holds it; `work` calls it
+ * right before each write. Work under the lock makes only requests that time
+ * out sooner than the lock counts as abandoned.
  */
 async function withLock(file, work, { waitMs = 15_000, staleMs = STALE_LOCK_MS } = {}) {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const lock = `${file}.lock`;
-  const owner = randomBytes(12).toString("hex");
+  const owner = join(lock, "owner");
+  const token = randomBytes(12).toString("hex");
   const started = Date.now();
   for (;;) {
     try {
-      writeFileSync(lock, owner, { flag: "wx", mode: 0o600 });
+      mkdirSync(lock, { mode: 0o700 });
       break;
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { force: true });
-      } catch {}
-      if (Date.now() - started > waitMs) throw new SetupError("Another Critiqs process is using this computer's sign-in. Try again in a moment.");
-      await pause(50 + Math.random() * 100);
     }
+    const state = lockState(lock);
+    if (state !== null && state.age > staleMs && takeOverAbandoned(lock, token, staleMs)) continue;
+    if (Date.now() - started > waitMs) throw new SetupError("Another Critiqs process is using this computer's sign-in. Try again in a moment.");
+    await pause(50 + Math.random() * 100);
   }
   try {
-    return await work();
-  } finally {
+    writeFileSync(owner, token, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    // Without its owner file the lock would look abandoned only after the stale time; give it up now.
+    rmSync(lock, { recursive: true, force: true });
+    throw error;
+  }
+  const mine = () => {
     try {
-      if (readFileSync(lock, "utf8") === owner) rmSync(lock, { force: true });
+      return readFileSync(owner, "utf8") === token;
+    } catch {
+      return false;
+    }
+  };
+  const held = () => {
+    if (!mine()) throw new LockLostError("Another Critiqs process took over this computer's sign-in. Try again.");
+  };
+  const heartbeat = setInterval(() => {
+    try {
+      if (mine()) utimesSync(owner, new Date(), new Date());
+    } catch {}
+  }, HEARTBEAT_MS);
+  heartbeat.unref?.();
+  try {
+    return await work(held);
+  } finally {
+    clearInterval(heartbeat);
+    try {
+      if (mine()) bury(lock, token);
     } catch {}
   }
+}
+
+/** `withLock`, run again from the start if the lock was taken over before a write; `work` reads the file again each time. */
+async function withLockRetry(file, work) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await withLock(file, work);
+    } catch (error) {
+      if (!(error instanceof LockLostError) || attempt === 3) throw error;
+    }
+  }
+}
+
+/**
+ * Runs `write(held)` under the lock already held, or, if another process took
+ * it over meanwhile, under a fresh one, so what was learned under the lock,
+ * such as a new refresh token, is written rather than lost. `write` reads the
+ * file again and checks what it finds.
+ */
+async function persist(file, held, write) {
+  try {
+    return await write(held);
+  } catch (error) {
+    if (!(error instanceof LockLostError)) throw error;
+  }
+  return await withLockRetry(file, write);
 }
 
 /** A token's claims, unchecked: only to show who it names and when it expires. The backend checks the token itself. */
@@ -114,21 +445,42 @@ function tokenExpiry(accessToken, now) {
   return typeof exp === "number" ? exp * 1000 : now() + 5 * 60_000;
 }
 
+/**
+ * The backends a saved sign-in was approved for, each with where it serves
+ * screenshots and page copies (`site`), as origins: scheme, host, and port.
+ * Its tokens are sent to no other address.
+ */
+function bindingsOf(entry) {
+  return Array.isArray(entry?.bindings) ? entry.bindings.filter((binding) => typeof binding?.backend === "string" && typeof binding.site === "string") : [];
+}
+
 /** Who this computer is signed in as for a sign-in service, or null. Never returns tokens. */
 export function savedSignIn(signInUrl, { env = process.env } = {}) {
   const entry = readSignIns(credentialsFile(env)).services[signInUrl];
-  return entry === undefined ? null : { reviewer: entry.reviewer, signedInAt: entry.signedInAt, endsAt: entry.endsAt ?? null };
+  return entry === undefined
+    ? null
+    : { reviewer: entry.reviewer, signedInAt: entry.signedInAt, endsAt: entry.endsAt ?? null, bindings: bindingsOf(entry) };
 }
 
-/** Saves a sign-in, unless `cancelled()` says not to by the time the lock is held; then returns null. */
-function saveSignIn(env, signInUrl, { origin, accessToken, accessExpiresAt, refreshToken, endsAt = null, reviewer, now, cancelled = () => false }) {
+/**
+ * Saves a sign-in approved for `binding` (a backend and its site, as origins),
+ * unless `cancelled()` says not to by the time the lock is held; then returns
+ * null. It replaces the computer's sign-in to that service, keeping the
+ * backends the same person approved before on this computer.
+ */
+async function saveSignIn(env, signInUrl, { origin, binding, accessToken, accessExpiresAt, refreshToken, endsAt = null, reviewer, now, cancelled = () => false }) {
   const file = credentialsFile(env);
-  return withLock(file, async () => {
+  await migrateLegacy(file);
+  return await withLockRetry(file, async (held) => {
     // Checked under the lock, which signing out also holds, so a sign-out that happened first wins.
     if (cancelled()) return null;
     const stored = readSignIns(file);
+    const previous = stored.services[signInUrl];
+    const subject = claimsOf(accessToken).sub;
+    const samePerson = previous !== undefined && typeof subject === "string" && claimsOf(previous.accessToken ?? "").sub === subject;
     stored.services[signInUrl] = {
       origin,
+      bindings: [...(samePerson ? bindingsOf(previous).filter((kept) => kept.backend !== binding.backend) : []), binding],
       refreshToken,
       accessToken,
       accessExpiresAt,
@@ -136,28 +488,55 @@ function saveSignIn(env, signInUrl, { origin, accessToken, accessExpiresAt, refr
       reviewer: reviewer ?? tokenReviewer(accessToken),
       signedInAt: now(),
     };
+    held();
     writeSignIns(file, stored);
     return stored.services[signInUrl];
   });
 }
 
 /**
- * A current access token for the sign-in service, refreshing the saved
- * session when the last token is nearly used up. A session that ended is
- * removed, and the caller is told to sign in again.
+ * A current access token from the sign-in service, to send to `backendUrl`
+ * (and, with `siteUrl`, to where it serves screenshots and page copies),
+ * refreshing the saved session when the last token is nearly used up. A
+ * session not approved for those origins is refused, whichever sign-in
+ * service the backend names. A session that ended is removed, and the caller
+ * is told to sign in again.
  */
-export async function accessTokenFor(signInUrl, { env = process.env, fetchFn = fetch, now = Date.now } = {}) {
+export async function accessTokenFor(signInUrl, { backendUrl, siteUrl, env = process.env, fetchFn = fetch, now = Date.now } = {}) {
+  if (typeof backendUrl !== "string" || backendUrl === "") throw new SetupError("Name the backend the sign-in is for.");
+  requireSecureTokenTarget(backendUrl);
+  if (siteUrl !== undefined) requireSecureTokenTarget(siteUrl);
+  const backend = new URL(backendUrl).origin;
+  const site = siteUrl === undefined ? null : new URL(siteUrl).origin;
   const file = credentialsFile(env);
+  await migrateLegacy(file);
   const usable = (entry) => typeof entry?.accessToken === "string" && entry.accessExpiresAt - now() > 60_000;
-  const notSignedIn = () => new NotSignedInError(`This computer isn't signed in to Critiqs. ${SIGN_IN_HINT}`);
-  const first = readSignIns(file).services[signInUrl];
-  if (first === undefined) throw notSignedIn();
+  const notSignedIn = () => new NotSignedInError(`This computer isn't signed in to Critiqs. ${signInHint(backend)}`);
+  /** The entry, if its tokens may go to this backend and its site. */
+  const approved = (entry) => {
+    if (entry === undefined) throw notSignedIn();
+    const binding = bindingsOf(entry).find((candidate) => candidate.backend === backend);
+    if (binding === undefined) {
+      throw new BackendNotApprovedError(
+        `This computer's Critiqs sign-in isn't approved for the backend at ${backend}, so nothing was sent to it. ` +
+          `If you trust that backend, sign in for it: ${signInFor(backend)}. The approval page names the backend.`,
+      );
+    }
+    if (site !== null && binding.site !== site) {
+      throw new BackendNotApprovedError(
+        `This computer's Critiqs sign-in is approved for the backend at ${backend} with screenshots and page copies from ${binding.site}, not ${site}, so nothing was sent. ` +
+          `If you trust ${site}, sign in again: ${signInFor(backend)}. The approval page names both addresses.`,
+      );
+    }
+    return entry;
+  };
+  const first = approved(readSignIns(file).services[signInUrl]);
   if (usable(first)) return first.accessToken;
-  return await withLock(file, async () => {
+  requireSecureTokenTarget(signInUrl);
+  return await withLock(file, async (held) => {
     // Another process may have refreshed while this one waited for the lock.
     const stored = readSignIns(file);
-    const entry = stored.services[signInUrl];
-    if (entry === undefined) throw notSignedIn();
+    const entry = approved(stored.services[signInUrl]);
     if (usable(entry)) return entry.accessToken;
     let response;
     try {
@@ -166,33 +545,48 @@ export async function accessTokenFor(signInUrl, { env = process.env, fetchFn = f
         headers: { "Content-Type": "application/json", Origin: entry.origin },
         body: JSON.stringify({ refreshToken: entry.refreshToken }),
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof SetupError) throw error;
       throw new SetupError(`Can't reach Critiqs's sign-in service at ${signInUrl}.`);
     }
+    /** What to do when the saved sign-in is no longer the one renewed: a replacement is held to the same approval. */
+    const replaced = (replacement) => {
+      if (replacement !== undefined && usable(replacement)) return approved(replacement).accessToken;
+      throw new SetupError("This computer's Critiqs sign-in changed while renewing. Try again.");
+    };
     if (response.status === 401) {
       // Forget the sign-in only if no one replaced it meanwhile.
-      const latest = readSignIns(file);
-      if (latest.services[signInUrl]?.refreshToken !== entry.refreshToken) {
-        if (latest.services[signInUrl] !== undefined && usable(latest.services[signInUrl])) return latest.services[signInUrl].accessToken;
-        throw new SetupError("This computer's Critiqs sign-in changed while renewing. Try again.");
-      }
-      delete latest.services[signInUrl];
-      writeSignIns(file, latest);
-      throw new NotSignedInError(`This computer's Critiqs sign-in ended (signed out, or unused for 30 days). ${SIGN_IN_HINT}`);
+      return await persist(file, held, (heldNow) => {
+        const latest = readSignIns(file);
+        if (latest.services[signInUrl]?.refreshToken !== entry.refreshToken) return replaced(latest.services[signInUrl]);
+        delete latest.services[signInUrl];
+        heldNow();
+        writeSignIns(file, latest);
+        throw new NotSignedInError(`This computer's Critiqs sign-in ended (signed out, or unused for 30 days). ${signInHint(backend)}`);
+      });
     }
     const body = await response.json().catch(() => null);
     if (!response.ok || typeof body?.accessToken !== "string" || typeof body.refreshToken !== "string") {
       throw new SetupError(`Critiqs's sign-in service couldn't renew this computer's sign-in (${response.status}). Try again.`);
     }
-    stored.services[signInUrl] = {
-      ...entry,
+    const renewed = {
       refreshToken: body.refreshToken,
       accessToken: body.accessToken,
       accessExpiresAt: typeof body.expiresAt === "number" ? body.expiresAt : tokenExpiry(body.accessToken, now),
       reviewer: tokenReviewer(body.accessToken),
     };
-    writeSignIns(file, stored);
-    return body.accessToken;
+    // The old refresh token is spent, so the new one is written even if another process took the lock over meanwhile.
+    return await persist(file, held, (heldNow) => {
+      const latest = readSignIns(file);
+      const current = latest.services[signInUrl];
+      const mine = current?.refreshToken === entry.refreshToken;
+      if (mine) latest.services[signInUrl] = { ...current, ...renewed };
+      // Replaced meanwhile: kept aside, so signing out ends this session too.
+      else latest.recovered = [...recoveredOf(latest), { signInUrl, origin: entry.origin, refreshToken: body.refreshToken }];
+      heldNow();
+      writeSignIns(file, latest);
+      return mine ? body.accessToken : replaced(current);
+    });
   });
 }
 
@@ -222,23 +616,39 @@ async function backendFor(backendUrl, fetchFn) {
  * on this computer for up to 30 days unused, 90 at most.
  */
 export async function beginSignIn({ backendUrl, method = "auto", env = process.env, fetchFn = fetch, sleep, now = Date.now } = {}) {
-  const { signInUrl } = await backendFor(backendUrl, fetchFn);
-  const remote = await startRemoteSignIn({ signInUrl, fetchFn, now, keepSignedIn: true, ...(sleep ? { sleep } : {}) });
+  const backend = await backendFor(backendUrl, fetchFn);
+  const { signInUrl } = backend;
+  // Refused before anyone approves: this sign-in's tokens will go to the backend and its site.
+  requireSecureTokenTarget(backend.backendUrl);
+  requireSecureTokenTarget(backend.siteUrl);
+  // The approval page must name this backend and its site, as the sign-in service confirms when it starts and with the tokens.
+  const remote = await startRemoteSignIn({ signInUrl, backendUrl: backend.backendUrl, fetchFn, now, keepSignedIn: true, ...(sleep ? { sleep } : {}) });
+  const { binding } = remote;
   let cancelled = false;
   return {
     method: method === "auto" ? (isHeadless(env) ? "remote" : "browser") : method,
     url: remote.url,
     userCode: remote.userCode,
     signInUrl,
+    backendUrl: backend.backendUrl,
+    binding,
+    confirmed: remote.confirmed,
     cancel: () => {
       cancelled = true;
       remote.close();
     },
     finish: async () => {
       const tokens = await remote.tokens;
+      const endSession = () =>
+        timed(fetchFn, `${signInUrl}/auth/sign-out`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: new URL(signInUrl).origin },
+          body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+        }).catch(() => undefined);
       const saved = await saveSignIn(env, signInUrl, {
         // The session belongs to the sign-in service itself; no prototype is involved.
         origin: new URL(signInUrl).origin,
+        binding,
         accessToken: tokens.accessToken,
         accessExpiresAt: tokens.expiresAt,
         refreshToken: tokens.refreshToken,
@@ -249,17 +659,16 @@ export async function beginSignIn({ backendUrl, method = "auto", env = process.e
       });
       if (saved === null) {
         // Approved after it was cancelled, such as by signing out: end that session rather than keep it.
-        await timed(fetchFn, `${signInUrl}/auth/sign-out`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Origin: new URL(signInUrl).origin },
-          body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-        }).catch(() => undefined);
+        await endSession();
         throw new SetupError("This sign-in was cancelled.");
       }
-      return { reviewer: saved.reviewer, endsAt: saved.endsAt, signInUrl };
+      return { reviewer: saved.reviewer, endsAt: saved.endsAt, signInUrl, backendUrl: backend.backendUrl, bindings: saved.bindings };
     },
   };
 }
+
+/** Sessions renewed while another process replaced the sign-in, kept so signing out can end them. */
+const recoveredOf = (stored) => (Array.isArray(stored.recovered) ? stored.recovered.filter((spare) => typeof spare?.refreshToken === "string") : []);
 
 /**
  * Ends this computer's sign-in with the service, then forgets it. Returns who
@@ -268,32 +677,40 @@ export async function beginSignIn({ backendUrl, method = "auto", env = process.e
  * the sign-in is kept so signing out can be tried again. A session the service
  * didn't find was already ended, or was replaced by a renewal whose answer was
  * lost; no one holds that one's token, and it ends after 30 days without use.
+ * Sessions kept aside for the service (`recovered`) are ended too. Signing out
+ * of Critiqs Cloud also ends a Critiqs Cloud sign-in an older version keeps.
  */
 export async function signOutComputer({ backendUrl, env = process.env, fetchFn = fetch } = {}) {
   const { signInUrl } = await backendFor(backendUrl, fetchFn);
   const file = credentialsFile(env);
-  return await withLock(file, async () => {
+  await migrateLegacy(file);
+  const result = await withLock(file, async (held) => {
     const stored = readSignIns(file);
     const entry = stored.services[signInUrl];
-    if (entry === undefined) return null;
-    let answered = false;
-    let found = true;
-    try {
-      const response = await timed(fetchFn, `${signInUrl}/auth/sign-out`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: entry.origin },
-        body: JSON.stringify({ refreshToken: entry.refreshToken }),
-      });
-      answered = response.ok;
-      found = response.headers.get("Critiqs-Session-Ended") !== "false";
-    } catch {}
-    if (!answered) {
+    const spares = recoveredOf(stored).filter((spare) => spare.signInUrl === signInUrl);
+    if (entry === undefined && spares.length === 0) return null;
+    requireSecureTokenTarget(signInUrl);
+    const ended = entry === undefined ? null : await endSession(fetchFn, signInUrl, entry);
+    if (ended !== null && !ended.answered) {
       throw new SetupError(`Critiqs's sign-in service at ${signInUrl} didn't confirm signing out, so this computer is still signed in. Try again when it's reachable.`);
     }
-    delete stored.services[signInUrl];
-    writeSignIns(file, stored);
-    return { reviewer: entry.reviewer ?? null, found };
+    for (const spare of spares) await endSession(fetchFn, signInUrl, spare);
+    const spent = new Set(spares.map((spare) => spare.refreshToken));
+    await persist(file, held, (heldNow) => {
+      const latest = readSignIns(file);
+      if (entry !== undefined && latest.services[signInUrl]?.refreshToken === entry.refreshToken) delete latest.services[signInUrl];
+      if (signInUrl === CLOUD_SIGN_IN_URL) latest.cloudSignedOutAt = Date.now();
+      const kept = recoveredOf(latest).filter((spare) => !spent.has(spare.refreshToken));
+      if (kept.length > 0) latest.recovered = kept;
+      else delete latest.recovered;
+      heldNow();
+      writeSignIns(file, latest);
+    });
+    return ended === null ? null : { reviewer: entry.reviewer ?? null, found: ended.found };
   });
+  if (signInUrl !== CLOUD_SIGN_IN_URL) return result;
+  const older = await signOutLegacyCloud(file, fetchFn);
+  return result ?? older;
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +718,10 @@ export async function signOutComputer({ backendUrl, env = process.env, fetchFn =
 
 async function connect({ backendUrl, env, fetchFn, now }) {
   const backend = await backendFor(backendUrl, fetchFn);
-  const accessToken = await accessTokenFor(backend.signInUrl, { env, fetchFn, now });
+  // Screenshots and page copies come from the site address, which the sign-in must have been approved for too.
+  requireSecureTokenTarget(backend.backendUrl);
+  requireSecureTokenTarget(backend.siteUrl);
+  const accessToken = await accessTokenFor(backend.signInUrl, { backendUrl: backend.backendUrl, siteUrl: backend.siteUrl, env, fetchFn, now });
   const query = (path, args) => callConvex(backend.backendUrl, "query", path, args, accessToken, { fetchFn });
   const mutate = (path, args) => callConvex(backend.backendUrl, "mutation", path, args, accessToken, { fetchFn });
   return { backend, accessToken, query, mutate };
@@ -685,10 +1105,11 @@ export async function readScreenshot(args, { cwd = process.cwd(), env = process.
   }
   let response;
   try {
-    response = await fetchFn(`${backend.siteUrl}/capture?threadId=${encodeURIComponent(threadId)}`, {
+    response = await sendCredential(fetchFn, `${backend.siteUrl}/capture?threadId=${encodeURIComponent(threadId)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof SetupError) throw error;
     throw new SetupError(`Can't reach the Critiqs backend at ${backend.backendUrl}.`);
   }
   if (response.status === 404) throw new SetupError("This thread's screenshot isn't available.");
@@ -785,10 +1206,11 @@ export async function listMockups(args, { env = process.env, fetchFn = fetch, no
 async function readCopy(backend, accessToken, fetchFn, snapshotId) {
   let response;
   try {
-    response = await fetchFn(`${backend.siteUrl}/mockup/snapshot?snapshotId=${encodeURIComponent(snapshotId)}`, {
+    response = await sendCredential(fetchFn, `${backend.siteUrl}/mockup/snapshot?snapshotId=${encodeURIComponent(snapshotId)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof SetupError) throw error;
     throw new SetupError(`Can't reach the Critiqs backend at ${backend.backendUrl}.`);
   }
   if (response.status === 404) throw new SetupError(`Page copy ${snapshotId} isn't available.`);
@@ -967,10 +1389,18 @@ export async function readMockup(args, { cwd = process.cwd(), env = process.env,
   };
 }
 
-/** The sign-in service a backend uses, and who this computer is signed in to it as (null when it isn't). */
+/**
+ * The sign-in service a backend uses, who this computer is signed in to it as
+ * (null when it isn't), and whether that sign-in is approved for this backend.
+ */
 export async function signInStatus({ backendUrl, env = process.env, fetchFn = fetch } = {}) {
-  const { signInUrl } = await backendFor(backendUrl, fetchFn);
-  return { signInUrl, saved: savedSignIn(signInUrl, { env }) };
+  const backend = await backendFor(backendUrl, fetchFn);
+  await migrateLegacy(credentialsFile(env));
+  const saved = savedSignIn(backend.signInUrl, { env });
+  const origin = new URL(backend.backendUrl).origin;
+  const site = new URL(backend.siteUrl).origin;
+  const approved = saved !== null && saved.bindings.some((binding) => binding.backend === origin && binding.site === site);
+  return { signInUrl: backend.signInUrl, backendUrl: backend.backendUrl, saved, approved };
 }
 
 // ---------------------------------------------------------------------------

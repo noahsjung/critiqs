@@ -214,11 +214,16 @@ test("doctor reads the variable a framework's code uses from the .env file it lo
 
 test("the setup flow checks the framework's plan before sign-in and writes it with the new project", async () => {
   const root = tree({ "package.json": JSON.stringify({ name: "shop", dependencies: { "fake-plain": "1" } }), "src/main.js": MAIN });
+  let named: { backend?: string; site?: string } = {};
   const fetchFn = (async (url: string, init?: RequestInit) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
     if (url.endsWith("/critiqs/config")) return Response.json({ signInUrl: "https://team.convex.site", protocol: 5, deviceSignIn: true });
-    if (url.endsWith("/auth/device/start")) return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: "https://team.convex.site/auth/device", expiresIn: 600, interval: 5 });
-    if (url.endsWith("/auth/device/token")) return Response.json({ accessToken: "access" });
+    // A current sign-in service repeats the backend and site its approval page names, at the start and with the tokens.
+    if (url.endsWith("/auth/device/start")) {
+      named = { backend: body.backend, site: body.site };
+      return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: "https://team.convex.site/auth/device", expiresIn: 600, interval: 5, ...named });
+    }
+    if (url.endsWith("/auth/device/token")) return Response.json({ accessToken: "access", ...named });
     if (url.endsWith("/api/query")) return Response.json({ status: "success", value: { page: [], isDone: true, continueCursor: "" } });
     if (url.endsWith("/api/mutation")) return Response.json({ status: "success", value: body.path === "projects:create" ? PROJECT : null });
     return new Response(null, { status: 204 });

@@ -57,6 +57,7 @@ const output = () => {
 /** A fake Critiqs Cloud that approves sign-in from another device and creates `created`. */
 function cloud({ mine = [] as { _id: string; name: string; reviewUrl: string | null }[], created = PROJECT } = {}) {
   const calls: { url: string; body: any }[] = [];
+  let shown = {};
   const fetchFn = (async (url: string, init?: RequestInit) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
     calls.push({ url, body });
@@ -65,8 +66,12 @@ function cloud({ mine = [] as { _id: string; name: string; reviewUrl: string | n
       const asked = new URL(url).searchParams.get("projectId");
       return Response.json({ protocol: 5, signIn: "email", email: true, mentionEmails: {}, ...(asked === null ? {} : { project: asked === PROJECT ? "found" : "missing" }) });
     }
-    if (url.endsWith("/auth/device/start")) return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: "https://brazen-snail-591.convex.site/auth/device", expiresIn: 600, interval: 5 });
-    if (url.endsWith("/auth/device/token")) return Response.json({ accessToken: "access", reviewer: { name: "Dana", email: "dana@example.com" } });
+    // A current sign-in service repeats the backend and site its approval page names, at the start and with the tokens.
+    if (url.endsWith("/auth/device/start")) {
+      shown = { backend: body.backend, site: body.site };
+      return Response.json({ deviceCode: "secret", userCode: "BCDF-GHJK", verificationUrl: "https://brazen-snail-591.convex.site/auth/device", expiresIn: 600, interval: 5, ...shown });
+    }
+    if (url.endsWith("/auth/device/token")) return Response.json({ accessToken: "access", reviewer: { name: "Dana", email: "dana@example.com" }, ...shown });
     if (url.endsWith("/api/query")) return Response.json({ status: "success", value: { page: mine, isDone: true, continueCursor: "" } });
     if (url.endsWith("/api/mutation")) return Response.json({ status: "success", value: body.path === "projects:create" ? created : null });
     return new Response(null, { status: 204 });

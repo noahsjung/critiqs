@@ -12,9 +12,29 @@ export declare function resolveBackend(
   backendUrl: string,
   options?: { fetchFn?: Fetch },
 ): Promise<{ backendUrl: string; siteUrl: string; signInUrl: string; transport: "convex" | "http" }>;
-export declare function openBrowser(url: string): void;
+/** Exactly `localhost`, or a literal loopback address (127.0.0.0/8, [::1]). */
+export declare function isLoopbackHost(hostname: string): boolean;
+/** Whether `site` is the address Convex Cloud pairs with `backend` (both origins). */
+export declare function isConvexCloudPair(backend: string, site: string): boolean;
+/** Raised when a request carrying a sign-in is answered with a redirect, which isn't followed. */
+export declare class RedirectRefusedError extends SetupError {}
+/** Sends a request carrying a sign-in without following redirects; a redirect throws `RedirectRefusedError`. */
+export declare function sendCredential(fetchFn: Fetch, url: string, init?: RequestInit): Promise<Response>;
+/** Throws unless a sign-in token may travel to `url`: HTTPS, or plain http to this computer. */
+export declare function requireSecureTokenTarget(url: string): void;
+/** Opens an http or https address in the default browser without a shell; `spawnFn` gets the address as one argument. */
+export declare function openBrowser(
+  url: string,
+  options?: {
+    platform?: string;
+    env?: Record<string, string | undefined>;
+    spawnFn?: (command: string, args: string[], options: Record<string, unknown>) => { on(event: "error", listener: () => void): unknown; unref(): void };
+  },
+): void;
 export declare function startBrowserSignIn(options?: {
   signInUrl?: string;
+  /** The backend the sign-in is for, which the page names. */
+  backendUrl?: string | null;
   timeoutMs?: number;
   port?: number;
 }): Promise<{ url: string; tokens: Promise<{ accessToken: string; refreshToken: string }>; close(): void }>;
@@ -35,17 +55,43 @@ export declare function createProject(args: {
 }): Promise<string>;
 export declare function signOut(signInUrl: string, refreshToken: string, options?: { origin?: string; fetchFn?: Fetch }): Promise<void>;
 export declare function isHeadless(env?: Record<string, string | undefined>, platform?: string): boolean;
+/** A backend and where it serves screenshots and page copies (`site`), as origins. */
+export type Binding = { backend: string; site: string };
+/** Critiqs Cloud's sign-in service. */
+export declare const CLOUD_SIGN_IN_URL: string;
+/** Critiqs Cloud's backend and site, as origins. */
+export declare const CLOUD_BINDING: Readonly<Binding>;
+/** Critiqs Cloud's backend and site through Critiqs Cloud's own sign-in service. */
+export declare function isLegacyCloudApproval(signInUrl: string, binding: Binding): boolean;
+/**
+ * Why an approval for `binding` can't go ahead, from what the service said its page names when it started and,
+ * once approved, with the tokens (`undefined` before then); null when it can.
+ */
+export declare function approvalRefusal(
+  signInUrl: string,
+  binding: Binding,
+  started: Binding | { invalid: true } | null,
+  granted: Binding | { invalid: true } | null | undefined,
+): string | null;
 export declare function startRemoteSignIn(options: {
   signInUrl: string;
+  /** The backend the tokens are for; the approval page names it and where it serves downloads (`site`). */
+  backendUrl: string;
   fetchFn?: Fetch;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   /** Also start a session for this computer (`critiqs sign-in`); `tokens` then carries its refresh token. */
   keepSignedIn?: boolean;
 }): Promise<{
+  /** The sign-in service's own `/auth/device` page. */
   url: string;
   userCode: string;
   expiresAt: number;
+  signInUrl: string;
+  /** What the approval is for, as origins. */
+  binding: Binding;
+  /** Whether the approval page names the backend; false only for the legacy Critiqs Cloud approval. */
+  confirmed: boolean;
   tokens: Promise<{
     accessToken: string;
     expiresAt: number;

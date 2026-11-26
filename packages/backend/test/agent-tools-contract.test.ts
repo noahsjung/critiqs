@@ -162,7 +162,7 @@ const data = (result: { structuredContent?: Record<string, unknown> }) => result
 
 /** As if the saved 15-minute access token had run out. */
 function expireToken(config: string) {
-  const file = join(config, "sign-in.json");
+  const file = join(config, "sign-in.v2.json");
   const stored = JSON.parse(readFileSync(file, "utf8"));
   stored.services[SITE].accessExpiresAt = Date.now() - 1;
   writeFileSync(file, JSON.stringify(stored));
@@ -181,7 +181,7 @@ test("an agent signs this computer in once, then reads a project's feedback with
   const finished = await signIn(t, agent);
   expect(finished.isError).toBeUndefined();
   expect(finished.content[0]!.text).toContain("as Dana (dana@example.com)");
-  const file = join(config, "sign-in.json");
+  const file = join(config, "sign-in.v2.json");
   expect(statSync(file).mode & 0o777).toBe(0o600);
   expect(Object.keys(JSON.parse(readFileSync(file, "utf8")).services)).toEqual([SITE]);
   // Signing in again is refused unless asked.
@@ -558,7 +558,7 @@ test("the kept sign-in renews when its token runs out, once even for agents read
   const { t, config, tools, calls } = local();
   const ids = await feedback(t);
   await signIn(t, tools());
-  const stored = () => JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services[SITE];
+  const stored = () => JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services[SITE];
   const first = stored();
 
   // The 15-minute token has run out; two agents read at once.
@@ -571,12 +571,12 @@ test("the kept sign-in renews when its token runs out, once even for agents read
   expect([a.isError, b.isError]).toEqual([undefined, undefined]);
   expect(calls.filter((call) => call === "/auth/refresh")).toHaveLength(1);
   expect(stored().refreshToken).not.toBe(first.refreshToken);
-  expect(existsSync(join(config, "sign-in.json.lock"))).toBe(false);
+  expect(existsSync(join(config, "sign-in.v2.json.lock"))).toBe(false);
 
   const out = await tools().call("critiqs_sign_out", { backend: BACKEND });
   expect(out.content[0]!.text).toBe("Signed this computer out of Critiqs (Dana).");
   expect(await t.run(async (ctx) => await ctx.db.query("sessions").collect())).toEqual([]);
-  expect(JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services).toEqual({});
+  expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services).toEqual({});
   const after = await tools().call("critiqs_comments", { projectId: ids.projectId, backend: BACKEND });
   expect(after.isError).toBe(true);
   expect(after.content[0]!.text).toContain("isn't signed in");
@@ -593,7 +593,7 @@ test("a session that ended elsewhere is forgotten, and the agent is told to sign
   const result = await tools().call("critiqs_comments", { projectId: ids.projectId, backend: BACKEND });
   expect(result.isError).toBe(true);
   expect(result.content[0]!.text).toContain("sign-in ended");
-  expect(JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services).toEqual({});
+  expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services).toEqual({});
 });
 
 test("signing out cancels a sign-in still waiting for approval, and a late approval keeps no session", async () => {
@@ -607,7 +607,7 @@ test("signing out cancels a sign-in still waiting for approval, and a late appro
   // The cancelled sign-in's poll may still receive the approval; it ends that session instead of keeping it.
   await new Promise((done) => setTimeout(done, 200));
   expect((await agent.call("critiqs_sign_in_finish", {})).content[0]!.text).toContain("No sign-in is waiting");
-  expect(JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services).toEqual({});
+  expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services).toEqual({});
   const grants = await t.run(async (ctx) => await ctx.db.query("deviceGrants").collect());
   const sessions = await t.run(async (ctx) => await ctx.db.query("sessions").collect());
   // Either the grant was never redeemed, or it was and its session was ended.
@@ -618,14 +618,14 @@ test("signing out cancels a sign-in still waiting for approval, and a late appro
 test("signing out says so when the service has no session for this computer, such as after a renewal's answer was lost", async () => {
   const { t, config, tools } = local();
   await signIn(t, tools());
-  const { origin, refreshToken } = JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services[SITE];
+  const { origin, refreshToken } = JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services[SITE];
   // The service renews the session, but its answer never reaches this computer.
   const renewed = await t.fetch("/auth/refresh", { method: "POST", headers: { Origin: origin }, body: JSON.stringify({ refreshToken }) });
   expect(renewed.status).toBe(200);
   const out = await tools().call("critiqs_sign_out", { backend: BACKEND });
   expect(out.content[0]!.text).toContain("The service had no session for it");
   expect(out.content[0]!.text).toContain("ends after 30 days without use");
-  expect(JSON.parse(readFileSync(join(config, "sign-in.json"), "utf8")).services).toEqual({});
+  expect(JSON.parse(readFileSync(join(config, "sign-in.v2.json"), "utf8")).services).toEqual({});
 });
 
 test("an agent replies as the signed-in person, marked as an agent, mentioning people by name or ID, and everyone in the thread is told", async () => {

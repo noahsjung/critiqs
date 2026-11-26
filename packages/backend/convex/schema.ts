@@ -578,6 +578,16 @@ export default defineSchema({
      * for reading feedback with `critiqs sign-in`; setup gets 15 minutes only.
      */
     keepSignedIn: v.optional(v.boolean()),
+    /**
+     * The backend (an origin) the command line says the approval is for, shown
+     * on the approval page. Older command lines don't say.
+     */
+    backend: v.optional(v.string()),
+    /**
+     * Where that backend serves screenshots and page copies (an origin; its
+     * Convex HTTP actions), also shown on the approval page.
+     */
+    site: v.optional(v.string()),
   })
     .index("by_device", ["deviceHash"])
     .index("by_user_code", ["userCodeHash"])

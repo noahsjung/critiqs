@@ -236,12 +236,13 @@ args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
 <li><p>Alternatively, skip the terminal command and ask your agent to call <code>critiqs_sign_in</code> followed by <code>critiqs_sign_in_finish</code>. Give the approval in your browser, and never paste an email sign-in code into the chat.</p>
 </li>
 </ol>
-<p>Your session is stored in <code>sign-in.json</code>, readable only by your user account:</p>
+<p>Your session is stored in <code>sign-in.v2.json</code>, readable only by your user account:</p>
 <ul>
-<li>macOS and Linux: <code>$XDG_CONFIG_HOME/critiqs/sign-in.json</code> (defaults to <code>~/.config/critiqs/sign-in.json</code>)</li>
-<li>Windows: <code>%APPDATA%\critiqs\sign-in.json</code></li>
+<li>macOS and Linux: <code>$XDG_CONFIG_HOME/critiqs/sign-in.v2.json</code> (defaults to <code>~/.config/critiqs/sign-in.v2.json</code>)</li>
+<li>Windows: <code>%APPDATA%\critiqs\sign-in.v2.json</code></li>
 <li>Custom folder: set <code>CRITIQS_CONFIG_DIR</code></li>
 </ul>
+<p>Earlier versions of <code>critiqs-react</code> used <code>sign-in.json</code> in the same folder. The first time a newer version runs, it moves that file&#39;s Critiqs Cloud sign-in over and leaves <code>sign-in.json</code> signed out. Signing out of Critiqs Cloud signs out both.</p>
 <p>The sign-in lasts until you run <code>npx critiqs-react sign-out</code> (or call <code>critiqs_sign_out</code>), 30 days without use, or 90 days total.</p>
 <h2 id="mcp-tools-reference">MCP tools reference<a class="anchor" href="#mcp-tools-reference"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>All 13 tools below are served by <code>npx critiqs-react mcp</code>. Pass <code>backend</code> only when your project runs on a deployment other than Critiqs Cloud.</p>
