@@ -53,14 +53,12 @@ export interface ProxyLimits {
    * (it carries on without a slot, as one of at most `slowReadsPerLease` and
    * `slowReadsPerProcess`), and its link's and upstream host's shares are
    * free for others. A response whose browser goes longer than this, plus a
-   * second for every `slowReaderBytesPerSecond` bytes already sent (at most
-   * `slowReaderMaxIdleMs` more), without taking anything has stopped, and is
-   * ended, so a stopped reader never keeps an upstream read open for long. Past either count of slow
+   * second for every `slowReaderBytesPerSecond` bytes already sent, without
+   * taking anything has stopped, and is ended. Past either count of slow
    * reads, a browser that stops reading is ended at once.
    */
   clientStallMs: number;
   slowReaderBytesPerSecond: number;
-  slowReaderMaxIdleMs: number;
   slowReadsPerLease: number;
   slowReadsPerProcess: number;
   /**
@@ -117,7 +115,6 @@ export const DEFAULT_LIMITS: ProxyLimits = {
   queuedPerProcess: 4_096,
   clientStallMs: 3_000,
   slowReaderBytesPerSecond: 4 * 1024,
-  slowReaderMaxIdleMs: 60_000,
   slowReadsPerLease: 8,
   slowReadsPerProcess: 256,
   windowMs: 10 * 60_000,

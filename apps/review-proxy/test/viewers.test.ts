@@ -341,27 +341,27 @@ describe("a slow reader keeps its download", () => {
     }
     expect(failed).toBe(true);
   });
-  test("a reader that stops after a large download is ended within a minute of stopping, not after an hour", async () => {
-    // At 4 KiB a second, 3 MiB already sent would allow 768 s; the most it may wait is the cap.
-    const stop = { ...config, limits: { ...DEFAULT_LIMITS, clientStallMs: 200, slowReaderMaxIdleMs: 400 } };
-    const { proxy } = setup({ config: stop });
+  test("a slow download that outlasts the request's own deadline still arrives whole", async () => {
+    // The deadline for fetching and reading whole bodies is 1 s here.
+    const quick = { ...config, limits: { ...DEFAULT_LIMITS, headersTimeoutMs: 300, bodyTimeoutMs: 700, clientStallMs: 300 } };
+    const { proxy } = setup({ config: quick });
     const response = await ask(proxy, "/sized.bin", { dest: "image" });
     const reader = response.body!.getReader();
-    let bytes = 0;
-    while (bytes < 2 * MIB) {
-      const step = await reader.read();
-      if (step.done) break;
-      bytes += step.value.byteLength;
-    }
+    let bytes = (await reader.read()).value?.byteLength ?? 0;
+    // The browser pauses past the deadline, then reads on.
     await Bun.sleep(1_500);
-    let failed = false;
+    let error: unknown = null;
     try {
-      for (;;) if ((await reader.read()).done) break;
-    } catch {
-      failed = true;
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        bytes += step.value.byteLength;
+      }
+    } catch (failure) {
+      error = failure;
     }
-    expect(failed).toBe(true);
-  });
+    expect([error, bytes]).toEqual([null, SIZED.byteLength]);
+  }, 20_000);
 });
 
 describe("a file over the size cap says so", () => {

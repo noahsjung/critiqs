@@ -228,9 +228,13 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
    * `clientStallMs` gives its slots back and carries on as a slow read, so a
    * slow connection still gets the whole file without holding its link's and
    * site's shares; one that then goes longer than that plus a second per
-   * `slowReaderBytesPerSecond` bytes sent (at most `slowReaderMaxIdleMs`
-   * more) without taking anything has stopped, and is ended. Past the slow
-   * reads a lease or the process may have, a stalled read is ended at once.
+   * `slowReaderBytesPerSecond` bytes sent without taking anything has
+   * stopped, and is ended: the server's and the system's buffers hold
+   * megabytes that a slow connection takes that long to drain, so a fixed
+   * window would end slow readers too. Past the slow reads a lease or the
+   * process may have, a stalled read is ended at once. The request's own
+   * deadline doesn't reach this far (see `handle`): a body passed on is
+   * bounded by these rules and the upstream's (`boundedChunks`).
    */
   const stream = (status: number, headers: Headers, body: AsyncIterable<Uint8Array>, wireBytes: number, signal: AbortSignal, lease: ReviewResolution, release: () => void, head: boolean) => {
     if (head) {
@@ -291,7 +295,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
               slowPerLease.set(lease.leaseId, (slowPerLease.get(lease.leaseId) ?? 0) + 1);
               giveBack();
             }, limits.clientStallMs);
-            stop = setTimeout(() => end(controller), limits.clientStallMs + Math.min(limits.slowReaderMaxIdleMs, Math.ceil((sent / limits.slowReaderBytesPerSecond) * 1000)));
+            stop = setTimeout(() => end(controller), limits.clientStallMs + Math.ceil((sent / limits.slowReaderBytesPerSecond) * 1000));
           } catch (error) {
             finish();
             controller.error(error);
@@ -550,7 +554,12 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const release = await takeSlots(lease, canonicalHost(route.upstream.hostname) ?? route.upstream.hostname, prefetch, request.signal);
     if (release === null) return asPage ? failure("busy", head) : refusedFile(503, { "retry-after": "2" });
 
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(limits.headersTimeoutMs + limits.bodyTimeoutMs)]);
+    // One deadline for fetching and for reading a whole body here (a page, a style sheet). A file passed on to
+    // the browser leaves it once its headers are in: a slow connection may take minutes over a large file, and
+    // `stream` and the upstream's own limits bound that.
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(new Error("The request took too long.")), limits.headersTimeoutMs + limits.bodyTimeoutMs);
+    const signal = AbortSignal.any([request.signal, deadline.signal]);
     const method = head ? "HEAD" : "GET";
     let streaming = false;
     try {
@@ -580,11 +589,15 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       // A success the browser then can't use was cut on its way here (see REVIEW_FILE_TIMING).
       if (outcome.status >= 200 && outcome.status < 300) headers.set("server-timing", REVIEW_FILE_TIMING);
       streaming = true;
+      clearTimeout(timer);
       return stream(outcome.status, headers, outcome.body, handling.cap, signal, lease, release, head);
     } catch (error) {
       return asPage ? failure(bodyFailure(error), head) : refusedFile(502);
     } finally {
-      if (!streaming) release();
+      if (!streaming) {
+        clearTimeout(timer);
+        release();
+      }
     }
   }
 
