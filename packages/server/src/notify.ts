@@ -595,7 +595,7 @@ export async function beginDelivery(
       mute: await args.preferenceUrl({ userId: recipient._id, projectId: project._id }),
       unsubscribe: await args.preferenceUrl({ userId: recipient._id, projectId: null }),
       ...(page === null ? {} : { threadPage: page }),
-      ...(store.tickets === undefined ? {} : { tickets: await threadTickets(store.tickets, thread._id) }),
+      ...(store.tickets === undefined ? {} : { tickets: await threadTickets(store, store.tickets, thread._id) }),
     },
   };
 }

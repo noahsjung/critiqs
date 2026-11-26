@@ -530,7 +530,11 @@ test("a mention email names the thread's linked tickets with their key, status, 
   await t.run(async (ctx) => {
     const thread = (await ctx.db.get(threadId))!;
     const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
-    const base = { projectId, threadId: thread._id, state: "linked" as const, linkedBy, linkedAt: 1, createdFromCritiqs: true };
+    // The linker is connected as the accounts they linked with, so Critiqs can check these tickets.
+    for (const tracker of ["linear", "jira"] as const) {
+      await ctx.db.insert("trackerAccounts", { userId: linkedBy, tracker, method: "token", accountId: "acct-1", accountName: "Dana", access: { ciphertext: "x", iv: "y" }, attribution: true, connectedAt: 1, updatedAt: 1 });
+    }
+    const base = { projectId, threadId: thread._id, state: "linked" as const, linkedBy, linkedAt: 1, createdFromCritiqs: true, accountId: "acct-1" };
     await ctx.db.insert("ticketLinks", { ...base, tracker: "linear", externalId: "issue-1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "Department is wrong", status: { label: "In Progress", category: "started" } });
     await ctx.db.insert("ticketLinks", { ...base, tracker: "jira", externalId: "c1:100", key: "WEB-3 <b>", url: "javascript:alert(1)", title: "Odd", status: { label: "To Do", category: "open" } });
     // Still being created: not named.
@@ -550,4 +554,32 @@ test("a mention email names the thread's linked tickets with their key, status, 
   expect(html).toContain('Ticket: <a href="https://linear.app/acme/issue/ENG-12" style="color:#0d63f3">Linear ENG-12 · In Progress</a>');
   expect(html).toContain("Ticket: Jira WEB-3 &lt;b> · To Do</p>");
   expect(html).not.toContain("javascript:");
+});
+
+test("a mention email marks a ticket's status last known when Critiqs can no longer check it: its linker disconnected, or a check found it hidden", async () => {
+  process.env.RESEND_API_KEY = "re_key";
+  process.env.CRITIQS_EMAIL_FROM = "Critiqs <mentions@example.com>";
+  process.env.CONVEX_SITE_URL = "https://backend.example.site";
+  const sent = resend();
+  const { t, projectId, threadId } = await mentionLee();
+  await t.run(async (ctx) => {
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    await ctx.db.insert("trackerAccounts", { userId: linkedBy, tracker: "github", method: "token", accountId: "acct-1", accountName: "Dana", access: { ciphertext: "x", iv: "y" }, attribution: true, connectedAt: 1, updatedAt: 1 });
+    const base = { projectId, threadId, state: "linked" as const, linkedBy, linkedAt: 1, createdFromCritiqs: true, accountId: "acct-1" };
+    // Linked with Linear, which the linker has since disconnected.
+    await ctx.db.insert("ticketLinks", { ...base, tracker: "linear", externalId: "issue-1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "One", status: { label: "In Progress", category: "started" } });
+    // Still connected, but the last check found the issue hidden from them.
+    await ctx.db.insert("ticketLinks", { ...base, tracker: "github", externalId: "n1", key: "acme/web#9", url: "https://github.com/acme/web/issues/9", title: "Two", status: { label: "Open", category: "open" }, statusStale: true });
+  });
+  const clock = spyOn(Date, "now").mockImplementation(() => realNow() + GATHER_MS + 60_000);
+  try {
+    await t.action(internal.notificationEmails.deliver, {});
+  } finally {
+    clock.mockRestore();
+  }
+  expect(sent).toHaveLength(1);
+  const { text, html } = sent[0].body;
+  expect(text).toContain("Ticket: Linear ENG-12 · In Progress · last known https://linear.app/acme/issue/ENG-12\n");
+  expect(text).toContain("Ticket: GitHub Issues acme/web#9 · Open · last known https://github.com/acme/web/issues/9\n");
+  expect(html).toContain(">Linear ENG-12 · In Progress · last known</a>");
 });

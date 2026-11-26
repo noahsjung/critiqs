@@ -393,8 +393,11 @@ backend has tickets and only tickets that finished linking:
 - **The Markdown and JSON export** of a thread or a collection: the Markdown
   adds a "Ticket:" line per ticket (tracker, key, status, title, address) to
   the thread's context, or "Tickets: none"; the JSON adds each thread's
-  `tickets` (`tracker`, `key`, `title`, `status`, `url`), with the same schema
-  version, since the field is new and optional.
+  `tickets` (`tracker`, `key`, `title`, `status`, `lastKnown`, `url`), with
+  the same schema version, since the field is new and optional.
+
+A status Critiqs can no longer check reads "· last known" in each of them, as
+in the thread window, decided by the same rule.
 - **Coding agents' `critiqs_thread` answer** (the `critiqs` CLI's MCP server)
   adds `tickets`: each ticket's tracker, key, title, status, whether that
   status is only the last one known, address, and who linked it when.

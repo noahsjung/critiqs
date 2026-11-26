@@ -130,3 +130,19 @@ test("exportThread keeps the tickets the backend sent, and only their handoff fi
   );
   expect(exported.tickets).toEqual([{ tracker: "jira", key: "WEB-3", title: "T", status: { label: "To Do", category: "open" }, url: "https://acme.atlassian.net/browse/WEB-3" }]);
 });
+
+test("a ticket whose status Critiqs can no longer check says last known in the Markdown and JSON export", () => {
+  const thread = collection.threads[0]!;
+  const withTickets: FeedbackCollection = {
+    ...collection,
+    threads: [{ ...thread, tickets: [
+      { tracker: "linear", key: "ENG-1", title: "Department is wrong", status: { label: "In Progress", category: "started" }, lastKnown: true, url: "https://linear.app/acme/issue/eng-1" },
+      { tracker: "jira", key: "WEB-3", title: "Label", status: { label: "To Do", category: "open" }, lastKnown: false, url: "https://acme.atlassian.net/browse/WEB-3" },
+    ] }],
+  };
+  const markdown = exportMarkdown(withTickets);
+  expect(markdown).toContain('- Ticket: Linear ENG-1 · In Progress · last known, "Department is wrong", https://linear.app/acme/issue/eng-1');
+  expect(markdown).toContain('- Ticket: Jira WEB-3 · To Do, "Label", https://acme.atlassian.net/browse/WEB-3');
+  const parsed = JSON.parse(exportJson(withTickets));
+  expect(parsed.threads[0].tickets.map((ticket: { lastKnown: boolean }) => ticket.lastKnown)).toEqual([true, false]);
+});

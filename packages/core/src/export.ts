@@ -77,7 +77,7 @@ export function exportThread(thread: ExportedThread, linkFor: (messageId: string
     persona: evidence.persona,
     reattached: thread.location !== null,
     hasCapture: thread.hasCapture,
-    ...(thread.tickets === undefined ? {} : { tickets: thread.tickets.map(({ tracker, key, title, status, url }) => ({ tracker, key, title, status, url })) }),
+    ...(thread.tickets === undefined ? {} : { tickets: thread.tickets.map(({ tracker, key, title, status, lastKnown, url }) => ({ tracker, key, title, status, ...(lastKnown === undefined ? {} : { lastKnown }), url })) }),
     messages: thread.messages.map((message) => ({
       id: message._id,
       link: linkFor(message._id),
@@ -132,7 +132,7 @@ function ticketLines(thread: ExportThread): string[] {
   const one = (value: string) => value.replace(/\s+/g, " ").trim();
   return thread.tickets.map((ticket) => {
     const tracker = TRACKERS.find((entry) => entry.id === ticket.tracker)?.label ?? ticket.tracker;
-    const status = ticket.status === null ? "status unknown" : one(ticket.status.label);
+    const status = ticket.status === null ? "status unknown" : `${one(ticket.status.label)}${ticket.lastKnown === true ? " · last known" : ""}`;
     return `- Ticket: ${tracker} ${one(ticket.key)} · ${status}, "${one(ticket.title)}", ${one(ticket.url)}`;
   });
 }

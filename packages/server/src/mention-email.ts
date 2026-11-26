@@ -285,7 +285,7 @@ export const MAX_EMAIL_TICKETS = 40;
 function emailTickets(tickets: ThreadTicket[] | undefined): { text: string; url: string | null }[] {
   return (tickets ?? []).slice(0, MAX_EMAIL_TICKETS).map((ticket) => {
     const tracker = TRACKERS.find((entry) => entry.id === ticket.tracker)?.label ?? ticket.tracker;
-    const status = ticket.status === null ? "" : ` · ${shorten(ticket.status.label)}`;
+    const status = ticket.status === null ? "" : ` · ${shorten(ticket.status.label)}${ticket.lastKnown === true ? " · last known" : ""}`;
     return { text: clean(`${tracker} ${shorten(ticket.key)}${status}`).replace(/\s+/g, " "), url: webAddress(ticket.url) };
   });
 }
