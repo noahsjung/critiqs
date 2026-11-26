@@ -1,3 +1,7 @@
+import { FRAME_LABEL, type ReviewResolution, type ReviewUsageReport } from "@critiqs/server/review-links";
+import { convexDirectory, type ReviewDirectory } from "@critiqs/server/review-directory";
+import { ConfigError, type ProxyConfig } from "./config.ts";
+
 // Where the proxy learns what a frame host stands for. Each viewer's lease
 // gets its own random host, `v-<26 base32 characters>.<proxy domain>`; the
 // backend keeps only a hash of that label and answers
@@ -6,47 +10,12 @@
 // (lease live, link active, address still listed, member still allowed,
 // reputation clean, not denied). The proxy serves nothing for null.
 //
-// These types are the contract with the backend's `convexDirectory`
-// (`@critiqs/server/review-directory`, H3), which satisfies
-// `ReviewDirectory` as is; `memoryDirectory` stands in for it in tests and on
-// a computer's own stack.
+// The contract is the backend's own (`@critiqs/server/review-links` and
+// `review-directory`); `convexDirectory` asks a Convex deployment, and
+// `memoryDirectory` stands in for it in tests.
 
-/** A frame host's label: `v-` and 26 base32 characters, lowercased. */
-export const FRAME_LABEL = /^v-[a-z2-7]{26}$/;
-
-/** What a frame host stands for, while every check still passes. */
-export interface ReviewResolution {
-  v: 1;
-  kind: "site";
-  linkId: string;
-  leaseId: string;
-  /** The prototype's origin, served at the root of the frame host. */
-  origin: string;
-  /** Owner-approved origins the pages may read from, by slot (`/__critiqs/o/<slot>/…`). */
-  assetOrigins: { slot: number; origin: string }[];
-  /** When the lease ends unless renewed. */
-  expiresAt: number;
-  /** The proxy may reuse this answer until then, never past `expiresAt`. */
-  cacheUntil: number;
-}
-
-/** One link's traffic since the proxy's last report. */
-export interface ReviewUsageReport {
-  linkId: string;
-  requests: number;
-  bytes: number;
-}
-
-export interface ReviewDirectory {
-  /**
-   * What a frame host's label stands for now, or null for any host that
-   * serves nothing: unknown, expired, revoked, paused, blocked, denied, or the
-   * backend unreachable. The caller passes only the label, lowercased.
-   */
-  resolve(label: string, signal?: AbortSignal): Promise<ReviewResolution | null>;
-  /** Reports traffic per link; returns the links now paused, whose hosts serve nothing until the next day. */
-  report(usage: readonly ReviewUsageReport[], signal?: AbortSignal): Promise<{ paused: readonly string[] }>;
-}
+export { convexDirectory, FRAME_LABEL };
+export type { ReviewDirectory, ReviewResolution, ReviewUsageReport };
 
 /** A lease the memory directory serves, by its frame label. */
 export interface MemoryLease extends Omit<ReviewResolution, "v" | "kind" | "cacheUntil"> {
@@ -54,8 +23,8 @@ export interface MemoryLease extends Omit<ReviewResolution, "v" | "kind" | "cach
 }
 
 /**
- * Leases held in memory, for tests and a computer's own stack. Expired leases
- * and leases of paused links resolve to null, as the backend's would.
+ * Leases held in memory, for tests. Expired leases and leases of paused links
+ * resolve to null, as the backend's would.
  */
 export function memoryDirectory(leases: Iterable<MemoryLease>, now: () => number = Date.now) {
   const byLabel = new Map<string, MemoryLease>();
@@ -82,4 +51,22 @@ export function memoryDirectory(leases: Iterable<MemoryLease>, now: () => number
     },
   } satisfies ReviewDirectory & Record<string, unknown>;
   return directory;
+}
+
+/**
+ * The directory the proxy serves from: the backend's (`CRITIQS_PROXY_BACKEND`,
+ * authenticated with `CRITIQS_PROXY_SECRET`). On a `.localhost` domain only,
+ * `CRITIQS_PROXY_DEV_LEASES` (JSON `MemoryLease[]`) serves test leases instead.
+ */
+export function directoryFor(config: Pick<ProxyConfig, "backend" | "secret" | "local">, env: Record<string, string | undefined>, options: { fetch?: (input: string, init: RequestInit) => Promise<Response> } = {}): ReviewDirectory {
+  const dev = env.CRITIQS_PROXY_DEV_LEASES;
+  if (dev !== undefined && dev !== "") {
+    if (!config.local) throw new ConfigError("CRITIQS_PROXY_DEV_LEASES is only for a .localhost domain.");
+    return memoryDirectory(JSON.parse(dev) as MemoryLease[]);
+  }
+  try {
+    return convexDirectory({ backend: config.backend, secret: config.secret, ...(options.fetch === undefined ? {} : { fetch: options.fetch }) });
+  } catch (error) {
+    throw new ConfigError(`CRITIQS_PROXY_BACKEND: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }

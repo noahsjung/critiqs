@@ -4,8 +4,8 @@ import https from "node:https";
 import net from "node:net";
 import { nodeNetwork } from "@critiqs/server/public-web";
 import { buildAssets } from "../scripts/build-assets.ts";
-import { ConfigError, parseProxyConfig, type ProxyConfig, proxyPolicy } from "../src/config.ts";
-import { type MemoryLease, memoryDirectory, type ReviewDirectory } from "../src/directory.ts";
+import { ConfigError, parseProxyConfig, proxyPolicy } from "../src/config.ts";
+import { directoryFor } from "../src/directory.ts";
 import { createEgress } from "../src/egress.ts";
 import { cachedReputation, fixtureReputation, webRiskProvider } from "../src/reputation.ts";
 import { createReviewProxy } from "../src/server.ts";
@@ -17,16 +17,6 @@ import { createReviewProxy } from "../src/server.ts";
 
 /** Request headers the server accepts, Cookie included, so cookies a sibling frame host planted can't make it refuse a request. */
 const HEADER_BYTES = 64 * 1024;
-
-/** The leases to serve. On a `.localhost` domain, CRITIQS_PROXY_DEV_LEASES (JSON) can hold test leases; a deployment reads its backend's. */
-function directoryFrom(config: ProxyConfig, env: Record<string, string | undefined>): ReviewDirectory {
-  const dev = env.CRITIQS_PROXY_DEV_LEASES;
-  if (dev !== undefined && dev !== "") {
-    if (!config.local) throw new ConfigError("CRITIQS_PROXY_DEV_LEASES is only for a .localhost domain.");
-    return memoryDirectory(JSON.parse(dev) as MemoryLease[]);
-  }
-  throw new ConfigError("No lease directory: the backend's directory isn't wired into this build yet. On a .localhost domain, set CRITIQS_PROXY_DEV_LEASES.");
-}
 
 /** Sends this server a request with 32 KiB of cookies and checks it isn't refused for its headers. */
 async function headersAccepted(port: number, hostname: string): Promise<boolean> {
@@ -50,7 +40,7 @@ try {
     primary: createEgress({ web, policy, reputation, userAgent: config.userAgent, limits: config.limits, reputationScope: "path" }),
     asset: createEgress({ web, policy, reputation, userAgent: config.assetUserAgent, limits: config.limits, reputationScope: "origin" }),
   };
-  const proxy = createReviewProxy(config, { directory: directoryFrom(config, env), egress, assets: await buildAssets() });
+  const proxy = createReviewProxy(config, { directory: directoryFor(config, env), egress, assets: await buildAssets() });
   const hostname = env.CRITIQS_PROXY_LISTEN ?? "127.0.0.1";
   const port = Number(env.PORT ?? (config.domain.port || 5120));
   const server = Bun.serve({

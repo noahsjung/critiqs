@@ -7,7 +7,9 @@ is a deployed app, never a published package.
 
 Each viewer's lease gets its own random frame host,
 `v-<26 base32 characters>.<CRITIQS_PROXY_DOMAIN>`, which the proxy resolves
-through a `ReviewDirectory` (`src/directory.ts`): the backend's answer says
+through a `ReviewDirectory` (`src/directory.ts`, the backend's
+`convexDirectory`, which asks `CRITIQS_PROXY_BACKEND`'s
+`/internal/review/v1/resolve` with `CRITIQS_PROXY_SECRET`): the backend's answer says
 which prototype origin and owner-approved origins the host serves, and for
 how long. The prototype's origin is served at the host's root; review links
 are read-only and credential-free (GET and HEAD only, no cookies or
