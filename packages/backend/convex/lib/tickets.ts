@@ -1,5 +1,5 @@
 import type { ExportPageLoader, TrackerId } from "@critiqs/core";
-import { type TicketsDeployment, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken } from "@critiqs/server";
+import { type TicketsDeployment, trackerSignIn, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken } from "@critiqs/server";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -45,4 +45,11 @@ export async function trackerToken(ctx: ActionCtx, person: { userId: string; acc
 export function exportPages(ctx: ActionCtx): ExportPageLoader {
   return ({ projectId, threadIds, threadIndex, paginationOpts }) =>
     ctx.runQuery(api.threads.exportThreads, { projectId: projectId as Id<"projects">, threadIds: threadIds as Id<"threads">[], threadIndex, paginationOpts });
+}
+
+/** For a sign-in that ends every token of its tracker account (GitHub's grant): may it be ended now? Read fresh each time. */
+export function mayEnd(ctx: ActionCtx, account: { userId: string; tracker: TrackerId; accountId?: string }): () => Promise<boolean> {
+  return async () =>
+    trackerSignIn(account.tracker, ticketsDeployment())?.endsEveryToken !== true ||
+    !(await ctx.runQuery(internal.trackers.grantInUse, { userId: account.userId, tracker: account.tracker, ...(account.accountId === undefined ? {} : { accountId: account.accountId }) }));
 }

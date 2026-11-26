@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { readBoundedBody } from "./lib/body";
 import { messagePage } from "./lib/pages";
-import { siteUrl, ticketsDeployment } from "./lib/tickets";
+import { mayEnd, siteUrl, ticketsDeployment } from "./lib/tickets";
 import { hashSecret } from "./lib/tokens";
 
 // Tracker sign-in's trip through the browser (Linear, and the GitHub App):
@@ -154,8 +154,9 @@ function signInRoutes(tracker: SignInTracker) {
       const saved = await ctx.runMutation(internal.trackers.saveSignedIn, { userId: claimed.userId, account, state });
       if (saved.status === "other-email") return withHeaders(otherEmail(name, identity), clear);
       if (saved.status === "cancelled") {
-        // Disconnected while this window was signing in: the tokens it got are ended, not kept.
-        await endTrackerSignIn(ready.deployment, tracker, { access: tokens.access, refresh: tokens.refresh });
+        // Disconnected while this window was signing in: the tokens it got are ended, not kept, unless ending them would end
+        // another Critiqs account's sign-in to the same tracker account (GitHub's grant), checked right before the call.
+        await endTrackerSignIn(ready.deployment, tracker, { access: tokens.access, refresh: tokens.refresh }, fetch, Date.now(), mayEnd(ctx, { userId: claimed.userId, tracker, accountId: identity.accountId }));
         return withHeaders(
           notConnected(name, `You disconnected ${name} while this window was signing in, so Critiqs didn't connect it. Close this window, and connect ${name} again in Your trackers if you meant to.`, 409),
           clear,

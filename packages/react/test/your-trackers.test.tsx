@@ -393,3 +393,19 @@ test("with the GitHub App, a token is offered instead of sign-in, and a connecte
   await rerender(node, data);
   expect([...dialog.querySelectorAll("a")].some((link) => link.textContent === "Choose repositories in GitHub")).toBe(false);
 });
+
+test("disconnecting a GitHub sign-in says first what it does at GitHub, and afterwards when another Critiqs account still shares GitHub's access", async () => {
+  const offered: TicketsConfig = { trackers: [{ id: "github", signIn: "oauth", installUrl: "https://github.com/apps/critiqs/installations/new" }] };
+  const data = backend({ trackers: { accounts: [{ tracker: "github", method: "oauth", accountName: "dana-smith", site: null, connectedAt: 1, attribution: true }], disconnected: "shared" } });
+  const node = <YourTrackersDialog offered={offered} onClose={() => undefined} notify={() => undefined} />;
+  const dialog = await render(node, data);
+  await click(button(dialog, "Disconnect"));
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(
+    "At GitHub, this ends Critiqs's access to the GitHub account dana-smith, unless another Critiqs account is connected to it: GitHub gives Critiqs one access per GitHub account, so it stays until the last Critiqs account connected to it disconnects.",
+  );
+  await click([...dialog.querySelectorAll<HTMLButtonElement>("button.danger")].find((each) => each.textContent === "Disconnect"));
+  await rerender(node, data);
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe(
+    "GitHub Issues is disconnected here. Another Critiqs account is still connected to the same GitHub account, which shares Critiqs's access at GitHub, so that access stays until it disconnects too, or you remove Critiqs in GitHub's settings.",
+  );
+});

@@ -185,6 +185,55 @@ test("a disconnect GitHub couldn't be told of is tried again later, but not once
   expect((await dana.action(api.tickets.destinations, { tracker: "github" })).length).toBeGreaterThan(0);
 });
 
+/** Pat, another Critiqs account, signs in to Dana's GitHub account, one of whose verified emails is Pat's. */
+async function patOnDanasGithub(t: ReturnType<typeof setup>) {
+  github.users.find((user) => user.login === "dana-smith")!.emails.push({ email: "pat@example.com", primary: false, verified: true });
+  const pat = t.withIdentity(reviewer("Pat"));
+  await pat.query(api.trackers.mine, {});
+  expect((await signIn(t, pat)).done.status).toBe(200);
+  return pat;
+}
+
+const grantDeletions = () => github.requests.filter((request) => request === `DELETE /applications/${github.app.clientId}/grant`).length;
+
+test("disconnecting GitHub while another Critiqs account is connected to the same GitHub account keeps GitHub's grant, which they share, and says so; the last one to disconnect ends it", async () => {
+  withApp();
+  const { t, dana } = await project();
+  await signIn(t, dana);
+  const pat = await patOnDanasGithub(t);
+  expect(await dana.action(api.trackers.disconnect, { tracker: "github" })).toBe("shared");
+  expect(grantDeletions()).toBe(0);
+  // Pat's connection still works.
+  expect((await pat.action(api.tickets.destinations, { tracker: "github" })).length).toBeGreaterThan(0);
+  await t.finishAllScheduledFunctions(() => undefined);
+  expect(grantDeletions()).toBe(0);
+  expect(await pat.action(api.trackers.disconnect, { tracker: "github" })).toBe("ended");
+  expect(grantDeletions()).toBe(1);
+});
+
+test("a disconnect's retry never deletes GitHub's grant once another Critiqs account is connected to that GitHub account, or the person is signing in to GitHub again", async () => {
+  withApp();
+  const { t, dana } = await project();
+  await signIn(t, dana);
+  github.intercept = (method, path) => (method === "DELETE" && path.endsWith("/grant") ? new Response("unavailable", { status: 503 }) : undefined);
+  expect(await dana.action(api.trackers.disconnect, { tracker: "github" })).toBe("failed");
+  const [retry] = await t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.state.kind === "pending" && job.name.includes("endAccount")));
+  github.intercept = null;
+  // Dana starts signing in again, and hasn't finished: the retry leaves the grant her new sign-in will share.
+  await dana.action(api.trackers.startSignIn, { tracker: "github" });
+  const before = grantDeletions();
+  expect(await t.action(internal.trackers.endAccount, retry!.args[0] as never)).toBe("kept");
+  expect(grantDeletions()).toBe(before);
+  // Without that, but with Pat connected to the same GitHub account, it is left too.
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("trackerSignIns").collect()) await ctx.db.delete(row._id);
+  });
+  const pat = await patOnDanasGithub(t);
+  expect(await t.action(internal.trackers.endAccount, retry!.args[0] as never)).toBe("kept");
+  expect(grantDeletions()).toBe(before);
+  expect((await pat.action(api.tickets.destinations, { tracker: "github" })).length).toBeGreaterThan(0);
+});
+
 test("GitHub sign-in into an account with none of the Critiqs email's addresses saves nothing, and the window says so", async () => {
   withApp();
   const { t, dana } = await project();

@@ -1035,6 +1035,8 @@ export interface Store {
       find(userId: string, tracker: TrackerId): Promise<TrackerAccountRecord | null>;
       /** A person's tracker accounts, by tracker. */
       list(userId: string): Promise<TrackerAccountRecord[]>;
+      /** Critiqs accounts connected to one tracker account (the tracker's ID for it), whoever's; at most `limit`. */
+      withAccountId(tracker: TrackerId, accountId: string, limit: number): Promise<TrackerAccountRecord[]>;
       insert(account: New<TrackerAccountRecord>): Promise<string>;
       patch(id: string, changes: TrackerAccountChanges): Promise<void>;
       delete(id: string): Promise<void>;

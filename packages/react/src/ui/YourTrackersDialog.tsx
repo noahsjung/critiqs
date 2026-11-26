@@ -39,9 +39,18 @@ const label = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === trac
  * a pasted key, which only they can delete there; or a sign-in Critiqs
  * couldn't end, which they can end by removing Critiqs in the tracker.
  */
+/** The service a tracker's accounts belong to, where it differs from the tracker's name: GitHub Issues' are GitHub accounts. */
+const TRACKER_ACCOUNT: Partial<Record<TrackerId, string>> = { github: "GitHub" };
+
 function leftAtTracker(tracker: TrackerId, outcome: TrackerDisconnected): { text: string; alert: boolean } | null {
   const name = label(tracker);
   if (outcome === "kept") return { text: `Critiqs no longer has your ${name} API key, but the key still works in ${name} until you delete it there.`, alert: false };
+  if (outcome === "shared") {
+    return {
+      text: `${name} is disconnected here. Another Critiqs account is still connected to the same ${TRACKER_ACCOUNT[tracker] ?? name} account, which shares Critiqs's access at ${TRACKER_ACCOUNT[tracker] ?? name}, so that access stays until it disconnects too, or you remove Critiqs in ${TRACKER_ACCOUNT[tracker] ?? name}'s settings.`,
+      alert: false,
+    };
+  }
   if (outcome === "failed") {
     return {
       text: `${name} is disconnected here, but Critiqs couldn't tell ${name} to end its access, so Critiqs can still reach your ${name} account. Critiqs will try again for about an hour; to end it now, remove Critiqs in ${name}'s settings.`,
@@ -325,6 +334,12 @@ function Connected({
       {confirming ? (
         <div className="warning stacked" role="alert">
           <span>Disconnect {name}? Tickets already linked keep their links.</span>
+          {account.tracker === "github" && account.method === "oauth" && (
+            <span>
+              At GitHub, this ends Critiqs's access to the GitHub account {account.accountName}, unless another Critiqs account is connected to it: GitHub gives
+              Critiqs one access per GitHub account, so it stays until the last Critiqs account connected to it disconnects.
+            </span>
+          )}
           <div className="row end">
             <button ref={keepButton} type="button" className="btn small" disabled={busy} onClick={() => onConfirm(false)}>
               Keep {name}

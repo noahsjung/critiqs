@@ -266,10 +266,13 @@ export interface TrackerAccountView {
  * sign-in's tokens no longer work); `kept` a pasted token, which only the
  * person can delete in the tracker; `failed` to end a sign-in, because the
  * tracker couldn't be reached or refused, so it still works until the person
- * removes Critiqs in the tracker (Critiqs tries again for a while); `none`
- * when nothing was connected.
+ * removes Critiqs in the tracker (Critiqs tries again for a while); `shared`
+ * when the sign-in's access at the tracker is shared with another Critiqs
+ * account connected to the same tracker account (GitHub's grant is per GitHub
+ * account), so it stays until that one disconnects too; `none` when nothing
+ * was connected.
  */
-export type TrackerDisconnected = "ended" | "kept" | "failed" | "none";
+export type TrackerDisconnected = "ended" | "kept" | "failed" | "shared" | "none";
 
 /** The trackers a backend offers, and how each one connects; from `/critiqs/config`. */
 export interface TicketsConfig {

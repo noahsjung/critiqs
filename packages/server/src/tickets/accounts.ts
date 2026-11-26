@@ -107,8 +107,13 @@ export interface TrackerSignIn {
    * (GitHub's grant), so a sign-in they made since would end with it.
    */
   endsEveryToken?: boolean;
-  /** Ends a sign-in at the tracker, where it offers a call that does: true when the tracker no longer accepts its tokens. */
-  end?(tokens: { access: string | null; refresh: string | null }, fetchFn?: typeof fetch, now?: number): Promise<boolean>;
+  /**
+   * Ends a sign-in at the tracker, where it offers a call that does: true
+   * when the tracker no longer accepts its tokens. Where ending it ends every
+   * token (`endsEveryToken`), `mayEnd` is asked right before each call that
+   * would, and `"shared"` returned when it says no.
+   */
+  end?(tokens: { access: string | null; refresh: string | null }, fetchFn?: typeof fetch, now?: number, mayEnd?: () => Promise<boolean>): Promise<boolean | "shared">;
 }
 
 /** The tracker's sign-in on this deployment; null where its operator registered no app, so people paste a token. */
@@ -135,8 +140,11 @@ export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment)
       endsEveryToken: true,
       // Deleting the app's grant for the person ends every token it holds for them. GitHub needs a valid access token for
       // it, and they last eight hours: one GitHub turns down is refreshed first, when the refresh token still works.
-      end: async ({ access, refresh }, fetchFn, now = Date.now()) => {
+      // The grant is GitHub's per GitHub account, not per Critiqs account: `mayEnd` is asked right before each deletion, so
+      // one isn't deleted while another Critiqs account, or a sign-in, uses it.
+      end: async ({ access, refresh }, fetchFn, now = Date.now(), mayEnd = async () => true) => {
         const api = { baseUrl: deployment.githubApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) };
+        if (access !== null && !(await mayEnd())) return "shared";
         const first = access === null ? "refused" : await deleteGithubGrant(api, app, access);
         if (first !== "refused" || refresh === null) return first === "deleted";
         let fresh: SignInTokens;
@@ -145,6 +153,7 @@ export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment)
         } catch {
           return false;
         }
+        if (!(await mayEnd())) return "shared";
         return (await deleteGithubGrant(api, app, fresh.access)) === "deleted";
       },
     };
@@ -293,6 +302,8 @@ export async function saveOwnTrackerAccount(store: Store, identity: Identity | n
 export interface DisconnectedAccount {
   userId: string;
   tracker: TrackerId;
+  /** The tracker's ID for the account; absent on retries scheduled before it was kept. */
+  accountId?: string;
   method: "oauth" | "token";
   access: StoredToken;
   refresh: StoredToken | null;
@@ -312,11 +323,11 @@ export async function disconnectTracker(store: Store, identity: Identity | null,
   const existing = await accounts.find(user._id, args.tracker);
   if (existing === null) return null;
   await accounts.delete(existing._id);
-  return { userId: user._id, tracker: args.tracker, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
+  return { userId: user._id, tracker: args.tracker, accountId: existing.accountId, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
 }
 
 /** What disconnecting did at the tracker: ended Critiqs's access there, left a pasted token for the person to remove, or couldn't end it. */
-export type TrackerEnd = "ended" | "kept" | "failed";
+export type TrackerEnd = "ended" | "kept" | "failed" | "shared";
 
 /**
  * Ends a disconnected account at its tracker, where an API call can: a
@@ -326,9 +337,16 @@ export type TrackerEnd = "ended" | "kept" | "failed";
  * removes it there. `failed` when the tracker couldn't be reached, refused,
  * still accepts a token afterwards, or offers no such call; the person is
  * told, and the sign-in ends when its tokens expire or they remove Critiqs at
- * the tracker.
+ * the tracker. `shared` when ending it would end every token and `mayEnd`
+ * (asked right before each such call) says another sign-in still uses it.
  */
-export async function endTrackerAccount(deployment: TicketsDeployment, account: DisconnectedAccount, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<TrackerEnd> {
+export async function endTrackerAccount(
+  deployment: TicketsDeployment,
+  account: DisconnectedAccount,
+  fetchFn: typeof fetch = fetch,
+  now: number = Date.now(),
+  mayEnd: () => Promise<boolean> = async () => true,
+): Promise<TrackerEnd> {
   if (account.method !== "oauth") return "kept";
   const key = deployment.encryptionKey;
   if (key === null || trackerSignIn(account.tracker, deployment)?.end === undefined) return "failed";
@@ -336,7 +354,8 @@ export async function endTrackerAccount(deployment: TicketsDeployment, account: 
   const refresh = account.refresh === null ? null : await decryptToken(key, binding, account.refresh);
   const access = await decryptToken(key, binding, account.access);
   if (refresh === null && access === null) return "failed";
-  return (await endTrackerSignIn(deployment, account.tracker, { access, refresh }, fetchFn, now)) ? "ended" : "failed";
+  const ended = await endTrackerSignIn(deployment, account.tracker, { access, refresh }, fetchFn, now, mayEnd);
+  return ended === "shared" ? "shared" : ended ? "ended" : "failed";
 }
 
 /**
@@ -344,9 +363,31 @@ export async function endTrackerAccount(deployment: TicketsDeployment, account: 
  * true when the tracker no longer accepts them. Also for tokens a sign-in
  * got after the person cancelled it by disconnecting.
  */
-export async function endTrackerSignIn(deployment: TicketsDeployment, tracker: TrackerId, tokens: { access: string | null; refresh: string | null }, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<boolean> {
+export async function endTrackerSignIn(
+  deployment: TicketsDeployment,
+  tracker: TrackerId,
+  tokens: { access: string | null; refresh: string | null },
+  fetchFn: typeof fetch = fetch,
+  now: number = Date.now(),
+  mayEnd: () => Promise<boolean> = async () => true,
+): Promise<boolean | "shared"> {
   const end = trackerSignIn(tracker, deployment)?.end;
-  return end !== undefined && (await end(tokens, fetchFn, now));
+  return end !== undefined && (await end(tokens, fetchFn, now, mayEnd));
+}
+
+/**
+ * Whether a tracker sign-in that ends every token for its tracker account
+ * (GitHub's grant) is still in use, so it mustn't be ended: another Critiqs
+ * account is connected with a sign-in to the same tracker account
+ * (`accountId`), or the person is signing in to the tracker again, whose new
+ * tokens would share it. Read right before each call that would end it.
+ */
+export async function trackerGrantInUse(store: Store, args: { userId: string; tracker: TrackerId; accountId?: string }): Promise<boolean> {
+  const tickets = ticketStore(store);
+  if ((await tickets.signIns.listForUser(args.userId, args.tracker)).length > 0) return true;
+  // A retry scheduled before the account's ID was kept knows only its person.
+  if (args.accountId === undefined) return (await tickets.accounts.find(args.userId, args.tracker)) !== null;
+  return (await tickets.accounts.withAccountId(args.tracker, args.accountId, 10)).some((account) => account.method === "oauth");
 }
 
 /**

@@ -610,7 +610,10 @@ export default defineSchema({
     updatedAt: v.number(),
     /** A token refresh in progress, so only one runs at a time. */
     refreshLease: v.optional(v.object({ id: v.string(), until: v.number() })),
-  }).index("by_user_tracker", ["userId", "tracker"]),
+  })
+    .index("by_user_tracker", ["userId", "tracker"])
+    // Critiqs accounts connected to one tracker account, whoever's: a GitHub sign-in's grant is per GitHub account.
+    .index("by_tracker_account", ["tracker", "accountId"]),
 
   /** A ticket linked to a thread. A pending link, saved before the tracker is called, has empty `externalId`, `key`, and `url`. */
   ticketLinks: defineTable({

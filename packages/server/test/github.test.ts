@@ -506,3 +506,36 @@ describe("GitHub webhooks", () => {
     expect(await readGithubWebhook(secret, bytes(moved.body), moved.headers["X-Hub-Signature-256"]!, "issues", NOW)).toEqual({ status: "ignored" });
   });
 });
+
+describe("ending a sign-in", () => {
+  test("GitHub's grant is deleted only when asked right before each deletion, the one after refreshing an expired token too", async () => {
+    const { standIn } = setup();
+    const { ticketsDeploymentFromEnv, trackerSignIn } = await import("../src/tickets/accounts.ts");
+    const deployment = ticketsDeploymentFromEnv({
+      CRITIQS_AI_ENCRYPTION_KEY: "operator-encryption-key-".padEnd(48, "x"),
+      CRITIQS_GITHUB_CLIENT_ID: app.clientId,
+      CRITIQS_GITHUB_CLIENT_SECRET: app.clientSecret,
+      CRITIQS_GITHUB_APP_SLUG: app.slug,
+      CRITIQS_GITHUB_API_URL: standIn.origin,
+      CRITIQS_GITHUB_APP_URL: standIn.origin,
+    });
+    const end = trackerSignIn("github", deployment)!.end!;
+    const deletions = () => standIn.requests.filter((request) => request.endsWith("/grant")).length;
+    // Another Critiqs account uses the grant: nothing is deleted.
+    let tokens = await signIn(standIn);
+    expect(await end(tokens, standIn.fetchFn, 1_000, async () => false)).toBe("shared");
+    expect(deletions()).toBe(0);
+    expect(standIn.accessTokens.has(tokens.access)).toBe(true);
+    // The access token expired: GitHub turns the first deletion down, Critiqs refreshes, and asks again before the second,
+    // when a sign-in to that GitHub account has finished meanwhile.
+    standIn.accessTokens.get(tokens.access)!.expiresAt = 0;
+    const asked: boolean[] = [];
+    expect(await end(tokens, standIn.fetchFn, 1_000, async () => (asked.push(asked.length === 0), asked.at(-1)!))).toBe("shared");
+    expect(asked).toEqual([true, false]);
+    expect(deletions()).toBe(1);
+    // Free to end: deleted.
+    tokens = await signIn(standIn);
+    expect(await end(tokens, standIn.fetchFn, 1_000, async () => true)).toBe(true);
+    expect(standIn.accessTokens.has(tokens.access)).toBe(false);
+  });
+});
