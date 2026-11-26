@@ -1283,7 +1283,10 @@ test("a partial failure names the threads with no ticket; a limit pauses the res
     limited = false;
     await act(async () => waits.shift()!.run());
     await settle(4);
-    expect((calls(data, "createTicket") as { threadId: string }[]).slice(3).map((input) => input.threadId)).toEqual(["t3", "t4"]);
+    const continued = (calls(data, "createTicket") as { threadId: string; submissionId: string }[]).slice(3);
+    expect(continued.map((input) => input.threadId)).toEqual(["t3", "t4"]);
+    // The third is sent again under its first submission, so a creation the limit's answer hid can't make a second ticket.
+    expect(continued[0]!.submissionId).toBe(firstTries.t3!);
     expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 3 of 4. 1 thread has no ticket: “Second issue”.");
     refuse = new Set();
     await click(button(bulk, "Try again"));
