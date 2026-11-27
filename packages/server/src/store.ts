@@ -632,6 +632,15 @@ export interface TicketLinkRecord {
   statusCheckStartedAt?: number;
   /** Set when Critiqs can't check the status with the linker's account (disconnected, another account, or no longer allowed to see the ticket): `status` is the last one it knew. */
   statusStale?: boolean;
+  /**
+   * A check a status webhook asked for, not yet started: when, and whether
+   * the delivery said the ticket was deleted. Where a delivery only says a
+   * ticket changed (Jira), its status is read with the linker's token; while
+   * one check waits, more deliveries ask for none.
+   */
+  statusCheckQueued?: { at: number };
+  /** What the tracker's status webhooks filter the ticket by (a Jira project's ID), so a person's webhook follows only their linked tickets' scopes. */
+  webhookScope?: string;
   /** The tracker account (the tracker's ID for it) the person linked or created the ticket with: status checks use only this account's token. */
   accountId?: string;
   /** Who linked or created it. */
@@ -647,7 +656,7 @@ export interface TicketSettingsRecord {
   /** Whether the Create dialog offers the chosen tracker templates; absent means off. */
   templatesOn?: boolean;
   /** Tracker templates the project offers while templates are on, by destination. */
-  templates: { tracker: TrackerId; destinationId: string; templateId: string; name: string }[];
+  templates: { tracker: TrackerId; destinationId: string; templateId: string; name: string; body?: string }[];
   /** Resolve a thread when every ticket linked to it is done. */
   resolveWhenDone: boolean;
   /** Where the project's new tickets go by default, per tracker. */
@@ -679,6 +688,30 @@ export interface TrackerSignInRecord {
    * meanwhile, which removes it, cancels it.
    */
   claimedAt?: number;
+  /** The site the person chose to connect, where the tracker has several (a Jira site's host). */
+  site?: string;
+}
+
+/**
+ * A status webhook a person's sign-in registered with a tracker that sends
+ * webhooks only to those its users register, and expires them (Jira): one per
+ * person, tracker, and site, following the tickets of `scopes` (Jira
+ * projects) that the person linked or created there.
+ */
+export interface TrackerWebhookRecord {
+  _id: string;
+  userId: string;
+  tracker: TrackerId;
+  /** The tracker account it was registered as (the tracker's ID for it); renewed only with that account's token. */
+  accountId: string;
+  site: { id: string; name: string };
+  /** The tracker's ID for the webhook; unique within its site only. */
+  hookId: string;
+  scopes: string[];
+  expiresAt: number;
+  updatedAt: number;
+  /** A registration or renewal in progress, so only one runs at a time. */
+  lease?: { id: string; until: number };
 }
 
 export interface FileInfo {
@@ -754,7 +787,7 @@ export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" 
 };
 /** Changes to a ticket link; `null` clears an optional field. */
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
-  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt" | "statusAsOf" | "statusDeleted" | "statusCheckStartedAt" | "statusStale" | "accountId"]?: TicketLinkRecord[K] | null;
+  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt" | "statusAsOf" | "statusDeleted" | "statusCheckStartedAt" | "statusStale" | "statusCheckQueued" | "webhookScope" | "accountId"]?: TicketLinkRecord[K] | null;
 };
 export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templatesOn" | "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
 
@@ -1050,6 +1083,8 @@ export interface Store {
       findByExternal(tracker: TrackerId, externalId: string, limit: number): Promise<TicketLinkRecord[]>;
       /** The link a creation made or is making, in any thread, by its creation ID; null when there is none. */
       findByCreation(creationId: string): Promise<TicketLinkRecord | null>;
+      /** Links one person made in a tracker's site, linked or pending: at most `limit`. */
+      listForLinker(userId: string, tracker: TrackerId, site: string, limit: number): Promise<TicketLinkRecord[]>;
       insert(link: New<TicketLinkRecord>): Promise<string>;
       patch(id: string, changes: TicketLinkChanges): Promise<void>;
       delete(id: string): Promise<void>;
@@ -1066,6 +1101,22 @@ export interface Store {
       delete(id: string): Promise<void>;
       /** A person's sign-ins under way for a tracker. */
       listForUser(userId: string, tracker: TrackerId): Promise<TrackerSignInRecord[]>;
+    };
+    /** Status webhooks registered with people's sign-ins (Jira). */
+    webhooks: {
+      /** The webhook record, or null when `id` isn't one of this backend's. */
+      get(id: string): Promise<TrackerWebhookRecord | null>;
+      /** A person's webhook for a tracker and site. */
+      find(userId: string, tracker: TrackerId, siteId: string): Promise<TrackerWebhookRecord | null>;
+      /** A person's webhooks for a tracker, on every site. */
+      listForUser(userId: string, tracker: TrackerId): Promise<TrackerWebhookRecord[]>;
+      /** Webhooks with this tracker ID on one site, named by its ID or by its host: IDs are unique only within a site. At most a few. */
+      findByHook(tracker: TrackerId, site: { id: string } | { name: string }, hookId: string): Promise<TrackerWebhookRecord[]>;
+      /** Webhooks that expire before `before`, soonest first; at most `limit`. */
+      listExpiring(before: number, limit: number): Promise<TrackerWebhookRecord[]>;
+      insert(webhook: New<TrackerWebhookRecord>): Promise<string>;
+      patch(id: string, changes: Partial<Pick<TrackerWebhookRecord, "hookId" | "scopes" | "expiresAt" | "updatedAt" | "accountId">> & { lease?: TrackerWebhookRecord["lease"] | null }): Promise<void>;
+      delete(id: string): Promise<void>;
     };
   };
 }

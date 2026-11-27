@@ -38,7 +38,7 @@ import { linkSecret } from "./lib/links";
 import { developerEmailSetup } from "./onboarding";
 import { threadPageWebsite } from "./notifications";
 import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadSnapshot } from "./captureHttp";
-import { githubCallback, githubStart, githubStartLink, githubWebhook, linearCallback, linearStart, linearStartLink, linearWebhook } from "./trackerHttp";
+import { githubCallback, githubStart, githubStartLink, githubWebhook, jiraCallback, jiraStart, jiraStartLink, jiraWebhook, linearCallback, linearStart, linearStartLink, linearWebhook } from "./trackerHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
@@ -84,6 +84,11 @@ http.route({ path: "/trackers/github/callback", method: "GET", handler: githubCa
 // Trackers' webhooks: issues' status, for every thread that links them.
 http.route({ path: "/trackers/linear/webhook", method: "POST", handler: linearWebhook });
 http.route({ path: "/trackers/github/webhook", method: "POST", handler: githubWebhook });
+// Jira's sign-in window and the webhooks people's sign-ins register.
+http.route({ path: "/trackers/jira/start", method: "POST", handler: jiraStart });
+http.route({ path: "/trackers/jira/start", method: "GET", handler: jiraStartLink });
+http.route({ path: "/trackers/jira/callback", method: "GET", handler: jiraCallback });
+http.route({ path: "/trackers/jira/webhook", method: "POST", handler: jiraWebhook });
 
 // Review links: routes only the review proxy calls, with its shared secret (reviewHttp.ts).
 http.route({ path: "/internal/review/v1/resolve", method: "POST", handler: resolveReviewHost });

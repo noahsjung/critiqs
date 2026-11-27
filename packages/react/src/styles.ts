@@ -482,6 +482,8 @@ button.hashtag { cursor: pointer; }
 .ticket-label .icon-btn { width: 20px; height: 20px; border-radius: 50%; }
 .ticket-label .icon-btn svg { width: 12px; height: 12px; }
 .ticket-check { display: flex; align-items: center; gap: var(--space-2); }
+.ticket-fields { display: flex; flex-direction: column; gap: var(--space-2); }
+.ticket-fields fieldset { border: 0; margin: 0; padding: 0; gap: var(--space-1); }
 .ticket-check input { margin: 0; accent-color: var(--accent); }
 .ticket-results { display: flex; flex-direction: column; max-height: 232px; overflow-y: auto; margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; }
 .ticket-result { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); min-height: var(--row-height);

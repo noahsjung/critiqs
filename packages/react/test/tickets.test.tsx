@@ -727,7 +727,7 @@ test("an owner turns on the team's ticket templates in Tags and AI and chooses w
 test("the Tickets tab asks an owner without Linear to connect it, and a backend without drafting has no Tickets tab", async () => {
   let shadow = await mount(backend({ trackers: { accounts: [], templateSettings: { on: true, templates: [] } } }), DRAFTING, { sidebarOpen: true });
   const settings = await openTicketsTab(shadow);
-  expect(settings.textContent).toContain("Connect Linear or GitHub Issues in Your trackers to choose your teams' templates.");
+  expect(settings.textContent).toContain("Connect Linear, GitHub Issues, or Jira in Your trackers to choose your teams' templates.");
   await act(async () => root?.unmount());
   host?.remove();
   page?.remove();
@@ -946,4 +946,80 @@ test("with Linear and GitHub connected, switching the tracker never asks one tra
     { threadId: "thread", tracker: "linear", destinationId: "team-des" },
     { threadId: "thread", tracker: "github", destinationId: "acme/web" },
   ]);
+});
+
+const JIRA: TrackerAccountView = { tracker: "jira", method: "token", accountName: "Dana Smith", site: "acme.atlassian.net", connectedAt: 1, attribution: true };
+const JIRA_DRAFTING: TicketsConfig = { trackers: [{ id: "jira", signIn: "token" }], threadTickets: true, drafting: true };
+/** Website · Bug needs nothing more; Operations · Incident needs a priority and a number; Operations · Escalation needs a person, which Critiqs can't fill. */
+const jiraOptions = async (destinationId: string): Promise<TicketDraftOptions> => {
+  if (destinationId === "10002/10020") {
+    return {
+      templates: [],
+      labels: [],
+      fields: [
+        { id: "priority", name: "Priority", kind: "choice", options: [{ id: "1", name: "Highest" }, { id: "3", name: "Medium" }] },
+        { id: "customfield_10051", name: "Affected users", kind: "number", options: [] },
+      ],
+      unsupportedFields: [],
+    };
+  }
+  if (destinationId === "10002/10021") return { templates: [], labels: [], fields: [], unsupportedFields: ["Escalation owner"] };
+  return { templates: [], labels: [], fields: [], unsupportedFields: [] };
+};
+
+test("a Jira issue type's required fields are asked for, Create waits until each has a value, and they are sent; one Critiqs can't fill is named and blocks Create", async () => {
+  const data = backend({
+    trackers: {
+      accounts: [JIRA],
+      options: jiraOptions,
+      destinations: async () => [
+        { id: "10001/10010", name: "Website · Bug", key: "WEB" },
+        { id: "10002/10020", name: "Operations · Incident", key: "OPS" },
+        { id: "10002/10021", name: "Operations · Escalation", key: "OPS" },
+      ],
+    },
+  });
+  const shadow = await mount(data, JIRA_DRAFTING);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Project and type")!.textContent).toContain("Website · Bug");
+  expect(create.querySelector(".ticket-fields")).toBeNull();
+
+  await chooseOption(shadow, rowSelect(create, "Project and type"), "Operations · Escalation");
+  expect(create.querySelector('[role="alert"]')?.textContent).toContain("needs Escalation owner, which Critiqs can't fill yet");
+  expect(button(create, "Create")!.disabled).toBe(true);
+
+  await chooseOption(shadow, rowSelect(create, "Project and type"), "Operations · Incident");
+  expect(create.querySelector('[role="alert"]')).toBeNull();
+  expect(button(create, "Create")!.disabled).toBe(true);
+  await chooseOption(shadow, rowSelect(create, "Priority"), "Medium");
+  await type(create.querySelector<HTMLInputElement>('.ticket-fields input[type="number"]'), "40");
+  expect(button(create, "Create")!.disabled).toBe(false);
+  await click(button(create, "Create"));
+  expect(calls(data, "createTicket")).toEqual([expect.objectContaining({ tracker: "jira", destinationId: "10002/10020", fields: { priority: "3", customfield_10051: "40" } })]);
+});
+
+test("with all three trackers connected, switching the tracker never asks one tracker about another's destination", async () => {
+  const destinations = async (tracker: TrackerId) =>
+    tracker === "linear"
+      ? [{ id: "team-des", name: "Design", key: "DES" }]
+      : tracker === "github"
+        ? [{ id: "acme/web", name: "acme/web", key: null }]
+        : [{ id: "10001/10010", name: "Website · Bug", key: "WEB" }];
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB, JIRA], destinations, options: async () => ({ templates: [], labels: [] }) } });
+  const all: TicketsConfig = { trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }, { id: "jira", signIn: "token" }], threadTickets: true, drafting: true };
+  const shadow = await mount(data, all);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  const create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Tracker")!.textContent).toContain("Linear");
+  await chooseOption(shadow, rowSelect(create, "Tracker"), "GitHub Issues");
+  expect(rowSelect(create, "Repository")!.textContent).toContain("acme/web");
+  await chooseOption(shadow, rowSelect(create, "Tracker"), "Jira");
+  expect(rowSelect(create, "Project and type")!.textContent).toContain("Website · Bug");
+  const own: Record<TrackerId, string> = { linear: "team-des", github: "acme/web", jira: "10001/10010" };
+  const asked = calls(data, "ticketDraftOptions") as { tracker: TrackerId; destinationId: string }[];
+  expect(asked.map((call) => call.tracker)).toEqual(["linear", "github", "jira"]);
+  for (const call of asked) expect(call.destinationId).toBe(own[call.tracker]);
 });

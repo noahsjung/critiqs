@@ -238,8 +238,8 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
     },
     tickets: {
       useTrackerAccounts: (enabled) => useQueryState(api.trackers.mine, enabled ? {} : "skip"),
-      connectTrackerWithToken: (tracker, token) => client.action(api.trackers.connectWithToken, { tracker, token }),
-      startTrackerSignIn: (tracker) => client.action(api.trackers.startSignIn, { tracker }),
+      connectTrackerWithToken: (tracker, token, site) => client.action(api.trackers.connectWithToken, { tracker, token, ...site }),
+      startTrackerSignIn: (tracker, site) => client.action(api.trackers.startSignIn, { tracker, ...(site === undefined ? {} : { site }) }),
       disconnectTracker: (tracker) => client.action(api.trackers.disconnect, { tracker }),
       setTrackerAttribution: (tracker, attribution) => change(mutation(api.trackers.setAttribution, { tracker, attribution })),
       listTicketDestinations: (tracker) => client.action(api.tickets.destinations, { tracker }),

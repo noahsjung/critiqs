@@ -63,6 +63,8 @@ export const TICKET_AI = {
 export const MAX_OFFERED_TEMPLATES = 50;
 /** The most labels the Create dialog suggests from the thread's tags, well under the most a ticket is created with. */
 export const MAX_SUGGESTED_LABELS = 5;
+/** The longest template a project's owners paste for a tracker without its own templates (Jira). */
+export const MAX_PASTED_TEMPLATE_LENGTH = 8_000;
 
 const FALLBACK = "The draft is filled from the thread without AI.";
 
@@ -103,10 +105,19 @@ function parseChoices(templates: TicketTemplateChoice[]): TicketTemplateChoice[]
     const key = `${choice.tracker}:${destinationId}:${templateId}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    parsed.push({ tracker: choice.tracker, destinationId, templateId, name: name.slice(0, 200) });
+    // A tracker without templates of its own (Jira) takes the ones the owners paste; the others' are read from the tracker.
+    const pasted = pastesTemplates(choice.tracker);
+    const body = choice.body?.replace(/\r\n?/g, "\n") ?? "";
+    if (pasted && body.trim() === "") fail("invalid", "Paste the template's text.");
+    if (pasted && body.length > MAX_PASTED_TEMPLATE_LENGTH) fail("invalid", `Keep a template under ${MAX_PASTED_TEMPLATE_LENGTH.toLocaleString("en-US")} characters.`);
+    if (!pasted && choice.body !== undefined) fail("invalid", "Choose templates from the list.");
+    parsed.push({ tracker: choice.tracker, destinationId, templateId, name: name.slice(0, 200), ...(pasted ? { body } : {}) });
   }
   return parsed;
 }
+
+/** Whether a project's owners paste their templates into Critiqs for this tracker, which keeps none of its own (Jira). */
+export const pastesTemplates = (tracker: TrackerId) => tracker === "jira";
 
 /** Turns the project's templates on or off and sets which it offers; owners only. Turning them off keeps the choice for next time. One transaction. */
 export async function saveTicketTemplateSettings(
@@ -149,6 +160,8 @@ export interface DraftPlan extends DraftContext {
   tags: string[];
   /** The templates the project offers in the destination asked about; empty without one, or while templates are off. */
   offered: string[];
+  /** Of those, the ones its owners pasted into Critiqs, with their text. */
+  pasted: { id: string; name: string; body: string }[];
   /** The template to fill, checked as one the project offers there; null for Critiqs's standard format. */
   template: { destinationId: string; templateId: string } | null;
 }
@@ -168,12 +181,18 @@ export async function prepareDraft(
   const person = await requireTrackerAccount(store, identity, args, now);
   const { thread } = await requireThread(store, await requireUser(store, identity), context.threadId);
   const destinationId = args.destinationId ?? null;
-  const offered = destinationId === null ? [] : offeredTemplates(await ticketStore(store).settings.find(context.projectId), args.tracker, destinationId);
+  const settings = await ticketStore(store).settings.find(context.projectId);
+  const offered = destinationId === null ? [] : offeredTemplates(settings, args.tracker, destinationId);
+  const pasted = (settings?.templates ?? []).flatMap((choice) =>
+    choice.body !== undefined && choice.tracker === args.tracker && choice.destinationId === destinationId && offered.includes(choice.templateId)
+      ? [{ id: choice.templateId, name: choice.name, body: choice.body }]
+      : [],
+  );
   const templateId = args.templateId ?? null;
   if (templateId !== null && (destinationId === null || !offered.includes(templateId))) {
     fail("invalid", "This project doesn't offer that template here. Choose another, or Critiqs's standard format.");
   }
-  return { ...context, person, tags: threadTags(thread), offered, template: templateId === null ? null : { destinationId: destinationId!, templateId } };
+  return { ...context, person, tags: threadTags(thread), offered, pasted, template: templateId === null ? null : { destinationId: destinationId!, templateId } };
 }
 
 /** What reading a draft from the tracker needs: its plan, and the person's token for the account it checked. */
@@ -195,16 +214,23 @@ export async function ticketDraftOptions(steps: DraftSteps, deployment: TicketsD
   const plan = await steps.prepare();
   const adapter = trackerAdapter(args.tracker, deployment, fetchFn);
   const keys = new Set(plan.tags.map(tagKey));
-  if (plan.offered.length === 0 && keys.size === 0) return { templates: [], labels: [] };
+  const fromTracker = plan.offered.filter((id) => !plan.pasted.some((template) => template.id === id));
+  const pasted = plan.pasted.map(({ id, name }) => ({ id, name }));
+  if (fromTracker.length === 0 && keys.size === 0 && adapter.requiredFields === undefined) return { templates: pasted, labels: [] };
   const token = await steps.token(plan.person);
   const templates =
-    plan.offered.length === 0 || adapter.templates === undefined
-      ? []
-      : (await adapter.templates(token, args.destinationId))
-          .flatMap((group) => (group.destination.id === args.destinationId ? group.templates : []))
-          .filter((template) => plan.offered.includes(template.id));
+    fromTracker.length === 0 || adapter.templates === undefined
+      ? pasted
+      : [
+          ...pasted,
+          ...(await adapter.templates(token, args.destinationId))
+            .flatMap((group) => (group.destination.id === args.destinationId ? group.templates : []))
+            .filter((template) => fromTracker.includes(template.id)),
+        ];
   const labels = keys.size === 0 || adapter.labels === undefined ? [] : suggestLabels(await adapter.labels(token, args.destinationId).catch(() => []), keys);
-  return { templates, labels };
+  // The destination's required fields: unlike labels, never left out, since without them the tracker refuses the ticket.
+  const required = adapter.requiredFields === undefined ? null : await adapter.requiredFields(token, args.destinationId);
+  return { templates, labels, ...(required === null ? {} : { fields: required.fields, unsupportedFields: required.unsupported }) };
 }
 
 /** The labels to suggest for tags (by `tagKey`), in the tracker's order. */
@@ -234,6 +260,8 @@ async function draftThread(loadPage: ExportPageLoader, plan: DraftPlan): Promise
 /** The template a plan names, read fresh from the tracker; refused when the tracker no longer has it there. */
 async function readTemplate(plan: DraftPlan, tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch, token: () => Promise<TrackerToken>) {
   if (plan.template === null) return null;
+  const pasted = plan.pasted.find((template) => template.id === plan.template!.templateId);
+  if (pasted !== undefined) return { ...pasted, destinationId: plan.template.destinationId };
   const adapter = trackerAdapter(tracker, deployment, fetchFn);
   const template = adapter.template === undefined ? null : await adapter.template(await token(), plan.template.templateId);
   if (template === null || template.destinationId !== plan.template.destinationId) {
@@ -242,7 +270,8 @@ async function readTemplate(plan: DraftPlan, tracker: TrackerId, deployment: Tic
   return template;
 }
 
-const captureNote = (tracker: TrackerId) => (tracker === "linear" ? "uploaded" : "link");
+// Linear takes the capture into the issue's text, Jira as an attachment; GitHub can't take it.
+const captureNote = (tracker: TrackerId) => (tracker === "linear" || tracker === "jira" ? "uploaded" : "link");
 
 /**
  * A new ticket's title and text filled from the thread without AI, for the

@@ -1,6 +1,8 @@
 import {
   isPrivateHost,
   type TicketDestination,
+  type TicketField,
+  type TicketFieldValue,
   type TicketLabel,
   type TicketMarkdown,
   type TicketRef,
@@ -14,6 +16,7 @@ import {
 } from "@critiqs/core";
 import { CritiqsError } from "../../errors.ts";
 import { githubAdapter } from "./github.ts";
+import { jiraAdapter } from "./jira.ts";
 import { linearAdapter } from "./linear.ts";
 
 // What Critiqs asks of each tracker. Each adapter calls one tracker's API with
@@ -24,6 +27,18 @@ import { linearAdapter } from "./linear.ts";
 export interface TrackerToken {
   method: "oauth" | "token";
   value: string;
+  /**
+   * The site the token is for, where the tracker has several and each is
+   * reached at its own address (a Jira site: its cloud ID and its host, such
+   * as `acme.atlassian.net`); absent for trackers with one address (Linear).
+   */
+  site?: TrackerSite | null;
+}
+
+/** A tracker site, such as a Jira Cloud site: the tracker's ID for it and the name it goes by (for Jira, its host). */
+export interface TrackerSite {
+  id: string;
+  name: string;
 }
 
 /** Whom a token belongs to, as the tracker reports it. */
@@ -36,7 +51,7 @@ export interface TrackerIdentity {
    */
   emails: string[];
   /** The workspace, organization, or Jira site the account is in, where the tracker has one. */
-  site: { id: string; name: string } | null;
+  site: TrackerSite | null;
 }
 
 declare const checked: unique symbol;
@@ -58,6 +73,12 @@ export interface TrackerEndpointOptions {
   fetch?: typeof fetch;
   baseUrl?: string;
   timeoutMs?: number;
+  /**
+   * Where sites reached by their own address are, as `<sitesUrl>/<site host>`
+   * (Jira with a pasted API token); absent, each site at `https://<host>`.
+   * Only tests set it, to reach a local stand-in.
+   */
+  sitesUrl?: string;
 }
 
 /** How long Critiqs waits for a tracker's whole answer. */
@@ -214,26 +235,36 @@ export type TicketPlace = (ticket: { key: string; site: string | null; url: stri
 /**
  * A ticket a tracker sent, held to Critiqs's limits: its ID within
  * `TRACKER_LIMITS.id`, its key and title cut, its status checked, its site's
- * ID kept only within the limit, and its address only where the tracker's
- * `place` says it is that ticket's page. Null when its ID, key, or address
- * can't be kept.
+ * ID kept only within the limit, its address only where the tracker's
+ * `place` says it is that ticket's page, and its webhook scope only within
+ * the limit. Null when its ID, key, or address can't be kept.
  */
-function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: string | null }>(ticket: T, place: TicketPlace, token: TrackerToken): T | null {
+function checkedTicket<T extends TicketRef & { status?: TicketStatus; site?: string | null; webhookScope?: string }>(ticket: T, place: TicketPlace, token: TrackerToken): T | null {
   const externalId = trackerId(ticket.externalId);
   const key = trackerText(ticket.key, TRACKER_LIMITS.key);
   const site = ticket.site === undefined || ticket.site === null ? null : trackerId(ticket.site);
   if (externalId === null || key === "" || (ticket.site != null && site === null)) return null;
   const url = webAddress(ticket.url) === null ? null : place({ key, site, url: ticket.url }, token);
   if (url === null) return null;
+  const { webhookScope, ...rest } = ticket;
+  const scope = webhookScope === undefined ? null : trackerId(webhookScope);
   return {
-    ...ticket,
+    ...rest,
     externalId,
     key,
     url,
     title: trackerText(ticket.title, TRACKER_LIMITS.title),
     ...(ticket.status === undefined ? {} : { status: checkedStatus(ticket.status) }),
     ...(ticket.site === undefined ? {} : { site }),
-  };
+    ...(scope === null ? {} : { webhookScope: scope }),
+  } as unknown as T;
+}
+
+/** A required field a tracker sent: its ID checked, its name and options' names cut, its options capped; null without a usable ID. */
+function checkedField(field: TicketField): TicketField | null {
+  const choice = checkedChoice(field);
+  if (choice === null) return null;
+  return { ...choice, kind: field.kind, options: some(field.options.map(checkedChoice)) };
 }
 
 /**
@@ -248,7 +279,8 @@ function checkedPlace(now: TicketPlaceNow, held: HeldTicket, place: TicketPlace,
   if (key === "" || (now.site != null && site === null) || webAddress(now.url) === null) return null;
   const url = place({ key, site, url: now.url }, token);
   if (url === null) return null;
-  return { key, url, title: trackerText(now.title, TRACKER_LIMITS.title), ...(now.site === undefined ? {} : { site }) };
+  const scope = now.webhookScope === undefined ? null : trackerId(now.webhookScope);
+  return { key, url, title: trackerText(now.title, TRACKER_LIMITS.title), ...(now.site === undefined ? {} : { site }), ...(scope === null ? {} : { webhookScope: scope }) };
 }
 
 /**
@@ -326,6 +358,8 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
     },
   };
   if (uploadImage) checked.uploadImage = async (token, image) => webAddress(await uploadImage(token, image)) ?? Promise.reject(unreadable("upload address"));
+  const { attachImage } = adapter;
+  if (attachImage) checked.attachImage = async (token, ticket, image) => await attachImage(token, heldTicket(ticket, place, token), image);
   const { templates, template, labels } = adapter;
   if (templates) {
     checked.templates = async (token, destinationId) =>
@@ -355,6 +389,24 @@ export function checkedAdapter(adapter: UncheckedAdapter, place: TicketPlace): T
           return choice === null ? null : { ...choice, exclusiveGroup: label.exclusiveGroup === null ? null : trackerId(label.exclusiveGroup) };
         }),
       );
+  }
+  const { requiredFields, webhooks } = adapter;
+  if (requiredFields) {
+    checked.requiredFields = async (token, destinationId) => {
+      const found = await requiredFields(token, destinationId);
+      return { fields: some(found.fields.map(checkedField)), unsupported: some(found.unsupported.map((name) => trackerText(name, TRACKER_LIMITS.name) || null)) };
+    };
+  }
+  if (webhooks) {
+    checked.webhooks = {
+      ...webhooks,
+      register: async (token, input) => {
+        const registered = await webhooks.register(token, input);
+        const id = trackerId(registered.id);
+        if (id === null || !Number.isFinite(registered.expiresAt)) throw unreadable("webhook");
+        return { id, expiresAt: registered.expiresAt };
+      },
+    };
   }
   checkedAdapters.add(checked);
   return checked;
@@ -387,6 +439,8 @@ export interface CreatedTicket extends TicketRef {
   site: string | null;
   /** The tracker's time `status` was current as of (the ticket's last update there); null when it doesn't say. */
   asOf: number | null;
+  /** What the tracker's status webhooks filter tickets by, where people register them (a Jira project's ID); absent otherwise. */
+  webhookScope?: string;
 }
 
 /** A ticket's status as the tracker reported it. */
@@ -411,6 +465,8 @@ export interface TicketPlaceNow {
   title: string;
   /** The site it is in now, where moving it changes that (a GitHub repository); absent where it can't change. */
   site?: string | null;
+  /** What the tracker's status webhooks filter it by now (a Jira project's ID), where people register them. */
+  webhookScope?: string;
 }
 
 /** A ticket's new status from a tracker's webhook, for every thread that links it. */
@@ -494,6 +550,32 @@ export interface TrackerAdapter {
   template?(token: TrackerToken, templateId: string): Promise<TrackerTemplate | null>;
   /** The labels a ticket in the destination can take; absent where the tracker has none. */
   labels?(token: TrackerToken, destinationId: string): Promise<TrackerLabel[]>;
+  /**
+   * Adds an image to a ticket once it exists, where the tracker keeps images
+   * as the ticket's attachments rather than in its text (Jira).
+   */
+  attachImage?(token: TrackerToken, ticket: HeldTicket, image: TicketImage): Promise<void>;
+  /**
+   * The fields a destination requires that Critiqs asks for, and the names of
+   * required fields it can't fill; absent where the tracker requires none
+   * beyond the title and text.
+   */
+  requiredFields?(token: TrackerToken, destinationId: string): Promise<{ fields: TicketField[]; unsupported: string[] }>;
+  /**
+   * Status webhooks registered with a person's sign-in, where the tracker
+   * sends them only to webhooks its users register and expires them (Jira);
+   * absent where the operator's app receives them all (Linear).
+   */
+  webhooks?: TrackerWebhooks;
+}
+
+/** Registering, renewing, and removing status webhooks with a person's sign-in. */
+export interface TrackerWebhooks {
+  /** Registers one webhook sending `url` the status of tickets in `scopes` (`webhookScope`s), at `now`; returns its ID and when it expires. */
+  register(token: TrackerToken, input: { url: string; scopes: string[]; now: number }): Promise<{ id: string; expiresAt: number }>;
+  /** Extends the webhooks' life; returns when they now expire. */
+  renew(token: TrackerToken, ids: string[]): Promise<number>;
+  remove(token: TrackerToken, ids: string[]): Promise<void>;
 }
 
 /** What finding a creation's ticket knows: its ID, the thread's link, where it was first submitted, and when. */
@@ -522,6 +604,8 @@ export interface NewTrackerTicket {
   /** The template the tracker applies its other defaults from, such as labels; null for none. */
   templateId: string | null;
   creationId: string;
+  /** Values for the destination's required fields (`requiredFields`), by field ID. */
+  fields?: Record<string, TicketFieldValue>;
 }
 
 /** A ticket template as the tracker has it now. */
@@ -541,10 +625,11 @@ export interface SignInTokens {
   expiresAt: number | null;
 }
 
-/** Each tracker's adapter, at the given address; trackers not built yet are missing. */
-export const TRACKER_ADAPTERS: Partial<Record<TrackerId, (endpoint: TrackerEndpointOptions) => TrackerAdapter>> = {
+/** Each tracker's adapter, at the given address. */
+export const TRACKER_ADAPTERS: Record<TrackerId, (endpoint: TrackerEndpointOptions) => TrackerAdapter> = {
   linear: linearAdapter,
   github: githubAdapter,
+  jira: jiraAdapter,
 };
 
 /**

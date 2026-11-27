@@ -51,6 +51,7 @@ import type * as threads from "../threads.js";
 import type * as ticketStatus from "../ticketStatus.js";
 import type * as tickets from "../tickets.js";
 import type * as trackerHttp from "../trackerHttp.js";
+import type * as trackerWebhooks from "../trackerWebhooks.js";
 import type * as trackers from "../trackers.js";
 import type * as uploads from "../uploads.js";
 import type * as users from "../users.js";
@@ -105,6 +106,7 @@ declare const fullApi: ApiFromModules<{
   ticketStatus: typeof ticketStatus;
   tickets: typeof tickets;
   trackerHttp: typeof trackerHttp;
+  trackerWebhooks: typeof trackerWebhooks;
   trackers: typeof trackers;
   uploads: typeof uploads;
   users: typeof users;

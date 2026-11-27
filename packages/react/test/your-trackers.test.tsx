@@ -409,3 +409,93 @@ test("disconnecting a GitHub sign-in says first what it does at GitHub, and afte
     "GitHub Issues is disconnected here. Another Critiqs account is still connected to the same GitHub account, which shares Critiqs's access at GitHub, so that access stays until it disconnects too, or you remove Critiqs in GitHub's settings.",
   );
 });
+
+const JIRA_BY_TOKEN: TicketsConfig = { trackers: [{ id: "linear", signIn: "token" }, { id: "jira", signIn: "token" }] };
+const JIRA_BY_SIGN_IN: TicketsConfig = { trackers: [{ id: "jira", signIn: "oauth" }] };
+
+test("Connect Jira with an API token asks for the site and the Atlassian email too, and links to where tokens are made", async () => {
+  const data = backend({ trackers: { accounts: [], connect: async () => ({ tracker: "jira", method: "token", accountName: "Dana Smith", site: "acme.atlassian.net", connectedAt: 1, attribution: true }) } });
+  const notes: string[] = [];
+  const node = <YourTrackersDialog offered={JIRA_BY_TOKEN} onClose={() => undefined} notify={(note) => notes.push(note)} />;
+  const dialog = await render(node, data);
+  await click(button(dialog, "Connect Jira"));
+  const settings = [...dialog.querySelectorAll("a")].find((link) => link.textContent === "Open Atlassian settings")!;
+  expect(settings.getAttribute("href")).toBe("https://id.atlassian.com/manage-profile/security/api-tokens");
+  const connect = button(dialog, "Connect")!;
+  await type(dialog.querySelector<HTMLInputElement>('input[type="password"]'), "ATATT-123");
+  // The token alone isn't enough: the site and email go with it.
+  expect(connect.disabled).toBe(true);
+  await type(dialog.querySelector<HTMLInputElement>('input[placeholder="your-team.atlassian.net"]'), "acme");
+  await type(dialog.querySelector<HTMLInputElement>('input[type="email"]'), "dana@example.com");
+  await click(connect);
+  expect(data.calls).toEqual([{ name: "connectTrackerWithToken", args: { tracker: "jira", token: "ATATT-123", email: "dana@example.com", site: "acme" } }]);
+  expect(notes).toEqual(["Jira connected"]);
+  await rerender(node, data);
+  const group = dialog.querySelector('[role="group"][aria-label="Jira"]')!;
+  expect(group.textContent).toContain("acme.atlassian.net");
+});
+
+test("with Jira sign-in, Connect Jira asks for the site first, then opens Atlassian's sign-in for it; an API token is offered instead", async () => {
+  const { opened, posted } = fakeWindow();
+  const data = backend();
+  const dialog = await render(<YourTrackersDialog offered={JIRA_BY_SIGN_IN} onClose={() => undefined} notify={() => undefined} />, data);
+  await click(button(dialog, "Connect Jira"));
+  expect(opened).toHaveLength(0);
+  expect(button(dialog, "Use an API token instead")).not.toBeNull();
+  const signIn = button(dialog, "Sign in with Atlassian")!;
+  expect(signIn.disabled).toBe(true);
+  await type(dialog.querySelector<HTMLInputElement>('input[placeholder="your-team.atlassian.net"]'), "acme.atlassian.net");
+  await click(signIn);
+  expect(opened).toHaveLength(1);
+  expect(data.calls).toEqual([{ name: "startTrackerSignIn", args: { tracker: "jira", site: "acme.atlassian.net" } }]);
+  expect(posted[0]).toMatchObject({ action: "https://backend.convex.site/trackers/jira/start", fields: { state: "s1", binding: "secret-1" } });
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe("Finish connecting in the Jira window.");
+});
+
+test("disconnecting a Jira sign-in, which Atlassian offers no way to end, says it lasts until it expires or is removed there, not that a token still works", async () => {
+  const offered: TicketsConfig = { trackers: [{ id: "jira", signIn: "oauth" }] };
+  const signedIn: TrackerAccountView = { tracker: "jira", method: "oauth", accountName: "Dana Smith", site: "acme.atlassian.net", connectedAt: 1, attribution: true };
+  const data = backend({ trackers: { accounts: [signedIn], disconnected: "kept" } });
+  const node = <YourTrackersDialog offered={offered} onClose={() => undefined} notify={() => undefined} />;
+  const dialog = await render(node, data);
+  await click(button(dialog, "Disconnect"));
+  await click([...dialog.querySelectorAll<HTMLButtonElement>("button.danger")].find((each) => each.textContent === "Disconnect"));
+  await rerender(node, data);
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe(
+    "Critiqs removed its webhooks from Jira, but Atlassian offers no way for Critiqs to end its sign-in: it works until it expires, or until you remove Critiqs from your Atlassian account's connected apps.",
+  );
+  // A pasted Jira token is named as Jira names it.
+  const pasted = backend({ trackers: { accounts: [{ ...signedIn, method: "token" }] } });
+  const again = await render(node, pasted);
+  await click(button(again, "Disconnect"));
+  await click([...again.querySelectorAll<HTMLButtonElement>("button.danger")].find((each) => each.textContent === "Disconnect"));
+  await rerender(node, pasted);
+  expect(again.querySelector('[role="status"]')?.textContent).toBe("Critiqs no longer has your Jira API token, but the token still works in Jira until you delete it there.");
+});
+
+test("a Jira site Critiqs refuses keeps the site form open, with what was typed and why, so the person corrects it", async () => {
+  const { popup } = fakeWindow();
+  let refuse = true;
+  const data = backend({
+    trackers: {
+      accounts: [],
+      signIn: async () => {
+        if (refuse) throw new ConvexError({ code: "invalid", message: "That isn't a Jira Cloud site. Enter its address, such as your-team.atlassian.net." });
+        return { url: "https://backend.convex.site/trackers/jira/start", state: "s1", binding: "secret-1" };
+      },
+    },
+  });
+  const dialog = await render(<YourTrackersDialog offered={JIRA_BY_SIGN_IN} onClose={() => undefined} notify={() => undefined} />, data);
+  await click(button(dialog, "Connect Jira"));
+  const site = () => dialog.querySelector<HTMLInputElement>('input[placeholder="your-team.atlassian.net"]');
+  await type(site(), "acme.example.com");
+  await click(button(dialog, "Sign in with Atlassian"));
+  expect(site()?.value).toBe("acme.example.com");
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toBe("That isn't a Jira Cloud site. Enter its address, such as your-team.atlassian.net.");
+  expect(popup.closed).toBe(true);
+  refuse = false;
+  await type(site(), "acme.atlassian.net");
+  await click(button(dialog, "Sign in with Atlassian"));
+  expect(site()).toBeNull();
+  expect(dialog.querySelector('[role="status"]')?.textContent).toBe("Finish connecting in the Jira window.");
+});

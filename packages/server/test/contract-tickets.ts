@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { TicketsConfig } from "@critiqs/core";
 import { decryptToken, trackerTokenBinding } from "../src/ai/secrets.ts";
 import { CritiqsError } from "../src/errors.ts";
 import * as ops from "../src/operations.ts";
@@ -24,6 +25,7 @@ import {
   SIGN_IN_MINUTES,
   startTrackerSignIn,
   type TicketsDeployment,
+  type TokenRead,
   type TokenUse,
   ticketsConfig,
   ticketsDeploymentFromEnv,
@@ -32,6 +34,7 @@ import {
 import type { Identity, Store, TicketLinkRecord, TrackerAccountRecord } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { NO_GITHUB } from "./github-standin.ts";
+import { NO_JIRA } from "./jira-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
@@ -49,6 +52,8 @@ function tickets(store: Store) {
  */
 /** For tests of the refresh lease: what a token may be read for (`TokenUse`) has its own test. */
 const LEASE_ONLY: TokenUse = { by: "cleanup" };
+/** What these tests read a token for; their store steps claim it as `LEASE_ONLY`, which needs no request or project. */
+const LEASE_READ: TokenRead = { by: "person" };
 
 export function defineTicketContract(name: string, fresh: () => ContractBackend) {
   const dana = reviewer("Dana");
@@ -373,7 +378,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   // Your trackers: the rules over this storage.
 
   const KEY = "operator-encryption-key-".padEnd(48, "x");
-  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
+  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB, ...NO_JIRA };
   const withSignIn: TicketsDeployment = { ...withKey, linear: { clientId: "client", clientSecret: "secret" } };
 
   /** A stand-in for Linear's API: its viewer, from the token sent; and its token endpoint, answering `refreshes` in turn. */
@@ -468,7 +473,6 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     // Refused before the token is sent anywhere.
     expect(linear.sent).toEqual([]);
     expect(await backend.run((store) => tickets(store).accounts.list(danaId))).toEqual([]);
-    expect((await refusal(backend.run((store) => requireTrackerPerson(store, dana, withKey, { tracker: "jira" }, Date.now())))).message).toBe("Critiqs can't connect Jira yet.");
     expect((await refusal(backend.run((store) => requireTrackerPerson(store, null, withKey, { tracker: "linear" }, Date.now())))).code).toBe("unauthenticated");
   });
 
@@ -643,8 +647,9 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
     expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
-    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
-    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
+    const offered = (linear: "oauth" | "token") => [{ id: "linear", signIn: linear }, { id: "github", signIn: "token" }, { id: "jira", signIn: "token" }] satisfies TicketsConfig["trackers"];
+    expect(ticketsConfig(withKey)).toEqual({ trackers: offered("token"), threadTickets: true, drafting: true, ticketStatus: true });
+    expect(ticketsConfig(withSignIn)).toEqual({ trackers: offered("oauth"), threadTickets: true, drafting: true, ticketStatus: true });
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id" }).linear).toBeNull();
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id", CRITIQS_LINEAR_CLIENT_SECRET: "s" })).toEqual({
       encryptionKey: KEY,
@@ -656,6 +661,10 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       githubWebhookSecret: null,
       githubApiUrl: "https://api.github.com",
       githubAppUrl: "https://github.com",
+      jira: null,
+      jiraApiUrl: "https://api.atlassian.com",
+      jiraAuthUrl: "https://auth.atlassian.com",
+      jiraSitesUrl: null,
     });
   });
 
@@ -679,7 +688,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     expect(await open("s1", "secret-s1")).toEqual({ status: "used" });
     expect(await open("unknown", "secret-s1")).toEqual({ status: "expired" });
     expect(await claim("s1", "secret-other")).toEqual({ status: "other-browser" });
-    expect(await claim("s1", "secret-s1")).toEqual({ status: "claimed", userId: danaId, verifier: "v-s1" });
+    expect(await claim("s1", "secret-s1")).toEqual({ status: "claimed", userId: danaId, verifier: "v-s1", site: null });
     // Used once.
     expect(await claim("s1", "secret-s1")).toEqual({ status: "expired" });
     // Expired before it was opened, or before the person came back.
@@ -710,7 +719,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       leaseId: () => `lease-${++leases}`,
       fetch: fetchFn,
     });
-    const token = () => trackerAccessToken(steps(), withSignIn, { userId: danaId, tracker: "linear", accountId });
+    const token = () => trackerAccessToken(steps(), withSignIn, { userId: danaId, tracker: "linear", accountId , use: LEASE_READ });
 
     // Well before it expires, the stored token is used as it is.
     expect(await token()).toEqual({ method: "oauth", value: "old-access" });
@@ -771,7 +780,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       leaseId: () => "mine",
       fetch: fetchFn,
     };
-    return { danaId, state, token: () => trackerAccessToken(steps, withSignIn, { userId: danaId, tracker: "linear", accountId }) };
+    return { danaId, state, token: () => trackerAccessToken(steps, withSignIn, { userId: danaId, tracker: "linear", accountId , use: LEASE_READ }) };
   }
 
   test(`${name}: a refresh whose save is refused never returns its own tokens: disconnected, or connected again, meanwhile`, async () => {
@@ -881,12 +890,12 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       now: () => 10,
       leaseId: () => "lease",
     };
-    expect(await trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked })).toEqual({ method: "token", value: "lin_api_first" });
+    expect(await trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked , use: LEASE_READ })).toEqual({ method: "token", value: "lin_api_first" });
     // Dana connects another Linear account with the same Critiqs account.
     const other = await sealSignIn(withSignIn, "linear", danaId, { accountId: "another-linear-account", accountName: "Dana Other", emails: [], site: null }, { access: "other-access", refresh: null, expiresAt: null });
     await backend.run((store) => saveTrackerAccount(store, danaId, other, 2_000));
     expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId: checked, leaseId: "lease", use: LEASE_ONLY }, 10))).toEqual({ status: "changed" });
-    const refused = await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked }));
+    const refused = await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked , use: LEASE_READ }));
     expect([refused.code, refused.message]).toEqual(["unavailable", "Your Linear connection changed. Try again."]);
   });
 
@@ -904,14 +913,14 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       leaseId: () => "lease",
       fetch: linearStub([]).fetchFn,
     };
-    const refused = await refusal(trackerAccessToken(steps, withSignIn, { userId: danaId, tracker: "linear", accountId }));
+    const refused = await refusal(trackerAccessToken(steps, withSignIn, { userId: danaId, tracker: "linear", accountId , use: LEASE_READ }));
     expect(refused.message).toBe("Your Linear sign-in has ended. Connect Linear again in Your trackers.");
     expect((await backend.run((store) => tickets(store).accounts.find(danaId, "linear")))!.refreshLease).toBeUndefined();
 
     await connect(backend, dana, "lin_api_good");
     accountId = (await backend.run((store) => tickets(store).accounts.find(danaId, "linear")))!.accountId;
-    expect(await trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId })).toEqual({ method: "token", value: "lin_api_good" });
+    expect(await trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId , use: LEASE_READ })).toEqual({ method: "token", value: "lin_api_good" });
     await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
-    expect((await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId }))).message).toBe("Connect Linear in Your trackers first.");
+    expect((await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId , use: LEASE_READ }))).message).toBe("Connect Linear in Your trackers first.");
   });
 }

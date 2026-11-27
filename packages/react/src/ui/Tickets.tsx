@@ -4,6 +4,8 @@ import {
   type TicketDestination,
   type TicketDraft,
   type TicketDraftOptions,
+  type TicketField,
+  type TicketFieldValue,
   type TicketLabel,
   type TicketLinkView,
   type TicketSearchResult,
@@ -29,7 +31,7 @@ import { ModelChoice } from "./mockup/MockupPanel.tsx";
 export const trackerLabel = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
 
 /** What a tracker calls the place a ticket goes. */
-const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project" };
+const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project and type" };
 
 /** A ticket's key and status as people read it, such as `ENG-123 · In Progress`. */
 export function ticketText(ticket: { key: string; status: TicketStatus | null; lastKnown?: boolean }): string {
@@ -261,6 +263,8 @@ export function CreateTicketDialog({
   /** A template whose draft is loading: it is chosen once its draft loads; if it can't load, the template and draft before it stay. */
   const [choosing, setChoosing] = useState<string | null>(null);
   const [labels, setLabels] = useState<TicketLabel[]>([]);
+  /** Values for the destination's required fields, such as a Jira issue type's, by field ID. */
+  const [fieldValues, setFieldValues] = useState<Record<string, TicketFieldValue>>({});
   /** What the last draft by Critiqs AI said: that it drafted, or why it couldn't, and whether setting up Your AI would let it. */
   const [aiNote, setAiNote] = useState<{ text: string; setUpAi: boolean } | null>(null);
   /** Answers to an earlier draft request are ignored once another starts. */
@@ -351,6 +355,7 @@ export function CreateTicketDialog({
   useEffect(() => {
     setOffer({ templates: [], labels: [] });
     setLabels([]);
+    setFieldValues({});
     if (!drafting || destinationId === null) return;
     let cancelled = false;
     tickets.ticketDraftOptions(threadId, tracker, destinationId).then(
@@ -403,7 +408,13 @@ export function CreateTicketDialog({
     );
   };
 
-  const ready = destination !== null && filling === null && !stale && !busy && title.trim() !== "";
+  const fields = offer.fields ?? [];
+  const unsupported = offer.unsupportedFields ?? [];
+  const fieldsFilled = fields.every((field) => {
+    const value = fieldValues[field.id];
+    return Array.isArray(value) ? value.length > 0 : value !== undefined && value.trim() !== "";
+  });
+  const ready = destination !== null && filling === null && !stale && !busy && title.trim() !== "" && unsupported.length === 0 && fieldsFilled;
   const cost = draftCost(model);
 
   const submit = async () => {
@@ -424,6 +435,7 @@ export function CreateTicketDialog({
         // Older backends take neither.
         ...(templateId === STANDARD ? {} : { templateId }),
         ...(labels.length === 0 ? {} : { labelIds: labels.map((label) => label.id) }),
+        ...(fields.length === 0 ? {} : { fields: Object.fromEntries(fields.map((field) => [field.id, fieldValues[field.id]!])) }),
       });
       remember(destination.id);
       onCreated(created);
@@ -547,6 +559,14 @@ export function CreateTicketDialog({
             </ul>
           </div>
         )}
+        {fields.length > 0 && (
+          <RequiredFields fields={fields} values={fieldValues} disabled={busy} onChange={(id, value) => setFieldValues((values) => ({ ...values, [id]: value }))} />
+        )}
+        {unsupported.length > 0 && (
+          <p className="error" role="alert">
+            This {DESTINATION_LABEL[tracker].toLowerCase()} needs {unsupported.join(", ")}, which Critiqs can't fill yet. Choose another, or create this ticket in {trackerLabel(tracker)}.
+          </p>
+        )}
         <label className="ticket-check">
           <input type="checkbox" checked={attribution} disabled={busy} onChange={(event) => setAttribution(event.target.checked)} />
           Created from Critiqs
@@ -571,6 +591,90 @@ export function CreateTicketDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * The fields the destination requires, such as a Jira issue type's: a line
+ * or paragraph of text, a number, a date, or one or more of its options.
+ * Create waits until each has a value.
+ */
+function RequiredFields({
+  fields,
+  values,
+  disabled,
+  onChange,
+}: {
+  fields: TicketField[];
+  values: Record<string, TicketFieldValue>;
+  disabled: boolean;
+  onChange: (id: string, value: TicketFieldValue) => void;
+}) {
+  const baseId = useId();
+  return (
+    <div className="ticket-fields" role="group" aria-label="Required fields">
+      {fields.map((field, index) => {
+        const id = `${baseId}-${index}`;
+        const value = values[field.id];
+        const text = typeof value === "string" ? value : "";
+        switch (field.kind) {
+          case "choice":
+            return (
+              <SettingRow key={field.id} label={field.name}>
+                {(labelId) => (
+                  <Select
+                    value={text}
+                    labelledBy={labelId}
+                    disabled={disabled}
+                    options={[{ value: "", label: "Choose…" }, ...field.options.map((option) => ({ value: option.id, label: option.name }))]}
+                    onChange={(next) => onChange(field.id, next)}
+                  />
+                )}
+              </SettingRow>
+            );
+          case "choices": {
+            const chosen = Array.isArray(value) ? value : [];
+            return (
+              <fieldset key={field.id} className="stacked">
+                <legend className="field-label">{field.name}</legend>
+                {field.options.map((option) => (
+                  <label key={option.id} className="ticket-check">
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(option.id)}
+                      disabled={disabled}
+                      onChange={(event) => onChange(field.id, event.target.checked ? [...chosen, option.id] : chosen.filter((each) => each !== option.id))}
+                    />
+                    {option.name}
+                  </label>
+                ))}
+              </fieldset>
+            );
+          }
+          case "paragraph":
+            return (
+              <label key={field.id} className="stacked" htmlFor={id}>
+                <span className="field-label">{field.name}</span>
+                <textarea id={id} className="field" rows={3} value={text} disabled={disabled} onChange={(event) => onChange(field.id, event.target.value)} />
+              </label>
+            );
+          default:
+            return (
+              <label key={field.id} className="stacked" htmlFor={id}>
+                <span className="field-label">{field.name}</span>
+                <input
+                  id={id}
+                  className="field"
+                  type={field.kind === "number" ? "number" : field.kind === "date" ? "date" : "text"}
+                  value={text}
+                  disabled={disabled}
+                  onChange={(event) => onChange(field.id, event.target.value)}
+                />
+              </label>
+            );
+        }
+      })}
+    </div>
   );
 }
 

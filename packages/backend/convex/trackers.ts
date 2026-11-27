@@ -23,7 +23,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { storedTokenValidator, tokenUseValidator, trackerValidator } from "./lib/validators";
+import { storedTokenValidator, tokenReadValidator, tokenUseValidator, trackerValidator } from "./lib/validators";
 import { convexStore, identityOf, run } from "./lib/store";
 import { mayEnd, siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
 import { hashSecret, randomSecret } from "./lib/tokens";
@@ -56,6 +56,9 @@ const disconnectedAccount = v.object({
   method: v.union(v.literal("oauth"), v.literal("token")),
   access: storedTokenValidator,
   refresh: v.union(storedTokenValidator, v.null()),
+  expiresAt: v.union(v.number(), v.null()),
+  site: v.union(v.object({ id: v.string(), name: v.string() }), v.null()),
+  hooks: v.array(v.string()),
 });
 
 /** When a sign-in that couldn't be ended at its tracker is tried again, after each failed try: a minute, ten minutes, an hour. */
@@ -130,7 +133,7 @@ export const setAttribution = mutation({
 
 /** Connects a tracker with a personal token the person pasted, after the tracker confirms whose it is. */
 export const connectWithToken = action({
-  args: { tracker: trackerValidator, token: v.string() },
+  args: { tracker: trackerValidator, token: v.string(), email: v.optional(v.string()), site: v.optional(v.string()) },
   handler: async (ctx, args): Promise<TrackerAccountView> =>
     run(() =>
       connectTrackerWithToken(
@@ -150,13 +153,19 @@ export const connectWithToken = action({
  * ever gets the secret, and only its hash is stored.
  */
 export const startSignIn = action({
-  args: { tracker: trackerValidator },
+  args: { tracker: trackerValidator, site: v.optional(v.string()) },
   handler: async (ctx, args): Promise<TrackerSignInStart> =>
     run(async () => {
       // Secrets come from an action, whose randomness is not replayed.
       const state = randomSecret();
       const binding = randomSecret();
-      await ctx.runMutation(internal.trackers.createSignIn, { tracker: args.tracker, state, verifier: randomSecret(), bindingHash: await hashSecret(binding) });
+      await ctx.runMutation(internal.trackers.createSignIn, {
+        tracker: args.tracker,
+        state,
+        verifier: randomSecret(),
+        bindingHash: await hashSecret(binding),
+        ...(args.site === undefined ? {} : { site: args.site }),
+      });
       return { url: `${siteUrl()}/trackers/${args.tracker}/start`, state, binding };
     }),
 });
@@ -174,7 +183,7 @@ export const saveOwn = internalMutation({
 });
 
 export const createSignIn = internalMutation({
-  args: { tracker: trackerValidator, state: v.string(), verifier: v.string(), bindingHash: v.string() },
+  args: { tracker: trackerValidator, state: v.string(), verifier: v.string(), bindingHash: v.string(), site: v.optional(v.string()) },
   handler: async (ctx, args) => run(async () => startTrackerSignIn(convexStore(ctx), await identityOf(ctx), ticketsDeployment(), args, Date.now())),
 });
 
@@ -223,6 +232,6 @@ export const finishRefresh = internalMutation({
  * has expired (`trackerToken`), as a function for tests; actions call `trackerToken` directly.
  */
 export const accessToken = internalAction({
-  args: { userId: v.string(), accountId: v.string(), tracker: trackerValidator, use: tokenUseValidator },
+  args: { userId: v.string(), accountId: v.string(), tracker: trackerValidator, use: tokenReadValidator },
   handler: async (ctx, args): Promise<TrackerToken> => run(() => trackerToken(ctx, args, args.tracker, args.use)),
 });

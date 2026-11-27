@@ -2294,13 +2294,20 @@ project's ticket templates, and labels suggested from tags, with the rules in
 `template`, and `labels`; and status from Linear's webhooks and from the check
 when a thread opens, and **Resolve when done**, with the rules in
 `packages/server/src/tickets/status.ts`. Also built, on Convex: GitHub
-Issues, as a second implementation of the same adapter
-(`packages/server/src/tickets/trackers/github.ts`): the GitHub App's sign-in
-and pasted fine-grained tokens, repositories as destinations, issues created
-and linked, templates and issue forms, labels, status, and
-`POST /trackers/github/webhook`; see [tickets](tickets.md#github-issues).
-The storage, token, sign-in, calls to trackers, webhooks, drafting, and
-compatibility items below describe them.
+Issues and Jira Cloud, as the second and third implementations of the same
+adapter. GitHub (`packages/server/src/tickets/trackers/github.ts`): the GitHub
+App's sign-in and pasted fine-grained tokens, repositories as destinations,
+issues created and linked, templates and issue forms, labels, status, and
+`POST /trackers/github/webhook`; see [tickets](tickets.md#github-issues). Jira
+(`packages/server/src/tickets/trackers/jira.ts`, with Markdown to Atlassian
+Document Format in `adf.ts`), connected through Atlassian sign-in (OAuth 2.0,
+3LO, without PKCE, which Atlassian doesn't offer) or a pasted API token with
+the person's email and site, and its sign-in's registered webhooks in
+`packages/server/src/tickets/webhooks.ts`; see [tickets](tickets.md#jira-cloud).
+All three take the same safe path: calls only through `trackerEndpoint`,
+answers only through `checkedAdapter`, ticket text only as `TicketMarkdown`,
+and addresses only as `WebAddress`. The storage, token, sign-in, calls to
+trackers, webhooks, drafting, and compatibility items below describe them.
 
 **Proposed:** the technical choices.
 
@@ -2399,7 +2406,20 @@ compatibility items below describe them.
   checking that a call came from the tracker (a signature, or a secret in the
   registered address, as each tracker allows) before using it. Convex renews
   Jira's registered webhooks on a schedule before they expire; a self-hosted
-  server without background work renews them when tickets are used. Where no
+  server without background work renews them when tickets are used. Built for
+  Jira on Convex: linking or creating a ticket with a Jira sign-in schedules
+  `trackerWebhooks:follow`, which keeps one webhook per person and site
+  (`trackerWebhooks` table) whose filter is `project IN (…)` of the projects
+  of their linked tickets there that they may still review (each link keeps
+  its `webhookScope`), worked out again at each registration and renewal; a
+  daily cron renews webhooks a week before they expire, registering one again
+  when its projects changed and removing one that follows none. `POST
+  /trackers/jira/webhook` checks the bearer token (HS256 under the app's
+  client secret, a required `exp` at most an hour ahead, `iat` when present)
+  before reading the body. The token doesn't cover the body, so the delivery
+  only queues a check (`statusCheckQueued`) of each link to the issue on the
+  one site its address names, whose current webhook matched (found by site
+  and webhook ID); the check reads the status with the linker's token. Where no
   webhook can arrive, opening a thread checks its tickets' status, at most once
   every few minutes. Built for Linear on Convex: `POST
   /trackers/linear/webhook` reads the raw body, checks `Linear-Signature` (hex
@@ -2487,6 +2507,8 @@ Settings for tickets on a Convex deployment (built: Linear and GitHub Issues):
 | `CRITIQS_GITHUB_CLIENT_ID`, `CRITIQS_GITHUB_CLIENT_SECRET`, `CRITIQS_GITHUB_APP_SLUG` | The operator's GitHub App, all three or none: its client ID and a client secret, and its public name as in `https://github.com/apps/<slug>`. Its callback URL is `<deployment site>/trackers/github/callback`, with **Expire user authorization tokens** left on. Repository permissions: Issues read and write, Contents read-only, Metadata read-only; account permission: Email addresses read-only. Without them, people paste a fine-grained personal access token |
 | `CRITIQS_GITHUB_WEBHOOK_SECRET` | The secret of the GitHub App's webhook: in the app's settings, set the webhook URL to `<deployment site>/trackers/github/webhook`, set this secret, and subscribe to **Issues**. Without the app, an organization's or repository's webhook with the same address, secret, and Issues events works too, on a deployment one team runs: whoever holds the secret can change any GitHub ticket's status on the deployment, so on one several teams share, such as Critiqs Cloud, it stays in the operator's app and is never given to a team. Without it, the webhook route refuses every call and status comes from the check when a thread opens |
 | `CRITIQS_GITHUB_API_URL`, `CRITIQS_GITHUB_APP_URL` | Tests only: GitHub's API and sign-in addresses, pointed at a local stand-in. Never set them on a real deployment |
+| `CRITIQS_JIRA_CLIENT_ID`, `CRITIQS_JIRA_CLIENT_SECRET` | The operator's Atlassian OAuth 2.0 (3LO) app, both or neither: scopes `read:jira-work`, `write:jira-work`, `read:jira-user`, `manage:jira-webhook`, and `read:me`; callback `<deployment site>/trackers/jira/callback`; shared, so its webhooks reach people other than its owner. The client secret also checks the webhooks people's sign-ins register, sent to `<deployment site>/trackers/jira/webhook`. Without them, people paste an Atlassian API token with their email and Jira site; see [tickets](tickets.md#jira-cloud) |
+| `CRITIQS_JIRA_API_URL`, `CRITIQS_JIRA_AUTH_URL`, `CRITIQS_JIRA_SITES_URL` | Tests only: Atlassian's API gateway, sign-in, and Jira sites' addresses, pointed at a local stand-in. Never set them on a real deployment |
 
 ## Shareable links
 

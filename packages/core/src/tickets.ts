@@ -146,7 +146,25 @@ export interface NewTicket {
   templateId?: string | null;
   /** Labels to add, by the tracker's IDs, such as those suggested from the thread's tags. */
   labelIds?: string[];
+  /** Values for the fields the destination requires (`TicketDraftOptions.fields`), by field ID. */
+  fields?: Record<string, TicketFieldValue>;
 }
+
+/**
+ * A field a destination requires that the Create dialog asks for, such as a
+ * Jira issue type's required custom field: a line or paragraph of text, a
+ * number, a date (`YYYY-MM-DD`), or one or more of its options.
+ */
+export interface TicketField {
+  id: string;
+  name: string;
+  kind: "text" | "paragraph" | "number" | "date" | "choice" | "choices";
+  /** The values a choice field allows; empty for the others. */
+  options: { id: string; name: string }[];
+}
+
+/** A required field's value: text (numbers and dates as written), or option IDs for a `choices` field. */
+export type TicketFieldValue = string | string[];
 
 /** A tracker template the Create dialog offers, such as a Linear team's issue template. */
 export interface TicketTemplate {
@@ -168,6 +186,10 @@ export interface TicketLabel {
 export interface TicketDraftOptions {
   templates: TicketTemplate[];
   labels: TicketLabel[];
+  /** The fields the destination requires that Critiqs asks for; absent where the tracker has none. */
+  fields?: TicketField[];
+  /** Required fields Critiqs can't fill, such as a person picker, by name: the destination can't take a ticket from Critiqs. */
+  unsupportedFields?: string[];
 }
 
 /** What a draft is filled into: Critiqs's standard format, or a template the project offers for the destination. */
@@ -208,6 +230,12 @@ export interface TicketTemplateChoice {
   templateId: string;
   /** The template's name when it was chosen; the dialog shows its current name from the tracker. */
   name: string;
+  /**
+   * The template's text, for a template the project's owners pasted into
+   * Critiqs because the tracker keeps none of its own (Jira); absent for
+   * templates read from the tracker.
+   */
+  body?: string;
 }
 
 /**
@@ -550,8 +578,8 @@ function attributionLines(name: string, link: WebAddress | null): string[] {
 
 declare const ticketMarkdown: unique symbol;
 /**
- * Ticket text as Critiqs sends it to a tracker: made only by `ticketBody` and
- * `ticketLinkComment`, so everything in it that others wrote renders as
+ * Ticket text as Critiqs sends it to a tracker: made only by `ticketBody`,
+ * `ticketLinkComment`, and `ticketCaptureMissing`, so everything in it that others wrote renders as
  * written and nothing Critiqs adds is swallowed. Trackers' adapters take only
  * this, never a plain string.
  */
@@ -596,6 +624,17 @@ export function ticketBody(draft: string, options: TicketBodyOptions): TicketMar
   const end = markdownBlocks(draft).openBlockEnd;
   const ended = /[\r\n]$/.test(draft) ? draft : `${draft}\n`;
   return `${ended}${end === null ? "" : `${end}\n`}\n${added.join("\n\n")}\n` as TicketMarkdown;
+}
+
+/**
+ * The comment on a ticket whose tracker keeps captures as attachments (Jira)
+ * when Critiqs couldn't attach the thread's: where to view it, when the
+ * thread has a link.
+ */
+export function ticketCaptureMissing(link: WebAddress | null): TicketMarkdown {
+  return (link === null
+    ? "Critiqs couldn't attach the thread's capture to this ticket.\n"
+    : `Critiqs couldn't attach the thread's capture to this ticket; ${markdownLink("open the thread", link)} to view it.\n`) as TicketMarkdown;
 }
 
 /**

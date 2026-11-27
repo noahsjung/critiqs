@@ -45,4 +45,7 @@ export * from "./tickets/links.ts";
 export * from "./tickets/drafts.ts";
 export * from "./tickets/trackers/linear.ts";
 export * from "./tickets/trackers/github.ts";
+export * from "./tickets/trackers/jira.ts";
+export * from "./tickets/trackers/adf.ts";
+export * from "./tickets/webhooks.ts";
 export * from "./tickets/status.ts";

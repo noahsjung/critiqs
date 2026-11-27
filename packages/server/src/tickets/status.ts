@@ -3,7 +3,7 @@ import { CritiqsError, fail } from "../errors.ts";
 import { currentReviewer, MAX_THREAD_TICKET_ROWS, requireProject, requireThread, requireUser } from "../operations.ts";
 import { projectAccess } from "../organizations.ts";
 import type { Identity, Store, TicketLinkChanges, TicketLinkRecord } from "../store.ts";
-import { type TicketsDeployment, ticketStore, type TokenUse, trackerAdapter } from "./accounts.ts";
+import { type TicketsDeployment, ticketStore, type TokenRead, trackerAdapter } from "./accounts.ts";
 import { lastKnownStatus, linkerAccount } from "./current.ts";
 import { MAX_TICKET_LINK_ROWS } from "./links.ts";
 import { checkedStatus, type TicketStatusReading, type TicketStatusUpdate, TrackerRefusal, type TrackerToken, trackerId } from "./trackers/index.ts";
@@ -136,16 +136,30 @@ export async function applyTicketStatus(store: Store, update: TicketStatusUpdate
  * the same ticket, such as one whose linker can't check it any more. Saved
  * and resolved as `applyTicketStatus` does. One transaction.
  */
-export async function applyCheckedStatus(store: Store, args: { linkId: string; reading: TicketStatusReading }, now: number): Promise<{ updated: number; resolved: string[] }> {
+export async function applyCheckedStatus(
+  store: Store,
+  args: { linkId: string; reading: TicketStatusReading },
+  now: number,
+): Promise<{ updated: number; resolved: string[]; rescoped?: { userId: string; accountId: string; tracker: TrackerId } }> {
   const link = await ticketStore(store).links.get(args.linkId);
   const reading: StatusReading = { source: "check", asOf: args.reading.asOf ?? now, status: args.reading.status, deleted: false };
   const linked = link === null || link.state !== "linked" ? null : link;
   // The ticket moved, or was renamed, at the tracker: the same ticket by its permanent ID, so the link follows it.
   const place = args.reading.place;
-  if (linked !== null && place !== undefined && (place.key !== linked.key || place.url !== linked.url || place.title !== linked.title || (place.site !== undefined && place.site !== (linked.site ?? null)))) {
-    await ticketStore(store).links.patch(linked._id, { key: place.key, url: place.url, title: place.title, ...(place.site === undefined ? {} : { site: place.site }) });
+  const rescoped = linked !== null && place?.webhookScope !== undefined && place.webhookScope !== linked.webhookScope;
+  if (linked !== null && place !== undefined && (rescoped || place.key !== linked.key || place.url !== linked.url || place.title !== linked.title || (place.site !== undefined && place.site !== (linked.site ?? null)))) {
+    await ticketStore(store).links.patch(linked._id, {
+      key: place.key,
+      url: place.url,
+      title: place.title,
+      ...(place.site === undefined ? {} : { site: place.site }),
+      ...(place.webhookScope === undefined ? {} : { webhookScope: place.webhookScope }),
+    });
   }
-  return await saveStatus(store, linked === null ? [] : [linked], reading, now);
+  const saved = await saveStatus(store, linked === null ? [] : [linked], reading, now);
+  // In another project now: the linker's status webhook follows the projects of their links, so it is worked out again.
+  const accountId = linked?.accountId ?? linked?.creatorAccountId;
+  return rescoped && accountId !== undefined ? { ...saved, rescoped: { userId: linked!.linkedBy, accountId, tracker: linked!.tracker } } : saved;
 }
 
 async function saveStatus(store: Store, links: TicketLinkRecord[], reading: StatusReading, now: number): Promise<{ updated: number; resolved: string[] }> {
@@ -245,6 +259,9 @@ export async function claimStatusChecks(store: Store, identity: Identity | null,
   return due.map((link) => link._id);
 }
 
+/** The status a ticket the tracker deleted has: the work is closed there. */
+export const DELETED_STATUS = { label: "Deleted", category: "canceled" } as const;
+
 /** A check of one link's status, as the person who linked it. */
 export type StatusCheck =
   | {
@@ -273,6 +290,8 @@ export async function prepareStatusCheck(store: Store, args: { linkId: string },
   const tickets = ticketStore(store);
   const link = await tickets.links.get(args.linkId);
   if (link === null || link.state !== "linked") return { status: "skip" };
+  // The check a webhook asked for starts now: a delivery after this asks for another.
+  if (link.statusCheckQueued !== undefined) await tickets.links.patch(link._id, { statusCheckQueued: null });
   const person = await linkerAccount(store, link);
   if (person === null) {
     await tickets.links.patch(link._id, { statusStale: true });
@@ -299,7 +318,7 @@ export async function markStatusStale(store: Store, args: { linkId: string; star
 export interface StatusCheckSteps {
   prepare(): Promise<StatusCheck>;
   /** The linker's token, only while they are connected as the account they linked the ticket with, and may review `use`'s project. */
-  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenUse): Promise<TrackerToken>;
+  token(person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenRead): Promise<TrackerToken>;
   /** Saves the status read on the checked link only. */
   save(reading: TicketStatusReading): Promise<unknown>;
   /** Marks the status stale, unless a reading was saved after `startedAt`. */
@@ -329,6 +348,8 @@ export async function checkTicketStatus(steps: StatusCheckSteps, deployment: Tic
     return "updated";
   } catch (error) {
     if (!linkerCannot(error)) return "failed";
+    // A ticket the linker's read can't find stays as it was, last known, never Deleted: a tracker that answers a ticket
+    // the person may no longer see as one that doesn't exist (Jira) doesn't say which it is.
     await steps.stale(check.startedAt);
     return "stale";
   }
