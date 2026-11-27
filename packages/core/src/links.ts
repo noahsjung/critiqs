@@ -64,12 +64,13 @@ export function removeLink(href: string): string {
 // Thread pages
 
 /**
- * The path segment of a thread page on Critiqs's website: `/t/<key>`. The
- * link carries the thread's page key, never its ID. A thread ID is enough
- * for components from 0.3.x and earlier to read the thread and its project
- * in a project anyone may review, and a thread page's link can be forwarded
- * to anyone; the page key opens only the thread page, which checks who may
- * read it.
+ * The path segment of a thread page on Critiqs's website: `/t#<key>` (legacy
+ * `/t/<key>` links still resolve). The link carries the thread's page key in
+ * the fragment so servers and referrers do not log it, never its ID. A thread
+ * ID is enough for components from 0.3.x and earlier to read the thread and
+ * its project in a project anyone may review, and a thread page's link can be
+ * forwarded to anyone; the page key opens only the thread page, which checks
+ * who may read it.
  */
 export const THREAD_PAGE_PATH = "t";
 
@@ -90,7 +91,7 @@ function websiteBase(websiteUrl: string): { origin: string; path: string } {
 /**
  * A thread page's link on the website at `websiteUrl` (such as
  * `https://critiqs.app`, or an address with a base path), for **Share**,
- * emails, and the extension: `<website>/t/<key>`. The link names no
+ * emails, and the extension: `<website>/t#<key>`. The link names no
  * deployment, so `websiteUrl` must be a site that reaches the backend holding
  * the thread: Critiqs's website for Critiqs Cloud, or a self-hosted server's
  * own address, since its API answers only its own site.
@@ -98,7 +99,7 @@ function websiteBase(websiteUrl: string): { origin: string; path: string } {
 export function threadPageLink(websiteUrl: string, key: string): string {
   if (!isThreadPageKey(key)) throw new Error("Not a thread page key.");
   const { origin, path } = websiteBase(websiteUrl);
-  return `${origin}${path}/${THREAD_PAGE_PATH}/${key}`;
+  return `${origin}${path}/${THREAD_PAGE_PATH}#${key}`;
 }
 
 /** The page key a thread page link on the website at `websiteUrl` names, or null when `href` isn't one. */
@@ -111,7 +112,13 @@ export function parseThreadPageLink(href: string, websiteUrl: string): string | 
     return null;
   }
   if (url.origin !== base.origin) return null;
-  const prefix = `${base.path}/${THREAD_PAGE_PATH}/`;
+  const pagePath = `${base.path}/${THREAD_PAGE_PATH}`;
+  if (url.pathname === pagePath || url.pathname === `${pagePath}/`) {
+    const key = url.hash.startsWith("#") ? url.hash.slice(1) : "";
+    return isThreadPageKey(key) ? key : null;
+  }
+  // Legacy path links (`/t/<key>`) sent before keys moved to the fragment still parse.
+  const prefix = `${pagePath}/`;
   if (!url.pathname.startsWith(prefix)) return null;
   const key = url.pathname.slice(prefix.length).replace(/\/$/, "");
   return isThreadPageKey(key) ? key : null;

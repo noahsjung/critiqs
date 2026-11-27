@@ -614,15 +614,20 @@ export async function getDeveloperSetup(store: Store, identity: Identity | null,
 
 /**
  * What a project's setup page shows, for a message someone copied, which
- * links to the project rather than a send. Any signed-in reviewer with the
- * project's ID may see it, the same rule as `getProject`, but only the
- * people who manage it see its saved stack: to anyone else it shows as
- * unknown, with the commands for an unknown stack.
+ * links to the project rather than a send. Only members of the project's
+ * organization (and owners) may see it; signed-in outsiders get not-found,
+ * revealing neither the project's existence nor its name. Only the people who
+ * manage it see its saved stack: to other members it shows as unknown, with
+ * the commands for an unknown stack.
  */
 export async function getProjectSetup(store: Store, identity: Identity | null, args: { projectId: string }): Promise<ProjectSetup> {
   const { user } = await currentReviewer(store, identity);
-  const project = await requireProject(store, user, args.projectId);
-  const manages = (await projectAccess(store, project, user?._id ?? null)) === "manage";
+  const id = store.normalizeId("projects", args.projectId);
+  const project = id === null ? null : await store.projects.get(id);
+  if (project === null) fail("not-found", "That setup link doesn't exist, or isn't for this account.");
+  const { access, organization } = await projectRole(store, project, user?._id ?? null);
+  if (access !== "manage" && organization === null) fail("not-found", "That setup link doesn't exist, or isn't for this account.");
+  const manages = access === "manage";
   return setupOf(project, manages, manages);
 }
 

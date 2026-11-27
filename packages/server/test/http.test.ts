@@ -147,7 +147,7 @@ test("serves address lists, recording opened projects, and the project lookup, w
   const before = (await (await lee.request("/critiqs/changes")).json()).version;
   expect((await lee.api("recordProjectOpened", { projectId })).body).toEqual({ value: null });
   expect((await (await lee.request("/critiqs/changes")).json()).version).toBe(before);
-  expect((await lee.api("findProjectsForOrigin", { origin: "https://proto.example" })).body.value).toMatchObject({ status: "found", project: { _id: projectId } });
+  expect((await lee.api("findProjectsForOrigin", { origin: "https://proto.example" })).body).toEqual({ value: { status: "none" } });
 });
 
 test("serves adding and removing one address, the projects a person manages, and keyed creates", async () => {
@@ -1126,15 +1126,8 @@ test("a project's owner emails its setup steps; the developer opens the setup li
   expect(shown.body.value).toMatchObject({ projectId, projectName: "Acme", stack: { id: "react" }, installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`], inviterName: "Dana" });
   const lee = personBrowser(handler, "lee");
   expect((await lee.api("developerSetup", { sendId })).status).toBe(404);
-  // A copied message links to the project instead: anyone signed in sees it, as with `project`, but only its managers see the saved stack.
-  expect((await lee.api("projectSetup", { projectId })).body.value).toEqual({
-    projectId,
-    projectName: "Acme",
-    address: "https://acme.example/",
-    stack: null,
-    installCommands: [`npx critiqs init ${projectId}`],
-    connected: null,
-  });
+  // A copied message links to the project instead: outsiders get 404, while managers see the project and its saved stack.
+  expect((await lee.api("projectSetup", { projectId })).status).toBe(404);
   expect((await dana.api("projectSetup", { projectId })).body.value).toMatchObject({ stack: { id: "react", label: "React (Vite)", installable: true } });
   expect((await personBrowser(handler, "nobody").api("projectSetup", { projectId })).body.error?.code).toBe("unauthenticated");
   expect((await lee.api("developerSetup", { sendId: "e_00000000000000000000000000000000" })).body).toEqual((await lee.api("developerSetup", { sendId })).body);

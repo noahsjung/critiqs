@@ -26,9 +26,10 @@ export function ReviewLinksPage({ projectId }: { projectId: string }) {
 
 function ReviewLinks({ projectId }: { projectId: string }) {
   const backend = useBackend();
-  const project = backend.useProject(projectId);
   const offered = backend.reviewLinks?.live === true || backend.reviewLinks?.builds === true;
   const links = backend.useReviewLinks(offered ? projectId : null);
+  // Load project metadata only after the owner-only review-links query succeeds, so outsiders never see the project's name.
+  const project = backend.useProject(links.status === "ready" ? projectId : null);
   const [address, setAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,17 @@ function ReviewLinks({ projectId }: { projectId: string }) {
   const fieldId = useId();
   if (!offered) {
     return <Heading title={copy.reviewLinks.title} lead={copy.reviewLinks.notOffered} />;
+  }
+  if (links.status === "error") {
+    return <Heading title={copy.reviewLinks.title} lead={links.message} />;
+  }
+  if (links.status === "loading") {
+    return (
+      <>
+        <Heading title={copy.reviewLinks.title} />
+        <p className="note">{copy.loading}</p>
+      </>
+    );
   }
   const shownAddress = address ?? (project.status === "ready" ? (project.data.reviewUrl ?? "") : "");
   const create = async () => {
@@ -76,9 +88,7 @@ function ReviewLinks({ projectId }: { projectId: string }) {
           )}
         </form>
       )}
-      {links.status === "loading" && <p className="note">{copy.loading}</p>}
-      {links.status === "error" && <p className="error">{links.message}</p>}
-      {links.status === "ready" && (links.data.length === 0 ? <p className="note">{copy.reviewLinks.none}</p> : <ul className="review-links">{links.data.map((link) => <LinkRow key={link.linkId} link={link} />)}</ul>)}
+      {links.data.length === 0 ? <p className="note">{copy.reviewLinks.none}</p> : <ul className="review-links">{links.data.map((link) => <LinkRow key={link.linkId} link={link} />)}</ul>}
       {backend.reviewLinks?.builds === true && (
         <section className="stacked share-build">
           <ShareBuildPanel projectId={projectId} />

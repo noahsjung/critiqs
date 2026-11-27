@@ -24,8 +24,9 @@ const EXTENSION_URL = extensionLink(import.meta.env.VITE_CRITIQS_EXTENSION_URL a
 
 export function App() {
   const route = useMemo(() => {
-    const found = routeOf(window.location.pathname, window.location.search);
+    const found = routeOf(window.location.pathname, window.location.search, window.location.hash);
     if (found.page === "start" && window.location.pathname !== "/start") window.history.replaceState(null, "", "/start");
+    else if (found.page === "thread" && window.location.pathname !== "/t") window.history.replaceState(null, "", `/t#${found.key}`);
     return found;
   }, []);
   const [deployment, setDeployment] = useState<{ status: "loading" } | { status: "ready"; deployment: Deployment; features: BackendFeatures } | { status: "error"; message: string }>({

@@ -6,7 +6,6 @@ import {
   inProjectOrganization,
   operations,
   projectAccess,
-  recordProjectOpened,
   type Store,
   utcDay,
   deriveLinkKey,
@@ -260,8 +259,9 @@ const REQUEST_KEY_MS = 24 * 60 * 60_000;
 export async function managed(ctx: QueryCtx, store: Store, projectId: string) {
   const { user } = await operations.currentReviewer(store, await identityOf(ctx));
   if (user === null) fail("forbidden", OWNERS_ONLY);
-  const project = await operations.requireProject(store, user, projectId);
-  if ((await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", OWNERS_ONLY);
+  const id = store.normalizeId("projects", projectId);
+  const project = id === null ? null : await store.projects.get(id);
+  if (project === null || (await projectAccess(store, project, user._id)) !== "manage") fail("forbidden", OWNERS_ONLY);
   return { user, project: project as unknown as Doc<"projects"> };
 }
 
@@ -621,9 +621,9 @@ export const adopt = mutation({
 });
 
 /**
- * Records that the lease's signed-in viewer opened the project, as an install
- * does, so the extension's lookup searches it too. The review page calls it
- * once the frame connects. Does nothing for an anonymous lease.
+ * Compatibility no-op for older review-link pages: extension project discovery
+ * searches only organizations the signed-in person belongs to, never projects
+ * opened through a review link.
  */
 export const recordOpened = mutation({
   args: { leaseId: v.string(), renewalSecret: v.string() },
@@ -634,9 +634,7 @@ export const recordOpened = mutation({
       const held = await heldLease(ctx, args.leaseId, args.renewalSecret, now);
       if (held === null || held.lease.userId === undefined) return false;
       if ((await viewerId(ctx, store)) !== held.lease.userId) return false;
-      if ((await serving(ctx, store, held.link, held.project, held.lease.userId, now)) !== "ok") return false;
-      await recordProjectOpened(store, await identityOf(ctx), { projectId: held.link.projectId });
-      return true;
+      return false;
     }),
 });
 

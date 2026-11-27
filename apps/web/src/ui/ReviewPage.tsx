@@ -492,10 +492,6 @@ function ReviewCanvas({
         review: surface(mode),
       });
       mounted.current = panel;
-      // Opening the project through a review link counts as opening it, as an install does.
-      void panel.ready.then(() => {
-        if (projectRef.current !== null) void backend.recordReviewOpened(entry.leaseId, entry.renewalSecret).catch(() => undefined);
-      });
     });
     return () => {
       cancelled = true;

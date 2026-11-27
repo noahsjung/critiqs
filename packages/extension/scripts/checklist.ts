@@ -710,7 +710,7 @@ await step("20", "Comment, then choose ⋯ → Copy link on the comment: with a 
   copied = await panel.evaluate(() => navigator.clipboard.readText());
   await shoot("copy-link", shots);
   if (website === undefined) return { outcome: "fail", measured: `The backend reports no website, so Copy link copied the prototype's link: ${copied}` };
-  if (!new RegExp(`^${website.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/t/[A-Za-z0-9_-]+$`).test(copied)) throw new Error(`Copied "${copied}", not ${website}/t/<key>.`);
+  if (!new RegExp(`^${website.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/t#[A-Za-z0-9_-]+$`).test(copied)) throw new Error(`Copied "${copied}", not ${website}/t#<key>.`);
   return `"Link to thread copied"; the clipboard holds ${copied}`;
 });
 

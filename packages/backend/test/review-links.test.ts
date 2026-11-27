@@ -33,7 +33,6 @@ afterEach(() => {
 });
 
 const OWNERS_ONLY = "Only the project's owners can create or change its review links.";
-const ORGANIZATION_ONLY = "This project is limited to members of its organization. Ask one of its admins to invite you.";
 
 /** What an attempt came to: its value, or its refusal's message. */
 async function outcome<T>(work: Promise<T>): Promise<T | string> {
@@ -157,10 +156,14 @@ test("only the project's owners may create, list, copy, or revoke review links",
   expect(links.map((link) => link.status)).toEqual(["active"]);
 });
 
-test("limited to its organization, a project's outsiders are refused as outsiders before anything else", async () => {
+test("outsiders get the same owners-only refusal for missing, anyone, and organization-limited projects", async () => {
   const f = await fixture("organization");
-  const create = f.lee.mutation(api.reviewLinks.createLive, { projectId: f.projectId, address: "https://proto.example" });
-  expect(await outcome(create)).toBe(ORGANIZATION_ONLY);
+  const open = await fixture("anyone");
+  const missingId = "nonexistent-project-id";
+  for (const projectId of [missingId, f.projectId, open.projectId]) {
+    expect(await outcome(f.lee.query(api.reviewLinks.list, { projectId }))).toBe(OWNERS_ONLY);
+    expect(await outcome(f.lee.mutation(api.reviewLinks.createLive, { projectId, address: "https://proto.example" }))).toBe(OWNERS_ONLY);
+  }
 });
 
 test("a live link needs a public https address, and adds its exact origin to the project's address list", async () => {
@@ -373,10 +376,10 @@ test("AT-19: an anonymous lease is adopted once, by whoever signs in with its se
   expect(await f.anonymous.mutation(api.reviewLinks.renew, held)).toEqual({ kind: "ended" });
   expect(await f.lee.mutation(api.reviewLinks.renew, held)).toMatchObject({ kind: "renewed" });
   expect((await resolve(f.t, anonymous.label)).status).toBe(200);
-  expect(await f.lee.mutation(api.reviewLinks.recordOpened, held)).toBe(true);
+  expect(await f.lee.mutation(api.reviewLinks.recordOpened, held)).toBe(false);
   expect(await f.riley.mutation(api.reviewLinks.recordOpened, held)).toBe(false);
   const opened = await f.t.run((ctx) => ctx.db.query("openedProjects").collect());
-  expect(opened.map((row) => row.projectId)).toEqual([f.projectId]);
+  expect(opened).toEqual([]);
 });
 
 test("AT-20: unknown, paused, blocked, and ended frame hosts all get one identical 404", async () => {

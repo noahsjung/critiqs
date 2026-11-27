@@ -274,8 +274,7 @@ test("the Convex functions keep address lists, record opened projects, and find 
   const riley = t.withIdentity(reviewer("Riley"));
   expect(await riley.query(api.projects.findForOrigin, { origin: "https://proto.example" })).toEqual({ status: "none" });
   await riley.mutation(api.projects.recordOpened, { projectId });
-  await riley.mutation(api.projects.recordOpened, { projectId });
-  expect(await riley.query(api.projects.findForOrigin, { origin: "https://proto.example" })).toMatchObject({ status: "found", project: { _id: projectId } });
-  expect(await t.run((ctx) => ctx.db.query("openedProjects").collect())).toHaveLength(1);
+  expect(await riley.query(api.projects.findForOrigin, { origin: "https://proto.example" })).toEqual({ status: "none" });
+  expect(await t.run((ctx) => ctx.db.query("openedProjects").collect())).toHaveLength(0);
   await expect(t.query(api.projects.findForOrigin, { origin: "https://proto.example" })).rejects.toThrow("Sign in");
 });

@@ -493,18 +493,8 @@ function PanelApp({
     };
   }, [signedIn, reviewerName, transport]);
 
-  // Opening a project through this install lets the browser extension find it
-  // for this reviewer by the page's address. Once per page load, reviewer, and project.
-  const projectReady = projectQuery.status === "ready";
-  const recordsOpens = deployment.addressLists === true;
-  useEffect(() => {
-    if (!signedIn || !recordsOpens || !projectReady || projectId === null || reviewerId === null) return;
-    const key = JSON.stringify([deployment.backendUrl, reviewerId, projectId]);
-    if (recordedOpens.has(key)) return;
-    recordedOpens.add(key);
-    // A failure is retried the next time this reviewer opens the project.
-    transport.recordProjectOpened(projectId).catch(() => recordedOpens.delete(key));
-  }, [signedIn, recordsOpens, projectReady, projectId, reviewerId, deployment.backendUrl, transport]);
+  // Extension discovery is limited to projects in organizations the reviewer belongs to, so the component doesn't record opens.
+  void projectQuery;
 
   // Loading with a project tells the backend, so onboarding on the Critiqs website can say Connected, before anyone signs in.
   // A review link's page isn't the prototype's own page, and the prototype's frame there reports nothing either.
@@ -1525,8 +1515,6 @@ function followOccurrence(chosen: Occurrence, occurrences: Occurrence[]): Occurr
 }
 
 const EMPTY: ThreadSummary[] = [];
-/** Projects recorded as opened during this page load, by backend, reviewer, and project. */
-const recordedOpens = new Set<string>();
 const EMPTY_TAGS: string[] = [];
 const EMPTY_REPLY: ReplyState = { draft: EMPTY_MENTION_TEXT, sending: false, error: null };
 

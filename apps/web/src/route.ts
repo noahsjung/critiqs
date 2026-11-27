@@ -16,17 +16,22 @@ export type Route =
 export const REVIEW_KEY = /^[a-z2-7]{26}$/;
 
 /**
- * The page for a path. /t/<key> is a thread page, /setup/<id> a setup page,
+ * The page for a path. /t#<key> (and legacy /t/<key>) is a thread page, /setup/<id> a setup page,
  * /r/<key> a review link, /review-links/<project ID> a project's review links,
  * /allow-critiqs how to let review links past a firewall, and anything else
  * onboarding, at /start.
  */
-export function routeOf(pathname: string, search = ""): Route {
+export function routeOf(pathname: string, search = "", hash = ""): Route {
   if (/^\/allow-critiqs\/?$/.test(pathname)) {
     const params = new URLSearchParams(search);
     const projectId = params.get("project");
     const origin = params.get("origin");
     return { page: "allow-critiqs", projectId: projectId !== null && projectId !== "" ? projectId : null, origin: origin !== null && origin !== "" ? origin : null };
+  }
+  if (/^\/t\/?$/.test(pathname)) {
+    const key = hash.startsWith("#") ? hash.slice(1) : hash;
+    if (key !== "" && !key.includes("/")) return { page: "thread", key };
+    return { page: "start" };
   }
   const thread = /^\/t\/([^/]+)\/?$/.exec(pathname);
   if (thread !== null) return { page: "thread", key: thread[1]! };

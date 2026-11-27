@@ -126,7 +126,7 @@ export const developerSetup = query({
   handler: async (ctx, args) => run(async () => getDeveloperSetup(convexStore(ctx), await identityOf(ctx), args)),
 });
 
-/** What a copied message's setup page shows: the project, its address, and install commands, for anyone signed in, as `projects:get`; its saved stack only for the people who manage it. */
+/** What a copied message's setup page shows: the project, its address, and install commands, for members of its organization; its saved stack only for the people who manage it. */
 export const projectSetup = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => run(async () => getProjectSetup(convexStore(ctx), await identityOf(ctx), args)),

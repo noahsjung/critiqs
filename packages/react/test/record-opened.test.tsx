@@ -67,74 +67,12 @@ async function render(data: FakeBackend, using: Deployment, { signedIn = true, p
 
 const recorded = (data: FakeBackend) => data.calls!.filter((call) => call.name === "recordProjectOpened").map((call) => call.args);
 
-test("a signed-in reviewer's project is recorded as opened once, however often the page renders", async () => {
+test("opening a project does not call recordProjectOpened (extension discovery is org-members-only)", async () => {
   const data = backend();
   const using = deployment(true);
   await render(data, using);
-  await render(data, using);
-  expect(recorded(data)).toEqual([{ projectId: "project" }]);
-  // Another project on the same page is recorded too.
   await render(data, using, { projectId: "other" });
-  expect(recorded(data)).toEqual([{ projectId: "project" }, { projectId: "other" }]);
-});
-
-test("nothing is recorded on a backend without address lists, while signed out, or before the project loads", async () => {
-  const withoutLists = backend();
-  await render(withoutLists, deployment(false));
-  expect(recorded(withoutLists)).toEqual([]);
-  await act(async () => root?.unmount());
-  root = null;
-  host?.remove();
-  host = null;
-  localStorage.clear();
-
-  const signedOut = backend();
-  await render(signedOut, deployment(true), { signedIn: false });
-  expect(recorded(signedOut)).toEqual([]);
-
-  const loading = backend({ project: undefined });
-  const using = deployment(true);
-  await render(loading, using);
-  expect(recorded(loading)).toEqual([]);
-  // Once the project loads, it is recorded.
-  loading.project = backend().project;
-  await render(loading, using);
-  expect(recorded(loading)).toEqual([{ projectId: "project" }]);
-});
-
-test("a recording that failed is tried again the next time the project opens", async () => {
-  const using = deployment(true);
-  const failing = backend();
-  const transport = fakeTransport(failing);
-  let attempts = 0;
-  transport.recordProjectOpened = async () => {
-    attempts++;
-    throw new Error("Offline");
-  };
-  (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://prototype.example/pilot");
-  const payload = btoa(JSON.stringify({ sub: "dana", name: "Dana", email: "dana@example.com" }));
-  localStorage.setItem(`critiqs:session:${SIGN_IN}`, JSON.stringify({ accessToken: `header.${payload}.signature`, refreshToken: "fixture", expiresAt: Date.now() + 900_000 }));
-  host = document.createElement("critiqs-root");
-  document.body.append(host);
-  root = createRoot(host.attachShadow({ mode: "open" }).appendChild(document.createElement("div")));
-  const session = new Session(SIGN_IN, localStorage, async () => new Response(null, { status: 204 }));
-  await act(async () =>
-    root!.render(
-      <TransportContext.Provider value={transport}>
-        <App props={{ projectId: "project" }} deployment={using} session={session} host={host!} />
-      </TransportContext.Provider>,
-    ),
-  );
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(attempts).toBe(1);
-  await act(async () => root?.unmount());
-  root = null;
-  host.remove();
-  host = null;
-
-  const working = backend();
-  await render(working, using);
-  expect(recorded(working)).toEqual([{ projectId: "project" }]);
+  expect(recorded(data)).toEqual([]);
 });
 
 test("loading with a project tells a backend that records connections, before anyone signs in; others are never asked", async () => {

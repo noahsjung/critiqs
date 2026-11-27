@@ -28,11 +28,11 @@ test("links never leave the current origin", () => {
 describe("thread page links", () => {
   const key = "AbCdEfGhIjKlMnOpQrSt_-";
 
-  test("a thread page is /t/<key> on the website, keeping a base path", () => {
-    expect(threadPageLink("https://critiqs.app", key)).toBe(`https://critiqs.app/t/${key}`);
-    expect(threadPageLink("https://critiqs.app/", key)).toBe(`https://critiqs.app/t/${key}`);
-    expect(threadPageLink("https://example.com/feedback/?x=1#top", key)).toBe(`https://example.com/feedback/t/${key}`);
-    expect(threadPageLink("http://localhost:5291", key)).toBe(`http://localhost:5291/t/${key}`);
+  test("a thread page is /t#<key> on the website, keeping a base path", () => {
+    expect(threadPageLink("https://critiqs.app", key)).toBe(`https://critiqs.app/t#${key}`);
+    expect(threadPageLink("https://critiqs.app/", key)).toBe(`https://critiqs.app/t#${key}`);
+    expect(threadPageLink("https://example.com/feedback/?x=1#top", key)).toBe(`https://example.com/feedback/t#${key}`);
+    expect(threadPageLink("http://localhost:5291", key)).toBe(`http://localhost:5291/t#${key}`);
   });
 
   test("only a page key goes in the link, never a thread ID or a path", () => {
@@ -41,11 +41,16 @@ describe("thread page links", () => {
     expect(() => threadPageLink("javascript:alert(1)", key)).toThrow("https://");
   });
 
-  test("a link reads back to its key only on the same website", () => {
+  test("a link reads back to its key only on the same website (fragment and legacy path)", () => {
+    expect(parseThreadPageLink(`https://critiqs.app/t#${key}`, "https://critiqs.app")).toBe(key);
+    expect(parseThreadPageLink(`https://critiqs.app/t/#${key}`, "https://critiqs.app")).toBe(key);
+    expect(parseThreadPageLink(`https://example.com/feedback/t#${key}`, "https://example.com/feedback")).toBe(key);
     expect(parseThreadPageLink(`https://critiqs.app/t/${key}`, "https://critiqs.app")).toBe(key);
     expect(parseThreadPageLink(`https://critiqs.app/t/${key}/`, "https://critiqs.app")).toBe(key);
     expect(parseThreadPageLink(`https://example.com/feedback/t/${key}`, "https://example.com/feedback")).toBe(key);
+    expect(parseThreadPageLink(`https://other.example/t#${key}`, "https://critiqs.app")).toBeNull();
     expect(parseThreadPageLink(`https://other.example/t/${key}`, "https://critiqs.app")).toBeNull();
+    expect(parseThreadPageLink(`https://critiqs.app/t#${key}x`, "https://critiqs.app")).toBeNull();
     expect(parseThreadPageLink(`https://critiqs.app/t/${key}x`, "https://critiqs.app")).toBeNull();
     expect(parseThreadPageLink("https://critiqs.app/docs", "https://critiqs.app")).toBeNull();
     expect(parseThreadPageLink("not a url", "https://critiqs.app")).toBeNull();

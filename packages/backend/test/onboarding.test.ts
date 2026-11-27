@@ -74,15 +74,8 @@ test("a setup email goes out from a scheduled action as the inviter via Critiqs,
   expect(await dana.query(api.onboarding.developerSends, { projectId })).toMatchObject([{ sendId, email: "sam@example.com", status: "sent" }]);
   const sam = t.withIdentity(reviewer("Sam"));
   expect(await sam.query(api.onboarding.developerSetup, { sendId })).toMatchObject({ projectId, projectName: "Acme", inviterName: "Dana" });
-  // A copied message's setup page reads the project, not a send: anyone signed in sees it, and only its managers see the saved stack.
-  expect(await t.withIdentity(reviewer("Kim")).query(api.onboarding.projectSetup, { projectId })).toEqual({
-    projectId,
-    projectName: "Acme",
-    address: "https://acme.example/",
-    stack: null,
-    installCommands: [`npx critiqs init ${projectId}`],
-    connected: null,
-  });
+  // A copied message's setup page hides the project from signed-in outsiders, and shows managers the saved stack.
+  await expect(t.withIdentity(reviewer("Kim")).query(api.onboarding.projectSetup, { projectId })).rejects.toThrow("That setup link doesn't exist");
   expect(await dana.query(api.onboarding.projectSetup, { projectId })).toMatchObject({ stack: { id: "next", label: "Next.js", installable: true } });
   await expect(t.query(api.onboarding.projectSetup, { projectId })).rejects.toThrow("Sign in");
   // The report link asks first; confirming stops emails to that inbox.
