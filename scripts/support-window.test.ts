@@ -113,11 +113,15 @@ test("every released package is looked up under its registry name", async () => 
   expect(asked).toContain("https://rubygems.org/api/v1/versions/critiqs-rails.json");
   expect(asked).toContain("https://pypi.org/pypi/flask-critiqs/json");
   expect(packages.every((p) => p.supported.length === 0)).toBe(true);
-  // critiqs-react's changelog records 0.3.0, so a registry that answers 404 for it can't be right: the check refuses to pass.
-  expect(packages.find((p) => p.pkg.name === "critiqs-react")?.released).toBe("0.3.0");
-  expect(supportCheck(packages).problems).toEqual([
-    "critiqs-react: its CHANGELOG.md records 0.3.0 as released, but npm lists nothing (it answered as if the package was never published) for critiqs-react.",
-  ]);
+  // critiqs-react's changelog records its current version as released (every release step writes both), so a registry
+  // that answers 404 for it can't be right: the check refuses to pass, naming each package with a released version.
+  const { version } = (await Bun.file(new URL("../packages/react/package.json", import.meta.url)).json()) as { version: string };
+  expect(packages.find((p) => p.pkg.name === "critiqs-react")?.released).toBe(version);
+  const { problems } = supportCheck(packages);
+  expect(problems).toContain(
+    `critiqs-react: its CHANGELOG.md records ${version} as released, but npm lists nothing (it answered as if the package was never published) for critiqs-react.`,
+  );
+  expect(problems.length).toBe(packages.filter((p) => p.released !== null).length);
 });
 
 describe("supportCheck", () => {
