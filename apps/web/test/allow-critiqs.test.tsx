@@ -33,7 +33,7 @@ test("/allow-critiqs names a project's origin in its query", () => {
 
 test("the website's host serves /allow-critiqs from the app, with the rest of the site's headers", () => {
   const host = readHostConfig();
-  expect(rewriteFor(host, "/allow-critiqs")).toBe("/app/index.html");
+  expect(rewriteFor(host, "/allow-critiqs")).toBe("/app");
   // The page shows an owner's token: never framed by another site.
   expect(headerRules(host, "/allow-critiqs").get("x-frame-options")?.value).toBe("DENY");
   expect(headerRules(host, "/allow-critiqs").get("referrer-policy")?.value).toBe("strict-origin-when-cross-origin");

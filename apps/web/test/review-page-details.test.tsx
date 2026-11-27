@@ -236,7 +236,7 @@ describe("the website's host sends the review pages' headers", () => {
   });
   for (const path of [`/r/${KEY}`, "/review-links/p1"]) {
     test(`site/vercel.json serves ${path} from the app with the same headers, frames from the review proxy only, each set by one rule`, () => {
-      expect(rewriteFor(host, path)).toBe("/app/index.html");
+      expect(rewriteFor(host, path)).toBe("/app");
       const sent = headerRules(host, path);
       const frames = /frame-src ([^;]+)/.exec(sent.get("content-security-policy")?.value ?? "")?.[1];
       expect(frames).toMatch(/^https:\/\/\*\.[a-z0-9.-]+$/);
