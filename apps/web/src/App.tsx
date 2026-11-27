@@ -4,17 +4,22 @@ import { type Auth, AuthContext, BackendContext, type BackendFeatures, convexBac
 import { copy } from "./copy.ts";
 import { clearFlowOnSignOut, sessionStore } from "./flow.ts";
 import { routeOf } from "./route.ts";
-import { convexClient, type Deployment, HOSTED_BACKEND_URL, Session } from "./shared.ts";
+import { convexClient, type Deployment, HOSTED_BACKEND_URL, loadPanel, Session } from "./shared.ts";
 import { Onboarding } from "./ui/Onboarding.tsx";
 import { Account } from "./ui/parts.tsx";
 import { Logo } from "./ui/Preview.tsx";
+import { ReviewHostContext, ReviewPage } from "./ui/ReviewPage.tsx";
+import { ReviewLinksPage } from "./ui/ReviewLinks.tsx";
 import { SetupPage } from "./ui/SetupPage.tsx";
 import { ThreadPage } from "./ui/ThreadPage.tsx";
+import { extensionLink } from "./ui/Ways.tsx";
 
 /** Critiqs Cloud's Convex deployment, or the one `VITE_CRITIQS_BACKEND` names. */
 const BACKEND = (import.meta.env.VITE_CRITIQS_BACKEND as string | undefined)?.trim() || HOSTED_BACKEND_URL;
 /** What a prototype's <Critiqs /> needs as its `backend` property to reach that backend; none for Critiqs Cloud, its default. */
 const COMPONENT_BACKEND = BACKEND === HOSTED_BACKEND_URL ? null : BACKEND;
+/** Where a review link's page sends people for the browser extension: its store listing, or how to load it. */
+const EXTENSION_URL = extensionLink(import.meta.env.VITE_CRITIQS_EXTENSION_URL as string | undefined);
 
 export function App() {
   const route = useMemo(() => {
@@ -57,12 +62,28 @@ export function App() {
       </div>
     );
   }
+  // A review link's page fills the window: the prototype's frame and the panel, under its own bar.
+  if (route.page === "review") {
+    return (
+      <Connected deployment={deployment.deployment} features={deployment.features}>
+        <ReviewPage linkKey={route.key} />
+      </Connected>
+    );
+  }
   return (
     <Connected deployment={deployment.deployment} features={deployment.features}>
       <div className="app">
         {header(true)}
         <main className={route.page === "setup" ? "page narrow" : route.page === "thread" ? "page thread" : "page"}>
-          {route.page === "setup" ? <SetupPage id={route.id} /> : route.page === "thread" ? <ThreadPage pageKey={route.key} /> : <Onboarding />}
+          {route.page === "setup" ? (
+            <SetupPage id={route.id} />
+          ) : route.page === "thread" ? (
+            <ThreadPage pageKey={route.key} />
+          ) : route.page === "review-links" ? (
+            <ReviewLinksPage projectId={route.projectId} />
+          ) : (
+            <Onboarding />
+          )}
         </main>
       </div>
     </Connected>
@@ -78,6 +99,7 @@ export function Connected({ deployment, features, children }: { deployment: Depl
     () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, features),
     [client, deployment.siteUrl, session, features],
   );
+  const reviewHost = useMemo(() => ({ deployment, session, mountPanel: loadPanel, extensionUrl: EXTENSION_URL }), [deployment, session]);
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
   // Signing out on any page, or in another tab, removes the onboarding draft.
   useEffect(() => clearFlowOnSignOut(session, sessionStore()), [session]);
@@ -92,7 +114,9 @@ export function Connected({ deployment, features, children }: { deployment: Depl
   return (
     <ConvexProviderWithAuth client={client} useAuth={useSessionAuth}>
       <BackendContext.Provider value={backend}>
-        <SessionAuth session={session}>{children}</SessionAuth>
+        <ReviewHostContext.Provider value={reviewHost}>
+          <SessionAuth session={session}>{children}</SessionAuth>
+        </ReviewHostContext.Provider>
       </BackendContext.Provider>
     </ConvexProviderWithAuth>
   );

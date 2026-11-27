@@ -16,7 +16,7 @@ import {
   type Target,
   type TargetLocation,
 } from "@critiqs/core";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { reportConnected } from "./connected.ts";
 import type { Deployment } from "./deployment.ts";
 import type { CritiqsProps } from "./host.ts";
@@ -50,6 +50,7 @@ import { ThreadWindow } from "./ui/ThreadWindow.tsx";
 import { SidebarResizer, sidebarWidth, useSidebarWidth, useWindowWidth } from "./ui/sidebar-width.tsx";
 import { type Mode, Toolbar } from "./ui/Toolbar.tsx";
 import { type MockupRequest, MockupMode, type ShowPage } from "./ui/mockup/MockupMode.tsx";
+import { pickingHint as pickingHintFor, touchScreen } from "./hints.ts";
 
 interface Selected {
   /** Distinguishes each opening, including reopening the same thread from another pin. */
@@ -92,6 +93,35 @@ export type MockupOpen = { mockupId: string; threadId: string | null } | null;
  */
 export type MockupPlace = { kind: "elsewhere"; open: (request: MockupOpen) => void } | { kind: "window"; request: MockupOpen; leave: () => void };
 
+/**
+ * A review link's page around the panel. It owns Browse and Comment (its
+ * bar's switch), the frame's width, and sign-in: a reviewer picks and writes
+ * before signing in, and signs in inside the review page when they post their
+ * first comment, keeping what they picked and wrote. The panel then shows no
+ * toolbar of its own. On a wide screen its sidebar stays open beside the
+ * frame; on a narrow one it is a sheet over the frame's lower part, which the
+ * review page opens and the sheet's own Close button closes (`panel`).
+ */
+export interface ReviewSurface {
+  mode: "browse" | "comment";
+  onModeChange(mode: "browse" | "comment"): void;
+  /**
+   * Signs a signed-out reviewer in, inside the review page. Resolves to
+   * whether they are signed in with the project known; a comment waiting on
+   * it is posted once the backend accepts the sign-in.
+   */
+  ensureReviewer(): Promise<boolean>;
+  /** A thread opened from the list or a link: the review page shows the frame at the width it was left at, then it's revealed. */
+  onThreadOpened?(viewportWidth: number): Promise<void> | void;
+  /** Where the sidebar shows: beside the frame, always open (the default), or as a sheet over its lower part, shown while `open`. */
+  panel?: ReviewPanel;
+}
+
+export type ReviewPanel = { layout: "side" } | { layout: "sheet"; open: boolean; onClose(): void };
+
+/** The review page's sidebar, in a review link's page; null when Critiqs is installed or in the extension. */
+const InReviewPage = createContext<ReviewPanel | null>(null);
+
 interface AppProps {
   props: CritiqsProps;
   deployment: Deployment;
@@ -109,6 +139,8 @@ interface AppProps {
   openThread?: string;
   /** Where Mockup mode opens when it can't cover the page from here. */
   mockups?: MockupPlace;
+  /** A review link's page around the panel (`ReviewSurface`). */
+  review?: ReviewSurface;
 }
 
 /**
@@ -154,7 +186,10 @@ function PanelApp({
   supplyCapture,
   openThread,
   mockups,
+  review,
 }: Omit<AppProps, "page"> & { page: PageLink }) {
+  const reviewRef = useRef(review);
+  reviewRef.current = review;
   const transport = useTransport();
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const { isAuthenticated, rejected } = transport.useAuth();
@@ -167,10 +202,27 @@ function PanelApp({
   const configuredProject = props.projectId ?? null;
   const projectId = configuredProject ?? browserProject;
 
-  const [chosenMode, setMode] = useState<Mode>("browse");
+  const [ownMode, setOwnMode] = useState<Mode>("browse");
   // In Mockup mode's own window the mode is always Mockup mode: leaving it leaves the window.
-  const mode: Mode = mockups?.kind === "window" ? "mockup" : chosenMode;
-  const [sidebarOpen, setSidebarOpen] = useStoredState("critiqs:sidebar-open", false);
+  // In a review link's page, the mode is the page's: its bar shows the switch.
+  const mode: Mode = mockups?.kind === "window" ? "mockup" : (review?.mode ?? ownMode);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const setMode = useCallback((next: Mode | ((current: Mode) => Mode)) => {
+    const value = typeof next === "function" ? next(modeRef.current) : next;
+    const surface = reviewRef.current;
+    if (surface === undefined) return setOwnMode(value);
+    if (value === "mockup" || value === modeRef.current) return;
+    modeRef.current = value;
+    surface.onModeChange(value);
+  }, []);
+  const [storedSidebarOpen, setSidebarOpen] = useStoredState("critiqs:sidebar-open", false);
+  // A review link's page keeps the sidebar open beside the frame, or shows it as a sheet when the page opens it.
+  const reviewPanel: ReviewPanel | null = review === undefined ? null : (review.panel ?? { layout: "side" });
+  const sheet = reviewPanel?.layout === "sheet";
+  const sidebarOpen = reviewPanel === null ? storedSidebarOpen : reviewPanel.layout === "side" || reviewPanel.open;
+  // How much of the window's right side the sidebar covers: a sheet covers none of it.
+  const sidebarBeside = sidebarOpen && !sheet;
   // Pins and the composer stay left of the sidebar, as wide as it is now.
   const sideWidth = useSidebarWidth();
   // Placing beside the sidebar follows the window as it resizes, even when the sidebar's width doesn't change.
@@ -192,6 +244,8 @@ function PanelApp({
   const [picked, setPicked] = useState<Picked | null>(null);
   const [comment, setComment] = useState<NewComment | null>(null);
   const [saving, setSaving] = useState(false);
+  /** A review link's comment waiting for its reviewer to sign in. */
+  const [awaitingSignIn, setAwaitingSignIn] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reattaching, setReattaching] = useState<string | null>(null);
   const [reveal, setReveal] = useState<RevealState>({ status: "idle" });
@@ -221,7 +275,8 @@ function PanelApp({
   const pageState = useSyncExternalStore(page.subscribe, page.getState);
   const { context } = pageState;
   const signedIn = reviewer !== null && isAuthenticated;
-  const needsSetup = projectId === null;
+  // A review link's project is known once its reviewer signs in; it never needs setting up.
+  const needsSetup = projectId === null && review === undefined;
   // Which reviewer the interface is showing. Work in progress belongs to them:
   // it is cleared when they sign out or another reviewer signs in, but not when
   // the backend briefly re-authenticates the same reviewer, such as after a rename.
@@ -294,6 +349,8 @@ function PanelApp({
   // Sign-in
 
   const signIn = useCallback(() => {
+    // A review link's page signs in itself, inside the page, without a popup.
+    if (reviewRef.current !== undefined) return void reviewRef.current.ensureReviewer().catch(() => false);
     session.signIn().catch((error) => {
       if (error instanceof SignInError && error.reason === "closed") return;
       notify(error instanceof Error ? error.message : "Sign-in failed.");
@@ -314,9 +371,10 @@ function PanelApp({
       }
       if (next === "mockup") setMockupRequest(null);
       setMode(next);
-      if ((next === "comment" || next === "mockup") && !signedIn) signIn();
+      // A review link's reviewer signs in when they post, not when they start commenting.
+      if ((next === "comment" || next === "mockup") && !signedIn && reviewRef.current === undefined) signIn();
     },
-    [signedIn, signIn, mockups],
+    [signedIn, signIn, setMode, mockups],
   );
 
   const revealController = useRef<AbortController | null>(null);
@@ -327,6 +385,12 @@ function PanelApp({
   const shownReviewer = useRef(accessKey);
   useEffect(() => {
     if (accessKey !== null && shownReviewer.current === accessKey) return;
+    // A review link's reviewer picks and writes before signing in: signing in
+    // for the first time keeps all of it, as does staying signed out.
+    if (reviewRef.current !== undefined && shownReviewer.current === null) {
+      shownReviewer.current = accessKey;
+      return;
+    }
     shownReviewer.current = accessKey;
     revealController.current?.abort();
     setSelected(null);
@@ -370,10 +434,16 @@ function PanelApp({
     // A comment already being created is saved anyway; its save says so.
     if (creating.current) return;
     const draft = commentRef.current;
+    setAwaitingSignIn(false);
     setPicked(null);
-    setComment(null);
     setSaveError(null);
     setSaving(false);
+    // In a review link's page the text is kept: the reviewer selects the element again to post it.
+    if (reviewRef.current !== undefined && draft !== null && draft.body.text.trim() !== "") {
+      notify("The prototype showed another page, so select the element again. Your comment's text is kept.");
+      return;
+    }
+    setComment(null);
     if (draft !== null && draft.body.text.trim() !== "") {
       notify("The prototype showed another page, so the new comment was discarded. Select the element again to comment on it.");
     }
@@ -412,7 +482,8 @@ function PanelApp({
   }, [signedIn, recordsOpens, projectReady, projectId, reviewerId, deployment.backendUrl, transport]);
 
   // Loading with a project tells the backend, so onboarding on the Critiqs website can say Connected, before anyone signs in.
-  const reportsConnections = deployment.connections === true;
+  // A review link's page isn't the prototype's own page, and the prototype's frame there reports nothing either.
+  const reportsConnections = deployment.connections === true && review === undefined;
   useEffect(() => {
     if (reportsConnections && projectId !== null) reportConnected(deployment.siteUrl, projectId);
   }, [reportsConnections, projectId, deployment.siteUrl]);
@@ -505,7 +576,11 @@ function PanelApp({
     const thread = byId.get(selected.threadId);
     if (thread === undefined) return;
     setSelected({ ...selected, reveal: false });
-    void revealThread({ _id: selected.threadId, location: thread.location });
+    // A review link's page first shows the frame at the width the thread was left at.
+    const resized = reviewRef.current?.onThreadOpened?.(thread.summary.anchor.evidence.viewport.width);
+    void Promise.resolve(resized)
+      .catch(() => undefined)
+      .then(() => revealThread({ _id: selected.threadId, location: thread.location }));
   }, [selected, byId, revealThread]);
 
   // A link can also arrive through the app's own navigation while Critiqs stays mounted.
@@ -612,7 +687,9 @@ function PanelApp({
       }
       closeThread();
       setPicked({ occurrence: target.occurrence, target: target.target });
-      setComment(emptyComment(target));
+      // In a review link's page, text kept from a page that went away stays with the new selection.
+      const kept = reviewRef.current !== undefined && commentRef.current !== null && commentRef.current.body.text.trim() !== "" ? commentRef.current.body : null;
+      setComment(kept === null ? emptyComment(target) : { ...emptyComment(target), body: kept });
       setSaveError(null);
     },
     [reattaching, byId, transport, notify, select, closeThread],
@@ -648,6 +725,15 @@ function PanelApp({
 
   const submitComment = useCallback(async () => {
     const access = accessEpoch.current;
+    // A review link's reviewer signs in here, keeping the draft; it's posted once the backend accepts the sign-in.
+    if (review !== undefined && (!signedIn || access.reviewerId === null || projectId === null)) {
+      if (picked === null || comment === null) return;
+      setAwaitingSignIn(true);
+      setSaveError(null);
+      const signedInNow = await review.ensureReviewer().catch(() => false);
+      if (!signedInNow) setAwaitingSignIn(false);
+      return;
+    }
     if (!signedIn || access.reviewerId === null || picked === null || comment === null || projectId === null) return;
     // The comment belongs to this reviewer and to the page it was written on:
     // if the prototype showed another page meanwhile, the draft was discarded
@@ -726,7 +812,14 @@ function PanelApp({
     } finally {
       if (accessEpoch.current === access) setSaving(false);
     }
-  }, [picked, comment, projectId, props.version, page, captureForComment, transport, cancelComment, select, notify]);
+  }, [review, signedIn, picked, comment, projectId, props.version, page, captureForComment, transport, cancelComment, select, notify]);
+
+  // The comment that waited for its reviewer to sign in, posted once the backend accepts them and the project is known.
+  useEffect(() => {
+    if (!awaitingSignIn || !signedIn || projectId === null) return;
+    setAwaitingSignIn(false);
+    void submitComment();
+  }, [awaitingSignIn, signedIn, projectId, submitComment]);
 
   // Keyboard: C toggles Comment mode; M toggles Mockup mode; V returns to
   // Browse mode; Escape closes what is innermost, ending with the side panel,
@@ -915,10 +1008,11 @@ function PanelApp({
 
   // What the page layer draws: pins, the revealed target's outline, and Comment mode's selection.
   const windowAnchorRef = windowAnchor?.ref ?? null;
-  const coveredFrom = page.overPage && sidebarOpen ? windowWidth - sideWidth : null;
+  const coveredFrom = page.overPage && sidebarBeside ? windowWidth - sideWidth : null;
   const showPins = signedIn && !showSetup && !inMockup;
-  const pickingShown = signedIn && picking && !hidden;
-  const pickingHint = picked !== null ? null : reattaching !== null ? "Select the replacement element · Esc to cancel" : "Comment mode: select an element · V to leave";
+  // A review link's reviewer picks before signing in.
+  const pickingShown = (signedIn || review !== undefined) && picking && !hidden;
+  const pickingHint = picked !== null ? null : pickingHintFor(reattaching !== null, touchScreen());
   const pickedRef = !page.overPage && composing ? picked.occurrence.ref : null;
   const display: PageDisplay = useMemo(
     () => ({
@@ -997,6 +1091,7 @@ function PanelApp({
             }}
             backLabel={projectView ? "Back to project" : "Back to comments"}
             notify={notify}
+            reviewLinksAt={deployment.website !== undefined && deployment.reviewLinks === true ? (id) => `${deployment.website!.replace(/\/$/, "")}/review-links/${encodeURIComponent(id)}` : null}
           />
         </SidebarFrame>
       );
@@ -1191,6 +1286,7 @@ function PanelApp({
   if (required && projectMissing) return null;
 
   return (
+    <InReviewPage.Provider value={reviewPanel}>
     <HiddenContext.Provider value={hidden}>
     <OpenBillingContext.Provider value={openBilling}>
     <div className="layer" aria-hidden={hidden || undefined}>
@@ -1221,7 +1317,7 @@ function PanelApp({
           key={selected.threadId}
           selectionId={selected.id}
           anchor={elementOf(windowAnchor)}
-          sidebarOpen={sidebarOpen}
+          sidebarOpen={sidebarBeside}
           host={host}
           returnFocus={selected.returnFocus}
           onClose={closeThread}
@@ -1257,24 +1353,25 @@ function PanelApp({
           )}
         </ThreadWindow>
       )}
-      {signedIn && composing && (
+      {(signedIn || review !== undefined) && composing && (
         <Composer
           dismissHelpRef={dismissScopeHelp}
           picked={{ element: pickedElement, target: picked!.target }}
           comment={comment!}
           onChange={setComment}
           context={context}
-          projectId={projectId ?? ""}
+          projectId={signedIn ? projectId : null}
           reviewer={signedIn ? reviewer : null}
-          saving={saving}
+          signInOnPost={review !== undefined && !signedIn}
+          saving={saving || awaitingSignIn}
           error={saveError}
           onSignIn={signIn}
           onSubmit={() => void submitComment()}
           onCancel={cancelComment}
-          rightEdge={sidebarOpen ? windowWidth - sideWidth : windowWidth}
+          rightEdge={sidebarBeside ? windowWidth - sideWidth : windowWidth}
         />
       )}
-      <Toolbar
+      {review === undefined && <Toolbar
         mode={mode === "mockup" && !mockupsOffered ? "browse" : mode}
         onMode={chooseMode}
         mockupAvailable={mockupsOffered}
@@ -1296,7 +1393,7 @@ function PanelApp({
         }}
         avoid={pickedElement?.getBoundingClientRect() ?? null}
         sidebarLeft={(inMockup ? mockupPanelOpen : sidebarOpen) ? windowWidth - sideWidth : undefined}
-      />
+      />}
       {signedIn && exporting && projectId !== null && (
         <ExportDialog
           projectId={projectId}
@@ -1345,6 +1442,7 @@ function PanelApp({
     </div>
     </OpenBillingContext.Provider>
     </HiddenContext.Provider>
+    </InReviewPage.Provider>
   );
 }
 
@@ -1376,15 +1474,21 @@ function SidebarFrame({
   children: ReactNode;
 }) {
   const width = useSidebarWidth();
+  const reviewPanel = useContext(InReviewPage);
+  // A review link's page keeps a sidebar beside the frame open: it has nothing to close to. Its sheet closes back to the frame.
+  const sheet = reviewPanel?.layout === "sheet" ? reviewPanel : null;
+  const closable = reviewPanel === null || sheet !== null;
   return (
-    <aside className="sidebar" aria-label={label} style={{ width }}>
-      <SidebarResizer />
+    <aside className={sheet !== null ? "sidebar sheet" : "sidebar"} aria-label={label} style={sheet !== null ? undefined : { width }}>
+      {sheet === null && <SidebarResizer />}
       <div className="sidebar-header">
         <h2>{title}</h2>
         {actions}
-        <button type="button" className="icon-btn" aria-label="Close sidebar" title="Close" onClick={onClose}>
-          <CloseIcon />
-        </button>
+        {closable && (
+          <button type="button" className="icon-btn" aria-label={sheet !== null ? "Close comments" : "Close sidebar"} title="Close" onClick={sheet !== null ? () => sheet.onClose() : onClose}>
+            <CloseIcon />
+          </button>
+        )}
       </div>
       <div className="sidebar-body">{children}</div>
       {footer && <div className="sidebar-footer">{footer}</div>}

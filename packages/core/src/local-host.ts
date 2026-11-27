@@ -1,3 +1,5 @@
+import { canonicalHost } from "./host.ts";
+
 // Host names that only work on one computer or private network. Two rules,
 // for two jobs, kept here together:
 //
@@ -58,7 +60,9 @@ function isPrivateIpv6(host: string): boolean {
  * gets the warning, and onboarding asks for another way in instead of fetching it.
  */
 export function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  // Not a plain host (`localhost..`, `a..b`): refused like a private one, never fetched.
+  const host = canonicalHost(hostname);
+  if (host === null) return true;
   if (host.includes(":")) return isPrivateIpv6(host);
   if (/^\d+(?:\.\d+){3}$/.test(host)) return isPrivateIpv4(host);
   return host === "localhost" || !host.includes(".") || /\.(localhost|local|internal|home\.arpa|ts\.net)$/.test(host);

@@ -17,6 +17,7 @@ import type {
   ThreadPageDetail,
 } from "@critiqs/core";
 import type { ConvexReactClient } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import type { GenericId as Id } from "convex/values";
 import { createContext, useContext, useEffect } from "react";
 import { type Deployment, describeError, type QueryState, resolveDeployment, type Reviewer, useAllPages, useQueryState, useUtcDay } from "./shared.ts";
@@ -35,6 +36,23 @@ export interface NewProject {
   stack: StackId | null;
   /** Sent only to backends with `createKeys`: a retry with the same key returns the project the first request created. */
   idempotencyKey?: string;
+}
+
+/** What opening a review link gives (`reviewLinks:open`): a lease for its frame, or why not. */
+export type ReviewOpen = FunctionReturnType<typeof api.reviewLinks.open>;
+export type ReviewReady = Extract<ReviewOpen, { kind: "ready" }>;
+export type ReviewRenewal = FunctionReturnType<typeof api.reviewLinks.renew>;
+export type ReviewLeaseState = FunctionReturnType<typeof api.reviewLinks.leaseState>;
+export type ReviewAdoption = FunctionReturnType<typeof api.reviewLinks.adopt>;
+export type ReviewLinkSummary = FunctionReturnType<typeof api.reviewLinks.list>[number];
+export type CreatedReviewLink = FunctionReturnType<typeof api.reviewLinks.createLive>;
+
+/** Review links as `/critiqs/config` reports them. */
+export interface ReviewLinksCapability {
+  version: number;
+  live: boolean;
+  builds: boolean;
+  allowCritiqs: boolean;
 }
 
 /**
@@ -108,6 +126,27 @@ export interface Backend {
    * page can offer to try again.
    */
   loadThreadPageCapture(key: string): Promise<Blob | null>;
+  /** The deployment's review links, from `/critiqs/config`; null when it has none. */
+  reviewLinks: ReviewLinksCapability | null;
+  /**
+   * Opens a review link by its key, as the signed-in person or signed out.
+   * Anything that isn't ready says nothing about whether the key exists.
+   */
+  openReviewLink(key: string): Promise<ReviewOpen>;
+  /** Keeps a lease for another ten minutes while every check still passes; `ended` otherwise. */
+  renewReviewLease(leaseId: string, renewalSecret: string): Promise<ReviewRenewal>;
+  /** Whether a lease still serves, live: `ended` as soon as its link is removed or closed to the viewer. */
+  useReviewLease(leaseId: string, renewalSecret: string): QueryState<ReviewLeaseState>;
+  /** Binds a signed-out lease to the person who just signed in, keeping the frame as it is, and names the project. */
+  adoptReviewLease(leaseId: string, renewalSecret: string): Promise<ReviewAdoption>;
+  /** Records that the signed-in viewer opened the project, as an install does. */
+  recordReviewOpened(leaseId: string, renewalSecret: string): Promise<void>;
+  /** A project's review links, for its owners, live. */
+  useReviewLinks(projectId: string | null): QueryState<ReviewLinkSummary[]>;
+  createReviewLink(projectId: string, address: string, requestKey: string): Promise<CreatedReviewLink>;
+  /** A link's address again, for its owners. */
+  copyReviewLink(linkId: string): Promise<string>;
+  revokeReviewLink(linkId: string): Promise<void>;
 }
 
 /** What reading a thread page's image needs: the deployment's HTTP address and the signed-in person's token. */
@@ -177,11 +216,11 @@ export function failureCode(error: unknown): string {
 export type InviteAnswer = { status: "invited"; email?: "pending" | "not-sent" } | { status: "member" } | { status: "pending" };
 
 /** What a backend reports it can do, beyond what every backend the website works with does. */
-export type BackendFeatures = Pick<Backend, "createKeys" | "addressEdits" | "developerResends">;
+export type BackendFeatures = Pick<Backend, "createKeys" | "addressEdits" | "developerResends" | "reviewLinks">;
 
 /**
  * The deployment at `given`, as critiqs-react's `resolveDeployment` finds
- * it, and what it can do: `createKeys`, `addressEdits`, and `developerResends` in the same
+ * it, and what it can do: `createKeys`, `addressEdits`, `developerResends`, and `reviewLinks` in the same
  * reading of its `/critiqs/config`, so a backend that reports one is never
  * treated as one that doesn't. Backends that don't say get neither, so an
  * older one is never sent a call or an argument it refuses.
@@ -196,13 +235,40 @@ export async function resolveBackend(given: string, fetchFn: typeof fetch = fetc
   }) as typeof fetch;
   const deployment = await resolveDeployment(given, reading);
   const config = configs.get(`${deployment.siteUrl}/critiqs/config`) as Record<string, unknown> | null | undefined;
-  return { deployment, createKeys: config?.createKeys === true, addressEdits: config?.addressEdits === true, developerResends: config?.developerResends === true };
+  return {
+    deployment,
+    createKeys: config?.createKeys === true,
+    addressEdits: config?.addressEdits === true,
+    developerResends: config?.developerResends === true,
+    reviewLinks: reviewLinksOf(config?.reviewLinks),
+  };
+}
+
+/** The review links a config reports, read field by field; null for anything else. */
+export function reviewLinksOf(raw: unknown): ReviewLinksCapability | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const { version, live, builds, allowCritiqs } = raw as Record<string, unknown>;
+  if (version !== 1 || typeof live !== "boolean") return null;
+  return { version, live, builds: builds === true, allowCritiqs: allowCritiqs === true };
 }
 
 export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, features: BackendFeatures): Backend {
   return {
     componentBackend,
     ...features,
+    openReviewLink: (key) => client.mutation(api.reviewLinks.open, { key }),
+    renewReviewLease: (leaseId, renewalSecret) => client.mutation(api.reviewLinks.renew, { leaseId, renewalSecret }),
+    useReviewLease: (leaseId, renewalSecret) => useQueryState(api.reviewLinks.leaseState, { leaseId, renewalSecret }),
+    adoptReviewLease: (leaseId, renewalSecret) => client.mutation(api.reviewLinks.adopt, { leaseId, renewalSecret }),
+    recordReviewOpened: async (leaseId, renewalSecret) => {
+      await client.mutation(api.reviewLinks.recordOpened, { leaseId, renewalSecret });
+    },
+    useReviewLinks: (projectId) => useQueryState(api.reviewLinks.list, projectId === null ? "skip" : { projectId }),
+    createReviewLink: (projectId, address, requestKey) => client.mutation(api.reviewLinks.createLive, { projectId, address, requestKey }),
+    copyReviewLink: async (linkId) => (await client.query(api.reviewLinks.copy, { linkId })).url,
+    revokeReviewLink: async (linkId) => {
+      await client.mutation(api.reviewLinks.revoke, { linkId });
+    },
     checkAddress: (address) => client.action(api.addressCheck.check, { address }),
     saveAboutYou: async (answers) => {
       await client.mutation(api.onboarding.saveAboutYou, answers);

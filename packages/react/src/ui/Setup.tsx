@@ -34,6 +34,7 @@ export function Setup({
   onDone,
   backLabel,
   notify,
+  reviewLinksAt = null,
 }: {
   reviewer: Reviewer | null;
   /** Signed in and accepted by the backend. */
@@ -54,6 +55,8 @@ export function Setup({
   /** The finished button's label once the project is in the code, naming the panel it returns to. */
   backLabel: string;
   notify: (message: string) => void;
+  /** Where the project's owners manage its review links on the website, when the deployment serves them. */
+  reviewLinksAt?: ((projectId: string) => string) | null;
 }) {
   const projectId = configuredProjectId ?? browserProjectId;
 
@@ -86,6 +89,7 @@ export function Setup({
       onDone={onDone}
       backLabel={backLabel}
       notify={notify}
+      reviewLinksAt={reviewLinksAt}
     />
   );
 }
@@ -205,6 +209,7 @@ function ProjectReady({
   onDone,
   backLabel,
   notify,
+  reviewLinksAt = null,
 }: {
   projectId: string;
   configured: boolean;
@@ -214,6 +219,7 @@ function ProjectReady({
   onDone: () => void;
   backLabel: string;
   notify: (message: string) => void;
+  reviewLinksAt?: ((projectId: string) => string) | null;
 }) {
   const project = useTransport().useProject(projectId);
   const command = `npx critiqs init ${projectId}`;
@@ -290,6 +296,17 @@ function ProjectReady({
       {project.status === "ready" && <WhoCanReview project={project.data} notify={notify} />}
       {project.status === "ready" && project.data.isOwner && addressEdits && <AddressList projectId={projectId} notes={addressNotes} notify={notify} />}
       {project.status === "ready" && <PlanUsage project={project.data} className="setup-section" />}
+      {project.status === "ready" && project.data.isOwner === true && reviewLinksAt !== null && (
+        <div className="setup-section">
+          <strong>Review links</strong>
+          <span className="note">Send reviewers a link that opens the prototype with Critiqs, with nothing to install. The project's owners create and remove them.</span>
+          <div>
+            <a className="btn small" href={reviewLinksAt(projectId)} target="_blank" rel="noreferrer noopener">
+              Manage review links
+            </a>
+          </div>
+        </div>
+      )}
       <p className="note">
         {project.status === "ready" && project.data.reviewAccess === "organization"
           ? "Only members of the project's organization see its feedback."

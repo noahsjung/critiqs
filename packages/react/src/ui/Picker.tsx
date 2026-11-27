@@ -161,6 +161,7 @@ export function Composer({
   context,
   projectId,
   reviewer,
+  signInOnPost = false,
   saving,
   error,
   onSignIn,
@@ -175,9 +176,11 @@ export function Composer({
   comment: NewComment;
   onChange: (comment: NewComment) => void;
   context: ResolvedContext;
-  /** For mention suggestions. */
-  projectId: string;
+  /** For mention suggestions; null offers none. */
+  projectId: string | null;
   reviewer: Reviewer | null;
+  /** Write first, sign in on posting: a review link's reviewer, who is signed out until then. */
+  signInOnPost?: boolean;
   saving: boolean;
   error: string | null;
   onSignIn: () => void;
@@ -262,7 +265,7 @@ export function Composer({
         <div className="context-line" title="Saved with the comment">
           {[context.screen, viewState, context.persona && `viewing as ${context.persona}`].filter(Boolean).join(" · ")}
         </div>
-        {reviewer === null ? (
+        {reviewer === null && !signInOnPost ? (
           <>
             <p className="note">Sign in to comment. Your selection stays here.</p>
             <div className="row end">
@@ -332,6 +335,7 @@ export function Composer({
                 ))}
               </div>
             )}
+            {signInOnPost && <p className="note">You'll sign in with your email when you post. Your comment stays here.</p>}
             {error !== null && <div className="error">{error}</div>}
             <div className="row end">
               <button type="button" className="btn" onClick={onCancel}>

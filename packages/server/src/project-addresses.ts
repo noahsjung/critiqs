@@ -369,11 +369,22 @@ export async function isProjectAddress(store: Store, project: ProjectRecord, ori
 }
 
 /**
+ * Whether a project's list holds `origin` itself, as a current row: what a
+ * review link's address, and the origins it reads from, need. A pattern that
+ * matches the origin doesn't count. Decided by `listedMatch` and `isCurrent`,
+ * as for the lookup and Connected.
+ */
+export function listsOrigin(project: Pick<ProjectRecord, "organizationId">, row: Pick<ProjectAddressRecord, "address" | "key" | "organizationId">, origin: string): boolean {
+  const keys = originLookupKeys(origin);
+  return keys !== null && isCurrent(project, row) && listedMatch(row, keys) === "exact";
+}
+
+/**
  * Whether a listed address still speaks for its project: a row from before
  * the project's organization changed is stale, and counts for neither the
- * lookup nor Connected until the list is saved again.
+ * lookup, Connected, nor a review link until the list is saved again.
  */
-function isCurrent(project: ProjectRecord, row: Pick<ProjectAddressRecord, "organizationId">): boolean {
+function isCurrent(project: Pick<ProjectRecord, "organizationId">, row: Pick<ProjectAddressRecord, "organizationId">): boolean {
   return project.organizationId === row.organizationId;
 }
 

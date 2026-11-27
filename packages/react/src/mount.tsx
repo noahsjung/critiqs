@@ -2,7 +2,7 @@ import type { Root } from "react-dom/client";
 import { Connect, mountShadowRoot } from "./connect.tsx";
 import { HOST_TAG } from "./constants.ts";
 import { PROJECT_ID_PATTERN } from "./deployment.ts";
-import type { ViewState } from "@critiqs/core";
+import { inReviewFrame, type ViewState } from "@critiqs/core";
 import type { CritiqsProps, HostContext } from "./host.ts";
 
 /** A mounted Critiqs: change its settings, or remove it and everything it added. */
@@ -29,7 +29,9 @@ export interface CritiqsInstance {
  * Critiqs from bubbling through the host app's components and host contexts
  * from leaking in. With `requireProjectId`, it adds nothing to the page until
  * `projectId` is a valid project ID, and removes everything it added when the
- * ID goes away. Runs only in the browser.
+ * ID goes away. In a review link's frame it adds nothing, quietly: the
+ * review proxy runs Critiqs's page layer there, for the review page around
+ * the frame, and the frame can reach no backend. Runs only in the browser.
  */
 export function mountCritiqs(initial: CritiqsProps = {}): CritiqsInstance {
   if (typeof document === "undefined") {
@@ -57,6 +59,7 @@ export function mountCritiqs(initial: CritiqsProps = {}): CritiqsInstance {
 
   const render = () => {
     if (destroyed) return;
+    if (inReviewFrame()) return unmount();
     const required = options.requireProjectId === true;
     const projectId = required ? requiredProjectId(options.projectId) : options.projectId;
     const active = !required || projectId !== undefined;

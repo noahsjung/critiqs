@@ -32,7 +32,7 @@ const plus: ProjectUsage = {
 
 async function renderSetup(
   backend: { project?: ProjectInfo; usage?: ProjectUsage | null },
-  { billing = null, configured = true }: { billing?: ((organizationId?: string) => void) | null; configured?: boolean } = {},
+  { billing = null, configured = true, reviewLinksAt = null }: { billing?: ((organizationId?: string) => void) | null; configured?: boolean; reviewLinksAt?: ((projectId: string) => string) | null } = {},
 ) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -53,6 +53,7 @@ async function renderSetup(
             onUseProject={() => {}}
             onDone={() => {}}
             notify={(message) => copied.push(message)}
+            reviewLinksAt={reviewLinksAt}
           />
         </OpenBillingContext.Provider>
       </TransportContext.Provider>,
@@ -238,4 +239,16 @@ test("a project used only in this browser leads with adding its ID, by command o
   expect([...setup.host.querySelectorAll(".step .num")].map((step) => step.textContent)).toEqual(["✓", "2"]);
   expect(setup.host.textContent).toContain("Until then, only this browser uses the project.");
   await setup.done();
+});
+
+test("an owner reaches the project's review links from setup when the deployment serves them; others don't see the way", async () => {
+  const at = (id: string) => `https://critiqs.example/review-links/${id}`;
+  const owner = await renderSetup({}, { reviewLinksAt: at });
+  const link = [...owner.host.querySelectorAll<HTMLAnchorElement>("a")].find((entry) => entry.textContent === "Manage review links");
+  expect(link?.href).toBe("https://critiqs.example/review-links/project");
+  expect(link?.target).toBe("_blank");
+  const member = await renderSetup({ project: { ...project, isOwner: false } }, { reviewLinksAt: at });
+  expect(member.host.textContent).not.toContain("Manage review links");
+  const off = await renderSetup({});
+  expect(off.host.textContent).not.toContain("Manage review links");
 });

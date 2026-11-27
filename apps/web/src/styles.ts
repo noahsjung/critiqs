@@ -316,4 +316,59 @@ export const APP_STYLES = `
   .field { font-size: 16px; }
   .field.large { font-size: 17px; }
 }
+
+/* A review link's page: its bar and the prototype's frame on the left, Critiqs's panel (fixed, drawn by the panel) on the right. */
+.review { position: fixed; top: 0; bottom: 0; left: 0; display: flex; flex-direction: column; min-width: 0;
+  font: 14px/20px var(--font); color: var(--text); background: var(--surface-2); -webkit-font-smoothing: antialiased; }
+.review button, .review select { font-family: var(--font); }
+.review-bar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 12px 0 16px; box-sizing: border-box; flex: none;
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+.review-bar .brand .logo { width: 22px; height: 22px; }
+.review-source { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; }
+.review-source span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.review-modes { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); flex: none; }
+.review-modes button { height: 30px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer; }
+.review-modes button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.08); }
+.review-width select { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; }
+.review-account { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: none; max-width: 200px; color: var(--muted); }
+.review-account .account-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-strip { margin: 0; padding: 8px 16px; font-size: 13px; line-height: 18px; background: var(--accent-soft); color: var(--text); border-bottom: 1px solid var(--line); flex: none; }
+.review-strip.extension { background: #fff7e0; }
+.review-strip.problem { background: #fdecea; color: var(--danger); }
+.review-strip a { margin-right: 12px; color: var(--accent); }
+.review-canvas { flex: 1; min-height: 0; display: flex; justify-content: center; overflow-x: auto; overflow-y: hidden; }
+.review-frame { height: 100%; border: 0; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+.review-dialog-backdrop { position: fixed; inset: 0; z-index: 2147483646; display: grid; place-items: center; background: rgb(17 17 17 / 0.32); }
+.review-dialog { box-sizing: border-box; width: min(400px, calc(100vw - 32px)); padding: 24px; border-radius: 14px; background: var(--surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.24); font: 15px/22px var(--font); color: var(--text); }
+.review-dialog h2 { margin: 0 0 6px; font-size: 20px; line-height: 28px; font-weight: 600; }
+.review-dialog form { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+.review-dialog p { margin: 0; }
+.review-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; }
+.review-dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 4px; }
+.review-dialog-actions .quiet { margin-right: auto; }
+.review-message { display: flex; flex-direction: column; gap: 12px; padding-top: 40px; }
+.review-message h1 { font-size: 28px; line-height: 36px; font-weight: 600; }
+.review-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.review-link-row { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.review-link-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.review-link-actions { display: flex; gap: 8px; flex: none; }
+.review-links-create { display: flex; gap: 8px; }
+.review-break { display: none; }
+/* Narrow screens (NARROW_QUERY in ReviewPage.tsx): the panel is a sheet the bar opens; the frame takes the width. */
+.review.narrow .review-bar { gap: 8px; padding: 0 8px; }
+.review.narrow .review-comments[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); }
+/* A phone: the bar takes two rows, Browse and Comment first, so every control stays on screen. */
+@media (max-width: 600px) {
+  .review.narrow .review-bar { flex-wrap: wrap; height: auto; padding: 6px 8px; row-gap: 6px; }
+  .review.narrow .review-break { display: block; flex-basis: 100%; height: 0; }
+  .review.narrow .review-modes { flex: 1; }
+  .review.narrow .review-modes button { flex: 1; height: 34px; }
+  .review.narrow .review-comments { margin-left: auto; height: 36px; }
+  /* The site's name is never cut: it wraps if it must, with the path below it on one line. */
+  .review.narrow .review-source { flex: 1 1 60px; flex-direction: column; align-items: flex-start; gap: 0; white-space: normal; }
+  .review.narrow .review-source strong { overflow-wrap: break-word; line-height: 18px; }
+  .review.narrow .review-source span { max-width: 100%; white-space: nowrap; font-size: 12px; line-height: 16px; }
+  .review.narrow .review-account { max-width: 120px; }
+}
 `;

@@ -76,7 +76,8 @@ export function MentionInput({
   className,
   ...rest
 }: {
-  projectId: string;
+  /** Null where there's no project yet to suggest from, such as a review link before sign-in. */
+  projectId: string | null;
   /** The thread being replied in or edited; null for a new thread. */
   threadId?: string | null;
   value: MentionText;
@@ -98,10 +99,10 @@ export function MentionInput({
   // Whichever trigger is nearer the caret is the one being typed.
   const mention = finished ? null : typing;
   const active = hashtag !== null && (mention === null || hashtag.start > mention.start) ? { ...hashtag, kind: "tag" as const } : mention === null ? null : { ...mention, kind: "person" as const };
-  const open = active !== null && dismissed !== active.start;
+  const open = active !== null && dismissed !== active.start && projectId !== null;
   const transport = useTransport();
-  const suggestions = transport.useParticipants(open && active.kind === "person" ? projectId : null, active?.kind === "person" ? active.query : "", threadId);
-  const tagState = transport.useTags(open && active.kind === "tag" ? projectId : null);
+  const suggestions = transport.useParticipants(open && active!.kind === "person" ? projectId : null, active?.kind === "person" ? active.query : "", threadId);
+  const tagState = transport.useTags(open && active!.kind === "tag" ? projectId : null);
   const options: Suggestion[] = !open
     ? []
     : active.kind === "person"

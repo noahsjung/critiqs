@@ -1,5 +1,6 @@
 import { ProtocolError } from "./check.ts";
 import {
+  INSTALLED_PAGE_LIMITS,
   pageEnvelope,
   type PageErrorCode,
   type PageEvent,
@@ -7,9 +8,10 @@ import {
   type PageMethod,
   type PageMessage,
   type PageParams,
+  type PageLimits,
   parsePageMessage,
-  PAGE_RESULTS,
   type PageResult,
+  pageResults,
 } from "./protocol.ts";
 import type { PageTransport } from "./transport.ts";
 
@@ -49,14 +51,20 @@ export interface PageLayerEndpoint {
   close(): void;
 }
 
-export function panelEndpoint(transport: PageTransport, { channel }: { channel: string }): PagePanelEndpoint {
+/**
+ * The panel's end: sends requests and hears events. `limits` bounds what it
+ * takes from the page layer: installed Critiqs's by default,
+ * `UNTRUSTED_PAGE_LIMITS` for a page layer in a frame it doesn't trust.
+ */
+export function panelEndpoint(transport: PageTransport, { channel, limits = INSTALLED_PAGE_LIMITS }: { channel: string; limits?: PageLimits }): PagePanelEndpoint {
+  const results = pageResults(limits);
   let next = 1;
   let closed = false;
   const pending = new Map<number, { method: PageMethod; resolve: (value: unknown) => void; reject: (error: PageLayerError) => void }>();
   const handlers = new Map<PageEvent, Set<(data: never) => void>>();
 
   const stop = transport.listen((raw) => {
-    const parsed = parsePageMessage(raw, channel);
+    const parsed = parsePageMessage(raw, channel, limits);
     if (!parsed.ok) {
       if (!parsed.ignore) {
         // A reply that can't be read fails its request rather than leaving it waiting.
@@ -79,7 +87,7 @@ export function panelEndpoint(transport: PageTransport, { channel }: { channel: 
       return;
     }
     try {
-      const result = (PAGE_RESULTS[waiting.method] as (value: unknown, path: string) => unknown)(message.result, "result");
+      const result = (results[waiting.method] as (value: unknown, path: string) => unknown)(message.result, "result");
       settle(message.id, () => waiting.resolve(result));
     } catch (error) {
       if (!(error instanceof ProtocolError)) throw error;

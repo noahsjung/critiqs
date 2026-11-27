@@ -122,22 +122,39 @@ and spaces turned into hyphens.
 
 The landing page's **Get started** goes to `/start`, the website app's
 onboarding (`apps/web`), on the same origin as the landing page. Setup links
-(`/setup/<id>`) and thread pages (`/t/<key>`) are served there too, because a
+(`/setup/<id>`), thread pages (`/t/<key>`), review links (`/r/<key>`) and a
+project's review links (`/review-links/<id>`) are served there too, because a
 backend with `CRITIQS_WEB_URL=https://critiqs.app` links to them.
 
 `site/vercel.json` does it: its build command builds the app into `site/app/`
 (`bun run --cwd apps/web build:site`, with `--base=/app/`), and its rewrites
-send `/start`, `/setup/<id>` and `/t/<key>` to `site/app/index.html`. Files
-still win over rewrites, so every other page is the static site as before.
-`site/app/` is built at deploy time and not committed.
+send those paths to `site/app/index.html`. Files still win over rewrites, so
+every other page is the static site as before. `site/app/` is built at deploy
+time and not committed. It is the website's only host file.
+
+For `/r/*` and `/review-links/*` it also sends the headers the review page
+needs (`docs/technical-direction.md`, "The review page"):
+`Content-Security-Policy: frame-ancestors 'none'; frame-src https://*.critiqs-review.net`,
+`Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex, nofollow`. The
+review page shows no frame without that `frame-src`, so an operator whose
+review proxy runs on another domain changes `critiqs-review.net` in both rules
+to that domain before deploying (`https://*.<domain>`). The rest of the site
+keeps `Referrer-Policy: strict-origin-when-cross-origin`; no header is set by
+two rules for one path, so which one the host sends never depends on their
+order. `apps/web/test/review-page-details.test.tsx` checks this file against
+the headers `vite` sends.
 
 Try it on one local server, which applies the same file's rewrites, clean
-URLs, and headers:
+URLs, and headers (`host-rules.ts`):
 
 ```sh
 VITE_CRITIQS_BACKEND=http://127.0.0.1:3210 bun run --cwd apps/web build:site   # omit the variable for Critiqs Cloud
 bun site-src/preview-site.ts 6560                                               # http://127.0.0.1:6560
 ```
+
+With a local review proxy, set `CRITIQS_REVIEW_FRAMES` to its frame hosts (as
+for `vite`, such as `http://*.review.localhost:5120`) when starting the
+preview, so the review pages' `frame-src` names them.
 
 At the host, the Vercel project that serves `site/` needs:
 

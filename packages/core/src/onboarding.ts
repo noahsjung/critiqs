@@ -4,6 +4,7 @@
 // skipped, so every answer is optional and every rule works without it.
 
 import { type HtmlElement, type ScannedHtml, scanHtml } from "./html-scan.ts";
+import { hostOf } from "./host.ts";
 import { isPrivateHost } from "./local-host.ts";
 import type { BillingPlan, PlanIncludes } from "./protocol.ts";
 import { DEFAULT_TAGS } from "./tags.ts";
@@ -320,7 +321,7 @@ interface SignInSite {
 }
 
 function isOn(url: URL, { domain, tenants, path }: SignInSite): boolean {
-  const host = url.hostname.toLowerCase();
+  const host = hostOf(url) ?? "";
   const onHost = tenants ? host.endsWith(`.${domain}`) && host !== `www.${domain}` : host === domain;
   return onHost && (path === undefined || url.pathname === path || url.pathname.startsWith(`${path}/`));
 }
@@ -343,8 +344,9 @@ const SIGN_IN_HOST = /^(?:accounts|login|sso)\./;
 /** A sign-in page's whole path, such as `/login` or `/sign-in/`; a query may follow, a deeper path may not. */
 const SIGN_IN_PATH = /^\/(?:login|signin|sign-in|sso|auth)\/?$/i;
 
-function isIdentityProvider(url: URL): boolean {
-  return SIGN_IN_HOST.test(url.hostname.toLowerCase()) || IDENTITY_PROVIDERS.some((provider) => isOn(url, provider));
+/** Whether a URL is an identity provider's sign-in: a known provider, or a host that serves only sign-in. */
+export function isIdentityProvider(url: URL): boolean {
+  return SIGN_IN_HOST.test(hostOf(url) ?? "") || IDENTITY_PROVIDERS.some((provider) => isOn(url, provider));
 }
 
 const PASSWORD_FIELD = element("input", attribute("type", isKeyword("password")));

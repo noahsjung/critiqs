@@ -24,6 +24,15 @@ import { BackendStep, CheckIcon, Command, ConnectionStatus, CopyButton, Heading,
 /** How to build the extension and load it into Chrome, until it is in the Chrome Web Store. */
 export const EXTENSION_GUIDE = "https://github.com/noahsjung/critiqs/tree/main/packages/extension#build-and-load-it-unpacked";
 
+/**
+ * Where "Get the extension" goes: its store listing, where this website names
+ * one (`VITE_CRITIQS_EXTENSION_URL`), and otherwise how to build and load it,
+ * as onboarding and thread pages say while it isn't in the Chrome Web Store.
+ */
+export function extensionLink(storeUrl: string | null | undefined): string {
+  return storeUrl?.trim() || EXTENSION_GUIDE;
+}
+
 /** The setup page a copied message links to: this site's, by project ID, which shows the install steps to anyone signed in. */
 export function projectSetupUrl(projectId: string, origin = window.location.origin): string {
   return `${origin}/setup/${encodeURIComponent(projectId)}`;

@@ -188,12 +188,20 @@ export function followOccurrence(
   return elements.find((element) => recordKeyOf(element) === chosen.recordKey) ?? null;
 }
 
+/** A band at the top of the window that thread windows stay below, such as a review link's bar; none when installed. */
+let topBand = 0;
+
+/** Keeps thread windows below the top `pixels` of the window, where the page around the panel has its own bar. */
+export function keepThreadWindowsBelow(pixels: number) {
+  topBand = Math.max(0, pixels);
+}
+
 /**
  * The part of the window the thread window may use: left of an open sidebar,
- * and clear of the toolbar at the top or bottom.
+ * below a band the page keeps for itself, and clear of the toolbar at the top or bottom.
  */
 export function freeBounds(layout: Pick<Layout, "toolbar" | "width" | "height" | "sidebar">, sidebarOpen: boolean): Bounds {
-  const bounds = { left: 0, top: 0, right: sidebarOpen ? layout.width - (layout.sidebar ?? SIDEBAR_WIDTH) : layout.width, bottom: layout.height };
+  const bounds = { left: 0, top: topBand, right: sidebarOpen ? layout.width - (layout.sidebar ?? SIDEBAR_WIDTH) : layout.width, bottom: layout.height };
   const bar = layout.toolbar;
   if (bar !== null && bar.width > 0) {
     if (bar.y + bar.height / 2 > layout.height / 2) bounds.bottom = Math.min(bounds.bottom, bar.y - EDGE);

@@ -6,6 +6,7 @@
  * already reach. Separate from the review address, which only sets the page
  * mention emails open.
  */
+import { canonicalHost } from "./host.ts";
 import type { ProjectInfo } from "./protocol.ts";
 import { isPrivateReviewAddress } from "./review-address.ts";
 
@@ -62,8 +63,13 @@ function parseAddress(value: string, maxLength: number): ProjectAddress | { erro
   } catch {
     return refuse("isn't a valid address.");
   }
-  // A host written with its final dot, such as `preview.acme.com.`, is the same site.
-  if (url.hostname.endsWith(".") && url.hostname.length > 1) url.hostname = url.hostname.slice(0, -1);
+  // One spelling of a host, as every check compares it (`canonicalHost`): one written with its final dot, such as
+  // `preview.acme.com.`, is the same site.
+  if (!url.hostname.startsWith("[")) {
+    const canonical = canonicalHost(url.hostname);
+    if (canonical === null) return refuse("has a host name that isn't valid.");
+    if (canonical !== url.hostname) url.hostname = canonical;
+  }
   const host = url.hostname.replace(WILDCARD, "*");
   const origin = url.origin.replace(WILDCARD, "*");
   if (host === "") return refuse("isn't a valid address.");

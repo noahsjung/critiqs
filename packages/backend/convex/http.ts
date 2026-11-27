@@ -43,6 +43,8 @@ import { deployment } from "./lib/ai";
 import { billingConfig, billingHealth, verifyWebhook } from "./lib/billing";
 import { emailConfigured } from "./lib/email";
 import { syncOrganization } from "./billing";
+import { resolve as resolveReviewHost, usage as reportReviewUsage } from "./reviewHttp";
+import { reviewLinksCapability } from "./reviewLinks";
 
 /** Which AI this deployment offers, without any key or address. */
 function aiHealth() {
@@ -61,6 +63,10 @@ http.route({ path: "/mockup/upload", method: "POST", handler: uploadSnapshot });
 for (const path of ["/capture", "/capture/upload", "/mockup/snapshot", "/mockup/upload"]) {
   http.route({ path, method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CAPTURE_CORS })) });
 }
+
+// Review links: routes only the review proxy calls, with its shared secret (reviewHttp.ts).
+http.route({ path: "/internal/review/v1/resolve", method: "POST", handler: resolveReviewHost });
+http.route({ path: "/internal/review/v1/usage", method: "POST", handler: reportReviewUsage });
 
 // ---------------------------------------------------------------------------
 // Deployment configuration
@@ -124,6 +130,9 @@ http.route({
       // (`/auth/panel/email`, `/auth/panel/code`, `/auth/panel/name`), and its extension's origin may use
       // `/auth/refresh`, `/auth/profile`, and `/auth/sign-out`. It describes this deployment, not `signInUrl`:
       // a panel asks the sign-in service's own `/critiqs/config` before offering it.
+      // `reviewLinks`: review links through this deployment's review proxy (`reviewLinks:createLive`, `list`, `copy`,
+      // `revoke`, `open`, `renew`, `adopt`, `recordOpened`), absent without one. `live`: links to a prototype's address
+      // can be served (a reputation provider is set up); `builds`: shared builds; `allowCritiqs`: published egress.
       {
         signInUrl: signInUrl(),
         protocol: 5,
@@ -154,6 +163,7 @@ http.route({
         developerResends: true,
         threadMadeWith: true,
         threadMentions: true,
+        ...(reviewLinksCapability() === null ? {} : { reviewLinks: reviewLinksCapability() }),
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),

@@ -1173,6 +1173,127 @@ move into organizations with `organizations:backfill`.
   Self-hosted deployments must run with no outside sign-in service. Clerk
   charges for each monthly active user, while Pro allows unlimited reviewers.
 
+## Review links
+
+A review link lets someone review a prototype with nothing installed: the
+Critiqs website shows the prototype in a frame served by a review proxy on its
+own domain, with the comment panel beside it.
+
+**Built:** the proxy (`apps/review-proxy`), the backend below, and the
+review page. Convex stores the links and decides every request the proxy
+serves.
+
+- **Links.** A project's owners create a link for a public `https:` address
+  (`reviewLinks:createLive`). Its exact origin, and any of up to four other
+  origins its pages read from, join the project's address list. The link's
+  key (`<website>/r/<key>`, 130 random bits) is stored only as a hash; owners
+  copy it again with `reviewLinks:copy`, which derives it from the link's ID
+  with a key ring the deployment keeps to itself. Owners list and revoke
+  links. A project holds 20 open links, and a person creates 10 a day.
+- **Leases.** Opening a link (`reviewLinks:open`) gives the viewer a lease: a
+  new random frame host, `v-<label>.<proxy domain>`, stored only as a hash.
+  It lasts 10 minutes, the review page renews it every 5 (`renew`), and it
+  ends 8 hours after it began. Signed out, a link opens only when the project
+  is open to anyone, and the answer names no project until the viewer signs
+  in and adopts the lease (`adopt`). Limited to its organization, only its
+  members get a lease. A link that won't open answers like a key that doesn't
+  exist.
+- **Every request is checked again.** The proxy asks
+  `POST /internal/review/v1/resolve` what a frame host stands for, with the
+  shared secret, and may reuse the answer for at most 5 seconds. The answer
+  is a 404 unless the lease is current, the link is active, the viewer may
+  still review the project, the exact origin is still in the address list,
+  the reputation verdict is clean and less than two days old, no operator
+  takedown names the link, project, or origin, and the link is under its
+  daily ceiling (50,000 requests or 5 GB, reported by the proxy to
+  `/internal/review/v1/usage`). The proxy's side is `convexDirectory` in
+  `@critiqs/server/review-directory`.
+- **Reputation.** A new link stays `checking` until Google Web Risk answers
+  for its addresses (origin and path, never the query); an unsafe verdict
+  blocks it for good, and active links are checked again daily. Without a
+  key, links are served only when the proxy is on this computer
+  (`*.localhost`).
+- **Takedowns.** An operator stops a link, a project, or an origin at once:
+  `npx convex run reviewLinks:deny '{"origin":"https://x.example","reason":"…"}'`,
+  undone with `reviewLinks:undeny`.
+
+Settings on the Convex deployment; `/critiqs/config` reports `reviewLinks`
+only when the first three are set and the proxy's domain is its own site,
+apart from the website's and the backend's (siblings such as
+`proxy.critiqs.app` beside `app.critiqs.app` share a site and are refused):
+
+| Setting | Value |
+| --- | --- |
+| `CRITIQS_REVIEW_PROXY_URL` | The proxy's domain as an origin, such as `https://critiqs-review.net` (`http://review.localhost:<port>` on one computer) |
+| `CRITIQS_PROXY_SECRET` | At least 32 characters, the same value the proxy has |
+| `CRITIQS_PROXY_SECRET_PREVIOUS` | Only during a rotation: the secret proxies not yet updated still send. Remove it once every proxy has the new one |
+| `CRITIQS_WEB_URL` | The website that serves `/r/<key>` |
+| `CRITIQS_WEB_RISK_API_KEY` | Google Web Risk Lookup API key; without it, links aren't served except on a `*.localhost` proxy |
+
+### The review page
+
+`/r/<key>` on the website (`apps/web/src/ui/ReviewPage.tsx`) opens the link and
+shows the prototype in a frame on its lease host,
+`sandbox="allow-scripts allow-same-origin"`, with Critiqs's panel beside it
+(`mountPanel` with its `review` option). Its own bar holds Browse and Comment
+(Comment first), the frame's width (Fit, 1440, 1280, 768, 390), Share (this
+page's address, with the prototype's path after `#`), and the account.
+
+- **Sign-in at the first comment.** Someone signed out picks and writes as
+  anyone else does; posting asks for an email code inside the page
+  (`panelSignIn`, then `Session.acceptPanelSignIn`, so the website keeps one
+  session), adopts the lease to learn the project, and posts the same draft.
+  The panel keeps the selection and the text through that first sign-in
+  (`ReviewSurface`, `App.tsx`); if the frame showed another page meanwhile, it
+  drops the selection, keeps the text, and posts nothing about the old page.
+  Existing feedback shows once signed in.
+- **The frame is untrusted.** Its page layer shares a window with the
+  prototype's scripts, so the panel takes the untrusted message limits, maps
+  every address it reports to the prototype's origin and path (never the
+  query) and refuses any other origin (`reviewEndpoint`), and sends threads to
+  it only as aliases (`p1`, `p2`, …) with one generic name. Tokens, names,
+  emails, thread IDs and the project ID never enter the frame. Its own
+  messages (`critiqs:review-frame`) only choose what the page says, such as
+  the extension banner after a sign-in redirect.
+- **Widths.** Opening a thread from the list shows the frame at the width the
+  comment was left at, with a way back.
+- **Narrow screens.** Below 960 pixels a sidebar beside the frame would leave
+  the prototype too little room, so the frame takes the whole width and the
+  panel is a sheet over its lower part: **Comments** in the bar opens it
+  (**Project** in Browse, as the panel's own title says), its own Close
+  button closes it, and choosing Comment or opening a thread puts it down so
+  the frame can be picked from. On a phone the bar takes two rows and the
+  site's name is never cut. On a touch screen Comment mode's hint names a tap,
+  not a key.
+- **When part of the page can't load.** The proxy's runtime tells the page
+  once when something on the prototype couldn't load through the link (a web
+  socket, another site the frame's policy refuses, a file the proxy refused
+  or the browser couldn't read), and the page shows one line with the
+  extension as the way to see it all, with its own Dismiss. Files held back
+  only because the viewer's request budget ran out for now get a line saying
+  to reload in a minute instead. A copy of Critiqs the prototype itself
+  installed stays out of the frame.
+- **When the link ends.** The page watches its lease: a link removed, paused
+  or closed to the viewer ends the session on the page as soon as it
+  happens, while the proxy stops serving it within five seconds.
+- **Headers.** Whatever serves the website sends, for `/r/*` and
+  `/review-links/*`: `Content-Security-Policy: frame-ancestors 'none';
+  frame-src <lease hosts>`, `Referrer-Policy: no-referrer` and
+  `X-Robots-Tag: noindex, nofollow`. `apps/web/vite.config.ts` sets them for
+  `vite` and `vite preview` (with `CRITIQS_REVIEW_FRAMES` such as
+  `https://*.critiqs-review.net`), and `site/vercel.json` for the
+  website's host, which serves the app on the landing site's origin (see
+  `site-src/README.md`) and where `frame-src` names the proxy's domain; a
+  test keeps the two the same. The `frame-src` is the only wall that keeps a
+  frame on the proxy: a prototype's own scripts can move its frame to a `blob:` document,
+  which carries no runtime, or to another site. So before it shows a frame
+  the page reads its own headers again and shows no frame, with a line for
+  the operator, unless some policy allows frames only from host sources that
+  name the lease's origin (`apps/web/src/frame-policy.ts`). The page also
+  refuses to show inside another site's frame.
+- **Owners** create, copy, open and remove a project's links at
+  `/review-links/<project ID>`.
+
 ## Private R2 screenshot storage
 
 **Agreed:** screenshots may live in a private Cloudflare R2 bucket while Convex

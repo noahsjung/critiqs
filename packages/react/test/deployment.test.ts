@@ -34,6 +34,7 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     connections: false,
     threadMadeWith: false,
     threadMentions: false,
+    reviewLinks: false,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -98,6 +99,7 @@ test("a server in the host app answers at its path, with its own sign-in", async
     connections: false,
     threadMadeWith: false,
     threadMentions: false,
+    reviewLinks: false,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });

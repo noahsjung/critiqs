@@ -136,6 +136,19 @@ export class Session implements TokenSession {
     });
   }
 
+  /**
+   * Keeps tokens a panel on this site signed in with itself, without the
+   * popup, such as a review link's page asking for an email code at the
+   * first comment. Only Critiqs's own pages call it, with tokens the sign-in
+   * service just gave them; tabs on this site share the session as usual.
+   */
+  acceptPanelSignIn(tokens: { accessToken: string; refreshToken: string; expiresAt: number }): void {
+    if (typeof tokens.accessToken !== "string" || typeof tokens.refreshToken !== "string" || !Number.isFinite(tokens.expiresAt)) {
+      throw new Error("Critiqs: those sign-in tokens aren't complete.");
+    }
+    this.write({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt: tokens.expiresAt });
+  }
+
   async signOut(): Promise<void> {
     const stored = this.read();
     this.write(null);

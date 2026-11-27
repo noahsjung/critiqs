@@ -66,6 +66,8 @@ export interface Deployment {
   threadMadeWith?: boolean;
   /** Mention suggestions take the thread being replied in (`threadId` on `participants`); absent from backends before it. */
   threadMentions?: boolean;
+  /** The backend serves review links (`reviewLinks.live`), which a project's owners manage on `website`. */
+  reviewLinks?: boolean;
 }
 
 /** What `/critiqs/config` reports; only `signInUrl` is always there. */
@@ -91,6 +93,7 @@ interface ServiceConfig {
   connections?: boolean;
   threadMadeWith?: boolean;
   threadMentions?: boolean;
+  reviewLinks?: unknown;
 }
 
 /** The website a backend reports for its thread pages, when it reports them and the address is a web address. */
@@ -148,6 +151,7 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
     connections: config.connections === true,
     threadMadeWith: config.threadMadeWith === true,
     threadMentions: config.threadMentions === true,
+    reviewLinks: typeof config.reviewLinks === "object" && config.reviewLinks !== null && (config.reviewLinks as { live?: unknown }).live === true,
   };
 }
 
@@ -178,7 +182,7 @@ export async function resolveDeployment(given: string, fetchFn: typeof fetch = f
     );
     if (!signIn.current) throw new Error(`Critiqs's sign-in service at ${backend.signInUrl} isn't ready for this version of Critiqs yet.`);
   }
-  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, addressNotes: backend.addressNotes, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, threadMadeWith: backend.threadMadeWith, threadMentions: backend.threadMentions, ...(backend.website === undefined ? {} : { website: backend.website }) };
+  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, addressNotes: backend.addressNotes, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, threadMadeWith: backend.threadMadeWith, threadMentions: backend.threadMentions, reviewLinks: backend.reviewLinks, ...(backend.website === undefined ? {} : { website: backend.website }) };
 }
 
 /** The thread mention suggestions are for, only for backends that take it (`threadMentions`); older ones offer the project's. */
