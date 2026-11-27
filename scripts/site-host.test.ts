@@ -6,7 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const { ignoreCommand } = (await Bun.file(join(ROOT, "site/vercel.json")).json()) as { ignoreCommand: string };
+const host = (await Bun.file(join(ROOT, "site/vercel.json")).json()) as { ignoreCommand: string; cleanUrls?: boolean; rewrites?: { source: string; destination: string }[] };
+const { ignoreCommand } = host;
+
+test("with clean URLs, no rewrite sends a path to an address ending in .html, which the host serves only at its clean address", () => {
+  expect(host.cleanUrls).toBe(true);
+  expect((host.rewrites ?? []).filter((rule) => rule.destination.endsWith(".html"))).toEqual([]);
+});
 
 test("the site's ignoreCommand fits Vercel's limit of 256 characters", () => {
   expect(ignoreCommand.length).toBeLessThanOrEqual(256);

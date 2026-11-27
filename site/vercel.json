@@ -10,31 +10,31 @@
   "rewrites": [
     {
       "source": "/start",
-      "destination": "/app/index.html"
+      "destination": "/app"
     },
     {
       "source": "/setup/:id",
-      "destination": "/app/index.html"
+      "destination": "/app"
     },
     {
       "source": "/t",
-      "destination": "/app/index.html"
+      "destination": "/app"
     },
     {
       "source": "/t/:key",
-      "destination": "/app/index.html"
+      "destination": "/app"
     },
     {
       "source": "/r/:key",
-      "destination": "/app/index.html"
+      "destination": "/app"
     },
     {
       "source": "/review-links/:id",
-      "destination": "/app/index.html"
+      "destination": "/app"
     },
     {
       "source": "/allow-critiqs",
-      "destination": "/app/index.html"
+      "destination": "/app"
     }
   ],
   "headers": [

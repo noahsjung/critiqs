@@ -129,7 +129,9 @@ project's review links (`/review-links/<id>`) and Allow Critiqs
 
 `site/vercel.json` does it: its build command builds the app into `site/app/`
 (`bun run --cwd apps/web build:site`, with `--base=/app/`), and its rewrites
-send those paths to `site/app/index.html`. Files still win over rewrites, so
+send those paths to `/app`, which serves `site/app/index.html`. With clean URLs the host
+serves a page only at its clean address, so a rewrite to `/app/index.html` would find
+nothing. Files still win over rewrites, so
 every other page is the static site as before. `site/app/` is built at deploy
 time and not committed. It is the website's only host file.
 

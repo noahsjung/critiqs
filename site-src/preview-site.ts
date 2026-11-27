@@ -69,7 +69,8 @@ Bun.serve({
     let file = fileFor(url.pathname);
     if (file === null) {
       const destination = rewriteFor(config, url.pathname);
-      if (destination !== null) file = fileFor(destination);
+      // With clean URLs the host serves a page only at its clean address, so a destination ending in .html finds nothing there.
+      if (destination !== null && !(config.cleanUrls === true && destination.endsWith(".html"))) file = fileFor(destination);
     }
     const extra = new Headers();
     for (const [name, { value }] of headerRules(config, url.pathname)) {
