@@ -13,7 +13,9 @@ import {
   reserveDeveloperSends,
 } from "../src/developer-setup.ts";
 import { utcDay } from "../src/limits.ts";
-import { saveAboutYou } from "../src/onboarding.ts";
+import * as onboarding from "../src/onboarding.ts";
+import { reportConnected, saveAboutYou } from "../src/onboarding.ts";
+import { addProjectAddress } from "../src/project-addresses.ts";
 import * as ops from "../src/operations.ts";
 import * as organizations from "../src/organizations.ts";
 import { MailError, type MailMessage } from "../src/signin.ts";
@@ -279,6 +281,134 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect(await counter(backend, `inviteEmails:sam@acme.com:${utcDay(day)}`)).toBe(2);
   });
 
+  test(`${name}: the steps can be sent again 24 hours after an email went out, at most twice, each a new email`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const DAY = 24 * HOUR;
+    const resend = (now: number, emails = ["sam@acme.com"], who: Identity = dana) =>
+      backend.run((store) => reserveDeveloperSends(store, who, { projectId, emails, resend: true }, now));
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    await deliver(backend, first.reserved, "ok", day);
+    const sendId = first.reserved[0]!.sendId;
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", lastSentAt: day, resendAt: day + DAY });
+    // Without asking to send again, an address that got its email is refused as before.
+    expect((await send(backend, projectId, ["sam@acme.com"], day + 2 * DAY)).results[0]).toEqual({ email: "sam@acme.com", status: "already-sent", sendId });
+    // A minute short of 24 hours: too soon, and nothing is counted.
+    const early = await resend(day + DAY - 60_000);
+    expect(early.results[0]).toMatchObject({ status: "limit", limit: "wait" });
+    expect(early.reserved).toEqual([]);
+    expect(await counter(backend, `developerEmails:${(await backend.run((store) => store.users.byToken(dana.tokenIdentifier)))!._id}:${utcDay(day)}`)).toBe(1);
+    // At 24 hours: a new email under the next key, counted like any other, inviting no one again.
+    const second = await resend(day + DAY);
+    expect(second.results[0]).toMatchObject({ status: "sent", sendId, invite: "pending" });
+    expect(second.reserved).toEqual([{ sendId, idempotencyKey: `critiqs-developer:${sendId}:1` }]);
+    const delivered = await deliver(backend, second.reserved, "ok", day + DAY);
+    expect(delivered.asked.map((message) => [message.to, message.idempotencyKey])).toEqual([["sam@acme.com", `critiqs-developer:${sendId}:1`]]);
+    expect(await counter(backend, `inviteEmails:sam@acme.com:${utcDay(day + DAY)}`)).toBe(1);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", lastSentAt: day + DAY, resendAt: day + 2 * DAY });
+    // The 24 hours count from the latest email.
+    expect((await resend(day + 2 * DAY - 1)).results[0]).toMatchObject({ status: "limit", limit: "wait" });
+    const third = await resend(day + 2 * DAY);
+    expect(third.reserved).toEqual([{ sendId, idempotencyKey: `critiqs-developer:${sendId}:2` }]);
+    await deliver(backend, third.reserved, "ok", day + 2 * DAY);
+    // Twice is the most: no resend is offered, and asking is refused, however long after.
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: null });
+    const fourth = await resend(day + 30 * DAY);
+    expect(fourth.results[0]).toMatchObject({ status: "limit", limit: "resends" });
+    expect(fourth.reserved).toEqual([]);
+  });
+
+  test(`${name}: sending again keeps the other rules: owners only, the suppression list, and the person's daily limit`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const DAY = 24 * HOUR;
+    const first = await send(backend, projectId, ["sam@acme.com", "kim@acme.com"]);
+    await deliver(backend, first.reserved, "ok", day);
+    const resend = (now: number, emails: string[], who: Identity = dana) =>
+      backend.run((store) => reserveDeveloperSends(store, who, { projectId, emails, resend: true }, now));
+    // Only the people who manage the project.
+    await expect(resend(day + DAY, ["sam@acme.com"], lee)).rejects.toThrow("Only the people who manage this project");
+    // An inbox that reported Critiqs's email gets nothing more.
+    await backend.run((store) => reportUnwantedEmail(store, { sendId: first.reserved[1]!.sendId }, day + HOUR));
+    expect((await resend(day + DAY, ["kim@acme.com"])).results[0]).toEqual({ email: "kim@acme.com", status: "suppressed" });
+    // The person's daily limit counts resends: five other projects' emails use it up on the resend's day.
+    for (const index of [1, 2, 3, 4, 5]) {
+      const other = await create(backend, dana, { name: `Other ${index}` });
+      expect((await send(backend, other, [`dev${index}@corp.com`], day + DAY)).results[0]).toMatchObject({ status: "sent" });
+    }
+    const refused = await resend(day + DAY, ["sam@acme.com"]);
+    expect(refused.results[0]).toMatchObject({ status: "limit", limit: "person" });
+    expect(refused.reserved).toEqual([]);
+    // The next day it goes, and the address's own 24 hours have long passed.
+    expect((await resend(day + 2 * DAY, ["sam@acme.com"])).results[0]).toMatchObject({ status: "sent" });
+  });
+
+  test(`${name}: a failed email is sent again at once, without waiting or using a resend`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    await deliver(backend, first.reserved, "refused", day);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "failed", resendAt: null });
+    const again = await backend.run((store) => reserveDeveloperSends(store, dana, { projectId, emails: ["sam@acme.com"], resend: true }, day + HOUR));
+    expect(again.results[0]).toMatchObject({ status: "sent" });
+    await deliver(backend, again.reserved, "ok", day + HOUR);
+    // Still two resends left.
+    expect(await backend.run(async (store) => (await store.developerSends.get(first.reserved[0]!.sendId))?.resends ?? 0)).toBe(0);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: day + HOUR + 24 * HOUR });
+  });
+
+  test(`${name}: a resend the mail service refuses uses no resend of its own: its replacement is that resend, and two still reach the developer`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const DAY = 24 * HOUR;
+    const resend = (now: number) => backend.run((store) => reserveDeveloperSends(store, dana, { projectId, emails: ["sam@acme.com"], resend: true }, now));
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    await deliver(backend, first.reserved, "ok", day);
+    // The first resend is refused: failed, so Send again sends a replacement at once, under the next key.
+    await deliver(backend, (await resend(day + DAY)).reserved, "refused", day + DAY);
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "failed" });
+    const replacement = await resend(day + DAY + HOUR);
+    expect(replacement.results[0]).toMatchObject({ status: "sent" });
+    await deliver(backend, replacement.reserved, "ok", day + DAY + HOUR);
+    // One resend reached Sam; the second still can, 24 hours after it.
+    expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent", resendAt: day + 2 * DAY + HOUR });
+    const second = await resend(day + 2 * DAY + HOUR);
+    expect(second.results[0]).toMatchObject({ status: "sent" });
+    const { asked } = await deliver(backend, second.reserved, "ok", day + 2 * DAY + HOUR);
+    expect(asked).toHaveLength(1);
+    expect((await resend(day + 10 * DAY)).results[0]).toMatchObject({ status: "limit", limit: "resends" });
+  });
+
+  test(`${name}: an address whose inbox reported Critiqs's email is never offered Send again, and says so`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com", "kim@acme.com"]);
+    await deliver(backend, [first.reserved[0]!], "ok", day);
+    await deliver(backend, [first.reserved[1]!], "refused", day);
+    for (const each of first.reserved) await backend.run((store) => reportUnwantedEmail(store, { sendId: each.sendId }, day + HOUR));
+    expect((await listed(backend, projectId)).map((each) => [each.email, each.status, each.resendAt, each.suppressed])).toEqual([
+      ["sam@acme.com", "sent", null, true],
+      ["kim@acme.com", "failed", null, true],
+    ]);
+  });
+
+  test(`${name}: an email that sends the steps again says it is a reminder; a replacement for a failed first email doesn't`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com", "kim@acme.com"]);
+    const firstEmails = await deliver(backend, [first.reserved[0]!], "ok", day);
+    await deliver(backend, [first.reserved[1]!], "refused", day);
+    const replaced = await send(backend, projectId, ["kim@acme.com"], day + HOUR);
+    const replacement = await deliver(backend, replaced.reserved, "ok", day + HOUR);
+    const again = await backend.run((store) => reserveDeveloperSends(store, dana, { projectId, emails: ["sam@acme.com"], resend: true }, day + 25 * HOUR));
+    const reminder = await deliver(backend, again.reserved, "ok", day + 25 * HOUR);
+    expect(firstEmails.asked[0]!.subject).toBe("Dana asked you to add Critiqs to Acme prototype");
+    expect(replacement.asked[0]!.subject).toBe("Dana asked you to add Critiqs to Acme prototype");
+    expect(reminder.asked[0]!.subject).toBe("Reminder: Dana asked you to add Critiqs to Acme prototype");
+    expect(reminder.asked[0]!.text).toStartWith("A reminder: Dana (dana@example.com) sent you these steps before.");
+    expect(reminder.asked[0]!.html).toContain("<p>A reminder: Dana (dana@<span></span>example.<span></span>com) sent you these steps before.</p>");
+  });
+
   test(`${name}: an unknown result counts, and sending again retries it under the same key and the same email`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
@@ -301,6 +431,27 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     for (const attempt of [0, 1]) await backend.run((store) => recordDeveloperEmail(store, { ...first.reserved[0]!, attempt, answer: "refused" }));
     expect((await listed(backend, projectId))[0]).toMatchObject({ status: "sent" });
     expect(await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + HOUR))).toBeNull();
+  });
+
+  test(`${name}: presses at once claim one attempt: while it waits for the mail service, no other is sent`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const first = await send(backend, projectId, ["sam@acme.com"]);
+    // Three presses of Send at once each queue the email under its one key, and each tries to claim it before the mail service answers.
+    const again = await send(backend, projectId, ["sam@acme.com"], day + 1_000);
+    const more = await send(backend, projectId, ["sam@acme.com"], day + 2_000);
+    expect([again.reserved, more.reserved]).toEqual([first.reserved, first.reserved]);
+    const claims = [];
+    for (const at of [day + 3_000, day + 3_001, day + 3_002]) {
+      claims.push(await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, at)));
+    }
+    expect(claims.map((claim) => claim?.attempt ?? null)).toEqual([0, null, null]);
+    // Once the attempt ends without an answer, sending again retries it under the same key.
+    expect(await backend.run((store) => recordDeveloperEmail(store, { ...first.reserved[0]!, attempt: 0, answer: "unknown" }))).toBe("uncertain");
+    expect((await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + 60_000)))?.attempt).toBe(1);
+    // An attempt that never ended (the sender stopped mid-send) holds the email for DEVELOPER_ATTEMPT_CLAIM_MS, then a retry may claim it.
+    expect(await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + 61_000))).toBeNull();
+    expect((await backend.run((store) => prepareDeveloperEmail(store, { ...first.reserved[0]!, ...links }, day + 60_000 + 15 * 60_000)))?.attempt).toBe(2);
   });
 
   test(`${name}: after an attempt goes unanswered, a refused retry leaves the email uncertain, under the same key`, async () => {
@@ -473,6 +624,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       address: "https://acme-proto.vercel.app/",
       stack: { id: "next", label: "Next.js", installable: true },
       installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`],
+      connected: null,
       inviterName: "Dana",
     });
     expect(await shown(sam, sendIds[1]!)).toMatchObject({ stack: { id: "nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
@@ -501,6 +653,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       address: "https://acme-proto.vercel.app/",
       stack: { id: "next", label: "Next.js", installable: true },
       installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`],
+      connected: null,
     });
     expect(await shown(dana, nuxt)).toMatchObject({ projectName: "Nuxt app", stack: { id: "nuxt", label: "Nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
     expect(await shown(dana, unknown)).toMatchObject({ address: null, stack: null, installCommands: [`npx critiqs init ${unknown}`] });
@@ -511,6 +664,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       address: "https://acme-proto.vercel.app/",
       stack: null,
       installCommands: [`npx critiqs init ${projectId}`],
+      connected: null,
     });
     expect(await shown(lee, nuxt)).toMatchObject({ stack: null, installCommands: [`npx critiqs init ${nuxt}`] });
     await expect(shown(null, projectId)).rejects.toThrow("Sign in");
@@ -520,6 +674,81 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
     expect(await shown(dana, projectId)).toMatchObject({ projectId, stack: { id: "next" } });
     await expect(shown(lee, projectId)).rejects.toThrow("limited to members of its organization");
+  });
+
+  test(`${name}: Critiqs loading at the project's address marks it connected, with the page's origin, which only its owners and the developer see`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    const { reserved } = await send(backend, projectId, ["dev@corp.com"]);
+    const report = (origin: string | null, id = projectId, at = 1_000) => backend.run((store) => reportConnected(store, { projectId: id, origin }, at));
+    const setup = (who: Identity) => backend.run((store) => getProjectSetup(store, who, { projectId }));
+    // Reports that aren't from a web page, or name no project, change nothing and answer the same.
+    for (const origin of [null, "chrome-extension://pfdpnmmiemejphfghkalofichdcoandg", "null", "https://acme-proto.vercel.app/path", "file://", "javascript:alert(1)"]) await report(origin);
+    await report("https://acme-proto.vercel.app", "not-a-project");
+    await report("https://acme-proto.vercel.app", "p_00000000000000000000000000000000");
+    expect((await setup(dana)).connected).toBeNull();
+    await report("https://acme-proto.vercel.app", projectId, 2_000);
+    expect((await setup(dana)).connected).toEqual({ at: 2_000, origin: "https://acme-proto.vercel.app", clearable: true });
+    expect(await backend.run((store) => store.projects.get(projectId))).toMatchObject({ connectedAt: 2_000, connectedOrigin: "https://acme-proto.vercel.app" });
+    // The developer it was sent to sees where; anyone else signed in sees only that it connected. Neither may clear it.
+    const developer = { ...reviewer("Dev"), email: "dev@corp.com" };
+    expect((await backend.run((store) => getDeveloperSetup(store, developer, { sendId: reserved[0]!.sendId }))).connected).toEqual({ at: 2_000, origin: "https://acme-proto.vercel.app" });
+    expect((await setup(reviewer("Lee"))).connected).toEqual({ at: 2_000, origin: null });
+  });
+
+  test(`${name}: a load counts only from the project's own address, the latest one is kept, and its owners can clear it`, async () => {
+    const backend = fresh();
+    // A report writes at most once in this long (`CONNECTION_WRITE_MS`).
+    const CONNECTION_WRITE_MS = 10 * 60_000;
+    const projectId = await create(backend);
+    await backend.run((store) => addProjectAddress(store, dana, { projectId, address: "https://*-acme.vercel.app" }));
+    const report = (origin: string | null, at: number, id = projectId) => backend.run((store) => reportConnected(store, { projectId: id, origin }, at));
+    const connected = async (who: Identity = dana) => (await backend.run((store) => getProjectSetup(store, who, { projectId }))).connected;
+    // A stranger who knows the ID reports first from an origin the project doesn't list, or from a computer of their own: nothing.
+    await report("https://evil.example", day);
+    await report("http://localhost:5173", day);
+    expect(await connected()).toBeNull();
+    // The project's review address counts.
+    await report("https://acme-proto.vercel.app", day + 1_000);
+    expect(await connected()).toEqual({ at: day + 1_000, origin: "https://acme-proto.vercel.app", clearable: true });
+    // A forged origin afterwards still changes nothing.
+    await report("https://evil.example", day + CONNECTION_WRITE_MS * 2);
+    expect(await connected()).toEqual({ at: day + 1_000, origin: "https://acme-proto.vercel.app", clearable: true });
+    // An address the list matches by its pattern counts too, and the latest load is kept, so a wrong record corrects itself.
+    await report("https://pr-7-acme.vercel.app", day + CONNECTION_WRITE_MS * 3);
+    expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3, origin: "https://pr-7-acme.vercel.app", clearable: true });
+    // Writes are bounded: within the interval, however many reports arrive, nothing is written.
+    for (let index = 0; index < 20; index++) await report(index % 2 === 0 ? "https://acme-proto.vercel.app" : "https://pr-8-acme.vercel.app", day + CONNECTION_WRITE_MS * 3 + index);
+    expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3, origin: "https://pr-7-acme.vercel.app", clearable: true });
+    // Unknown and made-up IDs answer the same and change nothing.
+    await report("https://acme-proto.vercel.app", day, "p_00000000000000000000000000000000");
+    await report("https://acme-proto.vercel.app", day, "not-a-project");
+    // Only the people who manage the project clear it; then the next real load counts again.
+    await expect(backend.run((store) => onboarding.clearConnected(store, lee, { projectId }))).rejects.toThrow("Only the people who manage");
+    await backend.run((store) => onboarding.clearConnected(store, dana, { projectId }));
+    expect(await connected()).toBeNull();
+    expect(await backend.run((store) => store.projects.get(projectId))).not.toHaveProperty("connectedAt");
+    await report("https://acme-proto.vercel.app", day + CONNECTION_WRITE_MS * 3 + 100);
+    expect(await connected()).toEqual({ at: day + CONNECTION_WRITE_MS * 3 + 100, origin: "https://acme-proto.vercel.app", clearable: true });
+  });
+
+  test(`${name}: an address row from before the project moved to another organization counts for Connected no more than for the lookup`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    await backend.run((store) => addProjectAddress(store, dana, { projectId, address: "https://*-acme.vercel.app" }));
+    const elsewhere = await backend.run((store) => ops.createProject(store, lee, { name: "Lee's" }));
+    const leesOrganization = (await backend.run((store) => store.projects.get(elsewhere)))!.organizationId!;
+    // The project moves; its saved list still names the organization it was in.
+    await backend.run((store) => store.projects.patch(projectId, { organizationId: leesOrganization }));
+    await backend.run((store) => reportConnected(store, { projectId, origin: "https://pr-9-acme.vercel.app" }, day));
+    expect((await backend.run((store) => store.projects.get(projectId)))?.connectedAt).toBeUndefined();
+  });
+
+  test(`${name}: a load from the project's address written with its final dot is kept as the address itself`, async () => {
+    const backend = fresh();
+    const projectId = await create(backend);
+    await backend.run((store) => reportConnected(store, { projectId, origin: "https://acme-proto.vercel.app." }, day));
+    expect((await backend.run((store) => getProjectSetup(store, dana, { projectId }))).connected).toEqual({ at: day, origin: "https://acme-proto.vercel.app", clearable: true });
   });
 
   test(`${name}: a setup link opens only for the exact address it was sent to, ignoring case and spaces, not another +tag of the same inbox`, async () => {
@@ -596,7 +825,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     ]);
   });
 
-  test(`${name}: two overlapping attempts that are both refused (429) settle failed, and a new email can go out at once`, async () => {
+  test(`${name}: a press while an attempt waits for its answer sends nothing; a refusal settles it failed, and a new email can go out at once`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
     const first = await send(backend, projectId, ["sam@acme.com"]);
@@ -608,14 +837,14 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
       throw refused429();
     });
     await started.promise;
-    // While the first attempt waits for its answer, asking again retries under the same key, and that is refused first.
+    // While the first attempt waits for its answer, asking again queues the same key, but the waiting attempt holds the email.
     const retry = await send(backend, projectId, ["sam@acme.com"], day + 1000);
     expect(retry.reserved).toEqual(first.reserved);
     const fast = await deliverOne(backend, retry.reserved[0]!, day + 1000, async () => {
-      throw refused429();
+      throw new Error("A second attempt must not reach the mail service.");
     });
     answer.resolve();
-    expect([await slow, fast]).toEqual(["failed", "uncertain"]);
+    expect([await slow, fast]).toEqual(["failed", "skipped"]);
     expect((await listed(backend, projectId))[0]).toMatchObject({ status: "failed" });
     const again = await send(backend, projectId, ["sam@acme.com"], day + 2000);
     expect(again.reserved.map((each) => each.idempotencyKey)).toEqual([`critiqs-developer:${first.reserved[0]!.sendId}:1`]);

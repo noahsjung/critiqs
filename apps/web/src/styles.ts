@@ -105,7 +105,7 @@ export const APP_STYLES = `
 .quiet.back { align-self: flex-start; margin: -12px 0 -12px -2px; }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; margin-top: 4px; }
 
-/* Who will add Critiqs: two choices, each a single tap. */
+/* Who will add Critiqs: the recommended way first, each a single tap. */
 .choices { display: flex; flex-direction: column; gap: 12px; }
 .choice { display: flex; align-items: center; gap: 16px; width: 100%; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
   color: var(--text); text-align: left; cursor: pointer; transition: border-color 300ms var(--ease), background-color 300ms var(--ease), transform 500ms var(--ease); }
@@ -119,6 +119,31 @@ export const APP_STYLES = `
 .choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .choice-label { font-size: 17px; line-height: 24px; font-weight: 600; }
 .choice-detail { font-size: 14px; line-height: 20px; color: var(--muted); }
+.choice.recommended { border-color: var(--line-strong); }
+.choice-label .badge { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; line-height: 20px; font-weight: 500; vertical-align: 2px; }
+.other-ways { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+/* Whether Critiqs has loaded on the prototype yet. */
+.connection { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 14px; }
+.connection.connected { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--line)); }
+.connection.connected .icon { margin-top: 3px; }
+.connection .note { color: var(--muted); }
+.connection .grow { flex: 1; min-width: 0; }
+.stacked.tight { gap: 2px; }
+.pulse { flex: none; width: 8px; height: 8px; margin: 7px 4px 0; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+/* A project's setup emails, for its owners. */
+.section-title { margin: 8px 0 0; font-size: 15px; line-height: 22px; font-weight: 600; }
+.send-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.send-list li { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; overflow-wrap: anywhere; }
+.send-list li.error .note { color: var(--danger); }
+.send-email { font-weight: 500; min-width: 0; }
+.send-state { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 12px; }
+/* The extension's steps, numbered. */
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
+.steps li { padding-left: 4px; }
+.steps a { color: var(--accent); }
 .spinner { width: 18px; height: 18px; flex: none; border: 2px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: spin 800ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .organization { display: flex; align-items: center; gap: 12px; }

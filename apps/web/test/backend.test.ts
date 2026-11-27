@@ -29,3 +29,10 @@ test("a backend that doesn't report create keys gets none", async () => {
     expect((await resolveBackend(BACKEND, configServer(config).fetchFn)).createKeys).toBe(false);
   }
 });
+
+test("address edits come from the same read, and only a backend that reports them gets them", async () => {
+  expect((await resolveBackend(BACKEND, configServer({ addressEdits: true }).fetchFn)).addressEdits).toBe(true);
+  for (const config of [{}, { addressEdits: "yes" }, { addressLists: true }]) {
+    expect((await resolveBackend(BACKEND, configServer(config).fetchFn)).addressEdits).toBe(false);
+  }
+});

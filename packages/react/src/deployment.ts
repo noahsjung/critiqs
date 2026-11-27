@@ -2,7 +2,8 @@
  * Critiqs Cloud's Convex deployment, used when a prototype names no backend.
  * Teams that run Critiqs on their own Convex deployment pass `backend` instead.
  */
-export const HOSTED_BACKEND_URL = "https://brazen-snail-591.convex.cloud";
+export { HOSTED_BACKEND_URL } from "@critiqs/core";
+import { HOSTED_BACKEND_URL } from "@critiqs/core";
 
 /**
  * The backend version this component needs: server-derived tags, tag groups,
@@ -57,6 +58,8 @@ export interface Deployment {
   createKeys?: boolean;
   /** A project's owner can change its preset tags; absent from backends before it. */
   presetTags?: boolean;
+  /** The backend records when Critiqs first loads with a project's ID (`POST /critiqs/connected`), for onboarding's Connected. */
+  connections?: boolean;
 }
 
 /** What `/critiqs/config` reports; only `signInUrl` is always there. */
@@ -78,6 +81,7 @@ interface ServiceConfig {
   addressEdits?: boolean;
   createKeys?: boolean;
   presetTags?: boolean;
+  connections?: boolean;
 }
 
 /** The website a backend reports for its thread pages, when it reports them and the address is a web address. */
@@ -131,6 +135,7 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
     addressEdits: config.addressEdits === true,
     createKeys: config.createKeys === true,
     presetTags: config.presetTags === true,
+    connections: config.connections === true,
   };
 }
 
@@ -161,7 +166,7 @@ export async function resolveDeployment(given: string, fetchFn: typeof fetch = f
     );
     if (!signIn.current) throw new Error(`Critiqs's sign-in service at ${backend.signInUrl} isn't ready for this version of Critiqs yet.`);
   }
-  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, createKeys: backend.createKeys, presetTags: backend.presetTags, ...(backend.website === undefined ? {} : { website: backend.website }) };
+  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, ...(backend.website === undefined ? {} : { website: backend.website }) };
 }
 
 /** The usage query's `aiCredits` argument, only for backends that accept it: those that report `overageCap` came with it. */

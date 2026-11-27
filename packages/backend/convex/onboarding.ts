@@ -10,6 +10,9 @@ import {
   recordDeveloperEmail as record,
   REPORT_PATH,
   reportToken,
+  clearConnected as clearConnectedOp,
+  connectionFromThread,
+  reportConnected as reportConnectedOp,
   reportUnwantedEmail as report,
   reserveDeveloperSends,
   resendMailer,
@@ -17,6 +20,7 @@ import {
   setupUrl,
   webBase,
 } from "@critiqs/server";
+import { HOSTED_BACKEND_URL } from "@critiqs/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -31,6 +35,47 @@ import { convexStore, identityOf, run } from "./lib/store";
 export const claimAddressCheck = internalMutation({
   args: {},
   handler: async (ctx) => run(async () => claimAddressCheckOp(convexStore(ctx), await identityOf(ctx), Date.now())),
+});
+
+/**
+ * Records that Critiqs loaded with a project's ID at the project's own
+ * address, for onboarding's Connected. Called by the `/critiqs/connected`
+ * route with the origin the browser sent; any other origin changes nothing.
+ */
+export const reportConnected = internalMutation({
+  args: { projectId: v.string(), origin: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => await reportConnectedOp(convexStore(ctx), args, Date.now()),
+});
+
+/** Clears a project's Connected record, for the people who manage it. */
+export const clearConnected = mutation({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => run(async () => clearConnectedOp(convexStore(ctx), await identityOf(ctx), args)),
+});
+
+/**
+ * Marks projects that already have threads connected, at their first
+ * thread, on its page's origin (`connectionFromThread`): they were installed
+ * before Connected was recorded. A page of projects at a time; projects
+ * already connected are left as they are, so running it again changes
+ * nothing. Run once after deploying: `npx convex run onboarding:backfillConnected`.
+ */
+export const backfillConnected = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("projects").paginate({ numItems: 100, cursor: cursor ?? null });
+    for (const project of page.page) {
+      if (project.connectedAt !== undefined) continue;
+      const first = await ctx.db
+        .query("threads")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .first();
+      if (first === null) continue;
+      const { at, origin } = connectionFromThread({ createdAt: first.createdAt, pageUrl: first.anchor.evidence.url });
+      await ctx.db.patch(project._id, { connectedAt: at, ...(origin === null ? {} : { connectedOrigin: origin }) });
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.onboarding.backfillConnected, { cursor: page.continueCursor });
+  },
 });
 
 /** Saves the signed-in person's "About you" answers. Unknown values are dropped; a skipped answer changes nothing. */
@@ -57,12 +102,13 @@ const RETRY_DELAYS_MS = [60_000, 10 * 60_000];
 
 /**
  * Emails a project's setup steps to up to three developers, for the people
- * who manage it, with a result for each address. Limits are checked and
+ * who manage it, with a result for each address. With `resend`, an address
+ * that got them 24 hours ago or more is sent them again, at most twice. Limits are checked and
  * counted, and each email reserved, in this transaction; the emails go out
  * right after, from `deliverDeveloperEmail`.
  */
 export const sendDeveloperSetup = mutation({
-  args: { projectId: v.string(), emails: v.array(v.string()) },
+  args: { projectId: v.string(), emails: v.array(v.string()), resend: v.optional(v.boolean()) },
   handler: async (ctx, args) =>
     run(async () => {
       if (developerEmailSetup() === null) fail("unavailable", "This deployment can't send setup emails. Copy the message instead.");
@@ -102,7 +148,7 @@ export const deliverDeveloperEmail = internalAction({
     const site = (process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
     const reportUrl = `${site}${REPORT_PATH}?token=${encodeURIComponent(await reportToken(await linkSecret(ctx), sendId))}`;
     const outcome = await deliver({
-      prepare: () => ctx.runMutation(internal.onboarding.prepareDeveloperEmail, { sendId, idempotencyKey, setupUrl: setupUrl(setup.web, sendId), reportUrl }),
+      prepare: () => ctx.runMutation(internal.onboarding.prepareDeveloperEmail, { sendId, idempotencyKey, setupUrl: setupUrl(setup.web, sendId), reportUrl, backend: componentBackend() }),
       send: (message) => resendMailer({ apiKey: setup.apiKey, from: setup.from }).send(message),
       record: (attempt, answer) => ctx.runMutation(internal.onboarding.recordDeveloperEmail, { sendId, idempotencyKey, attempt, answer }),
     });
@@ -113,15 +159,25 @@ export const deliverDeveloperEmail = internalAction({
   },
 });
 
+/**
+ * The `backend` a prototype's Critiqs needs to reach this deployment, for the
+ * setup email to say: this deployment's own address, or null on Critiqs
+ * Cloud, the component's default.
+ */
+export function componentBackend(): string | null {
+  const own = (process.env.CONVEX_CLOUD_URL ?? "").replace(/\/$/, "");
+  return own === "" || own === HOSTED_BACKEND_URL ? null : own;
+}
+
 /** Claims an attempt at the reserved email, as first prepared; null when it isn't waiting to be tried. */
 export const prepareDeveloperEmail = internalMutation({
-  args: { sendId: v.string(), idempotencyKey: v.string(), setupUrl: v.string(), reportUrl: v.string() },
+  args: { sendId: v.string(), idempotencyKey: v.string(), setupUrl: v.string(), reportUrl: v.string(), backend: v.optional(v.union(v.string(), v.null())) },
   handler: async (ctx, args) => await prepare(convexStore(ctx), args, Date.now()),
 });
 
 /** Records the mail service's answer to one attempt at an email. */
 export const recordDeveloperEmail = internalMutation({
-  args: { sendId: v.string(), idempotencyKey: v.string(), attempt: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused")) },
+  args: { sendId: v.string(), idempotencyKey: v.string(), attempt: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.literal("unknown")) },
   handler: async (ctx, args) => await record(convexStore(ctx), args),
 });
 

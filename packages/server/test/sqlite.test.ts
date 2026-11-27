@@ -594,3 +594,39 @@ test("SQLite: upgrading a version 16 database keeps its projects and remembers k
   const listed = await store.transaction((s) => listManageableProjects(s, dana));
   expect(listed.projects.map((project) => project.name)).toEqual(["One", "Two"]);
 });
+
+test("SQLite: upgrading a version 18 database marks projects that already have threads connected, at their first thread's page", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 18)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 18");
+  const dana = `u_${"1".repeat(32)}`;
+  const [used, unused, unreadable] = [`p_${"2".repeat(32)}`, `p_${"3".repeat(32)}`, `p_${"6".repeat(32)}`];
+  driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
+  for (const id of [used, unused, unreadable]) driver.run("INSERT INTO projects (id, name, tags, created_by, created_at) VALUES (?, 'Pilot', '[]', ?, 1)", [id, dana]);
+  const thread = (id: string, url: string, at: number, status = "open") =>
+    driver.run(
+      "INSERT INTO threads (id, project_id, status, anchor, tags, capture, created_by, created_at, last_message_at, message_count) VALUES (?, ?, ?, ?, '[]', '{\"status\":\"failed\",\"failureReason\":\"x\"}', ?, ?, ?, 1)",
+      [id, used, status, JSON.stringify({ ...anchor, evidence: { ...anchor.evidence, url } }), dana, at, at],
+    );
+  thread(`t_${"5".repeat(32)}`, "https://second.example/b", 5_000);
+  // An anchor stored without its page, or not as JSON, still counts, with no origin: no row stops the upgrade.
+  for (const [id, stored, at] of [[`t_${"7".repeat(32)}`, "{}", 7_000], [`t_${"8".repeat(32)}`, "not json", 8_000]] as const) {
+    driver.run(
+      "INSERT INTO threads (id, project_id, status, anchor, tags, capture, created_by, created_at, last_message_at, message_count) VALUES (?, ?, 'open', ?, '[]', '{\"status\":\"failed\",\"failureReason\":\"x\"}', ?, ?, ?, 1)",
+      [id, unreadable, stored, dana, at, at],
+    );
+  }
+  // The first thread counts even once deleted: it was still left with the install.
+  thread(`t_${"4".repeat(32)}`, "https://Acme-Proto.example:443/users/alex?x=1", 4_000, "deleted");
+  new SqliteStore(driver);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  const rows = driver.all<{ id: string; connected_at: number | null; connected_origin: string | null }>("SELECT id, connected_at, connected_origin FROM projects ORDER BY id");
+  expect(rows).toEqual([
+    { id: used, connected_at: 4_000, connected_origin: "https://acme-proto.example" },
+    { id: unused, connected_at: null, connected_origin: null },
+    { id: unreadable, connected_at: 7_000, connected_origin: null },
+  ]);
+});

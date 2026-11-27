@@ -77,7 +77,8 @@ import {
   setupUrl,
   webBase,
 } from "../developer-setup.ts";
-import { claimAddressCheck, saveAboutYou } from "../onboarding.ts";
+import { readBody } from "./body.ts";
+import { claimAddressCheck, clearConnected, connectionReport, MAX_CONNECTION_REPORT_BYTES, reportConnected, saveAboutYou } from "../onboarding.ts";
 import * as ops from "../operations.ts";
 import {
   addProjectAddress,
@@ -293,33 +294,6 @@ function cookie(request: Request, name: string, value: string, path: string, max
   return `${name}=${value}; Path=${path}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure(request) ? "; Secure" : ""}`;
 }
 
-/** Reads a request body, stopping as soon as it is larger than `limit`. */
-async function readBody(request: Request, limit: number, tooLarge = "This request is too large."): Promise<Uint8Array> {
-  const declared = Number(request.headers.get("Content-Length") ?? "0");
-  if (declared > limit) fail("invalid", tooLarge);
-  if (request.body === null) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel().catch(() => undefined);
-      fail("invalid", tooLarge);
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
-}
-
 async function readForm(request: Request): Promise<URLSearchParams> {
   return new URLSearchParams(new TextDecoder().decode(await readBody(request, MAX_FORM_BYTES)));
 }
@@ -498,6 +472,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     sync: () => (s, id) => ops.syncReviewer(s, id),
     createProject: (args) => (s, id) => ops.createProject(s, id, args),
     saveAboutYou: (args) => (s, id) => saveAboutYou(s, id, args),
+    clearConnected: (args) => (s, id) => clearConnected(s, id, args),
     setReviewUrl: (args) => (s, id) => ops.setReviewUrl(s, id, args),
     setReviewAccess: (args) => (s, id) => ops.setReviewAccess(s, id, args),
     setProjectAddresses: (args) => (s, id) => setProjectAddresses(s, id, args),
@@ -613,7 +588,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     listPersonalAiModels: (args: { draft?: AiModelListDraft }, identity) =>
       listModels({ prepare: () => store.transaction((s) => preparePersonalModelList(s, identity, Date.now())), deployment, ...modelListOptions }, args.draft),
     // Reserved and counted in one transaction, then each email sent and its answer recorded in its own.
-    sendDeveloperSetup: async (args: { projectId: string; emails: string[] }, identity) => {
+    sendDeveloperSetup: async (args: { projectId: string; emails: string[]; resend?: boolean }, identity) => {
       if (developerEmails === null) fail("unavailable", "This Critiqs server can't send setup emails. Copy the message instead.");
       const { mailer: sender, web: site, publicBase: origin } = developerEmails;
       const { results, reserved } = await store.transaction((s) => reserveDeveloperSends(s, identity, args, Date.now()));
@@ -622,7 +597,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       for (const { sendId, idempotencyKey } of reserved) {
         const reportUrl = `${origin}${base}${REPORT_PATH}?token=${encodeURIComponent(await reportToken(reportSecret, sendId))}`;
         await deliverDeveloperEmail({
-          prepare: () => store.transaction((s) => prepareDeveloperEmail(s, { sendId, idempotencyKey, setupUrl: setupUrl(site, sendId), reportUrl }, Date.now())),
+          // The prototype's Critiqs reaches this server at its own address, which the email says to add.
+          prepare: () =>
+            store.transaction((s) => prepareDeveloperEmail(s, { sendId, idempotencyKey, setupUrl: setupUrl(site, sendId), reportUrl, backend: `${origin}${base}` }, Date.now())),
           send: (message) => sender.send(message),
           record: async (attempt, answer) => {
             const status = await store.transaction((s) => recordDeveloperEmail(s, { sendId, idempotencyKey, attempt, answer }));
@@ -1131,6 +1108,19 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
   }
 
   /**
+   * The component reporting that it loaded with a project's ID, for
+   * onboarding's Connected: the body is the project ID, read only up to
+   * `MAX_CONNECTION_REPORT_BYTES`, and the origin is the one the browser sent.
+   * Always the same empty answer, so it says nothing about which projects exist.
+   */
+  async function connected(request: Request): Promise<Response> {
+    const body = await readBody(request, MAX_CONNECTION_REPORT_BYTES).catch(() => new Uint8Array());
+    const report = connectionReport(new TextDecoder().decode(body), request.headers.get("origin"));
+    if (report !== null) await store.transaction((s) => reportConnected(s, report, Date.now()));
+    return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+  }
+
+  /**
    * What `critiqs doctor` checks, as on Convex: sign-in, email, whether
    * mention emails go out, and a project. Reveals no feedback, and nothing
    * about a project limited to its organization except to its members.
@@ -1198,6 +1188,11 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // projects whose lists a person may change (`manageableProjects`).
       // `createKeys`: `idempotencyKey` on `createProject`, so a retried create returns the same project.
       // `presetTags`: a project's owner changes its preset tags (`setPresetTags`).
+      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
+      // say when it last did at the project's own address (`connected` on `projectSetup` and `developerSetup`), and its
+      // owners clear it (`clearConnected`).
+      // `developerResends`: `resend` on `sendDeveloperSetup` sends the steps again 24 hours after an email went out, at most
+      // twice, and `developerSends` says when (`resendAt`).
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1218,8 +1213,11 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         addressEdits: true,
         createKeys: true,
         presetTags: true,
+        connections: true,
+        developerResends: true,
       });
     }
+    if (path === "/critiqs/connected" && request.method === "POST") return await connected(request);
     if (path === "/critiqs/health" && get) return await health(request);
     if (path === "/me" && get) return await me(request);
     if (path === "/changes" && get) return json({ version });

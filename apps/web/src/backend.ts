@@ -1,6 +1,7 @@
 import { api } from "@critiqs/backend/api";
 import type {
   AddressCheck,
+  BillingStatus,
   DeveloperSendResult,
   DeveloperSendSummary,
   DeveloperSetup,
@@ -16,7 +17,7 @@ import type {
 } from "@critiqs/core";
 import type { ConvexReactClient } from "convex/react";
 import type { GenericId as Id } from "convex/values";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { type Deployment, describeError, type QueryState, resolveDeployment, type Reviewer, useAllPages, useQueryState, useUtcDay } from "./shared.ts";
 
 // What the pages need from Critiqs's backend, so they can be tested with a
@@ -50,10 +51,23 @@ export interface Backend {
   componentBackend: string | null;
   /** The backend takes `idempotencyKey` on creates; older ones refuse arguments they don't know. */
   createKeys: boolean;
+  /** The backend sends a developer the setup steps again, 24 hours after their email (`resend` on `sendDeveloperSetup`). */
+  developerResends: boolean;
+  /** The backend adds one address to a project's address list (`projects:addAddress`), which the browser extension finds projects by. */
+  addressEdits: boolean;
   checkAddress(address: string): Promise<AddressCheck>;
   saveAboutYou(answers: { role?: Role; teamSize?: TeamSize }): Promise<void>;
   createProject(project: NewProject): Promise<string>;
-  sendDeveloperSetup(projectId: string, emails: string[]): Promise<DeveloperSendResult[]>;
+  /** Emails the steps to each address; `resend` sends them again to addresses whose email went out (only with `developerResends`). */
+  sendDeveloperSetup(projectId: string, emails: string[], resend?: boolean): Promise<DeveloperSendResult[]>;
+  /**
+   * Invites someone to the organization as a member, for its admins; an
+   * invite email links to the project's review address. `email` says whether
+   * that email is on its way, or this deployment can't send it.
+   */
+  inviteMember(organizationId: string, email: string, projectId: string): Promise<InviteAnswer>;
+  /** Adds an address to the project's address list, for its owners; returns the list. Only with `addressEdits`. */
+  addProjectAddress(projectId: string, address: string): Promise<string[]>;
   /** A project's setup, read once: its name, address, saved stack, and commands. */
   projectSetup(projectId: string): Promise<ProjectSetup>;
   useOrganizations(enabled: boolean): QueryState<OrganizationSummary[]>;
@@ -63,11 +77,15 @@ export interface Backend {
   useMyProjects(enabled: boolean): QueryState<ProjectInfo[]>;
   /** The deployment's upgrade page, as the plan rows' Upgrade opens it; null when it names none. */
   useUpgradeUrl(enabled: boolean): QueryState<string | null>;
+  /** An organization's plan, what each plan includes, and their prices; null where the deployment takes no payment. Null skips it. */
+  useBillingStatus(organizationId: string | null): QueryState<BillingStatus | null>;
   useDeveloperSends(projectId: string | null): QueryState<DeveloperSendSummary[]>;
   /** A send's setup, from a setup email's link; null skips it. */
   useDeveloperSetup(sendId: string | null): QueryState<DeveloperSetup>;
   /** A project's setup, from a copied message's link; null skips it. */
   useProjectSetup(projectId: string | null): QueryState<ProjectSetup>;
+  /** Clears a project's Connected record, for the people who manage it. */
+  clearConnected(projectId: string): Promise<void>;
   /**
    * A thread page by its key, live: new replies arrive as they are posted.
    * Anyone who may not open it, and a key that opens nothing, get the same
@@ -120,6 +138,29 @@ export function useAuth(): Auth {
   return auth;
 }
 
+/** The reviewers each backend already accepted pending invitations for on this page. */
+const invitesAccepted = new WeakMap<Backend, Set<string>>();
+
+/**
+ * Accepts the signed-in person's pending invitations to organizations
+ * (`syncReviewer`), once per page load and reviewer, as signing in through an
+ * install does: someone invited who signs in on the website joins too. A
+ * failure is tried again on the next page load.
+ */
+export function useAcceptInvites(): void {
+  const auth = useAuth();
+  const backend = useBackend();
+  const reviewerId = auth.ready ? (auth.reviewer?.id ?? null) : null;
+  useEffect(() => {
+    if (reviewerId === null) return;
+    const accepted = invitesAccepted.get(backend) ?? new Set<string>();
+    invitesAccepted.set(backend, accepted);
+    if (accepted.has(reviewerId)) return;
+    accepted.add(reviewerId);
+    backend.syncReviewer().catch(() => accepted.delete(reviewerId));
+  }, [backend, reviewerId]);
+}
+
 /** A failed call's message for people: Critiqs's own explanation when the backend gave one. */
 export function failureMessage(error: unknown, fallback: string): string {
   const described = describeError(error);
@@ -131,14 +172,20 @@ export function failureCode(error: unknown): string {
   return describeError(error).code;
 }
 
+/** What inviting someone did: invited (with whether the invite email is on its way), or nothing, as they're already a member or invited. */
+export type InviteAnswer = { status: "invited"; email?: "pending" | "not-sent" } | { status: "member" } | { status: "pending" };
+
+/** What a backend reports it can do, beyond what every backend the website works with does. */
+export type BackendFeatures = Pick<Backend, "createKeys" | "addressEdits" | "developerResends">;
+
 /**
  * The deployment at `given`, as critiqs-react's `resolveDeployment` finds
- * it, and whether it takes create keys: `createKeys` in the same reading of
- * its `/critiqs/config`, so a backend that reports it is never treated as
- * one that doesn't. Backends that don't say get no keys, so an older one is
- * never sent an argument it refuses.
+ * it, and what it can do: `createKeys`, `addressEdits`, and `developerResends` in the same
+ * reading of its `/critiqs/config`, so a backend that reports one is never
+ * treated as one that doesn't. Backends that don't say get neither, so an
+ * older one is never sent a call or an argument it refuses.
  */
-export async function resolveBackend(given: string, fetchFn: typeof fetch = fetch): Promise<{ deployment: Deployment; createKeys: boolean }> {
+export async function resolveBackend(given: string, fetchFn: typeof fetch = fetch): Promise<{ deployment: Deployment } & BackendFeatures> {
   const configs = new Map<string, unknown>();
   const reading = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await fetchFn(input, init);
@@ -147,14 +194,14 @@ export async function resolveBackend(given: string, fetchFn: typeof fetch = fetc
     return response;
   }) as typeof fetch;
   const deployment = await resolveDeployment(given, reading);
-  const config = configs.get(`${deployment.siteUrl}/critiqs/config`) as { createKeys?: unknown } | null | undefined;
-  return { deployment, createKeys: config?.createKeys === true };
+  const config = configs.get(`${deployment.siteUrl}/critiqs/config`) as Record<string, unknown> | null | undefined;
+  return { deployment, createKeys: config?.createKeys === true, addressEdits: config?.addressEdits === true, developerResends: config?.developerResends === true };
 }
 
-export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, createKeys: boolean): Backend {
+export function convexBackend(client: ConvexReactClient, componentBackend: string | null, captures: CaptureAccess, features: BackendFeatures): Backend {
   return {
     componentBackend,
-    createKeys,
+    ...features,
     checkAddress: (address) => client.action(api.addressCheck.check, { address }),
     saveAboutYou: async (answers) => {
       await client.mutation(api.onboarding.saveAboutYou, answers);
@@ -168,7 +215,9 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
         onboarding: { codeAccess: answers.codeAccess, purpose: answers.purpose, feedbackFrom: answers.feedbackFrom === undefined ? undefined : [...answers.feedbackFrom] },
         ...(stack === null ? {} : { stack }),
       }),
-    sendDeveloperSetup: (projectId, emails) => client.mutation(api.onboarding.sendDeveloperSetup, { projectId, emails }),
+    sendDeveloperSetup: (projectId, emails, resend) => client.mutation(api.onboarding.sendDeveloperSetup, { projectId, emails, ...(resend === true ? { resend } : {}) }),
+    inviteMember: (organizationId, email, projectId) => client.mutation(api.organizations.invite, { organizationId, email, role: "member", projectId }) as Promise<InviteAnswer>,
+    addProjectAddress: (projectId, address) => client.mutation(api.projects.addAddress, { projectId: projectId as Id<"projects">, address }),
     projectSetup: (projectId) => client.query(api.onboarding.projectSetup, { projectId }),
     useOrganizations: (enabled) => useQueryState(api.organizations.mine, enabled ? {} : "skip"),
     useProject: (projectId) => useQueryState(api.projects.get, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),
@@ -182,9 +231,13 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
       const usage = useQueryState(api.aiSettings.myUsage, enabled ? { day } : "skip");
       return usage.status === "ready" ? { status: "ready", data: usage.data?.upgradeUrl ?? null } : usage;
     },
+    useBillingStatus: (organizationId) => useQueryState(api.billing.status, organizationId === null ? "skip" : { organizationId }),
     useDeveloperSends: (projectId) => useQueryState(api.onboarding.developerSends, projectId === null ? "skip" : { projectId }),
     useDeveloperSetup: (sendId) => useQueryState(api.onboarding.developerSetup, sendId === null ? "skip" : { sendId }),
     useProjectSetup: (projectId) => useQueryState(api.onboarding.projectSetup, projectId === null ? "skip" : { projectId }),
+    clearConnected: async (projectId) => {
+      await client.mutation(api.onboarding.clearConnected, { projectId });
+    },
     useThreadPage: (key) => {
       const pages = useAllPages(api.threads.page, key === null ? "skip" : { key });
       if (pages.status !== "ready") return pages;

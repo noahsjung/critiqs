@@ -26,6 +26,12 @@ describe("the setup page", () => {
     expect(button(page, "Sign in with email")).toBeDefined();
   });
 
+  test("signed in: pending invitations are accepted, so someone invited to the team joins here too", async () => {
+    const backend = fakeBackend();
+    await render(<SetupPage id="s1" />, { backend, auth: fakeAuth("dev@acme.com") });
+    expect(backend.calls.filter((call) => call.name === "syncReviewer").length).toBe(1);
+  });
+
   test("loading", async () => {
     const page = await render(<SetupView state={{ status: "loading" }} email="dev@acme.com" onSignOut={noop} />);
     expect(text(page)).toBe("Loading…");
@@ -46,6 +52,86 @@ describe("the setup page", () => {
     expect(text(page)).toContain("Run this in the prototype's folder. It already has the project ID.");
     await click(button(page, "Copy command"));
     expect(clipboard.text).toBe(`npm install critiqs-react && npx critiqs init ${PROJECT_ID}`);
+  });
+
+  test("waiting, then Connected with where and when, which owners can clear; nothing on a backend that doesn't record it", async () => {
+    const waiting = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="dev@acme.com" onSignOut={noop} />);
+    expect(waiting.querySelector(".connection")?.textContent).toBe(
+      "Waiting for Critiqs to load on acme-proto.vercel.app…Once it's added, this page says Connected when Critiqs loads at the prototype's address.",
+    );
+    const at = Date.UTC(2026, 10, 25, 15, 4);
+    const connected = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: { at, origin: "http://localhost:5173" } } }} email="dev@acme.com" onSignOut={noop} />);
+    expect(connected.querySelector(".connection.connected")?.textContent).toStartWith("Connected. Critiqs loaded on localhost:5173.Last loaded Nov 25, 2026");
+    // Only the people who manage the project are offered Clear; it asks the backend to clear it.
+    expect(button(connected, "Clear")).toBeUndefined();
+    const backend = fakeBackend();
+    const owner = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: { at, origin: "https://acme-proto.vercel.app", clearable: true } } }} email="dana@acme.com" onSignOut={noop} />, { backend });
+    await click(button(owner, "Clear"));
+    expect(backend.calls.filter(({ name }) => name === "clearConnected").map(({ args }) => args)).toEqual([[SETUP.projectId]]);
+    const older = await render(<SetupView state={{ status: "ready", data: SETUP }} email="dev@acme.com" onSignOut={noop} />);
+    expect(older.querySelector(".connection")).toBeNull();
+  });
+
+  test("the project's owners: Waiting for install, who the steps went to and when, and Not sent after a failure", async () => {
+    const at = Date.UTC(2026, 10, 25, 15, 4);
+    const sends = [
+      { sendId: "s1", email: "dev@acme.com", status: "sent" as const, lastSentAt: at },
+      { sendId: "s2", email: "ops@acme.com", status: "failed" as const, lastSentAt: at - 1000 },
+    ];
+    const page = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend: fakeBackend({ sends }) });
+    expect(page.querySelector(".connection")?.textContent).toStartWith("Waiting for install. Sent to dev@acme.com, Nov 25, 2026");
+    expect([...page.querySelectorAll(".send-list li")].map((row) => [row.querySelector(".send-email")?.textContent, row.querySelector(".note")?.textContent?.slice(0, 17)])).toEqual([
+      ["dev@acme.com", "Sent Nov 25, 2026"],
+      ["ops@acme.com", "Not sent"],
+    ]);
+    // Connected replaces the waiting; the list stays.
+    const connected = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: { at, origin: "https://acme-proto.vercel.app" } } }} email="alex@acme.com" onSignOut={noop} />, {
+      backend: fakeBackend({ sends }),
+    });
+    expect(connected.querySelector(".connection.connected")).not.toBeNull();
+    expect(connected.querySelectorAll(".send-list li").length).toBe(2);
+    // Anyone else can't read the sends: no list, and the plain waiting line.
+    const developer = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="dev@acme.com" onSignOut={noop} />, {
+      backend: fakeBackend({ sendsState: { status: "error", code: "forbidden", message: "Only the people who manage this project can see who it sent setup steps to." } }),
+    });
+    expect(developer.querySelector(".send-list")).toBeNull();
+    expect(developer.querySelector(".connection")?.textContent).toStartWith("Waiting for Critiqs to load on acme-proto.vercel.app…");
+  });
+
+  test("an owner sends the steps again once 24 hours have passed, and sees when before then", async () => {
+    const now = Date.now();
+    const sends = [
+      { sendId: "s1", email: "dev@acme.com", status: "sent" as const, lastSentAt: now - 25 * 3_600_000, resendAt: now - 3_600_000 },
+      { sendId: "s2", email: "ops@acme.com", status: "sent" as const, lastSentAt: now - 3_600_000, resendAt: now + 23 * 3_600_000 },
+      { sendId: "s3", email: "qa@acme.com", status: "sent" as const, lastSentAt: now - 50 * 3_600_000, resendAt: null },
+    ];
+    const backend = fakeBackend({
+      sends,
+      developerResends: true,
+      sendDeveloperSetup: async (_projectId, emails) => emails.map((email) => ({ email, status: "sent" as const, sendId: "s1", invite: "none" as const })),
+    });
+    const page = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend });
+    const rows = [...page.querySelectorAll(".send-list li")];
+    expect(rows.map((row) => row.querySelector("button")?.getAttribute("aria-label") ?? null)).toEqual(["Send the steps again to dev@acme.com", null, null]);
+    expect(rows[1]?.textContent).toContain("Can send again");
+    // Sent again twice already: nothing more is offered.
+    expect(rows[2]?.textContent).not.toContain("again");
+    await click(button(page, "Send the steps again to dev@acme.com"));
+    expect(backend.calls.filter((call) => call.name === "sendDeveloperSetup").map((call) => call.args)).toEqual([[PROJECT_ID, ["dev@acme.com"], true]]);
+    expect(rows[0]?.textContent).toContain("Sent again");
+    // A refusal says why.
+    const refusing = fakeBackend({
+      sends,
+      developerResends: true,
+      sendDeveloperSetup: async (_projectId, emails) => emails.map((email) => ({ email, status: "limit" as const, limit: "person" as const, message: "You've sent 5 developer emails today. Copy the message instead." })),
+    });
+    const refused = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend: refusing });
+    await click(button(refused, "Send the steps again to dev@acme.com"));
+    expect(refused.querySelector(".send-list li .error")?.textContent).toBe("You've sent 5 developer emails today. Copy the message instead.");
+    // A backend that can't send again offers nothing.
+    const older = await render(<SetupView state={{ status: "ready", data: { ...SETUP, connected: null } }} email="alex@acme.com" onSignOut={noop} />, { backend: fakeBackend({ sends }) });
+    expect(older.querySelector(".send-list button")).toBeNull();
+    expect(older.querySelector(".send-list")?.textContent).not.toContain("Can send again");
   });
 
   test("a project on a backend other than Critiqs Cloud: a step that gives Critiqs its backend", async () => {

@@ -5,6 +5,7 @@
 
 import { type HtmlElement, type ScannedHtml, scanHtml } from "./html-scan.ts";
 import { isPrivateHost } from "./local-host.ts";
+import type { BillingPlan, PlanIncludes } from "./protocol.ts";
 import { DEFAULT_TAGS } from "./tags.ts";
 
 // Answers. Each list is in the order the question shows its options.
@@ -501,13 +502,19 @@ export interface Recommendation {
 
 /**
  * The ways Critiqs offers today. `install` is always offered, whatever the set:
- * every other way leads back to it.
+ * every other way leads back to it. Review links, shared builds, and Allow
+ * Critiqs stay off until they are built; adding one here offers it wherever
+ * the recommendation places it.
  */
-export const AVAILABLE_WAYS: ReadonlySet<Way> = new Set<Way>(["install", "send-to-developer"]);
+export const AVAILABLE_WAYS: ReadonlySet<Way> = new Set<Way>(["install", "send-to-developer", "extension"]);
 
-/** Ways that work without installing, by what the address check found. */
+/**
+ * Ways that work without installing, by what the address check found. The
+ * extension works on any page a reviewer can open, so a public page offers it
+ * after a review link, and in its place while review links are off.
+ */
 const WAYS_TODAY: Record<AddressCheck["kind"], readonly Way[]> = {
-  public: ["review-link"],
+  public: ["review-link", "extension"],
   "sign-in": ["extension", "share-build"],
   local: ["extension", "share-build"],
   blocked: ["allow-critiqs", "extension"],
@@ -551,6 +558,33 @@ export function recommend(answers: OnboardingAnswers, check: AddressCheck, avail
   return { primary, others, reason };
 }
 
+// The suggested plan.
+
+/** The most people each team size answer can mean. */
+const TEAM_SIZE_PEOPLE: Record<TeamSize, number> = { "just-me": 1, "2-5": 5, "6-20": 20, "21-100": 100, "over-100": Number.POSITIVE_INFINITY };
+
+/** Critiqs Cloud's plans, smallest first. */
+const PLAN_ORDER: readonly BillingPlan[] = ["free", "plus", "pro"];
+
+/**
+ * The plan to suggest for a team of `teamSize`: the smallest whose monthly
+ * reviewers, as the deployment configures its plans, fit the most people
+ * the answer can mean. A plan that doesn't limit reviewers fits any team.
+ */
+export function suggestedPlan(teamSize: TeamSize, plans: Readonly<Record<BillingPlan, PlanIncludes>>): BillingPlan {
+  const people = TEAM_SIZE_PEOPLE[teamSize];
+  const fits = (plan: BillingPlan) => {
+    const reviewers = plans[plan].limits.find((limit) => limit.metric === "reviewers");
+    return reviewers === undefined || reviewers.max === null || reviewers.max >= people;
+  };
+  return PLAN_ORDER.find(fits) ?? "pro";
+}
+
+/** Whether plan `a` includes at least what plan `b` does, in the order Free, Plus, Pro. */
+export function planCovers(a: BillingPlan, b: BillingPlan): boolean {
+  return PLAN_ORDER.indexOf(a) >= PLAN_ORDER.indexOf(b);
+}
+
 // Starting tags.
 
 const STARTING_TAGS: Record<Purpose, readonly string[]> = {
@@ -569,9 +603,18 @@ export function startingTags(purpose: Purpose | undefined): readonly string[] {
 export const MAX_DEVELOPER_INVITES_PER_PROJECT = 3;
 /** Developer emails one person can send in a day, across projects. */
 export const DEVELOPER_INVITES_PER_PERSON_PER_DAY = 5;
+/** How long after a developer's email went out the steps can be sent to them again. */
+export const DEVELOPER_RESEND_AFTER_MS = 24 * 60 * 60 * 1000;
+/** How many times one developer can be sent a project's steps again. */
+export const MAX_DEVELOPER_RESENDS = 2;
 
-/** A limit that refused a developer email: the project's developers, the person's day, the inbox's day, or the deployment's hour. */
-export type DeveloperLimit = "developers" | "person" | "inbox" | "deployment";
+/**
+ * A limit that refused a developer email: the project's developers, the
+ * person's day, the inbox's day, or the deployment's hour; for sending the
+ * steps again, the 24 hours since the last email (`wait`) or the resends used
+ * up (`resends`).
+ */
+export type DeveloperLimit = "developers" | "person" | "inbox" | "deployment" | "wait" | "resends";
 
 /**
  * What a send did about the developer joining the project's organization,
@@ -615,6 +658,16 @@ export interface DeveloperSendSummary {
   status: DeveloperSendStatus;
   /** When the email went out: the attempt the mail service accepted, else its first attempt, else when it was reserved. */
   lastSentAt: number;
+  /**
+   * When the steps can be sent to this address again, 24 hours after the
+   * email went out; null when they can't: a failed email is sent again at
+   * once instead, an address that was sent them again twice gets no more,
+   * and an inbox that reported Critiqs's email gets nothing. Absent from
+   * backends that can't send them again.
+   */
+  resendAt?: number | null;
+  /** True when the address's inbox reported Critiqs's email as unwanted, so nothing more is sent to it; absent otherwise. */
+  suppressed?: boolean;
 }
 
 /** What a project's setup page shows: the project, its address, its saved stack, and how to install Critiqs in it. */
@@ -626,6 +679,37 @@ export interface ProjectSetup {
   stack: StackInfo | null;
   /** `installCommands` for the stack. Newer clients work them out from `stack` instead, so older backends' answers show today's commands. */
   installCommands: readonly string[] | null;
+  /**
+   * Whether Critiqs has loaded at the project's own address (its review
+   * address, or an address its list matches): when it last did, and that
+   * page's origin (only for the people the saved stack is shown to). Null
+   * until then; absent from older backends, which don't record it.
+   */
+  connected?: ProjectConnection | null;
+}
+
+/** When Critiqs last loaded at a project's own address, and on which origin, if the reader may see it. */
+export interface ProjectConnection {
+  at: number;
+  origin: string | null;
+  /** True for the people who manage the project, who may clear it; absent otherwise, and from older backends. */
+  clearable?: boolean;
+}
+
+/**
+ * The origin a browser reported for a page that loaded Critiqs, as a project
+ * records it: an `http:` or `https:` origin and nothing else, such as
+ * `https://acme-proto.vercel.app`; null for anything else, including the
+ * extension's own pages and requests that name no origin.
+ */
+export function connectionOrigin(value: string | null | undefined): string | null {
+  if (typeof value !== "string" || value.length > 300) return null;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.origin === value ? url.origin : null;
+  } catch {
+    return null;
+  }
 }
 
 /** What a setup link shows the developer it was sent to: the project's setup, and who asked. */
@@ -691,6 +775,9 @@ export function backendSetting(stack: StackId | null, backend: string): { where:
 export function listOr(items: readonly string[]): string {
   return items.length < 3 ? items.join(" or ") : `${items.slice(0, -1).join(", ")}, or ${items.at(-1)}`;
 }
+
+/** Critiqs Cloud's Convex deployment, which a prototype uses when it names no backend. */
+export const HOSTED_BACKEND_URL = "https://brazen-snail-591.convex.cloud";
 
 /** Project IDs from either backend: Convex IDs, or SQLite's `p_` IDs. Matches critiqs-react's `PROJECT_ID_PATTERN`. */
 export const PROJECT_ID_PATTERN = /^([a-z0-9]{16,64}|p_[0-9a-f]{32})$/;

@@ -30,6 +30,7 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     addressEdits: false,
     createKeys: false,
     presetTags: false,
+    connections: false,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -90,6 +91,7 @@ test("a server in the host app answers at its path, with its own sign-in", async
     addressEdits: false,
     createKeys: false,
     presetTags: false,
+    connections: false,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });
@@ -141,12 +143,12 @@ test("records opened projects only where the backend reports address lists", asy
   expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).addressLists).toBe(false);
 });
 
-test("reads single-address edits, keyed creates, and preset tag edits only where the backend reports them", async () => {
+test("reads single-address edits, keyed creates, preset tag edits, and connections only where the backend reports them", async () => {
   const config = (value: unknown) =>
-    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, createKeys: value, presetTags: value })) as unknown as typeof fetch;
-  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, createKeys: true, presetTags: true });
-  expect(await resolveDeployment("https://team.convex.cloud", config(undefined))).toMatchObject({ addressEdits: false, createKeys: false, presetTags: false });
-  expect(await resolveDeployment("https://team.convex.cloud", config("yes"))).toMatchObject({ addressEdits: false, createKeys: false, presetTags: false });
+    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, createKeys: value, presetTags: value, connections: value })) as unknown as typeof fetch;
+  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, createKeys: true, presetTags: true, connections: true });
+  expect(await resolveDeployment("https://team.convex.cloud", config(undefined))).toMatchObject({ addressEdits: false, createKeys: false, presetTags: false, connections: false });
+  expect(await resolveDeployment("https://team.convex.cloud", config("yes"))).toMatchObject({ addressEdits: false, createKeys: false, presetTags: false, connections: false });
 });
 
 test("offers the cap on extra Critiqs AI credits only where the backend reports it", async () => {

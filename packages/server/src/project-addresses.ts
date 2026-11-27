@@ -229,8 +229,9 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
   const patterns = new Map<string, ProjectAddressRecord>();
   const collect = (rows: ProjectAddressRecord[]) => {
     for (const row of rows) {
-      if (row.key === keys.origin) exact.set(row.projectId, row);
-      else if (patternMatches(row.address, keys.origin)) patterns.set(row.projectId, row);
+      const match = listedMatch(row, keys);
+      if (match === "exact") exact.set(row.projectId, row);
+      else if (match === "pattern") patterns.set(row.projectId, row);
     }
   };
   const searchKeys: [string, number][] = [[keys.origin, MAX_EXACT_ROWS]];
@@ -266,6 +267,51 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
   return projects.length === 1 && !keys.ambiguous && !partial ? { status: "found", project: projects[0]! } : { status: "choose", projects };
 }
 
+/** What the lookup searches for a page's origin (`originLookupKeys`). */
+type OriginKeys = NonNullable<ReturnType<typeof originLookupKeys>>;
+
+/**
+ * How a listed address matches a page's origin: as the origin itself, by its
+ * pattern, or not at all. The one place that decides it, for the extension's
+ * lookup and for Connected.
+ */
+export function listedMatch(row: Pick<ProjectAddressRecord, "address" | "key">, keys: OriginKeys): "exact" | "pattern" | null {
+  if (row.key === keys.origin) return "exact";
+  return patternMatches(row.address, keys.origin) ? "pattern" : null;
+}
+
+/**
+ * Whether a page's origin is the project's own address: its review address's
+ * origin, or an address its list matches (`listedMatch`).
+ */
+export async function isProjectAddress(store: Store, project: ProjectRecord, origin: string): Promise<boolean> {
+  const keys = originLookupKeys(origin);
+  if (keys === null) return false;
+  if (project.reviewUrl !== undefined && reviewOrigin(project.reviewUrl) === keys.origin) return true;
+  for (const key of [keys.origin, keys.patternKey]) {
+    if (key === null) continue;
+    for (const row of await store.projectAddresses.inProject(project._id, key)) if (isCurrent(project, row) && listedMatch(row, keys) !== null) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a listed address still speaks for its project: a row from before
+ * the project's organization changed is stale, and counts for neither the
+ * lookup nor Connected until the list is saved again.
+ */
+function isCurrent(project: ProjectRecord, row: Pick<ProjectAddressRecord, "organizationId">): boolean {
+  return project.organizationId === row.organizationId;
+}
+
+function reviewOrigin(reviewUrl: string): string | null {
+  try {
+    return originLookupKeys(new URL(reviewUrl).origin)?.origin ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether the lookup may return a project whose address matched: the person
  * belongs to the organization that owns it, or opened it through an install.
@@ -273,8 +319,7 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
  * still review it, so one the person may no longer review isn't found.
  */
 async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<boolean> {
-  // A row from before its project's organization changed is stale; the list is saved again before it counts.
-  if (project.organizationId !== row.organizationId) return false;
+  if (!isCurrent(project, row)) return false;
   // A project limited to its organization isn't found by someone who opened it before the limit.
   if (!(await canReview(store, project, userId))) return false;
   if ((await store.memberships.find(row.organizationId, userId)) !== null) return true;

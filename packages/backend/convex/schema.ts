@@ -103,10 +103,12 @@ export default defineSchema({
     reservedAt: v.number(),
     /** The current email's number, from 0, in its idempotency key. */
     emailNumber: v.number(),
-    /** The current email's attempts at the mail service, oldest first, each with its answer, or null while none came. */
-    attempts: v.array(v.object({ at: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.null()) })),
+    /** The current email's attempts at the mail service, oldest first, each with its answer: `unknown` when one ended without it, null while one waits for it. */
+    attempts: v.array(v.object({ at: v.number(), answer: v.union(v.literal("accepted"), v.literal("refused"), v.literal("unknown"), v.null()) })),
     /** The current email exactly as first prepared, so a retry sends the same request. */
     message: v.optional(storedMailValidator),
+    /** How many times the address was sent the steps again after an email went out; absent means none. */
+    resends: v.optional(v.number()),
   }).index("by_project_email", ["projectId", "email"]),
 
   /** Inboxes whose people reported Critiqs's email as unwanted; they get no more developer or invite emails. */
@@ -126,6 +128,9 @@ export default defineSchema({
     onboarding: v.optional(projectOnboardingValidator),
     /** Who can review it: anyone who signs in, or only members of its organization. Absent means anyone. */
     reviewAccess: v.optional(v.union(v.literal("anyone"), v.literal("organization"))),
+    /** When Critiqs first loaded on a page with this project's ID, and that page's origin (`projects:reportConnected`). */
+    connectedAt: v.optional(v.number()),
+    connectedOrigin: v.optional(v.string()),
   })
     .index("by_creator", ["createdBy"])
     .index("by_creator_organization", ["createdBy", "organizationId"])

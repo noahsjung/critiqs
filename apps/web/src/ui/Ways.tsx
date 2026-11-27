@@ -1,5 +1,6 @@
 import {
   backendSetting,
+  parseProjectAddress,
   type DeveloperInvite,
   type DeveloperSendResult,
   type DeveloperSendSummary,
@@ -9,16 +10,19 @@ import {
   type ProjectInfo,
   STACKS,
 } from "@critiqs/core";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { failureMessage, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
 import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand, ScriptTagStep } from "./parts.tsx";
+import { BackendStep, CheckIcon, Command, ConnectionStatus, CopyButton, Heading, oneCommand, ScriptTagStep, useReached, waitingForInstall } from "./parts.tsx";
 
-// The two ways to add Critiqs to the prototype: run one command, or send the
-// steps to a developer.
+// The ways in: run one command, send the steps to a developer, or review
+// with the browser extension, with nothing added to the prototype.
+
+/** How to build the extension and load it into Chrome, until it is in the Chrome Web Store. */
+export const EXTENSION_GUIDE = "https://github.com/noahsjung/critiqs/tree/main/packages/extension#build-and-load-it-unpacked";
 
 /** The setup page a copied message links to: this site's, by project ID, which shows the install steps to anyone signed in. */
 export function projectSetupUrl(projectId: string, origin = window.location.origin): string {
@@ -78,11 +82,16 @@ function withBackendStep(message: string, stack: CreatedProject["stack"], backen
   return parts.join("\n\n");
 }
 
-/** A line about one developer's setup email. `copy`: offer Copy message beside it, since Critiqs won't email them; `send-again`: its email failed, so Send again emails them now. */
+/**
+ * A line about one developer's setup email. `copy`: offer Copy message beside
+ * it, since Critiqs won't email them; `send-again`: its email failed, so Send
+ * again emails them now; `resend`: 24 hours have passed since its email went
+ * out, so Send again sends them the steps again.
+ */
 export interface DeliveryLine {
   text: string;
   tone: "success" | "error" | "note";
-  action: "copy" | "send-again" | null;
+  action: "copy" | "send-again" | "resend" | null;
 }
 
 /**
@@ -91,10 +100,10 @@ export interface DeliveryLine {
  * says why; otherwise the project's record of the email when there is one,
  * which updates live, so a failed one says so and offers Send again.
  */
-export function deliveryLine(email: string, summary: DeveloperSendSummary | undefined, result: DeveloperSendResult | undefined): DeliveryLine | null {
+export function deliveryLine(email: string, summary: DeveloperSendSummary | undefined, result: DeveloperSendResult | undefined, resendDue = false): DeliveryLine | null {
   switch (result?.status) {
     case "already-sent":
-      return { text: copy.send.alreadySent(email), tone: "note", action: "copy" };
+      return { text: copy.send.alreadySent(email), tone: "note", action: resendDue ? "resend" : "copy" };
     case "limit":
       return { text: result.message, tone: "error", action: "copy" };
     case "suppressed":
@@ -103,9 +112,11 @@ export function deliveryLine(email: string, summary: DeveloperSendSummary | unde
       return { text: copy.send.invalid(email, result.message), tone: "error", action: null };
     case "sent":
     case undefined:
+      // Its inbox reported Critiqs's email: nothing more goes to it, so neither Send again is offered.
+      if (summary?.suppressed === true) return { text: copy.send.suppressed(email), tone: "error", action: "copy" };
       if (summary?.status === "failed") return { text: copy.send.failed(email), tone: "error", action: "send-again" };
       // An email whose answer never came counts as sent, as the server counts it.
-      return result === undefined && summary === undefined ? null : { text: copy.send.sent(email), tone: "success", action: null };
+      return result === undefined && summary === undefined ? null : { text: copy.send.sent(email), tone: "success", action: resendDue ? "resend" : null };
     default: {
       const exhaustive: never = result;
       return exhaustive;
@@ -170,17 +181,23 @@ export function SendPanel({
   const backend = useBackend();
   const sends = backend.useDeveloperSends(project.id);
   const info = backend.useProject(project.id);
+  const setup = backend.useProjectSetup(project.id);
+  const waiting = sends.status === "ready" ? waitingForInstall(sends.data) : null;
   return (
-    <SendPanelView
+    <>
+      <SendPanelView
       project={project}
       organization={info.status === "ready" ? { status: "ready", data: info.data.organization ?? null } : info}
       developers={developers}
       onDevelopers={onDevelopers}
       email={email}
       sends={sends}
-      send={(emails) => backend.sendDeveloperSetup(project.id, emails)}
+      send={(emails, resend) => backend.sendDeveloperSetup(project.id, emails, resend)}
       onDone={onDone}
-    />
+      />
+      {/* Once an email went out: waiting for the developer to install, then Connected. */}
+      {waiting !== null && <ConnectionStatus setup={setup} host={project.reviewUrl === null ? null : shownHost(project.reviewUrl)} waiting={waiting} />}
+    </>
   );
 }
 
@@ -205,10 +222,11 @@ export function SendPanelView({
   onDevelopers: (fields: string[]) => void;
   email: string | null;
   sends: QueryState<DeveloperSendSummary[]>;
-  send: (emails: string[]) => Promise<DeveloperSendResult[]>;
+  /** Sends to the addresses; `resend` sends the steps again to addresses whose email went out. */
+  send: (emails: string[], resend?: boolean) => Promise<DeveloperSendResult[]>;
   onDone?: () => void;
 }) {
-  const { componentBackend } = useBackend();
+  const { componentBackend, developerResends } = useBackend();
   const waitingId = useId();
   const [results, setResults] = useState<readonly DeveloperSendResult[]>([]);
   const [sending, setSending] = useState(false);
@@ -222,17 +240,22 @@ export function SendPanelView({
   const [adding, setAdding] = useState(false);
   // Send emails each address that has no email yet, or whose email failed. The project's record wins; until it arrives, the answer to Send.
   const unsent = filled.filter((address) => {
-    const status = recordFor(summaries, address)?.status;
-    if (status !== undefined) return status === "failed";
+    const record = recordFor(summaries, address);
+    if (record !== undefined) return record.status === "failed" && record.suppressed !== true;
     const answer = recordFor(results, address)?.status;
     return answer !== "sent" && answer !== "already-sent";
   });
 
-  const run = async (emails: string[]) => {
+  // The page renders again when the next address can be sent the steps again.
+  const resendTimes = developerResends ? summaries.flatMap((summary) => (summary.status !== "failed" && summary.resendAt != null ? [summary.resendAt] : [])) : [];
+  useReached(resendTimes.length === 0 ? null : Math.min(...resendTimes));
+  const resendDue = (summary: DeveloperSendSummary | undefined) => developerResends && summary?.status !== "failed" && summary?.resendAt != null && Date.now() >= summary.resendAt;
+
+  const run = async (emails: string[], resend = false) => {
     setSending(true);
     setFailure(null);
     try {
-      const answered = await send(emails);
+      const answered = await send(emails, resend || undefined);
       setResults((current) => withResults(current, answered));
       if (answered.some((result) => result.status === "sent")) {
         setAdding(false);
@@ -273,7 +296,8 @@ export function SendPanelView({
   const addresses = [...new Map(filled.map((address) => [exactAddress(address), address])).values()];
   const lines = addresses.flatMap((address) => {
     const result = recordFor(results, address);
-    const line = deliveryLine(address, recordFor(summaries, address), result);
+    const summary = recordFor(summaries, address);
+    const line = deliveryLine(address, summary, result, resendDue(summary));
     const invite = result?.status === "sent" ? inviteLine(address, result.invite, org?.name ?? copy.send.invite.theOrganization) : null;
     return line === null ? [] : [{ address, line, invite }];
   });
@@ -293,6 +317,11 @@ export function SendPanelView({
           </span>
           {line.action === "copy" && (
             <CopyButton text={message} label={copy.send.copyMessageShort} copiedLabel={copy.send.messageCopied} name={copy.send.copyMessageFor(address)} className="btn small" onCopied={onDone} />
+          )}
+          {line.action === "resend" && (
+            <button type="button" className="btn small" disabled={sending} aria-label={copy.sends.resendTo(address)} onClick={() => void run([address], true)}>
+              {copy.sends.resend}
+            </button>
           )}
           {line.action === "send-again" && (
             <button type="button" className="btn small" disabled={sending || !known} aria-label={copy.send.sendAgainTo(address)} aria-describedby={waiting} onClick={() => void run([address])}>
@@ -367,4 +396,67 @@ export function SendPanelView({
       </form>
     </>
   );
+}
+
+/** Whether the extension will find the project by its address: being added, added, or not (no address the list takes, or the backend can't add one). */
+type Listing = "adding" | "listed" | "unlisted";
+
+/**
+ * "No one, for now": review with the browser extension. It says honestly how
+ * to get the extension today, since it isn't in the Chrome Web Store yet,
+ * and adds the prototype's origin to the project's address list, where the
+ * extension looks a page's project up, so it finds this one. `onDone` runs
+ * once the person opens the guide or copies the build command.
+ */
+export function ExtensionPanel({ project, prototype, email, onDone }: { project: CreatedProject; prototype: string | null; email: string | null; onDone?: () => void }) {
+  const backend = useBackend();
+  const address = prototype ?? project.reviewUrl;
+  const origin = listableOrigin(address);
+  const [listing, setListing] = useState<Listing>(origin !== null && backend.addressEdits ? "adding" : "unlisted");
+  useEffect(() => {
+    if (origin === null || !backend.addressEdits) return;
+    let current = true;
+    // Adding an address already listed changes nothing, so showing this again is safe.
+    backend.addProjectAddress(project.id, origin).then(
+      () => current && setListing("listed"),
+      () => current && setListing("unlisted"),
+    );
+    return () => void (current = false);
+  }, [backend, project.id, origin]);
+  const host = address === null ? null : shownHost(address);
+  const build = backend.componentBackend === null ? null : [`CRITIQS_BACKEND=${backend.componentBackend} bun run build`];
+  return (
+    <>
+      <Heading title={copy.extension.title} lead={copy.extension.lead(host)} />
+      <ol className="steps">
+        <li>
+          <strong>{copy.extension.getTitle}</strong> {copy.extension.get}{" "}
+          <a href={EXTENSION_GUIDE} target="_blank" rel="noreferrer noopener" onClick={onDone}>
+            {copy.extension.guide}
+          </a>
+        </li>
+        {build !== null && (
+          <li className="stacked">
+            <span>{copy.extension.ownBackend}</span>
+            <Command commands={build} onCopied={onDone} />
+          </li>
+        )}
+        <li>
+          <strong>{copy.extension.openTitle(host)}</strong> {copy.extension.open(email)}{" "}
+          <span role="status">{listing === "adding" ? copy.extension.listing : listing === "listed" ? copy.extension.found(project.name) : copy.extension.choose(project.name)}</span>
+        </li>
+      </ol>
+    </>
+  );
+}
+
+/** The origin of the prototype's address, when a project's address list can hold it; null otherwise. */
+export function listableOrigin(address: string | null): string | null {
+  if (address === null) return null;
+  try {
+    const parsed = parseProjectAddress(new URL(address).origin);
+    return "error" in parsed ? null : parsed.address;
+  } catch {
+    return null;
+  }
 }

@@ -7,12 +7,15 @@ import {
   codeDigest,
   generateCode,
   MailError,
+  connectionReport,
+  MAX_CONNECTION_REPORT_BYTES,
   normalizeEmail,
   readPreferenceToken,
   readReportToken,
   REPORT_DONE,
   REPORT_PATH,
   REPORT_QUESTION,
+  readBody,
   resendMailer,
   signInCodeMessage,
 } from "@critiqs/server";
@@ -104,6 +107,11 @@ http.route({
       // `addressCheck`: onboarding's check of a prototype's address (`addressCheck:check`).
       // `onboardingAnswers`: onboarding saves the person's answers (`onboarding:saveAboutYou`), and `projects:create`
       // takes `onboarding` and `stack`.
+      // `connections`: the component reports that it loaded with a project's ID (`POST /critiqs/connected`), setup pages
+      // say when it last did at the project's own address (`connected` on `onboarding:projectSetup` and
+      // `onboarding:developerSetup`), and its owners clear it (`onboarding:clearConnected`).
+      // `developerResends`: `resend` on `onboarding:sendDeveloperSetup` sends the steps again 24 hours after an email went
+      // out, at most twice, and `onboarding:developerSends` says when (`resendAt`).
       // `developerEmails`: a project's owners email its setup steps to developers (`onboarding:sendDeveloperSetup`,
       // `onboarding:developerSends`), and setup links show them (`onboarding:developerSetup`); false without email. A copied
       // message's setup page shows the project and its install commands (`onboarding:projectSetup`), with or without email.
@@ -136,6 +144,8 @@ http.route({
         addressCheck: true,
         onboardingAnswers: true,
         developerEmails: developerEmailSetup() !== null,
+        connections: true,
+        developerResends: true,
       },
       { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } },
     ),
@@ -220,6 +230,26 @@ function customerOf(body: string): string | null {
     return null;
   }
 }
+
+
+/**
+ * The component reporting that it loaded with a project's ID, for
+ * onboarding's Connected. The body is the project ID, as plain text, so the
+ * browser sends it without asking first, read only up to
+ * `MAX_CONNECTION_REPORT_BYTES`; the origin is the one the browser sent.
+ * Always the same empty answer, so it says nothing about which projects exist.
+ */
+http.route({
+  path: "/critiqs/connected",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await readBody(request, MAX_CONNECTION_REPORT_BYTES).catch(() => new Uint8Array());
+    // A report that can't count ends here: one billed call (this action), with no mutation after it.
+    const report = connectionReport(new TextDecoder().decode(body), request.headers.get("origin"));
+    if (report !== null) await ctx.runMutation(internal.onboarding.reportConnected, report);
+    return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+  }),
+});
 
 // ---------------------------------------------------------------------------
 // Sign-in service (Critiqs's hosted deployment, or a local one in development)

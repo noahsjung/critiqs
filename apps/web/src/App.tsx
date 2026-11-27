@@ -1,6 +1,6 @@
 import { ConvexProviderWithAuth, useConvexAuth } from "convex/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { type Auth, AuthContext, BackendContext, convexBackend, resolveBackend } from "./backend.ts";
+import { type Auth, AuthContext, BackendContext, type BackendFeatures, convexBackend, resolveBackend } from "./backend.ts";
 import { copy } from "./copy.ts";
 import { clearFlowOnSignOut, sessionStore } from "./flow.ts";
 import { routeOf } from "./route.ts";
@@ -22,12 +22,12 @@ export function App() {
     if (found.page === "start" && window.location.pathname !== "/start") window.history.replaceState(null, "", "/start");
     return found;
   }, []);
-  const [deployment, setDeployment] = useState<{ status: "loading" } | { status: "ready"; deployment: Deployment; createKeys: boolean } | { status: "error"; message: string }>({
+  const [deployment, setDeployment] = useState<{ status: "loading" } | { status: "ready"; deployment: Deployment; features: BackendFeatures } | { status: "error"; message: string }>({
     status: "loading",
   });
   useEffect(() => {
     resolveBackend(BACKEND).then(
-      ({ deployment, createKeys }) => setDeployment({ status: "ready", deployment, createKeys }),
+      ({ deployment, ...features }) => setDeployment({ status: "ready", deployment, features }),
       (error: unknown) => setDeployment({ status: "error", message: error instanceof Error ? error.message : String(error) }),
     );
   }, []);
@@ -58,7 +58,7 @@ export function App() {
     );
   }
   return (
-    <Connected deployment={deployment.deployment} createKeys={deployment.createKeys}>
+    <Connected deployment={deployment.deployment} features={deployment.features}>
       <div className="app">
         {header(true)}
         <main className={route.page === "setup" ? "page narrow" : route.page === "thread" ? "page thread" : "page"}>
@@ -70,13 +70,13 @@ export function App() {
 }
 
 /** Critiqs's backend and sign-in, for the page inside. */
-export function Connected({ deployment, createKeys, children }: { deployment: Deployment; createKeys: boolean; children: ReactNode }) {
+export function Connected({ deployment, features, children }: { deployment: Deployment; features: BackendFeatures; children: ReactNode }) {
   const session = useMemo(() => new Session(deployment.signInUrl), [deployment.signInUrl]);
   // Built to reuse a saved token that is still good, so loading a page doesn't refresh the sign-in.
   const client = useMemo(() => convexClient(deployment.backendUrl), [deployment.backendUrl]);
   const backend = useMemo(
-    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, createKeys),
-    [client, deployment.siteUrl, session, createKeys],
+    () => convexBackend(client, COMPONENT_BACKEND, { siteUrl: deployment.siteUrl, getToken: () => session.fetchAccessToken({ forceRefreshToken: false }) }, features),
+    [client, deployment.siteUrl, session, features],
   );
   const { reviewer } = useSyncExternalStore(session.subscribe, session.getSnapshot);
   // Signing out on any page, or in another tab, removes the onboarding draft.

@@ -1,8 +1,9 @@
-import { backendSetting, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
+import { backendSetting, type DeveloperSendResult, type DeveloperSendSummary, type ProjectSetup, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useAuth } from "../backend.ts";
+import { useAuth, useBackend } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
 import { copy } from "../copy.ts";
+import type { QueryState } from "../shared.ts";
 
 // Pieces every page of the website's app is built from. The look follows
 // the landing page (site/styles.css): Geist, near-black buttons, one blue.
@@ -226,5 +227,150 @@ export function Account() {
         {copy.signIn.signOut}
       </button>
     </div>
+  );
+}
+
+/**
+ * Whether Critiqs has loaded at the project's own address yet, live:
+ * waiting, then Connected with where and when. The people who manage the
+ * project can clear it, and the next load from its address records it
+ * again. Nothing on a backend that doesn't record it (no `connected` in its
+ * setup), so it never waits forever.
+ */
+export function ConnectionStatus({
+  setup,
+  host,
+  waiting,
+  waitingNote,
+}: {
+  setup: QueryState<ProjectSetup>;
+  host: string | null;
+  /** What to say while waiting, in place of waiting for Critiqs to load on `host`. */
+  waiting?: string;
+  waitingNote?: string;
+}) {
+  const { clearConnected } = useBackend();
+  const [clearing, setClearing] = useState<"idle" | "clearing" | "failed">("idle");
+  if (setup.status !== "ready" || setup.data.connected === undefined) return null;
+  const connected = setup.data.connected;
+  if (connected === null) {
+    return (
+      <div className="connection waiting" role="status">
+        <span className="pulse" aria-hidden="true" />
+        <span className="stacked tight">
+          <span>{waiting ?? copy.connection.waiting(host)}</span>
+          {waitingNote !== undefined && <span className="note">{waitingNote}</span>}
+        </span>
+      </div>
+    );
+  }
+  const clear = () => {
+    setClearing("clearing");
+    clearConnected(setup.data.projectId).then(
+      () => setClearing("idle"),
+      () => setClearing("failed"),
+    );
+  };
+  return (
+    <div className="connection connected" role="status">
+      <CheckIcon />
+      <span className="stacked tight grow">
+        <span>{copy.connection.connected(connected.origin)}</span>
+        <span className="note">{copy.connection.when(connected.at)}</span>
+        {clearing === "failed" && <span className="note">{copy.connection.clearFailed}</span>}
+      </span>
+      {connected.clearable === true && (
+        <button type="button" className="quiet" disabled={clearing === "clearing"} title={copy.connection.clearHint} onClick={clear}>
+          {copy.connection.clear}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the project's owners see about its setup emails while it waits:
+ * "Waiting for install", who the steps went to, and when the last went out.
+ * Null with no email that went out, or may have; a failed one isn't waiting.
+ */
+export function waitingForInstall(sends: readonly DeveloperSendSummary[]): string | null {
+  const out = sends.filter((send) => send.status !== "failed");
+  if (out.length === 0) return null;
+  return copy.connection.waitingForInstall(
+    out.map((send) => send.email),
+    Math.max(...out.map((send) => send.lastSentAt)),
+  );
+}
+
+/** Whether the clock has reached `at`, rendering again when it does; false for null. */
+export function useReached(at: number | null | undefined, now: () => number = Date.now): boolean {
+  const [, setTick] = useState(0);
+  const reached = at != null && now() >= at;
+  useEffect(() => {
+    if (at == null || reached) return;
+    // Timers longer than about 24.8 days fire at once, so a far time is checked again daily.
+    const timer = setTimeout(() => setTick((tick) => tick + 1), Math.min(at - now() + 250, 86_400_000));
+    return () => clearTimeout(timer);
+  }, [at, reached]);
+  return reached;
+}
+
+/**
+ * The project's setup emails, for its owners: each address, and when its
+ * email went out, or Not sent after a confirmed failure. With `resend`, an
+ * address can be sent the steps again once its `resendAt` comes, or says
+ * when it can. Nothing for anyone else, who can't read them.
+ */
+export function SendList({ sends, resend }: { sends: QueryState<DeveloperSendSummary[]>; resend?: (email: string) => Promise<DeveloperSendResult[]> }) {
+  if (sends.status !== "ready" || sends.data.length === 0) return null;
+  return (
+    <section className="stacked" aria-label={copy.sends.title}>
+      <h2 className="section-title">{copy.sends.title}</h2>
+      <ul className="send-list">
+        {sends.data.map((send) => (
+          <SendRow key={send.sendId} send={send} resend={resend} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SendRow({ send, resend }: { send: DeveloperSendSummary; resend?: (email: string) => Promise<DeveloperSendResult[]> }) {
+  const due = useReached(send.resendAt);
+  const [state, setState] = useState<{ status: "idle" | "sending" } | { status: "done"; text: string; error: boolean }>({ status: "idle" });
+  const again = async () => {
+    if (resend === undefined) return;
+    setState({ status: "sending" });
+    try {
+      const [result] = await resend(send.email);
+      setState(
+        result?.status === "sent"
+          ? { status: "done", text: copy.sends.resent, error: false }
+          : { status: "done", text: result !== undefined && "message" in result ? result.message : copy.sends.resendFailed, error: true },
+      );
+    } catch {
+      setState({ status: "done", text: copy.sends.resendFailed, error: true });
+    }
+  };
+  return (
+    <li className={send.status === "failed" ? "error" : undefined}>
+      <span className="send-email">{send.email}</span>
+      <span className="send-state">
+        <span className="note">{send.status === "failed" ? copy.sends.notSent : copy.sends.sentAt(send.lastSentAt)}</span>
+        {resend !== undefined && send.resendAt != null && state.status !== "done" &&
+          (due ? (
+            <button type="button" className="btn small" disabled={state.status === "sending"} aria-label={copy.sends.resendTo(send.email)} onClick={() => void again()}>
+              {state.status === "sending" ? copy.sends.sending : copy.sends.resend}
+            </button>
+          ) : (
+            <span className="note">{copy.sends.resendAfter(send.resendAt)}</span>
+          ))}
+        {state.status === "done" && (
+          <span className={state.error ? "error" : "note"} role="status">
+            {state.text}
+          </span>
+        )}
+      </span>
+    </li>
   );
 }

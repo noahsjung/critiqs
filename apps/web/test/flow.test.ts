@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   addressToCheck,
   canGoBack,
+  checkFor,
+  choicesFor,
   clearFlow,
   clearFlowOnSignOut,
   defaultProjectName,
@@ -10,6 +12,7 @@ import {
   flowReducer,
   type FlowState,
   initialFlow,
+  otherWays,
   pendingCreate,
   restoreFlow,
   reviewUrlOf,
@@ -111,8 +114,9 @@ describe("choosing creates the project", () => {
   });
 
   test("the setup screen can switch between the command and the email", () => {
-    expect(flowReducer(atSetup("me"), { type: "switch-who" }).who).toBe("developer");
-    expect(flowReducer(atSetup("developer"), { type: "switch-who" }).who).toBe("me");
+    expect(flowReducer(atSetup("me"), { type: "switch-who", who: "developer" }).who).toBe("developer");
+    expect(flowReducer(atSetup("developer"), { type: "switch-who", who: "me" }).who).toBe("me");
+    expect(flowReducer(atSetup("me"), { type: "switch-who", who: "extension" }).who).toBe("extension");
   });
 
   test("the project's name is the first part of the link's host, never a web address", () => {
@@ -288,5 +292,34 @@ describe("keeping the flow across a reload", () => {
     savePendingCreate(storage, { reviewerId: SAM.id, key: "k1", project: request });
     clearFlow(storage);
     expect(storage.length).toBe(0);
+  });
+});
+
+describe("the ways in, best first", () => {
+  test("installing is recommended; the extension is offered once there's an address to open", () => {
+    expect(choicesFor(checkFor(null, null))).toEqual({ order: ["me", "developer"], reason: "install-is-default" });
+    for (const found of [null, { kind: "public", stack: null } as const, { kind: "sign-in", via: "redirect", host: "accounts.google.com", stack: null } as const, { kind: "blocked" } as const]) {
+      expect(choicesFor(checkFor("https://acme-proto.vercel.app/", found))).toEqual({ order: ["me", "developer", "extension"], reason: "install-is-default" });
+    }
+    expect(choicesFor(checkFor("http://localhost:5173/", null))).toEqual({ order: ["me", "developer", "extension"], reason: "install-is-default" });
+  });
+
+  test("what the check found counts only for an address; one on this computer is local without asking", () => {
+    expect(checkFor(null, { kind: "public", stack: "next" })).toEqual({ kind: "none" });
+    expect(checkFor(undefined, null)).toEqual({ kind: "none" });
+    expect(checkFor("http://192.168.1.5:3000/", { kind: "public", stack: null })).toEqual({ kind: "local" });
+    expect(checkFor("https://acme-proto.vercel.app/", { kind: "public", stack: "next" })).toEqual({ kind: "public", stack: "next" });
+    // Not answered yet, or failed: every way that needs an address is still offered.
+    expect(checkFor("https://acme-proto.vercel.app/", null)).toEqual({ kind: "unreachable" });
+  });
+
+  test("under the chosen way, the others follow what the choice says about the code", () => {
+    const online = checkFor("https://acme-proto.vercel.app/", { kind: "public", stack: null });
+    expect(otherWays("me", online)).toEqual(["extension", "developer"]);
+    expect(otherWays("developer", online)).toEqual(["extension", "me"]);
+    expect(otherWays("extension", online)).toEqual(["me", "developer"]);
+    const none = checkFor(null, null);
+    expect(otherWays("me", none)).toEqual(["developer"]);
+    expect(otherWays("developer", none)).toEqual(["me"]);
   });
 });

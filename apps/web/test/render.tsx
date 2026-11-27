@@ -1,5 +1,5 @@
 import { afterEach } from "bun:test";
-import type { DeveloperSendSummary, DeveloperSetup, OrganizationSummary, ProjectInfo, ProjectSetup } from "@critiqs/core";
+import type { BillingStatus, DeveloperSendSummary, DeveloperSetup, OrganizationSummary, ProjectInfo, ProjectSetup } from "@critiqs/core";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { type Auth, AuthContext, type Backend, BackendContext, type ThreadPageData } from "../src/backend.ts";
@@ -77,6 +77,8 @@ export function fakeBackend(
     organizations?: OrganizationSummary[];
     organizationsState?: QueryState<OrganizationSummary[]>;
     sends?: DeveloperSendSummary[];
+    sendsState?: QueryState<DeveloperSendSummary[]>;
+    billing?: QueryState<BillingStatus | null>;
     project?: ProjectInfo;
     mine?: ProjectInfo[];
     upgradeUrl?: string | null;
@@ -97,18 +99,24 @@ export function fakeBackend(
     calls,
     componentBackend: overrides.componentBackend ?? null,
     createKeys: overrides.createKeys ?? false,
+    addressEdits: overrides.addressEdits ?? false,
+    developerResends: overrides.developerResends ?? false,
     checkAddress: record("checkAddress", overrides.checkAddress ?? (async () => ({ kind: "public", stack: null }) as const)),
     saveAboutYou: record("saveAboutYou", overrides.saveAboutYou ?? (async () => {})),
     createProject: record("createProject", overrides.createProject ?? (async () => "k57abcdefghijklmnop")),
+    inviteMember: record("inviteMember", overrides.inviteMember ?? (async () => ({ status: "invited" as const, email: "pending" as const }))),
+    addProjectAddress: record("addProjectAddress", overrides.addProjectAddress ?? (async (_projectId: string, address: string) => [address])),
     sendDeveloperSetup: record("sendDeveloperSetup", overrides.sendDeveloperSetup ?? (async (_projectId: string, emails: string[]) => emails.map((email) => ({ email, status: "sent" as const, sendId: "s1", invite: "none" as const })))),
     projectSetup: record("projectSetup", overrides.projectSetup ?? (async (projectId: string) => ({ projectId, projectName: "Old prototype", address: null, stack: null, installCommands: null }))),
     useOrganizations: () => overrides.organizationsState ?? { status: "ready", data: overrides.organizations ?? [] },
     useProject: (projectId) => (projectId === null ? loading : (overrides.projectState ?? (overrides.project === undefined ? loading : { status: "ready", data: overrides.project }))),
     useMyProjects: (enabled) => (enabled ? { status: "ready", data: overrides.mine ?? [] } : loading),
     useUpgradeUrl: (enabled) => (enabled ? { status: "ready", data: overrides.upgradeUrl ?? null } : loading),
-    useDeveloperSends: () => ({ status: "ready", data: overrides.sends ?? [] }),
+    useBillingStatus: (organizationId) => (organizationId === null ? loading : (overrides.billing ?? { status: "ready", data: null })),
+    useDeveloperSends: () => overrides.sendsState ?? { status: "ready", data: overrides.sends ?? [] },
     useDeveloperSetup: (sendId) => (sendId === null ? loading : (overrides.sendSetup ?? loading)),
     useProjectSetup: (projectId) => (projectId === null ? loading : (overrides.projectSetupState ?? loading)),
+    clearConnected: record("clearConnected", overrides.clearConnected ?? (async () => {})),
     useThreadPage: (key) => {
       if (key !== null) calls.push({ name: "useThreadPage", args: [key] });
       return key === null ? loading : (overrides.threadPageState ?? loading);

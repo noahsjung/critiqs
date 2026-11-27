@@ -1,8 +1,10 @@
-import { isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
+import { type AddressCheck, isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
 import { type Dispatch, useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
-import { type Backend, failureCode, failureMessage, type NewProject, useAuth, useBackend } from "../backend.ts";
+import { type Backend, failureCode, failureMessage, type NewProject, useAcceptInvites, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import {
+  checkFor,
+  choicesFor,
   CODE_ACCESS_OF,
   defaultProjectName,
   type FlowAction,
@@ -10,6 +12,7 @@ import {
   type FlowReviewer,
   type FlowState,
   newCreateKey,
+  otherWays,
   pendingCreate,
   restoreFlow,
   reviewUrlOf,
@@ -21,10 +24,11 @@ import {
   type Who,
 } from "../flow.ts";
 import { Select } from "../shared.ts";
-import { AboutYou } from "./AboutYou.tsx";
-import { Heading, Progress } from "./parts.tsx";
+import { AboutYou, SuggestedPlan } from "./AboutYou.tsx";
+import { InviteTeam } from "./Invite.tsx";
+import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
 import { Preview } from "./Preview.tsx";
-import { InstallPanel, SendPanel } from "./Ways.tsx";
+import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
 
 /**
  * Onboarding at /start, in three screens: the prototype's link, who adds
@@ -35,6 +39,7 @@ import { InstallPanel, SendPanel } from "./Ways.tsx";
  */
 export function Onboarding() {
   const auth = useAuth();
+  useAcceptInvites();
   const reviewer: FlowReviewer | null = auth.reviewer === null ? null : { id: auth.reviewer.id, email: auth.reviewer.email };
   const [state, dispatch] = useReducer(flowReducer, reviewer, (signedIn) => restoreFlow(sessionStore(), signedIn));
   useEffect(() => saveFlow(sessionStore(), state), [state]);
@@ -54,23 +59,23 @@ export function Onboarding() {
 }
 
 /**
- * The stack found at an address, checked once per reviewer and address: the
- * check runs as the person signed in, so another reviewer's is never reused.
- * The check only names the stack saved with the project, so a failed one is
- * no stack, and an address on this computer or a private network is never
- * sent to the server.
+ * What the check found at an address, checked once per reviewer and address:
+ * the check runs as the person signed in, so another reviewer's is never
+ * reused. It names the stack saved with the project and orders the ways in,
+ * so a failed check is null, and an address on this computer or a private
+ * network is never sent to the server.
  */
-export function useStackCheck(backend: Backend): (reviewerId: string, url: string) => Promise<StackId | null> {
-  const checks = useRef(new Map<string, Promise<StackId | null>>());
+export function useAddressCheck(backend: Backend): (reviewerId: string, url: string) => Promise<AddressCheck | null> {
+  const checks = useRef(new Map<string, Promise<AddressCheck | null>>());
   return useCallback(
     (reviewerId: string, url: string) => {
       const key = `${reviewerId} ${url}`;
       let found = checks.current.get(key);
       if (found === undefined) {
         found = isLocalAddress(new URL(url))
-          ? Promise.resolve(null)
+          ? Promise.resolve({ kind: "local" } as const)
           : backend.checkAddress(url).then(
-              (check) => ("stack" in check ? check.stack : null),
+              (check) => check,
               () => null,
             );
         checks.current.set(key, found);
@@ -79,6 +84,11 @@ export function useStackCheck(backend: Backend): (reviewerId: string, url: strin
     },
     [backend],
   );
+}
+
+/** The stack a check found, or null. */
+function stackIn(check: AddressCheck | null): StackId | null {
+  return check !== null && "stack" in check ? check.stack : null;
 }
 
 /**
@@ -92,12 +102,21 @@ const sendingFor = new WeakMap<Dispatch<FlowAction>, Set<string>>();
 /** The current screen beside the preview. Exported for tests, which drive it with a fake backend. */
 export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
   const backend = useBackend();
-  const stackOf = useStackCheck(backend);
+  const checkOf = useAddressCheck(backend);
+  const stackOf = useCallback(async (reviewerId: string, address: string) => stackIn(await checkOf(reviewerId, address)), [checkOf]);
   const url = state.address.url;
+  // What the check found, for the address it was about: the choices' order follows it.
+  const [found, setFound] = useState<{ url: string; check: AddressCheck | null } | null>(null);
   // The check starts as soon as someone signed in has given a link, so it's usually done before they choose.
   useEffect(() => {
-    if (state.reviewer !== null && typeof url === "string" && state.project === null) void stackOf(state.reviewer.id, url);
+    if (state.reviewer === null || typeof url !== "string" || state.project !== null) return;
+    let current = true;
+    void checkOf(state.reviewer.id, url).then((check) => {
+      if (current) setFound({ url, check });
+    });
+    return () => void (current = false);
   }, [state.reviewer?.id, url, state.project === null]);
+  const check = checkFor(url, found !== null && found.url === url ? found.check : null);
 
   const host = state.project?.reviewUrl != null ? shownHost(state.project.reviewUrl) : state.address.text.trim() === "" ? null : shownHost(state.address.text);
   return (
@@ -105,8 +124,8 @@ export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispat
       <section className="flow-main" aria-live="off">
         <Progress step={STEPS.indexOf(state.step) + 1} count={STEPS.length} />
         {state.step === "address" && <AddressScreen state={state} dispatch={dispatch} />}
-        {state.step === "who" && <WhoScreen state={state} dispatch={dispatch} stackOf={stackOf} />}
-        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} />}
+        {state.step === "who" && <WhoScreen state={state} dispatch={dispatch} stackOf={stackOf} check={check} />}
+        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} check={check} />}
       </section>
       <Preview host={host} live={state.step === "setup"} />
     </div>
@@ -207,8 +226,10 @@ export function defaultOrganization(choices: readonly OrganizationSummary[]): Or
 }
 
 /**
- * Who will add Critiqs to it? Choosing creates the project, named after the
- * link, in the person's organization, with the stack the check found. The
+ * Who will add Critiqs to it? The recommended way comes first, marked, with
+ * the others below it: the person, their developer, or no one for now, with
+ * the browser extension when there's an address to open. Choosing creates
+ * the project, named after the link, in the person's organization, with the stack the check found. The
  * choices wait for the organizations: a project never goes to one the person
  * didn't see. With several, the one it goes in is shown and can be changed;
  * if the chosen one leaves the list, nothing is chosen until the person
@@ -224,7 +245,17 @@ export function defaultOrganization(choices: readonly OrganizationSummary[]): Or
  * old. Any other, including one still waiting on the address check, is
  * called off, so the choices open at once and the old attempt never sends.
  */
-function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: Dispatch<FlowAction>; stackOf: (reviewerId: string, url: string) => Promise<StackId | null> }) {
+function WhoScreen({
+  state,
+  dispatch,
+  stackOf,
+  check,
+}: {
+  state: FlowState;
+  dispatch: Dispatch<FlowAction>;
+  stackOf: (reviewerId: string, url: string) => Promise<StackId | null>;
+  check: AddressCheck;
+}) {
   const backend = useBackend();
   const titleId = useId();
   const organizationLabel = useId();
@@ -290,7 +321,8 @@ function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: D
     const stack = typeof state.address.url === "string" && state.reviewer !== null ? await stackOf(state.reviewer.id, state.address.url) : null;
     // While the check ran, the screen may have gone: nothing is created. A screen shown again has already opened the choice.
     if (!shown.current) return dispatch({ type: "create-cancelled", key });
-    const project: NewProject = { name, reviewUrl, organizationId, answers: { codeAccess: CODE_ACCESS_OF[who] }, stack };
+    const codeAccess = CODE_ACCESS_OF[who];
+    const project: NewProject = { name, reviewUrl, organizationId, answers: codeAccess === undefined ? {} : { codeAccess }, stack };
     // Kept once, before the first send: a resend after a reload keeps the time it was first sent, which the 23 hours count from.
     if (backend.createKeys && state.reviewer !== null) savePendingCreate(sessionStore(), { reviewerId: state.reviewer.id, key, project });
     await send(key, project);
@@ -316,16 +348,20 @@ function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: D
   const failure = state.create.status === "failed" ? state.create.message : null;
   // An address Critiqs can't save, such as HTTP on a private network, is said before choosing, not dropped quietly.
   const unsaved = typeof state.address.url === "string" && reviewUrlOf(state.address) === null ? shownHost(state.address.url) : null;
-  const option = (who: Who) => {
+  const ways = choicesFor(check);
+  const option = (who: Who, recommended: boolean) => {
     const { label, detail } = copy.who[who];
     const busy = creating && state.who === who;
     return (
-      <button type="button" className="choice" aria-busy={busy} disabled={creating || !ready} onClick={() => void choose(who)}>
+      <button key={who} type="button" className={recommended ? "choice recommended" : "choice"} aria-busy={busy} disabled={creating || !ready} onClick={() => void choose(who)}>
         <span className="choice-icon" aria-hidden="true">
-          {who === "me" ? <CodeGlyph /> : <MailGlyph />}
+          {who === "me" ? <CodeGlyph /> : who === "developer" ? <MailGlyph /> : <ExtensionGlyph />}
         </span>
         <span className="choice-text">
-          <span className="choice-label">{label}</span>
+          <span className="choice-label">
+            {label}
+            {recommended && <span className="badge">{copy.who.recommended}</span>}
+          </span>
           <span className="choice-detail">{busy ? copy.who.creating : detail}</span>
         </span>
         {busy && <span className="spinner" aria-hidden="true" />}
@@ -340,10 +376,12 @@ function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: D
         {copy.back}
       </button>
       <Heading id={titleId} title={copy.who.title} lead={copy.who.lead} />
-      <div className="choices" role="group" aria-labelledby={titleId}>
-        {option("me")}
-        {option("developer")}
+      <div className="choices" role="group" aria-labelledby={titleId} aria-describedby={`${titleId}-why`}>
+        {ways.order.map((who, index) => option(who, index === 0))}
       </div>
+      <p className="note" id={`${titleId}-why`}>
+        {copy.who.reason[ways.reason]}
+      </p>
       {creating && (
         <p className="visually-hidden" role="status">
           {copy.who.creating}
@@ -409,9 +447,13 @@ function WhoScreen({ state, dispatch, stackOf }: { state: FlowState; dispatch: D
   );
 }
 
-/** The command or the email, then the "while you're here" questions once the person has done it. */
-function SetupScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch<FlowAction> }) {
-  // Once shown, the email panel stays mounted while the command shows, so a send in flight, its answer, an error, or a field being added
+/**
+ * The chosen way: the command, the email, or the browser extension, with the
+ * other ways below it, best first, then the "while you're here" questions
+ * once the person has done it.
+ */
+function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: Dispatch<FlowAction>; check: AddressCheck }) {
+  // Once shown, the email panel stays mounted while another way shows, so a send in flight, its answer, an error, or a field being added
   // are all still there when the person switches back.
   const [sendOpened, setSendOpened] = useState(state.who === "developer");
   if (state.who === "developer" && !sendOpened) setSendOpened(true);
@@ -428,12 +470,15 @@ function SetupScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch
   if (project === null || state.who === null) return null;
   const flow = state.flow;
   const done = () => dispatch({ type: "setup-done", flow });
+  const others = otherWays(state.who, check);
+  const host = project.reviewUrl === null ? null : shownHost(project.reviewUrl);
   return (
     <>
       <div ref={panels} className="panels">
         {state.who === "me" && (
           <div className="panel">
             <InstallPanel project={project} onDone={done} />
+            <ProjectConnection projectId={project.id} host={host} />
           </div>
         )}
         {sendOpened && (
@@ -441,18 +486,43 @@ function SetupScreen({ state, dispatch }: { state: FlowState; dispatch: Dispatch
             <SendPanel project={project} developers={state.developers} onDevelopers={(developers) => dispatch({ type: "developers", developers })} email={state.reviewer?.email ?? null} onDone={done} />
           </div>
         )}
+        {state.who === "extension" && (
+          <div className="panel">
+            <ExtensionPanel project={project} prototype={typeof state.address.url === "string" ? state.address.url : null} email={state.reviewer?.email ?? null} onDone={done} />
+          </div>
+        )}
       </div>
-      <div>
-        <button type="button" className="quiet" onClick={() => dispatch({ type: "switch-who" })}>
-          {state.who === "me" ? copy.install.switch : copy.send.switch}
-        </button>
-      </div>
+      {others.length > 0 && (
+        <div className="other-ways">
+          {others.map((other) => (
+            <button key={other} type="button" className="quiet" onClick={() => dispatch({ type: "switch-who", who: other })}>
+              {copy.ways.switchTo[other]}
+            </button>
+          ))}
+        </div>
+      )}
       {/* The first question arrives while focus stays on what the person just used, so it's announced. */}
       <div aria-live="polite">
-        {state.about.shown && <AboutYou asking={state.about.asking} onAnswered={() => dispatch({ type: "about-answered" })} onSkip={() => dispatch({ type: "about-skip" })} />}
+        {state.about.shown && (
+          <AboutYou
+            asking={state.about.asking}
+            onAnswered={(answer) => dispatch({ type: "about-answered", ...("teamSize" in answer ? { teamSize: answer.teamSize } : {}) })}
+            onSkip={() => dispatch({ type: "about-skip" })}
+          />
+        )}
+        {state.about.teamSize !== undefined && <SuggestedPlan projectId={project.id} teamSize={state.about.teamSize} />}
+        {/* Once the questions are done, unless it's just them: "Just me" leaves inviting for later. */}
+        {state.about.shown && state.about.asking === null && state.about.teamSize !== "just-me" && (
+          <InviteTeam project={project} email={state.reviewer?.email ?? null} />
+        )}
       </div>
     </>
   );
+}
+
+/** Whether Critiqs has loaded with the new project yet, live. */
+function ProjectConnection({ projectId, host }: { projectId: string; host: string | null }) {
+  return <ConnectionStatus setup={useBackend().useProjectSetup(projectId)} host={host} />;
 }
 
 function BackGlyph() {
@@ -476,6 +546,20 @@ function MailGlyph() {
     <svg viewBox="0 0 24 24">
       <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="m4.5 7 7.5 6 7.5-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ExtensionGlyph() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <path
+        d="M9.5 4.5h3a1.5 1.5 0 0 1 3 0h3v4a1.5 1.5 0 0 1 0 3v4h-4a1.5 1.5 0 0 0-3 0h-4v-4a1.5 1.5 0 0 0 0-3v-4h2z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

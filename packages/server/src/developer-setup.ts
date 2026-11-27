@@ -1,5 +1,8 @@
 import {
+  backendSetting,
   DEVELOPER_INVITES_PER_PERSON_PER_DAY,
+  DEVELOPER_RESEND_AFTER_MS,
+  MAX_DEVELOPER_RESENDS,
   type DeveloperInvite,
   type DeveloperLimit,
   type DeveloperSendResult,
@@ -97,6 +100,21 @@ function retryable(attempts: readonly DeveloperAttempt[], now: number): boolean 
   return sendStatus(attempts) === "uncertain" && (attempts.length === 0 || now < attempts[0]!.at + RETRY_WINDOW_MS);
 }
 
+/**
+ * How long an attempt still waiting for the mail service's answer holds its
+ * email: no other attempt is claimed meanwhile, so presses of Send at once
+ * send one email even through a mail service that ignores idempotency keys.
+ * Longer than any send runs (a Convex action stops after 10 minutes), so it
+ * only frees an email whose sender stopped mid-send.
+ */
+export const DEVELOPER_ATTEMPT_CLAIM_MS = 15 * 60_000;
+
+/** Whether an attempt may be claimed at `now`: the email is retryable, and no attempt is still waiting for an answer. */
+function claimable(attempts: readonly DeveloperAttempt[], now: number): boolean {
+  const last = attempts.at(-1);
+  return retryable(attempts, now) && (last === undefined || last.answer !== null || now >= last.at + DEVELOPER_ATTEMPT_CLAIM_MS);
+}
+
 /** A link's scheme, or `www.`. */
 const LINK_START = /:\/\/|www\./i;
 /** A run of characters a domain-like name is made of, split at spaces, `@`, `/`, and other punctuation. */
@@ -137,7 +155,20 @@ const LIMIT_MESSAGES: Record<DeveloperLimit, (email: string) => string> = {
   person: () => `You've sent ${DEVELOPER_INVITES_PER_PERSON_PER_DAY} developer emails today. Copy the message instead.`,
   inbox: (email) => `${email} got as many emails from Critiqs as it can today. Try again tomorrow, or copy the message instead.`,
   deployment: () => "Critiqs is sending a lot of emails right now. Try again later, or copy the message instead.",
+  wait: (email) => `${email} got the steps less than a day ago. You can send them again 24 hours after the last email.`,
+  resends: (email) => `${email} was already sent the steps again ${MAX_DEVELOPER_RESENDS} times. Copy the message instead.`,
 };
+
+/** When a send's current email went out: the attempt the mail service accepted, else its first attempt, else when it was reserved. */
+function sentAt(send: DeveloperSendRecord): number {
+  return (send.attempts.find((attempt) => attempt.answer === "accepted") ?? send.attempts[0])?.at ?? send.reservedAt;
+}
+
+/** When the steps can go to a send's address again, or null when they can't (see `DeveloperSendSummary`). */
+export function resendAt(send: DeveloperSendRecord): number | null {
+  if (sendStatus(send.attempts) === "failed" || (send.resends ?? 0) >= MAX_DEVELOPER_RESENDS) return null;
+  return sentAt(send) + DEVELOPER_RESEND_AFTER_MS;
+}
 
 /** An email reserved in the transaction, for the email path to deliver once it commits. */
 export interface ReservedEmail {
@@ -164,11 +195,19 @@ export interface ReservedEmail {
  * each `sent` result's `invite` says which happened. A retried email never
  * invites: its `invite` is the developer's state now, so an invite withdrawn
  * since stays withdrawn.
+ *
+ * With `resend`, an address whose email went out (or may have) is sent the
+ * steps again instead of answering `already-sent`: 24 hours after that email
+ * (`DEVELOPER_RESEND_AFTER_MS`), at most `MAX_DEVELOPER_RESENDS` times, as a
+ * new email under the next key, counted against the person's day, the
+ * inbox's day, and the deployment's hour like any other. Too soon, or past
+ * the resends, refuses that address (`limit`, `wait` or `resends`). It
+ * doesn't count against the project's developers, and never invites.
  */
 export async function reserveDeveloperSends(
   store: Store,
   identity: Identity | null,
-  args: { projectId: string; emails: string[] },
+  args: { projectId: string; emails: string[]; resend?: boolean },
   now: number,
 ): Promise<{ results: DeveloperSendResult[]; reserved: ReservedEmail[] }> {
   const user = await requireUser(store, identity);
@@ -219,7 +258,11 @@ export async function reserveDeveloperSends(
       reserved.push({ sendId: existing._id, idempotencyKey: developerEmailKey(existing._id, existing.emailNumber) });
       return { email, status: "sent", sendId: existing._id, invite: await inviteNow(email) };
     }
-    if (existing !== null && sendStatus(existing.attempts) !== "failed") return { email, status: "already-sent", sendId: existing._id };
+    /** Sending the steps again to an address whose email went out, or may have: asked for, 24 hours after it, at most twice. */
+    const again = existing !== null && sendStatus(existing.attempts) !== "failed";
+    if (again && args.resend !== true) return { email, status: "already-sent", sendId: existing._id };
+    if (again && (existing.resends ?? 0) >= MAX_DEVELOPER_RESENDS) return { email, status: "limit", limit: "resends", message: LIMIT_MESSAGES.resends(email) };
+    if (again && now < sentAt(existing) + DEVELOPER_RESEND_AFTER_MS) return { email, status: "limit", limit: "wait", message: LIMIT_MESSAGES.wait(email) };
     if (existing === null && (await store.developerSends.forProject(project._id, MAX_DEVELOPER_INVITES_PER_PROJECT)).length >= MAX_DEVELOPER_INVITES_PER_PROJECT) {
       return { email, status: "limit", limit: "developers", message: LIMIT_MESSAGES.developers(email) };
     }
@@ -245,25 +288,38 @@ export async function reserveDeveloperSends(
           : "Organization names in setup emails can't contain web addresses. Ask an admin to rename it, or copy the message instead.",
       );
     }
-    const next = await reserve(store, existing, { projectId: project._id, email, sentBy: user._id }, now);
+    const next = await reserve(store, existing, { projectId: project._id, email, sentBy: user._id }, now, again);
     reserved.push(next);
-    return { email, status: "sent", sendId: next.sendId, invite: await invite(email) };
+    // Sending again never invites: the developer's state now, so an invite withdrawn since stays withdrawn.
+    return { email, status: "sent", sendId: next.sendId, invite: again ? await inviteNow(email) : await invite(email) };
   }
 }
 
-/** Records a new email for the address: its first, creating its record, or one that replaces a failed email, under the next key. */
+/**
+ * Records a new email for the address: its first, creating its record, or,
+ * under the next key, one that replaces a failed email or, `again`, sends the
+ * steps again after one went out, which counts as one of its resends.
+ */
 async function reserve(
   store: Store,
   existing: DeveloperSendRecord | null,
   fields: Pick<DeveloperSendRecord, "projectId" | "email" | "sentBy">,
   now: number,
+  again = false,
 ): Promise<ReservedEmail> {
   if (existing === null) {
     const sendId = await store.developerSends.insert({ ...fields, createdAt: now, reservedAt: now, emailNumber: 0, attempts: [] });
     return { sendId, idempotencyKey: developerEmailKey(sendId, 0) };
   }
   const emailNumber = existing.emailNumber + 1;
-  await store.developerSends.patch(existing._id, { sentBy: fields.sentBy, reservedAt: now, emailNumber, attempts: [], message: null });
+  await store.developerSends.patch(existing._id, {
+    sentBy: fields.sentBy,
+    reservedAt: now,
+    emailNumber,
+    attempts: [],
+    message: null,
+    ...(again ? { resends: (existing.resends ?? 0) + 1 } : {}),
+  });
   return { sendId: existing._id, idempotencyKey: developerEmailKey(existing._id, emailNumber) };
 }
 
@@ -302,7 +358,8 @@ export interface PreparedEmail {
 /**
  * Claims an attempt at the reserved email under `idempotencyKey` at `now`,
  * returning it exactly as first prepared. Null unless the email may go to
- * the mail service (`retryable`), or when its inbox reported
+ * the mail service (`retryable`) and no other attempt is still waiting for
+ * its answer (`claimable`), or when its inbox reported
  * Critiqs's email as unwanted, which is checked again here, at delivery. An
  * opted-out email never tried certainly wasn't sent, so its claim is
  * recorded as refused, which settles it `failed`; one already tried may have
@@ -317,11 +374,11 @@ export interface PreparedEmail {
  */
 export async function prepareDeveloperEmail(
   store: Store,
-  args: { sendId: string; idempotencyKey: string; setupUrl: string; reportUrl: string },
+  args: { sendId: string; idempotencyKey: string; setupUrl: string; reportUrl: string; backend?: string | null },
   now: number,
 ): Promise<PreparedEmail | null> {
   const send = await store.developerSends.get(args.sendId);
-  if (send === null || developerEmailKey(send._id, send.emailNumber) !== args.idempotencyKey || !retryable(send.attempts, now)) return null;
+  if (send === null || developerEmailKey(send._id, send.emailNumber) !== args.idempotencyKey || !claimable(send.attempts, now)) return null;
   if (await store.emailSuppressions.has(inboxOf(send.email))) {
     if (send.attempts.length === 0) await store.developerSends.patch(send._id, { attempts: [{ at: now, answer: "refused" }] });
     return null;
@@ -354,6 +411,9 @@ export async function prepareDeveloperEmail(
     setupUrl: args.setupUrl,
     reportUrl: args.reportUrl,
     joining,
+    // An email sent again, or its replacement after a failure, is a reminder; a replacement for a failed first email isn't.
+    reminder: (send.resends ?? 0) > 0,
+    backend: args.backend ?? null,
     idempotencyKey: args.idempotencyKey,
   });
   const stored: StoredMail = message;
@@ -369,7 +429,7 @@ export async function prepareDeveloperEmail(
  */
 export async function recordDeveloperEmail(
   store: Store,
-  args: { sendId: string; idempotencyKey: string; attempt: number; answer: "accepted" | "refused" },
+  args: { sendId: string; idempotencyKey: string; attempt: number; answer: "accepted" | "refused" | "unknown" },
 ): Promise<DeveloperSendStatus | null> {
   const send = await store.developerSends.get(args.sendId);
   if (send === null || developerEmailKey(send._id, send.emailNumber) !== args.idempotencyKey || send.attempts[args.attempt]?.answer !== null) return null;
@@ -384,15 +444,16 @@ export type DeveloperDelivery = "sent" | "failed" | "uncertain" | "skipped";
 /**
  * Sends one reserved email, each step in its own transaction: claim an
  * attempt, send it through the mail service under the email's key, then
- * record the answer. An answer that never came, or a refusal while another
- * attempt is unanswered, leaves the send `uncertain`, for a retry under the
- * same key. Errors other than the mail service's propagate, leaving the
- * attempt unanswered too.
+ * record the answer. An answer that never came (`unknown`), or a refusal
+ * after an earlier attempt that may have gone out, leaves the send
+ * `uncertain`, for a retry under the same key. Errors other than the mail
+ * service's propagate, leaving the attempt claimed until
+ * `DEVELOPER_ATTEMPT_CLAIM_MS` passes.
  */
 export async function deliverDeveloperEmail(steps: {
   prepare: () => Promise<PreparedEmail | null>;
   send: (message: MailMessage) => Promise<void>;
-  record: (attempt: number, answer: "accepted" | "refused") => Promise<DeveloperSendStatus | null>;
+  record: (attempt: number, answer: "accepted" | "refused" | "unknown") => Promise<DeveloperSendStatus | null>;
 }): Promise<DeveloperDelivery> {
   const prepared = await steps.prepare();
   if (prepared === null) return "skipped";
@@ -400,7 +461,8 @@ export async function deliverDeveloperEmail(steps: {
     await steps.send(prepared.message);
   } catch (error) {
     if (!(error instanceof MailError)) throw error;
-    if (!error.confirmed) return "uncertain";
+    // Ended without an answer: it may have gone out, and a retry under the same key may claim the email again.
+    if (!error.confirmed) return (await steps.record(prepared.attempt, "unknown"), "uncertain");
     return (await steps.record(prepared.attempt, "refused")) === "failed" ? "failed" : "uncertain";
   }
   await steps.record(prepared.attempt, "accepted");
@@ -428,6 +490,14 @@ export function developerSetupMessage(parts: {
   reportUrl: string;
   /** The organization the developer joins when they sign in, or null. */
   joining: string | null;
+  /** The steps sent again: the email says it is a reminder. */
+  reminder?: boolean;
+  /**
+   * The `backend` the prototype's Critiqs needs to reach this deployment,
+   * which `init <projectId>` doesn't write; null for Critiqs Cloud, the
+   * default. The email then says where to add it, as the setup page does.
+   */
+  backend?: string | null;
   idempotencyKey: string;
 }): MailMessage & { fromName: string; replyTo: string } {
   const inviter = shorten(parts.inviterName) || "Someone";
@@ -448,30 +518,37 @@ export function developerSetupMessage(parts: {
         ? `Run this in the prototype's folder. It already has the project ID, finds the framework (${listOr(PACKAGE_STACK_NAMES)}), and adds Critiqs:`
         : "Run these in the prototype's folder. They already have the project ID:";
   const joining = parts.joining === null ? null : shorten(parts.joining);
+  const own = parts.backend == null ? null : backendSetting(stack?.id ?? null, parts.backend);
+  const ownBackend = own === null ? null : `This project is on your team's own Critiqs backend, not Critiqs Cloud. Add this ${own.where}, so Critiqs connects there:`;
   const closing = (show: (text: string) => string) =>
     `You don't need anyone's approval.${joining === null ? "" : ` Sign in to Critiqs with ${show(parts.to)} to join ${show(joining)}.`} Reply to this email to reach ${show(inviter)}.`;
   const preheader = "How to add Critiqs to the prototype, so your team can comment on it.";
+  const remind = (who: string, email: string) => `A reminder: ${who} (${email}) sent you these steps before.`;
   const text = [
+    ...(parts.reminder === true ? [remind(inviter, parts.inviterEmail)] : []),
     intro(inviter, parts.inviterEmail),
     facts.map(([label, value]) => `${label}: ${value}`).join("\n"),
     `${how}\n\n${commands === null ? `${SCRIPT_TAG_GUIDE}\nProject ID: ${parts.projectId}` : commands.join("\n")}`,
+    ...(own === null ? [] : [`${ownBackend}\n\n${own.setting}`]),
     `Setup steps: ${parts.setupUrl}\n${addressNote}`,
     closing((plain) => plain),
     `Didn't expect this? Report it: ${parts.reportUrl}`,
   ].join("\n\n");
   const html = `<!doctype html><html><body style="font:15px/1.5 system-ui,sans-serif;color:#1a1a1a">
 <div style="display:none;max-height:0;overflow:hidden">${escapeHtml(preheader)}</div>
-<p>${intro(inert(inviter), inert(parts.inviterEmail))}</p>
+${parts.reminder === true ? `<p>${remind(inert(inviter), inert(parts.inviterEmail))}</p>
+` : ""}<p>${intro(inert(inviter), inert(parts.inviterEmail))}</p>
 <p>${facts.map(([label, value]) => `${escapeHtml(label)}: <strong>${inert(value)}</strong>`).join("<br>")}</p>
 <p>${escapeHtml(how)}</p>
 ${commands === null ? `<p><a href="${escapeHtml(SCRIPT_TAG_GUIDE)}">How to add the script tag</a><br>Project ID: <code>${escapeHtml(parts.projectId)}</code></p>` : `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${commands.map(escapeHtml).join("\n")}</pre>`}
+${own === null ? "" : `<p>${escapeHtml(ownBackend!)}</p>\n<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${escapeHtml(own.setting)}</pre>`}
 <p><a href="${escapeHtml(parts.setupUrl)}">Open the setup steps</a><br>${escapeHtml(addressNote)}</p>
 <p>${closing(inert)}</p>
 <p style="color:#666">Didn't expect this? <a href="${escapeHtml(parts.reportUrl)}">Report it</a>.</p>
 </body></html>`;
   return {
     to: parts.to,
-    subject: `${inviter} asked you to add Critiqs to ${project}`,
+    subject: `${parts.reminder === true ? "Reminder: " : ""}${inviter} asked you to add Critiqs to ${project}`,
     text,
     html,
     fromName: `${inviter} via Critiqs`,
@@ -495,12 +572,20 @@ export async function listDeveloperSends(store: Store, identity: Identity | null
   const project = await requireProject(store, user, args.projectId);
   if ((await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("forbidden", "Only the people who manage this project can see who it sent setup steps to.");
   const sends = await store.developerSends.forProject(project._id, MAX_DEVELOPER_INVITES_PER_PROJECT);
-  return sends.map((send) => ({
-    sendId: send._id,
-    email: send.email,
-    status: sendStatus(send.attempts),
-    lastSentAt: (send.attempts.find((attempt) => attempt.answer === "accepted") ?? send.attempts[0])?.at ?? send.reservedAt,
-  }));
+  const summaries: DeveloperSendSummary[] = [];
+  for (const send of sends) {
+    // An inbox that reported Critiqs's email gets nothing more, so it is never offered Send again.
+    const suppressed = await store.emailSuppressions.has(inboxOf(send.email));
+    summaries.push({
+      sendId: send._id,
+      email: send.email,
+      status: sendStatus(send.attempts),
+      lastSentAt: sentAt(send),
+      resendAt: suppressed ? null : resendAt(send),
+      ...(suppressed ? { suppressed: true } : {}),
+    });
+  }
+  return summaries;
 }
 
 const NO_SETUP = "This setup link doesn't exist, or it was sent to another address.";
@@ -523,7 +608,8 @@ export async function getDeveloperSetup(store: Store, identity: Identity | null,
   const theirs = sameAddress(signedIn.email!, send.email);
   if (!theirs && (await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("not-found", NO_SETUP);
   const inviter = await store.users.get(send.sentBy);
-  return { ...setupOf(project), inviterName: shorten(inviter?.name ?? "") || "Someone" };
+  const manages = theirs ? (await projectAccess(store, project, user?._id ?? null)) === "manage" : true;
+  return { ...setupOf(project, true, manages), inviterName: shorten(inviter?.name ?? "") || "Someone" };
 }
 
 /**
@@ -536,11 +622,16 @@ export async function getDeveloperSetup(store: Store, identity: Identity | null,
 export async function getProjectSetup(store: Store, identity: Identity | null, args: { projectId: string }): Promise<ProjectSetup> {
   const { user } = await currentReviewer(store, identity);
   const project = await requireProject(store, user, args.projectId);
-  return setupOf(project, (await projectAccess(store, project, user?._id ?? null)) === "manage");
+  const manages = (await projectAccess(store, project, user?._id ?? null)) === "manage";
+  return setupOf(project, manages, manages);
 }
 
-/** A project's setup, with its saved stack when `showStack`, or as if its stack were unknown. */
-function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
+/**
+ * A project's setup, with its saved stack and the origin Critiqs connected on
+ * when `showStack`; otherwise as if its stack were unknown, and with when it
+ * connected but not where. `manages`: the reader may clear Connected.
+ */
+function setupOf(project: ProjectRecord, showStack: boolean, manages: boolean): ProjectSetup {
   const stack = (showStack && STACKS.find((candidate) => candidate.id === project.onboarding?.stack)) || null;
   return {
     projectId: project._id,
@@ -548,6 +639,8 @@ function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
     address: project.reviewUrl ?? null,
     stack,
     installCommands: installCommands(project._id, stack?.id ?? null),
+    connected:
+      project.connectedAt === undefined ? null : { at: project.connectedAt, origin: showStack ? (project.connectedOrigin ?? null) : null, ...(manages ? { clearable: true } : {}) },
   };
 }
 

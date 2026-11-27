@@ -55,6 +55,10 @@ export interface ProjectRecord {
   onboarding?: ProjectOnboarding;
   /** Who can review it; absent means `anyone`. */
   reviewAccess?: ReviewAccess;
+  /** When Critiqs last loaded on a page at the project's own address (`reportConnected`); absent until then, or once its owners clear it. */
+  connectedAt?: number;
+  /** That page's origin, as its browser sent it; absent when a thread from before Connected stands for the load and its page can't be read. */
+  connectedOrigin?: string;
 }
 
 /**
@@ -154,7 +158,12 @@ export interface StoredMail {
  */
 export interface DeveloperAttempt {
   at: number;
-  answer: "accepted" | "refused" | null;
+  /**
+   * The mail service's answer: `unknown` when the attempt ended without one,
+   * so it may have gone out; null while the attempt is still waiting for it,
+   * which holds the email (`DEVELOPER_ATTEMPT_CLAIM_MS`).
+   */
+  answer: "accepted" | "refused" | "unknown" | null;
 }
 
 /** The setup email a project sent to one developer's address. */
@@ -168,8 +177,10 @@ export interface DeveloperSendRecord {
   createdAt: number;
   /** When the current email was reserved: counted, but not yet handed to the mail service. */
   reservedAt: number;
-  /** The current email's number, from 0, in its idempotency key; an email that replaces a failed one gets the next. */
+  /** The current email's number, from 0, in its idempotency key; an email that replaces a failed one, or a resend, gets the next. */
   emailNumber: number;
+  /** How many times the address was sent the steps again after an email went out (`MAX_DEVELOPER_RESENDS`); absent means none. */
+  resends?: number;
   /** The current email's attempts, oldest first; its status follows from them (`sendStatus`). */
   attempts: DeveloperAttempt[];
   /** The current email, once prepared. */
@@ -562,12 +573,15 @@ export type AiSettingsChanges = Partial<Pick<AiSettingsRecord, "enabled" | "mode
 export type PersonalAiSettingsChanges = Partial<Pick<PersonalAiSettingsRecord, "enabled" | "mode" | "epoch" | "updatedAt">> & {
   [K in ConnectionField]?: PersonalAiSettingsRecord[K] | null;
 };
-export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess" | "tags">>;
+export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess" | "tags">> & {
+  /** Sets `connectedAt` and `connectedOrigin` together; null clears both. */
+  connection?: { at: number; origin: string | null } | null;
+};
 export type DeliveryChanges = Partial<
   Pick<DeliveryRecord, "status" | "attempts" | "dueAt" | "claimToken" | "leaseUntil" | "message" | "payload" | "finishedAt" | "reason">
 >;
 /** Changes to a send record; a null message clears it, for a new email. */
-export type DeveloperSendChanges = Partial<Pick<DeveloperSendRecord, "sentBy" | "reservedAt" | "emailNumber" | "attempts">> & { message?: StoredMail | null };
+export type DeveloperSendChanges = Partial<Pick<DeveloperSendRecord, "sentBy" | "reservedAt" | "emailNumber" | "attempts" | "resends">> & { message?: StoredMail | null };
 export type PreferenceChanges = Partial<Pick<PreferenceRecord, "mentionEmails" | "replyEmails" | "mutedProjects">>;
 export type ReadStateChanges = Partial<Pick<ReadStateRecord, "lastReadAt" | "manualUnread">>;
 

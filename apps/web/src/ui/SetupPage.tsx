@@ -1,8 +1,8 @@
 import { installCommands, PROJECT_ID_PATTERN } from "@critiqs/core";
-import { type Backend, type SetupInfo, useAuth, useBackend } from "../backend.ts";
+import { type Backend, type SetupInfo, useAcceptInvites, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
 import type { QueryState } from "../shared.ts";
-import { BackendStep, Command, Heading, ScriptTagStep, SignInButton } from "./parts.tsx";
+import { BackendStep, Command, ConnectionStatus, Heading, ScriptTagStep, SendList, SignInButton, waitingForInstall } from "./parts.tsx";
 
 /**
  * The developer's setup page at /setup/<id>: after sign-in, the project, its
@@ -11,6 +11,7 @@ import { BackendStep, Command, Heading, ScriptTagStep, SignInButton } from "./pa
  */
 export function SetupPage({ id }: { id: string }) {
   const auth = useAuth();
+  useAcceptInvites();
   if (auth.reviewer === null || !auth.ready) {
     return (
       <>
@@ -89,7 +90,27 @@ export function SetupView({ state, email, onSignOut }: { state: QueryState<Setup
           {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" stack={setup.stack?.id ?? null} />}
         </div>
       )}
+      <SetupStatus state={state} setup={setup} />
       <p className="note">{copy.setup.noApproval}</p>
+    </>
+  );
+}
+
+/**
+ * Whether Critiqs has loaded on the prototype yet, live. The project's owners
+ * also see its setup emails: "Waiting for install", who they went to and
+ * when, or Not sent.
+ */
+function SetupStatus({ state, setup }: { state: QueryState<SetupInfo>; setup: SetupInfo }) {
+  // Only the project's owners can read its sends; anyone else gets an error here, and sees no list.
+  const backend = useBackend();
+  const sends = backend.useDeveloperSends(setup.projectId);
+  const waiting = sends.status === "ready" ? waitingForInstall(sends.data) : null;
+  const host = setup.address === null ? null : setup.address.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return (
+    <>
+      <ConnectionStatus setup={state} host={host} waiting={waiting ?? undefined} waitingNote={waiting === null ? copy.connection.setupWaiting : undefined} />
+      <SendList sends={sends} resend={backend.developerResends ? (email) => backend.sendDeveloperSetup(setup.projectId, [email], true) : undefined} />
     </>
   );
 }

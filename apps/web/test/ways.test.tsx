@@ -136,7 +136,7 @@ describe("My developer will: the email", () => {
   }: {
     initial: string[];
     sends?: QueryState<DeveloperSendSummary[]>;
-    send?: (emails: string[]) => Promise<DeveloperSendResult[]>;
+    send?: (emails: string[], resend?: boolean) => Promise<DeveloperSendResult[]>;
     organization?: ProjectInfo["organization"] | null;
     organizationState?: QueryState<ProjectInfo["organization"] | null>;
     onDone?: () => void;
@@ -292,6 +292,13 @@ describe("My developer will: the email", () => {
     expect(clipboard.text).toContain("Can you add Critiqs to Acme prototype");
   });
 
+  test("an address whose inbox reported Critiqs's email is never offered Send again, whether its email failed or went out", () => {
+    for (const status of ["failed", "sent"] as const) {
+      const summary = { sendId: "s1", email: "kim@acme.com", status, lastSentAt: 1, resendAt: null, suppressed: true };
+      expect(deliveryLine("kim@acme.com", summary, undefined, false)).toEqual({ text: "kim@acme.com turned off emails from Critiqs. Copy the message instead.", tone: "error", action: "copy" });
+    }
+  });
+
   test("an address the server can't use says so", () => {
     expect(deliveryLine("x@acme", undefined, { email: "x@acme", status: "invalid", message: "Enter a valid email address." })).toEqual({ text: "x@acme: Enter a valid email address.", tone: "error", action: null });
   });
@@ -372,6 +379,21 @@ describe("My developer will: the email", () => {
     await click(button(page, "Send again to dev@acme.com"));
     await settle();
     expect(sent).toEqual([["dev@acme.com"]]);
+  });
+
+  test("24 hours after an email went out, Send again sends the steps again to just that address; before then, nothing", async () => {
+    const asked: [string[], boolean | undefined][] = [];
+    const send = async (emails: string[], resend?: boolean) => (asked.push([emails, resend]), emails.map((email) => ({ email, status: "sent" as const, sendId: "s1", invite: "none" as const })));
+    const now = Date.now();
+    const sends = { status: "ready" as const, data: [summary({ resendAt: now - 1 }), summary({ sendId: "s2", email: "lee@acme.com", resendAt: now + 3_600_000 })] };
+    const page = await render(<Panel initial={["dev@acme.com", "lee@acme.com"]} sends={sends} send={send} />, { backend: fakeBackend({ developerResends: true }) });
+    expect([...page.querySelectorAll(".deliveries li")].map((row) => row.querySelector("button")?.getAttribute("aria-label") ?? null)).toEqual(["Send the steps again to dev@acme.com", null]);
+    await click(button(page, "Send the steps again to dev@acme.com"));
+    await settle();
+    expect(asked).toEqual([[["dev@acme.com"], true]]);
+    // A backend that can't send again offers nothing.
+    const older = await render(<Panel initial={["dev@acme.com"]} sends={sends} send={send} />);
+    expect(older.querySelector(".deliveries button")).toBeNull();
   });
 
   test("a refused retry of a failed email shows the refusal in place of the failure", async () => {

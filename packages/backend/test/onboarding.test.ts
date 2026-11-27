@@ -2,7 +2,9 @@ import { DEFAULT_TAGS } from "@critiqs/core";
 import { afterEach, expect, test } from "bun:test";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { reviewer, setup } from "./harness";
+import { anchor, reviewer, setup } from "./harness";
+
+const failed = { status: "failed" as const, failureReason: "Blocked" };
 
 // Onboarding on Convex: the public functions, what the schema stores, and
 // how developer setup emails go out. The rules themselves are in the shared
@@ -11,7 +13,7 @@ import { reviewer, setup } from "./harness";
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
-  for (const name of ["RESEND_API_KEY", "CRITIQS_EMAIL_FROM", "CONVEX_SITE_URL", "CRITIQS_WEB_URL"]) delete process.env[name];
+  for (const name of ["RESEND_API_KEY", "CRITIQS_EMAIL_FROM", "CONVEX_SITE_URL", "CRITIQS_WEB_URL", "CONVEX_CLOUD_URL"]) delete process.env[name];
 });
 
 /** Turns email on and captures Resend requests, answering each with the next status (200 once they run out). */
@@ -79,6 +81,7 @@ test("a setup email goes out from a scheduled action as the inviter via Critiqs,
     address: "https://acme.example/",
     stack: null,
     installCommands: [`npx critiqs init ${projectId}`],
+    connected: null,
   });
   expect(await dana.query(api.onboarding.projectSetup, { projectId })).toMatchObject({ stack: { id: "next", label: "Next.js", installable: true } });
   await expect(t.query(api.onboarding.projectSetup, { projectId })).rejects.toThrow("Sign in");
@@ -133,4 +136,70 @@ test("without email set up, or with an invalid website address, nothing is reser
   expect(await dana.query(api.onboarding.developerSends, { projectId })).toEqual([]);
   process.env.CRITIQS_WEB_URL = "https://staging.critiqs.example/";
   expect(await refusal()).toBeUndefined();
+});
+
+test("the component's report that it loaded marks the project connected, from the page's origin, and answers the same for anything", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Acme", reviewUrl: "https://acme.example" });
+  const report = (body: string, origin?: string) => t.fetch("/critiqs/connected", { method: "POST", body, headers: origin === undefined ? {} : { Origin: origin } });
+  // From the extension's panel, with no origin, or for no project: nothing changes, and every answer is the same.
+  for (const response of [await report(projectId, "chrome-extension://pfdpnmmiemejphfghkalofichdcoandg"), await report(projectId), await report("nothing", "https://acme.example"), await report("")]) {
+    expect([response.status, response.headers.get("Access-Control-Allow-Origin")]).toEqual([204, "*"]);
+  }
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
+  expect((await report(projectId, "https://acme.example")).status).toBe(204);
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toEqual({ at: expect.any(Number), origin: "https://acme.example", clearable: true });
+});
+
+test("a report from an origin the project doesn't list changes nothing; its review address does", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const projectId = await dana.mutation(api.projects.create, { name: "Acme", reviewUrl: "https://acme.example" });
+  const report = (body: string, origin: string) => t.fetch("/critiqs/connected", { method: "POST", body, headers: { Origin: origin } });
+  expect((await report(projectId, "https://evil.example")).status).toBe(204);
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
+  expect((await report(projectId, "https://acme.example")).status).toBe(204);
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toEqual({ at: expect.any(Number), origin: "https://acme.example", clearable: true });
+  // Its owner clears it.
+  await dana.mutation(api.onboarding.clearConnected, { projectId });
+  expect((await dana.query(api.onboarding.projectSetup, { projectId })).connected).toBeNull();
+});
+
+test("the backfill marks projects that already have threads connected, at their first thread, and is safe to run again", async () => {
+  const t = setup();
+  const dana = t.withIdentity(reviewer("Dana"));
+  const used = await dana.mutation(api.projects.create, { name: "Installed before", reviewUrl: "https://acme.example" });
+  const unused = await dana.mutation(api.projects.create, { name: "Never installed" });
+  await dana.mutation(api.threads.create, { projectId: used, anchor, body: "Left with the installed component", tags: [], capture: failed });
+  // As on a deployment from before Connected: the thread is there, the project never reported.
+  const threadAt = await t.run(async (ctx) => {
+    await ctx.db.patch(used as Id<"projects">, { connectedAt: undefined, connectedOrigin: undefined });
+    return (await ctx.db.query("threads").first())!.createdAt;
+  });
+  for (let run = 0; run < 2; run++) {
+    await t.mutation(internal.onboarding.backfillConnected, {});
+    await t.finishAllScheduledFunctions(() => undefined);
+  }
+  expect((await dana.query(api.onboarding.projectSetup, { projectId: used })).connected).toEqual({ at: threadAt, origin: new URL(anchor.evidence.url).origin, clearable: true });
+  expect((await dana.query(api.onboarding.projectSetup, { projectId: unused })).connected).toBeNull();
+});
+
+test("a setup email from a team's own deployment says to add that backend; Critiqs Cloud's doesn't", async () => {
+  for (const [cloud, expected] of [
+    ["https://happy-otter-123.convex.cloud", 'backend="https://happy-otter-123.convex.cloud"'],
+    ["https://brazen-snail-591.convex.cloud", null],
+  ] as const) {
+    const sent = resend();
+    process.env.CONVEX_CLOUD_URL = cloud;
+    const t = setup();
+    const dana = t.withIdentity(reviewer("Dana"));
+    const projectId = await dana.mutation(api.projects.create, { name: "Acme", reviewUrl: "https://acme.example", stack: "next" });
+    await dana.mutation(api.onboarding.sendDeveloperSetup, { projectId, emails: ["sam@example.com"] });
+    await t.finishAllScheduledFunctions(() => undefined);
+    // Only this test's email: one an earlier test scheduled may finish here too.
+    const text: string = sent.filter(({ body }) => body.to[0] === "sam@example.com" && String(body.text).includes(projectId)).at(-1)!.body.text;
+    if (expected === null) expect(text).not.toContain("own Critiqs backend");
+    else expect(text).toContain(`This project is on your team's own Critiqs backend, not Critiqs Cloud. Add this on the <Critiqs /> component init added, so Critiqs connects there:\n\n${expected}`);
+  }
 });

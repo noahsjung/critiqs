@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { MAX_PROJECT_NAME_LENGTH, type PageRequest, type Role, shortenProjectName, tagKey, type TeamSize } from "@critiqs/core";
+import { type Anchor, MAX_PROJECT_NAME_LENGTH, type PageRequest, type Role, shortenProjectName, tagKey, type TeamSize } from "@critiqs/core";
 import type {
   DeliveryRecord,
   DeveloperAttempt,
@@ -36,6 +36,7 @@ import type {
   ThreadTagRecord,
   UserRecord,
 } from "../store.ts";
+import { connectionFromThread } from "../onboarding.ts";
 import { backfillHashtags, STARTER_GROUPS, groupNameKey, threadTags, updateTextTags } from "../tags.ts";
 import type { Plan } from "../limits.ts";
 import type { SqlDriver, SqlValue } from "./driver.ts";
@@ -45,7 +46,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 20;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -549,7 +550,45 @@ export const MIGRATIONS: Migration[] = [
   CREATE INDEX projects_by_creator_organization ON projects (created_by, organization_id, seq);
   `,
   shortenLongProjectNames,
+  addConnections,
+  // How many times each developer was sent the setup steps again.
+  `
+  ALTER TABLE developer_sends ADD COLUMN resends INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
+
+/**
+ * When Critiqs last loaded with each project's ID at its own address, and on
+ * which origin, for onboarding's Connected (migration 19). A project that
+ * already has threads was installed: each was left with Critiqs on the page,
+ * since nothing else could make one before this version. It starts connected
+ * at its first thread, on that thread's page's origin, in one pass over the
+ * threads (SQLite takes a bare column from the row `MIN` picks), reading
+ * each first thread's anchor on its own. A stored
+ * anchor whose page can't be read still connects the project, with no origin,
+ * so no row can stop the upgrade.
+ */
+function addConnections(sql: SqlDriver): void {
+  sql.exec("ALTER TABLE projects ADD COLUMN connected_at INTEGER");
+  sql.exec("ALTER TABLE projects ADD COLUMN connected_origin TEXT");
+  // Each project's first thread by ID only, then its anchor one at a time, so memory doesn't hold every anchor at once.
+  const firsts = sql.all<{ project_id: string; created_at: number; id: string }>("SELECT project_id, MIN(created_at) AS created_at, id FROM threads GROUP BY project_id");
+  for (const first of firsts) {
+    const anchor = sql.get<{ anchor: string }>("SELECT anchor FROM threads WHERE id = ?", [first.id])?.anchor ?? "";
+    const { at, origin } = connectionFromThread({ createdAt: first.created_at, pageUrl: storedPageUrl(anchor) });
+    sql.run("UPDATE projects SET connected_at = ?, connected_origin = ? WHERE id = ? AND connected_at IS NULL", [at, origin, first.project_id]);
+  }
+}
+
+/** The page address a stored anchor names, or "" when it names none or can't be read. */
+function storedPageUrl(anchor: string): string {
+  try {
+    const url = (JSON.parse(anchor) as Partial<Anchor> | null)?.evidence?.url;
+    return typeof url === "string" ? url : "";
+  } catch {
+    return "";
+  }
+}
 
 /**
  * Shortens project names from before the length limit to fit it
@@ -935,6 +974,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     reservedAt: row.reserved_at,
     emailNumber: row.email_number,
     attempts: JSON.parse(row.attempts) as DeveloperAttempt[],
+    ...(row.resends === 0 ? {} : { resends: row.resends }),
     ...(row.message === null ? {} : { message: JSON.parse(row.message) as StoredMail }),
   });
   const project = (row: ProjectRow): ProjectRecord => ({
@@ -947,6 +987,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     ...(row.organization_id === null ? {} : { organizationId: row.organization_id }),
     ...(row.onboarding === null ? {} : { onboarding: JSON.parse(row.onboarding) as ProjectOnboarding }),
     reviewAccess: row.review_access === "organization" ? "organization" : "anyone",
+    ...(row.connected_at === null ? {} : { connectedAt: row.connected_at }),
+    ...(row.connected_origin === null ? {} : { connectedOrigin: row.connected_origin }),
   });
   const thread = (row: ThreadRow): ThreadRecord => ({
     _id: row.id,
@@ -1271,8 +1313,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
       insert: async (record) => {
         const id = newId("developerSends");
         sql.run(
-          `INSERT INTO developer_sends (id, project_id, email, sent_by, created_at, reserved_at, email_number, attempts, message)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO developer_sends (id, project_id, email, sent_by, created_at, reserved_at, email_number, attempts, message, resends)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             record.projectId,
@@ -1283,12 +1325,14 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
             record.emailNumber,
             json(record.attempts),
             record.message === undefined ? null : json(record.message),
+            record.resends ?? 0,
           ],
         );
         return id;
       },
       patch: async (id, changes) =>
         patch("developer_sends", id, {
+          resends: changes.resends,
           sent_by: changes.sentBy,
           reserved_at: changes.reservedAt,
           email_number: changes.emailNumber,
@@ -1360,6 +1404,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
           organization_id: changes.organizationId,
           review_access: changes.reviewAccess,
           tags: changes.tags === undefined ? undefined : JSON.stringify(changes.tags),
+          connected_at: changes.connection === undefined ? undefined : (changes.connection?.at ?? null),
+          connected_origin: changes.connection === undefined ? undefined : (changes.connection?.origin ?? null),
         }),
       listByCreator: async (userId, request) =>
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),
@@ -2097,6 +2143,7 @@ interface DeveloperSendRow {
   email_number: number;
   attempts: string;
   message: string | null;
+  resends: number;
 }
 interface InviteRow {
   seq: number;
@@ -2119,6 +2166,8 @@ interface ProjectRow {
   organization_id: string | null;
   onboarding: string | null;
   review_access: string;
+  connected_at: number | null;
+  connected_origin: string | null;
 }
 interface ProjectAddressRow {
   seq: number;

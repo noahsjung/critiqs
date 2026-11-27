@@ -959,6 +959,65 @@ server with outbound traffic limited to the public internet, or turn the check
 off with `createCritiqsHandler({ addressCheck: false })`, which `/critiqs/config`
 reports as `addressCheck: false`. Critiqs Cloud keeps the check on.
 
+**Built: Connected.** Onboarding on the Critiqs website says when Critiqs
+loads on the prototype at the project's own address. The component, on the
+prototype's own `http:` or `https:` page, posts the project ID as plain text
+to `/critiqs/connected` (no preflight), at most once an hour per browser,
+before anyone signs in. The backend reads at most 200 bytes of the body. It
+counts a report only when the origin the browser sent is the project's
+review address or matches its address list, with the same matching the
+extension's lookup uses, so anyone who knows a project's ID can claim
+nothing but an address its owners listed, and a developer's own computer or
+the extension's side panel doesn't count. It keeps the latest such load, as
+`connectedAt` and that origin (`connectedOrigin`), writing at most once every
+ten minutes per project and inserting nothing, so a wrong record is replaced
+by the next real load and no table grows. It keeps the origin as the lookup
+compares it, so a host written with its final dot is kept without it. A
+report that can't count whatever the project (no origin, one that isn't a
+web page's, or a body that can't be a project ID) is dropped by the route
+itself (`connectionReport`) before anything reads the database; on Convex
+that is the HTTP action alone, with no mutation after it. Convex runs an
+HTTP action for every request to the route and offers no request filtering
+or rate limiting in front of functions; a per-client limit would need a
+database write per report, which costs more than it saves. A deployment
+that needs more puts its own Cloudflare zone or Vercel firewall in front of
+its `.convex.site` address, as Convex's abuse protection guide describes.
+Every report gets the same empty answer, so it reveals no project. The project's owners can clear it
+(`clearConnected`). A project that already had threads before this version
+was installed: SQLite marks it connected at its first thread, on that
+thread's page's origin, when it upgrades to schema version 19; on Convex,
+run `npx convex run onboarding:backfillConnected` once after deploying.
+Setup pages return it as `connected`, with the origin only for the
+project's owners and the developer a setup email went to, and `clearable`
+for its owners. `/critiqs/config` reports `connections`; the component
+reports only where it does. The website shows it live on the setup screen
+and the setup page; nothing is emailed, since no notification rule covers
+it.
+
+**Built: sending setup steps again.** A project's owners can send a
+developer the steps again 24 hours after their last email went out, at most
+twice (`DEVELOPER_RESEND_AFTER_MS`, `MAX_DEVELOPER_RESENDS`). They ask for it
+with `resend` on `sendDeveloperSetup`; without it an address that got its
+email still answers `already-sent`. Each resend is a new email under the next
+idempotency key, counted against the person's day, the inbox's day, and the
+deployment's hour like any other, and checked against the suppression list.
+It doesn't count against the project's three developers, and never invites
+again. Too soon or past the resends refuses that address as a `limit`
+(`wait`, `resends`). A failed email is still sent again at once and uses no
+resend. `developerSends` says when each address can be sent them again
+(`resendAt`, null when it can't, and for an inbox that reported Critiqs's
+email, which `suppressed` marks), and `/critiqs/config` reports
+`developerResends`. An email that sends the steps again says it is a
+reminder in its subject and first line; when one fails, its replacement is
+still that resend. The website shows Send again on the setup page and in
+onboarding once that time comes, and says when before then.
+Every email is claimed in the store before it goes to the mail service: an
+attempt still waiting for its answer holds the email
+(`DEVELOPER_ATTEMPT_CLAIM_MS`), so presses of Send or Send again at once send
+one email, even through a host's own mail service that ignores idempotency
+keys. An attempt that ends without an answer is recorded as `unknown`, and a
+later retry may claim the email again under the same key.
+
 **Proposed, built in the pilot:** Critiqs renders in its own React root inside a
 shadow root, so its events, contexts, and styles stay separate from the host
 app's. In Comment mode pointer and keyboard events are stopped before the

@@ -3,6 +3,11 @@ import {
   AVAILABLE_WAYS,
   backendSetting,
   type AddressCheck,
+  type BillingPlan,
+  planCovers,
+  type PlanIncludes,
+  suggestedPlan,
+  TEAM_SIZES,
   classifyAddress,
   detectStack,
   developerMessage,
@@ -631,30 +636,32 @@ describe("recommendation", () => {
 
   test("follows the answers and the address check", () => {
     const cases: [string, OnboardingAnswers, AddressCheck, ReadonlySet<Way>, ReturnType<typeof recommend>][] = [
-      ["can change the code", { codeAccess: "self" }, publicCheck, ALL, { primary: "install", others: ["review-link", "send-to-developer"], reason: "can-change-code" }],
+      ["can change the code", { codeAccess: "self" }, publicCheck, ALL, { primary: "install", others: ["review-link", "extension", "send-to-developer"], reason: "can-change-code" }],
       ["can change the code, local", { codeAccess: "self" }, { kind: "local" }, ALL, { primary: "install", others: ["extension", "share-build", "send-to-developer"], reason: "can-change-code" }],
       ["an engineer who skipped the question", { role: "engineer" }, { kind: "blocked" }, ALL, { primary: "install", others: ["allow-critiqs", "extension", "send-to-developer"], reason: "can-change-code" }],
-      ["an engineer who said No", { role: "engineer", codeAccess: "nobody" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "install"], reason: "no-code-access" }],
-      ["a teammate, public", { codeAccess: "teammate" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "install"], reason: "someone-else-changes-code" }],
+      ["an engineer who said No", { role: "engineer", codeAccess: "nobody" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "extension", "install"], reason: "no-code-access" }],
+      ["a teammate, public", { codeAccess: "teammate" }, publicCheck, ALL, { primary: "send-to-developer", others: ["review-link", "extension", "install"], reason: "someone-else-changes-code" }],
       [
         "a teammate, clients reviewing a public page",
         { codeAccess: "teammate", feedbackFrom: ["clients"] },
         publicCheck,
         ALL,
-        { primary: "send-to-developer", others: ["review-link", "install"], reason: "someone-else-changes-code" },
+        { primary: "send-to-developer", others: ["review-link", "extension", "install"], reason: "someone-else-changes-code" },
       ],
       ["a teammate, behind a sign-in", { codeAccess: "teammate" }, checks[1]!, ALL, { primary: "send-to-developer", others: ["extension", "share-build", "install"], reason: "someone-else-changes-code" }],
       ["a teammate, local", { codeAccess: "teammate" }, { kind: "local" }, ALL, { primary: "send-to-developer", others: ["extension", "share-build", "install"], reason: "someone-else-changes-code" }],
       ["nobody, blocked", { codeAccess: "nobody" }, { kind: "blocked" }, ALL, { primary: "send-to-developer", others: ["allow-critiqs", "extension", "install"], reason: "no-code-access" }],
       ["nobody, unreachable", { codeAccess: "nobody" }, { kind: "unreachable" }, ALL, { primary: "send-to-developer", others: ["extension", "share-build", "install"], reason: "no-code-access" }],
-      ["skipped, public", {}, publicCheck, ALL, { primary: "install", others: ["send-to-developer", "review-link"], reason: "install-is-default" }],
+      ["skipped, public", {}, publicCheck, ALL, { primary: "install", others: ["send-to-developer", "review-link", "extension"], reason: "install-is-default" }],
       ["a designer who skipped, blocked", { role: "designer" }, { kind: "blocked" }, ALL, { primary: "install", others: ["send-to-developer", "allow-critiqs", "extension"], reason: "install-is-default" }],
-      // Today's ways.
-      ["can change the code, today", { codeAccess: "self" }, publicCheck, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer"], reason: "can-change-code" }],
-      ["a teammate, today", { codeAccess: "teammate" }, checks[1]!, AVAILABLE_WAYS, { primary: "send-to-developer", others: ["install"], reason: "someone-else-changes-code" }],
-      ["skipped, today", {}, { kind: "local" }, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer"], reason: "install-is-default" }],
+      // Today's ways: the extension stands in for review links on a public page.
+      ["can change the code, today", { codeAccess: "self" }, publicCheck, AVAILABLE_WAYS, { primary: "install", others: ["extension", "send-to-developer"], reason: "can-change-code" }],
+      ["a teammate, today", { codeAccess: "teammate" }, checks[1]!, AVAILABLE_WAYS, { primary: "send-to-developer", others: ["extension", "install"], reason: "someone-else-changes-code" }],
+      ["skipped, today", {}, { kind: "local" }, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer", "extension"], reason: "install-is-default" }],
+      ["skipped, no address yet, today", {}, { kind: "none" }, AVAILABLE_WAYS, { primary: "install", others: ["send-to-developer"], reason: "install-is-default" }],
       // A missing way gives its place to the next.
       ["a teammate, without sending", { codeAccess: "teammate" }, publicCheck, new Set<Way>(["review-link"]), { primary: "review-link", others: ["install"], reason: "someone-else-changes-code" }],
+      ["a teammate, with only the extension", { codeAccess: "teammate" }, publicCheck, new Set<Way>(["extension"]), { primary: "extension", others: ["install"], reason: "someone-else-changes-code" }],
       ["nobody, with nothing else offered", { codeAccess: "nobody" }, { kind: "blocked" }, new Set<Way>(), { primary: "install", others: [], reason: "no-code-access" }],
     ];
     for (const [name, answers, check, available, expected] of cases) expect([name, recommend(answers, check, available)]).toEqual([name, expected]);
@@ -815,5 +822,35 @@ describe("backendSetting", () => {
       wordpress: `data-backend="${url}"`,
     });
     expect(backendSetting(null, url)).toEqual({ where: expect.stringContaining("README"), setting: url });
+  });
+});
+
+describe("the suggested plan", () => {
+  const plans = (free: number | null, plus: number | null, pro: number | null): Record<BillingPlan, PlanIncludes> => ({
+    free: { label: "Free", limits: [{ metric: "reviewers", period: "month", max: free }] },
+    plus: { label: "Plus", limits: [{ metric: "reviewers", period: "month", max: plus }] },
+    pro: { label: "Pro", limits: [{ metric: "reviewers", period: "month", max: pro }] },
+  });
+
+  test("the smallest plan whose monthly reviewers fit the most people a team size can mean", () => {
+    const builtIn = plans(5, 25, null);
+    expect(TEAM_SIZES.map((size) => [size, suggestedPlan(size, builtIn)])).toEqual([
+      ["just-me", "free"],
+      ["2-5", "free"],
+      ["6-20", "plus"],
+      ["21-100", "pro"],
+      ["over-100", "pro"],
+    ]);
+  });
+
+  test("follows the deployment's own plans: a plan that limits no reviewers fits any team", () => {
+    expect(suggestedPlan("21-100", plans(5, null, null))).toBe("plus");
+    expect(suggestedPlan("over-100", plans(5, 25, 500))).toBe("pro");
+    expect(suggestedPlan("6-20", plans(null, 25, null))).toBe("free");
+    expect(suggestedPlan("2-5", { ...plans(5, 25, null), free: { label: "Free", limits: [] } })).toBe("free");
+  });
+
+  test("whether a plan covers another, Free < Plus < Pro", () => {
+    expect([planCovers("pro", "plus"), planCovers("plus", "plus"), planCovers("free", "plus")]).toEqual([true, true, false]);
   });
 });
