@@ -1,6 +1,6 @@
 import { isPrivateReviewAddress, type LinkTarget, MAX_REVIEW_URL_LENGTH, reviewLink, threadPageLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
 import { fail } from "./errors.ts";
-import { useQuota } from "./limits.ts";
+import { countWithinAll, useQuota, utcDay } from "./limits.ts";
 import { canOpenThreadPage, canReview, projectQuota, projectTeam } from "./organizations.ts";
 import { type EmailEntry, type EmailHeader, type EmailImage, emailImage, MentionEmail } from "./mention-email.ts";
 import { threadTickets } from "./operations.ts";
@@ -41,6 +41,11 @@ export async function touchParticipant(store: Store, projectId: string, userId: 
 export const MAX_MENTION_LABEL = 80;
 /** Most mentions and replies one email reports; further ones start another email. */
 export const MAX_PER_DELIVERY = 50;
+/**
+ * Daily safety cap on mention and reply emails per project across every plan,
+ * including paid plans without a lower advertised email limit.
+ */
+export const MAX_MENTION_EMAILS_PER_PROJECT_DAY = 1_000;
 /** People told about a reply per step of the background job; each may need a few reads and writes. */
 export const REPLY_EMAIL_PAGE = 100;
 /** How long finished deliveries are kept before cleanup. */
@@ -304,11 +309,17 @@ async function enqueue(
       // Every notice counts toward the email's limit, which sending and cleanup read up to.
       if (gathered.length >= MAX_PER_DELIVERY) delivery = null;
     }
-    // A new email counts against the plan's email allowance; over it, the mention
-    // still shows in Critiqs and only the email is left out.
+    // A new email counts against the daily per-project safety cap and the plan's
+    // email allowance; over either, the mention still shows in Critiqs and only
+    // the email is left out. Check the safety cap before `useQuota` so dropped
+    // emails never inflate `mentionEmails` plan usage counters.
     if (delivery === null) {
-      const allowed = await useQuota(store, { ...quota, metric: "mentionEmails", now: Date.now(), soft: true });
+      const day = Date.now();
+      const safetyKey = `mention-email-safety:${args.project._id}:${utcDay(day)}`;
+      if (((await store.usage.find(safetyKey))?.count ?? 0) >= MAX_MENTION_EMAILS_PER_PROJECT_DAY) continue;
+      const allowed = await useQuota(store, { ...quota, metric: "mentionEmails", now: day, soft: true });
       if (!allowed) continue;
+      if (!(await countWithinAll(store, [[safetyKey, MAX_MENTION_EMAILS_PER_PROJECT_DAY]]))) continue;
     }
     const deliveryId =
       delivery?._id ??
