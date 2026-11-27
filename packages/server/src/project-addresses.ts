@@ -21,9 +21,8 @@ import type { Identity, ProjectAddressRecord, ProjectRecord, Store } from "./sto
 // Lists aren't unique across Critiqs, and nothing tells anyone whether
 // another project lists an origin.
 
-/** Organizations, and opened projects, the lookup searches for one person. */
+/** Organizations the lookup searches for one person. */
 const MAX_ORGANIZATIONS_SEARCHED = 100;
-const MAX_OPENED_SEARCHED = 100;
 /**
  * Addresses read for one key in one organization: few for an exact origin,
  * where the first matches are enough; more for a pattern key, which many
@@ -42,8 +41,6 @@ const MAX_CANDIDATES = 50;
  * far above what the lookup searches.
  */
 const MAX_MEMBERSHIPS_LISTED = 500;
-/** How often recording an opened project again updates when it was opened. */
-const OPENED_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 const OWNERS_ONLY = "Only the project's owners can change or see its address list.";
 
@@ -261,18 +258,13 @@ export async function getProjectAddresses(store: Store, identity: Identity | nul
 }
 
 /**
- * Records that the signed-in person opened a project through an install, so
- * the lookup searches it too. The installed component calls it once per
- * session and project; review links will too. Thread pages never do. Running
- * it again usually writes nothing.
+ * Compatibility no-op for older components that still call `recordProjectOpened`.
+ * Extension project discovery searches only organizations the signed-in person
+ * belongs to, never projects merely opened by outsiders.
  */
 export async function recordProjectOpened(store: Store, identity: Identity | null, args: { projectId: string }): Promise<void> {
   const user = await requireUser(store, identity);
-  const project = await requireProject(store, user, args.projectId);
-  const now = Date.now();
-  const opened = await store.openedProjects.find(user._id, project._id);
-  if (opened === null) await store.openedProjects.insert({ userId: user._id, projectId: project._id, openedAt: now });
-  else if (now - opened.openedAt >= OPENED_REFRESH_MS) await store.openedProjects.patch(opened._id, { openedAt: now });
+  await requireProject(store, user, args.projectId);
 }
 
 /**
@@ -288,7 +280,7 @@ export async function recordProjectOpened(store: Store, identity: Identity | nul
 export async function findProjectsForOrigin(store: Store, identity: Identity | null, args: { origin: string }): Promise<ProjectLookup> {
   const { user } = await currentReviewer(store, identity);
   const keys = originLookupKeys(args.origin);
-  // Someone with no record yet belongs to no organization and opened nothing.
+  // Someone with no record yet belongs to no organization.
   if (user === null || keys === null) return { status: "none" };
 
   const exact = new Map<string, ProjectAddressRecord>();
@@ -311,17 +303,11 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
       collect(rows);
     }
   }
-  for (const opened of await store.openedProjects.recent(user._id, MAX_OPENED_SEARCHED)) {
-    for (const [key] of searchKeys) collect(await store.projectAddresses.inProject(opened.projectId, key));
-  }
 
   // Each candidate is checked again here, the one place that decides who may find a project.
   // An exact origin wins over a pattern, except on an ambiguous origin, where every match is a choice.
   const tiers = keys.ambiguous ? [new Map([...patterns, ...exact])] : [exact, patterns];
   const found: ProjectRecord[] = [];
-  // Whether a match came only from a pattern of a project the person merely opened: its owners chose the pattern, not
-  // the person, so it is offered as a choice, never shown at once.
-  let openedPattern = false;
   for (const rows of tiers) {
     if (rows.size > MAX_CANDIDATES) partial = true;
     for (const row of [...rows.values()].slice(0, MAX_CANDIDATES)) {
@@ -329,14 +315,13 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
       const how = project === null ? null : await mayFind(store, project, row, user._id);
       if (how === null) continue;
       found.push(project!);
-      if (how === "opened" && !exact.has(row.projectId)) openedPattern = true;
     }
     if (found.length > 0) break;
   }
   if (found.length === 0) return { status: "none" };
   found.sort((a, b) => a.name.localeCompare(b.name) || (a._id < b._id ? -1 : 1));
   const projects = await Promise.all(found.slice(0, MAX_LOOKUP_CHOICES).map((project) => projectInfo(store, project, user._id)));
-  return projects.length === 1 && !keys.ambiguous && !partial && !openedPattern ? { status: "found", project: projects[0]! } : { status: "choose", projects };
+  return projects.length === 1 && !keys.ambiguous && !partial ? { status: "found", project: projects[0]! } : { status: "choose", projects };
 }
 
 /** What the lookup searches for a page's origin (`originLookupKeys`). */
@@ -397,16 +382,13 @@ function reviewOrigin(reviewUrl: string): string | null {
 }
 
 /**
- * How the lookup may return a project whose address matched: the person
- * belongs to the organization that owns it, or opened it through an install;
- * null when it may not.
+ * How the lookup may return a project whose address matched: only when the
+ * person belongs to the organization that owns it; null when it may not.
  * A project limited to its organization is found only by someone who may
  * still review it, so one the person may no longer review isn't found.
  */
-async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<"member" | "opened" | null> {
+async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<"member" | null> {
   if (!isCurrent(project, row)) return null;
-  // A project limited to its organization isn't found by someone who opened it before the limit.
   if (!(await canReview(store, project, userId))) return null;
-  if ((await store.memberships.find(row.organizationId, userId)) !== null) return "member";
-  return (await store.openedProjects.find(userId, project._id)) !== null ? "opened" : null;
+  return (await store.memberships.find(row.organizationId, userId)) !== null ? "member" : null;
 }

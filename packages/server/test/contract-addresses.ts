@@ -202,14 +202,14 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
     await expect(backend.run((store) => projectAddresses.getProjectAddressNotes(store, lee, { projectId }))).rejects.toMatchObject({ code: "forbidden" });
   });
 
-  test(`${name}: a pattern reached only through a project the person opened asks which project, never shows it at once`, async () => {
+  test(`${name}: outsiders never discover a project by origin even after calling recordProjectOpened`, async () => {
     const backend = fresh();
     const projectId = await create(backend, dana, "Dana's");
     await setList(backend, dana, projectId, ["https://*-acme.vercel.app", "https://exact.acme.com"]);
     await opened(backend, lee, projectId);
-    expect(await found(backend, lee, "https://pr-1-acme.vercel.app")).toEqual({ status: "choose", names: ["Dana's"] });
-    // An exact origin, or a member of the organization, still finds it at once.
-    expect(await found(backend, lee, "https://exact.acme.com")).toEqual({ status: "found", names: ["Dana's"] });
+    expect(await lookup(backend, lee, "https://pr-1-acme.vercel.app")).toEqual({ status: "none" });
+    expect(await lookup(backend, lee, "https://exact.acme.com")).toEqual({ status: "none" });
+    // A member of the organization still finds it at once.
     expect(await found(backend, dana, "https://pr-1-acme.vercel.app")).toEqual({ status: "found", names: ["Dana's"] });
   });
 
@@ -268,7 +268,7 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
     await expect(lookup(backend, { ...kim, emailVerified: false }, "https://acme.com")).rejects.toMatchObject({ code: "email-unverified" });
   });
 
-  test(`${name}: a project opened through an install is found; reading its threads by link isn't enough`, async () => {
+  test(`${name}: recordProjectOpened is a compatibility no-op; outsiders never discover a project by origin`, async () => {
     const backend = fresh();
     const acme = await create(backend, dana, "Acme");
     const rival = await create(backend, lee, "Rival");
@@ -278,28 +278,26 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
       ops.createThread(store, lee, { projectId: rival, anchor, body: "Spacing", tags: [], capture: { status: "failed", failureReason: "Blocked" } }),
     );
 
-    // A thread page's link can be forwarded to people who never reached the prototype.
     await backend.run((store) => ops.getThread(store, kim, { threadId }, { numItems: 40, cursor: null }));
     expect(await lookup(backend, kim, "https://rival.example.com")).toEqual({ status: "none" });
 
     await opened(backend, kim, acme);
-    expect(await found(backend, kim, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
+    expect(await lookup(backend, kim, "https://acme.example.com")).toEqual({ status: "none" });
     expect(await lookup(backend, kim, "https://rival.example.com")).toEqual({ status: "none" });
     await expect(opened(backend, kim, "not-a-project")).rejects.toMatchObject({ code: "not-found" });
     await expect(opened(backend, null as unknown as Identity, acme)).rejects.toMatchObject({ code: "unauthenticated" });
   });
 
-  test(`${name}: a project limited to its organization isn't found by someone who opened it, and refuses them its address operations`, async () => {
+  test(`${name}: a project limited to its organization refuses outsiders its address operations while members still find it`, async () => {
     const backend = fresh();
     const acme = await create(backend, dana, "Acme");
     await setList(backend, dana, acme, ["https://acme.example.com"]);
     await join(backend, lee, acme, "member");
     await opened(backend, kim, acme);
-    expect(await found(backend, kim, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
+    expect(await lookup(backend, kim, "https://acme.example.com")).toEqual({ status: "none" });
 
     await backend.run((store) => ops.setReviewAccess(store, dana, { projectId: acme, reviewAccess: "organization" }));
 
-    // Kim's earlier open no longer counts, and the lookup answers as for an origin no project lists.
     expect(await lookup(backend, kim, "https://acme.example.com")).toEqual({ status: "none" });
     const refused = { code: "forbidden", message: ORGANIZATION_ONLY };
     await expect(opened(backend, kim, acme)).rejects.toMatchObject(refused);
@@ -308,17 +306,12 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
     await expect(backend.run((store) => addProjectAddress(store, kim, { projectId: acme, address: "https://kim.example.com" }))).rejects.toMatchObject(refused);
     await expect(backend.run((store) => removeProjectAddress(store, kim, { projectId: acme, address: "https://acme.example.com" }))).rejects.toMatchObject(refused);
 
-    // Members still find it, its owner still manages it, and the list is unchanged.
     expect(await found(backend, lee, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
     expect(await found(backend, dana, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
     expect(await backend.run((store) => getProjectAddresses(store, dana, { projectId: acme }))).toEqual(["https://acme.example.com"]);
-
-    // Opening it to anyone again lets Kim's earlier open count again.
-    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId: acme, reviewAccess: "anyone" }));
-    expect(await found(backend, kim, "https://acme.example.com")).toEqual({ status: "found", names: ["Acme"] });
   });
 
-  test(`${name}: recording an opened project again keeps one record and usually writes nothing`, async () => {
+  test(`${name}: recordProjectOpened writes no openedProjects records`, async () => {
     const backend = fresh();
     const acme = await create(backend, dana, "Acme");
     const start = Date.UTC(2026, 10, 1, 12);
@@ -329,13 +322,7 @@ export function defineAddressContract(name: string, fresh: () => ContractBackend
       });
     setSystemTime(new Date(start));
     await opened(backend, kim, acme);
-    setSystemTime(new Date(start + 60 * 60 * 1000));
-    await opened(backend, kim, acme);
-    expect(await records()).toEqual([{ projectId: acme, openedAt: start }]);
-    const later = start + 25 * 60 * 60 * 1000;
-    setSystemTime(new Date(later));
-    await opened(backend, kim, acme);
-    expect(await records()).toEqual([{ projectId: acme, openedAt: later }]);
+    expect(await records()).toEqual([]);
   });
 
   test(`${name}: an exact origin wins over a pattern, and a pattern covers part of one label`, async () => {

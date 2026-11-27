@@ -129,7 +129,6 @@ export function fakeBackend(
     renewReviewLease: record("renewReviewLease", overrides.renewReviewLease ?? (async () => ({ kind: "renewed", expiresAt: Date.now() + 600_000 }) as const)),
     useReviewLease: overrides.useReviewLease ?? (() => ({ status: "ready", data: { kind: "live" } }) as const),
     adoptReviewLease: record("adoptReviewLease", overrides.adoptReviewLease ?? (async () => ({ kind: "ended" }) as const)),
-    recordReviewOpened: record("recordReviewOpened", overrides.recordReviewOpened ?? (async () => {})),
     useReviewLinks: (projectId) => (projectId === null ? loading : (overrides.useReviewLinks?.(projectId) ?? { status: "ready", data: [] })),
     createReviewLink: record("createReviewLink", overrides.createReviewLink ?? (async () => { throw new Error("Not offered"); })),
     copyReviewLink: record("copyReviewLink", overrides.copyReviewLink ?? (async () => "http://localhost/r/key")),

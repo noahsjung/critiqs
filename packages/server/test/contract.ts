@@ -936,7 +936,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     for (const [threadId, messages] of byThread) {
       const key = await pageKeyOf(backend, threadId);
       expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
-      const link = `https://critiqs.example/app/t/${key}`;
+      const link = `https://critiqs.example/app/t#${key}`;
       for (const message of messages) {
         expect(message.text).toContain(`Open the comment: ${link}\n`);
         expect(message.html).toContain(`<a href="${link}"`);
@@ -978,7 +978,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(sends).toHaveLength(1);
     const key = await pageKeyOf(backend, threadId);
     expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(sends[0]!.message.text).toContain(`Open the comment: https://critiqs.example/app/t/${key}\n`);
+    expect(sends[0]!.message.text).toContain(`Open the comment: https://critiqs.example/app/t#${key}\n`);
     // Share gives the same key, and the page opens for Lee, who was mentioned.
     expect(await backend.run((store) => ops.threadPageKey(store, dana, { threadId }))).toBe(key!);
     const opened = await backend.run((store) => ops.getThreadPage(store, lee, { key: key! }, page));
@@ -1020,7 +1020,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     // The worker records who is in the thread before its next try, and Lee's link then opens.
     const second = await sendDue(backend, now + 60_000, "second", { website: WEBSITE });
     expect(second.sends).toHaveLength(1);
-    expect(second.sends[0]!.message.text).toContain(`Open the comment: https://critiqs.example/app/t/${key}\n`);
+    expect(second.sends[0]!.message.text).toContain(`Open the comment: https://critiqs.example/app/t#${key}\n`);
     expect((await backend.run((store) => ops.getThreadPage(store, lee, { key: key! }, page))).page.map((message) => message.body)).toEqual(["@Lee old question"]);
   });
 
@@ -1043,7 +1043,7 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(deferred).toEqual([]);
     expect(sends.map((send) => send.deliveryId)).toEqual([deliveryId]);
     expect(sends[0]!.message.text).toContain(`Open the comment: https://proto.example/app?critiqs=${threadId}.`);
-    expect(sends[0]!.message.text).not.toContain("critiqs.example/app/t/");
+    expect(sends[0]!.message.text).not.toContain("critiqs.example/app/t#");
   });
 
   test(`${name}: an email shows the whole discussion in order, beyond one page, with authors, times, and links`, async () => {

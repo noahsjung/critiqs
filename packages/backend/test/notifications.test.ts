@@ -106,8 +106,8 @@ test("with CRITIQS_WEB_URL, mention and reply emails link to the thread's page, 
   expect(subjects).toEqual(["Dana mentioned you: “Look” · Pilot review", "Dana replied: “Older” · Pilot review"]);
   for (const mail of sent) {
     const thread = mail.body.subject.startsWith("Dana mentioned") ? threadId : older;
-    expect(mail.body.text).toContain(`Open the comment: https://critiqs.example/t/${keys[thread]}\n`);
-    expect(mail.body.html).toContain(`href="https://critiqs.example/t/${keys[thread]}"`);
+    expect(mail.body.text).toContain(`Open the comment: https://critiqs.example/t#${keys[thread]}\n`);
+    expect(mail.body.html).toContain(`href="https://critiqs.example/t#${keys[thread]}"`);
     expect(mail.raw).not.toContain("critiqs=");
     expect(mail.raw).not.toContain(thread);
   }
@@ -130,6 +130,7 @@ test("without CRITIQS_WEB_URL, emails link to the prototype and an older thread 
   expect(sent).toHaveLength(1);
   expect(sent[0].body.text).toContain(`https://proto.example/?critiqs=${threadId}.`);
   expect(sent[0].raw).not.toContain("/t/");
+  expect(sent[0].raw).not.toContain("/t#");
   expect(await t.run(async (ctx) => "pageKey" in (await ctx.db.get(threadId))!)).toBe(false);
 });
 
@@ -433,7 +434,7 @@ test("with CRITIQS_WEB_URL, a full batch of emails about large threads is claime
     clock.mockRestore();
   }
   expect(sent).toHaveLength(25);
-  for (const mail of sent) expect(mail.body.text).toMatch(/Open the comment: https:\/\/critiqs\.example\/t\/[A-Za-z0-9_-]{22}\n/);
+  for (const mail of sent) expect(mail.body.text).toMatch(/Open the comment: https:\/\/critiqs\.example\/t#[A-Za-z0-9_-]{22}\n/);
 }, 60_000);
 
 test("with CRITIQS_WEB_URL, an email about a thread from before its people were recorded waits a minute for them, without using an attempt", async () => {
@@ -473,7 +474,7 @@ test("with CRITIQS_WEB_URL, an email about a thread from before its people were 
   }
   expect(sent).toHaveLength(1);
   const key = await t.run(async (ctx) => (await ctx.db.get(threadId))!.pageKey);
-  expect(sent[0].body.text).toContain(`Open the comment: https://critiqs.example/t/${key}\n`);
+  expect(sent[0].body.text).toContain(`Open the comment: https://critiqs.example/t#${key}\n`);
 });
 
 test("a deferred email is given back at once, not after the rest of its batch, so a slow send can't let another worker use up its attempts", async () => {

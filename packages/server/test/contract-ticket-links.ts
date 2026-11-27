@@ -1034,7 +1034,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
       const linear = linearStandIn("https://linear.test", [{ id: "issue-9", identifier: "ENG-9", title: "Existing", teamId: "team-eng", state: { name: "Todo", type: "unstarted" } }]);
       for (const id of [threadId, bare.threadId]) {
         const key = (await backend.run((store) => store.threads.get(id)))!.pageKey!;
-        const pageLink = `https://critiqs.example/t/${key}`;
+        const pageLink = `https://critiqs.example/t#${key}`;
         const filled = await draft(backend, dana, id);
         expect(rendered(filled.body)).toEqual([pageLink]);
         linear.attachments.length = 0;
@@ -1064,7 +1064,7 @@ export function defineTicketLinkContract(name: string, fresh: () => ContractBack
       const filled = await draft(backend, dana, threadId);
       const key = (await backend.run((store) => store.threads.get(threadId)))!.pageKey;
       expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
-      expect(rendered(filled.body)).toEqual([`https://critiqs.example/t/${key}`]);
+      expect(rendered(filled.body)).toEqual([`https://critiqs.example/t#${key}`]);
     } finally {
       website = null;
     }

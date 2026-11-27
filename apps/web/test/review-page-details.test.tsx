@@ -120,6 +120,24 @@ describe("Copy link", () => {
     expect(written).toEqual([`http://localhost:5970/r/${KEY}`]);
     expect(text(container)).toContain("Copied");
   });
+  test("hides the project name and create form from signed-in outsiders", async () => {
+    const projectAsked: (string | null)[] = [];
+    const backend = fakeBackend({
+      reviewLinks: { version: 1, live: true, builds: false, allowCritiqs: false },
+      useReviewLinks: () => ({ status: "error", code: "forbidden", message: "Only the project's owners can manage its review links." }),
+      useProject: (projectId: string | null) => {
+        projectAsked.push(projectId);
+        return projectId === null
+          ? { status: "loading" }
+          : { status: "ready", data: { _id: "p1", name: "Secret Prototype", reviewUrl: "https://shop.example.com/" } };
+      },
+    } as never);
+    const container = await render(<ReviewLinksPage projectId="p1" />, { backend });
+    await settle();
+    expect(projectAsked.every((id) => id === null)).toBe(true);
+    expect(text(container)).not.toContain("Secret Prototype");
+    expect(text(container)).toContain("Only the project's owners can manage its review links.");
+  });
 });
 
 describe("the address bar and Share", () => {

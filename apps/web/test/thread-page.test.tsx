@@ -69,11 +69,14 @@ function typeInto(field: Element | null, value: string) {
 }
 
 describe("the route", () => {
-  test("/t/<key> is a thread page; anything deeper is not", () => {
+  test("/t#<key> and legacy /t/<key> are thread pages; anything deeper is not", () => {
+    expect(routeOf("/t", "", `#${KEY}`)).toEqual({ page: "thread", key: KEY });
+    expect(routeOf("/t/", "", `#${KEY}`)).toEqual({ page: "thread", key: KEY });
     expect(routeOf(`/t/${KEY}`)).toEqual({ page: "thread", key: KEY });
     expect(routeOf(`/t/${KEY}/`)).toEqual({ page: "thread", key: KEY });
     expect(routeOf(`/t/${KEY}/more`)).toEqual({ page: "start" });
     expect(routeOf("/t/")).toEqual({ page: "start" });
+    expect(routeOf("/t", "", "")).toEqual({ page: "start" });
   });
 });
 
@@ -265,10 +268,10 @@ describe("the thread page", () => {
 
   test("Copy link copies the page's own address", async () => {
     const clipboard = fakeClipboard();
-    (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(`https://critiqs.app/t/${KEY}?from=email#top`);
+    (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(`https://critiqs.app/t?from=email#${KEY}`);
     const page = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(THREAD) }) });
     await click(button(page, "Copy link"));
-    expect(clipboard.text).toBe(`https://critiqs.app/t/${KEY}`);
+    expect(clipboard.text).toBe(`https://critiqs.app/t#${KEY}`);
     expect(text(page)).toContain("Link copied");
   });
 
@@ -370,10 +373,10 @@ describe("the thread page", () => {
 
   test("when the browser won't copy, Copy link shows the link to select", async () => {
     refusingClipboard();
-    (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(`https://critiqs.app/t/${KEY}`);
+    (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(`https://critiqs.app/t#${KEY}`);
     const page = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(THREAD) }) });
     await click(button(page, "Copy link"));
-    expect(page.querySelector<HTMLTextAreaElement>(".copy-fallback textarea")?.value).toBe(`https://critiqs.app/t/${KEY}`);
+    expect(page.querySelector<HTMLTextAreaElement>(".copy-fallback textarea")?.value).toBe(`https://critiqs.app/t#${KEY}`);
   });
 
   test("a thread resolved while someone types leaves them in the reply box", async () => {

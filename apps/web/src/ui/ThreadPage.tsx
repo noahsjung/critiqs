@@ -7,7 +7,7 @@ import { CheckIcon, CopyButton, CopyIcon, Heading, SignInButton } from "./parts.
 import { EXTENSION_GUIDE } from "./Ways.tsx";
 
 /**
- * A thread page at /t/<key>: one thread's capture, discussion, and reply box,
+ * A thread page at /t#<key> (with legacy /t/<key> support): one thread's capture, discussion, and reply box,
  * with Open in prototype, for people signed in who may open it. A link can be
  * forwarded to anyone, so everyone else sees one answer that never says
  * whether the thread exists.
@@ -140,7 +140,7 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
   // A comment on a shared build opens that build, through its review link, never the project's live address.
   const onBuild = isSharedBuild(thread.prototype.pageUrl);
   const target = onBuild ? null : prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
-  const ownLink = `${window.location.origin}${window.location.pathname}`;
+  const ownLink = `${window.location.origin}/t#${pageKey}`;
   const extension = extensionWay(thread.project.connectedAt, thread.prototype.madeWith);
   // The project's review link for the address the comment was left on: the prototype in a frame, with nothing installed.
   const reviewLink = useBackend().useThreadReviewLink(pageKey);

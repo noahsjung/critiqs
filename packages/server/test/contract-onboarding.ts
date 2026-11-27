@@ -640,7 +640,7 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await expect(backend.run((store) => getDeveloperSetup(store, null, { sendId: sendIds[0]! }))).rejects.toThrow("Sign in");
   });
 
-  test(`${name}: a project's setup page shows any signed-in reviewer the project, and its saved stack only to the people who manage it`, async () => {
+  test(`${name}: a project's setup page hides the project from signed-in outsiders, shows members the project, and shows its saved stack only to managers`, async () => {
     const backend = fresh();
     const projectId = await create(backend);
     const nuxt = await create(backend, dana, { name: "Nuxt app", stack: "nuxt" });
@@ -657,7 +657,13 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     });
     expect(await shown(dana, nuxt)).toMatchObject({ projectName: "Nuxt app", stack: { id: "nuxt", label: "Nuxt", installable: true }, installCommands: ["npm install critiqs-nuxt", `npx critiqs init ${nuxt}`] });
     expect(await shown(dana, unknown)).toMatchObject({ address: null, stack: null, installCommands: [`npx critiqs init ${unknown}`] });
-    // Anyone else signed in with the project's ID, like `getProject`, sees it as if its stack were unknown.
+    // Signed-in outsiders get not-found, revealing neither the project's existence nor its name.
+    await expect(shown(lee, projectId)).rejects.toMatchObject({ code: "not-found" });
+    await expect(shown(lee, nuxt)).rejects.toMatchObject({ code: "not-found" });
+    // An organization member sees the project, with its stack as unknown (only managers see the saved stack).
+    const [organization] = await backend.run((store) => organizations.listMyOrganizations(store, dana));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId: organization!.id, email: lee.email!, role: "member" }, day));
+    await backend.run((store) => ops.syncReviewer(store, lee));
     expect(await shown(lee, projectId)).toEqual({
       projectId,
       projectName: "Acme prototype",
@@ -669,11 +675,12 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     expect(await shown(lee, nuxt)).toMatchObject({ stack: null, installCommands: [`npx critiqs init ${nuxt}`] });
     await expect(shown(null, projectId)).rejects.toThrow("Sign in");
     await expect(shown({ ...lee, emailVerified: false }, projectId)).rejects.toThrow("Verify");
-    await expect(shown(lee, "not-a-project")).rejects.toThrow("This project does not exist.");
-    // Limited to its organization, it follows "Who can review": members still see it, anyone else is refused.
+    // Missing, anyone-accessible, and organization-restricted projects all return the exact same not-found error to outsiders (no existence oracle).
+    const sameNotFound = { code: "not-found", message: "That setup link doesn't exist, or isn't for this account." };
+    await expect(shown(lee, "not-a-project")).rejects.toMatchObject(sameNotFound);
     await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
     expect(await shown(dana, projectId)).toMatchObject({ projectId, stack: { id: "next" } });
-    await expect(shown(lee, projectId)).rejects.toThrow("limited to members of its organization");
+    await expect(shown(reviewer("Sam"), projectId)).rejects.toMatchObject(sameNotFound);
   });
 
   test(`${name}: Critiqs loading at the project's address marks it connected, with the page's origin, which only its owners and the developer see`, async () => {
@@ -690,10 +697,14 @@ export function defineDeveloperEmailContract(name: string, fresh: () => Contract
     await report("https://acme-proto.vercel.app", projectId, 2_000);
     expect((await setup(dana)).connected).toEqual({ at: 2_000, origin: "https://acme-proto.vercel.app", clearable: true });
     expect(await backend.run((store) => store.projects.get(projectId))).toMatchObject({ connectedAt: 2_000, connectedOrigin: "https://acme-proto.vercel.app" });
-    // The developer it was sent to sees where; anyone else signed in sees only that it connected. Neither may clear it.
+    // The developer it was sent to sees where; an org member sees only that it connected; an outsider gets not-found. Neither member nor developer may clear it.
     const developer = { ...reviewer("Dev"), email: "dev@corp.com" };
     expect((await backend.run((store) => getDeveloperSetup(store, developer, { sendId: reserved[0]!.sendId }))).connected).toEqual({ at: 2_000, origin: "https://acme-proto.vercel.app" });
-    expect((await setup(reviewer("Lee"))).connected).toEqual({ at: 2_000, origin: null });
+    await expect(setup(reviewer("Lee"))).rejects.toMatchObject({ code: "not-found" });
+    const [organization] = await backend.run((store) => organizations.listMyOrganizations(store, dana));
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId: organization!.id, email: lee.email!, role: "member" }, day));
+    await backend.run((store) => ops.syncReviewer(store, lee));
+    expect((await setup(lee)).connected).toEqual({ at: 2_000, origin: null });
   });
 
   test(`${name}: a load counts only from the project's own address, the latest one is kept, and its owners can clear it`, async () => {

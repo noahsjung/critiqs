@@ -147,8 +147,6 @@ export interface Backend {
   useReviewLease(leaseId: string, renewalSecret: string): QueryState<ReviewLeaseState>;
   /** Binds a signed-out lease to the person who just signed in, keeping the frame as it is, and names the project. */
   adoptReviewLease(leaseId: string, renewalSecret: string): Promise<ReviewAdoption>;
-  /** Records that the signed-in viewer opened the project, as an install does. */
-  recordReviewOpened(leaseId: string, renewalSecret: string): Promise<void>;
   /** A project's review links, for its owners, live. */
   useReviewLinks(projectId: string | null): QueryState<ReviewLinkSummary[]>;
   createReviewLink(projectId: string, address: string, requestKey: string): Promise<CreatedReviewLink>;
@@ -302,9 +300,6 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
     renewReviewLease: (leaseId, renewalSecret) => client.mutation(api.reviewLinks.renew, { leaseId, renewalSecret }),
     useReviewLease: (leaseId, renewalSecret) => useQueryState(api.reviewLinks.leaseState, { leaseId, renewalSecret }),
     adoptReviewLease: (leaseId, renewalSecret) => client.mutation(api.reviewLinks.adopt, { leaseId, renewalSecret }),
-    recordReviewOpened: async (leaseId, renewalSecret) => {
-      await client.mutation(api.reviewLinks.recordOpened, { leaseId, renewalSecret });
-    },
     useReviewLinks: (projectId) => useQueryState(api.reviewLinks.list, projectId === null ? "skip" : { projectId }),
     createReviewLink: (projectId, address, requestKey) => client.mutation(api.reviewLinks.createLive, { projectId, address, requestKey }),
     copyReviewLink: async (linkId) => (await client.query(api.reviewLinks.copy, { linkId })).url,

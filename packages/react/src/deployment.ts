@@ -47,7 +47,7 @@ export interface Deployment {
   billing?: boolean;
   /**
    * The Critiqs website that serves this deployment's thread pages, where
-   * **Copy link** on a thread links (`<website>/t/<key>`). Absent unless the
+   * **Copy link** on a thread links (`<website>/t#<key>`). Absent unless the
    * backend reports thread pages and a website for them, as only Critiqs
    * Cloud does for now; there, the link opens the prototype as before.
    */

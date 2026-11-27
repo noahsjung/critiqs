@@ -17,6 +17,10 @@
       "destination": "/app/index.html"
     },
     {
+      "source": "/t",
+      "destination": "/app/index.html"
+    },
+    {
       "source": "/t/:key",
       "destination": "/app/index.html"
     },

@@ -339,7 +339,7 @@ test("Copy link copies the thread's page on the website where the backend has th
     await frames();
     await moreActions(shadow);
     await chooseAction(shadow, "Copy link");
-    expect(clipboard.text).toBe(`https://critiqs.example/t/${PAGE_KEY}`);
+    expect(clipboard.text).toBe(`https://critiqs.example/t#${PAGE_KEY}`);
     expect(calls).toContainEqual({ name: "threadPageKey", args: { threadId: detail._id } });
     expect(shadow.textContent).toContain("Link to thread copied");
     // A message's own link still opens the prototype at that message: a thread page shows the whole thread.
@@ -383,7 +383,7 @@ test("a browser that refuses to copy says so instead of saying the link was copi
     await frames();
     await moreActions(shadow);
     await chooseAction(shadow, "Copy link");
-    expect(shadow.textContent).toContain(`Couldn't copy the link. Here it is: https://critiqs.example/t/${PAGE_KEY}`);
+    expect(shadow.textContent).toContain(`Couldn't copy the link. Here it is: https://critiqs.example/t#${PAGE_KEY}`);
     expect(shadow.textContent).not.toContain("Link to thread copied");
   } finally {
     Object.assign(backend, { threadPageKey: undefined });
