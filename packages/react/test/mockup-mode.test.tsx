@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { Anchor, MockupDetail, MockupSummary, ThreadDetail, ThreadSummary } from "@critiqs/core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "../src/App.tsx";
+import { App, type MockupOpen, type MockupPlace } from "../src/App.tsx";
 import type { RestoreRequest } from "../src/host.ts";
 import { Session } from "../src/session.ts";
 import { TransportContext } from "../src/transport.ts";
@@ -174,9 +174,11 @@ interface MountOptions {
   app?: { screen: string; viewState?: Record<string, string> };
   restoreContext?: (request: RestoreRequest) => boolean | Promise<boolean>;
   onSignIn?: () => void;
+  /** Where Mockup mode opens, as the browser extension's side panel and Mockup tab set it. */
+  place?: MockupPlace;
 }
 
-async function mount(data: FakeBackend, { mockups = true, personalAi = false, modelLists = false, signedIn = true, app = { screen: "pilot" }, restoreContext, onSignIn }: MountOptions = {}) {
+async function mount(data: FakeBackend, { mockups = true, personalAi = false, modelLists = false, signedIn = true, app = { screen: "pilot" }, restoreContext, onSignIn, place }: MountOptions = {}) {
   (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://prototype.example/pilot");
   if (signedIn) {
     const payload = btoa(JSON.stringify({ sub: "dana", name: "Dana", email: "dana@example.com" }));
@@ -201,7 +203,7 @@ async function mount(data: FakeBackend, { mockups = true, personalAi = false, mo
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={transport}>
-        <App props={props} deployment={deployment} session={session} host={host!} />
+        <App props={props} deployment={deployment} session={session} host={host!} mockups={place} />
       </TransportContext.Provider>,
     ),
   );
@@ -541,6 +543,54 @@ test("a thread on this page opens directly, with its conversation, copy, and Hol
   expect(canvas.classList.contains("original")).toBe(true);
   await press("o", "keyup");
   expect(canvas.classList.contains("original")).toBe(false);
+});
+
+test("where Mockup mode opens elsewhere, as from the extension's side panel, the button, M, and Open mockup ask for it there", async () => {
+  const opened: MockupOpen[] = [];
+  const shadow = await mount(backend(), { place: { kind: "elsewhere", open: (request) => opened.push(request) } });
+  const toolbarButton = shadow.querySelector('button[aria-label="Mockup mode"]')!;
+  await click(toolbarButton);
+  expect(await press("m")).toBe(true);
+  expect(opened).toEqual([null, null]);
+  // Nothing of Mockup mode shows here: the mode stays, and no copy covers this window.
+  expect(toolbarButton.getAttribute("aria-pressed")).toBe("false");
+  expect(panel(shadow)).toBeNull();
+  expect(shadow.querySelector('[data-testid="mockup-canvas"]')).toBeNull();
+});
+
+test("signed out, Mockup mode asks to sign in before it opens elsewhere", async () => {
+  let signIns = 0;
+  const opened: MockupOpen[] = [];
+  const shadow = await mount(backend(), { signedIn: false, onSignIn: () => signIns++, place: { kind: "elsewhere", open: (request) => opened.push(request) } });
+  await click(shadow.querySelector('button[aria-label="Mockup mode"]'));
+  expect(signIns).toBe(1);
+  expect(opened).toEqual([]);
+});
+
+test("in Mockup mode's own window it starts on the requested thread, offers no comparing, and leaving Mockup mode leaves the window", async () => {
+  let left = 0;
+  const shadow = await mount(backend(), { place: { kind: "window", request: { mockupId: "mockup", threadId: "mockup-thread" }, leave: () => left++ } });
+  await waitFor(() => panel(shadow) !== null && heading(shadow) === "Checkout mockup");
+  expect(heading(shadow)).toBe("Checkout mockup");
+  expect(shadow.querySelector('button[aria-label="Mockup mode"]')!.getAttribute("aria-pressed")).toBe("true");
+  // No live page is beneath the copy here, so there is nothing to compare with.
+  expect(button(shadow, "Hold to compare")).toBeNull();
+  const canvas = shadow.querySelector('[data-testid="mockup-canvas"]')!;
+  await press("o");
+  expect(canvas.classList.contains("original")).toBe(false);
+  await press("o", "keyup");
+  expect(shadow.querySelector(".mode-hint")!.textContent).toBe("Mockup mode · V to leave");
+  // A new copy would come from the page elsewhere, at its width, not this window's.
+  expect(panel(shadow)!.textContent).not.toContain("Take a copy");
+  // C, the comments' mode, has nothing to do here; V, M, and the toolbar's other modes leave.
+  await press("c");
+  expect(left).toBe(0);
+  expect(shadow.querySelector('[data-testid="mockup-canvas"]')).not.toBeNull();
+  await press("v");
+  await press("m");
+  await click(shadow.querySelector('button[aria-label="Comment mode"]'));
+  expect(left).toBe(3);
+  expect(shadow.querySelector('[data-testid="mockup-canvas"]')).not.toBeNull();
 });
 
 test("a thread on another page asks to go there, then the prototype opens it and the thread shows", async () => {

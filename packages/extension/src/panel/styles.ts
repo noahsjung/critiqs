@@ -26,5 +26,9 @@ export const PANEL_STYLES = `
 .xt-settings { position: absolute; inset: 0; z-index: 1; overflow: auto; background: var(--surface); }
 .xt-settings .ds-dialog-header { padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border); }
 .xt-settings .ds-page { padding: var(--space-2) var(--space-4); }
+/* The Mockup tab's notice, above Critiqs's panel (its layer is at z-index 2147483000) and under its mode label. */
+.xt-mockup-notice { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 2147483647; box-sizing: border-box;
+  width: max-content; max-width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: var(--space-1);
+  box-shadow: var(--shadow); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 .xt-who { color: var(--muted); font-size: var(--text-s); padding: var(--space-3) 0 0; overflow-wrap: anywhere; }
 `;

@@ -656,7 +656,9 @@ only. The extension's side panel uses it.
   spaces. Each must match exactly: a website origin must be a bare `https:`
   origin, or `http:` on this computer, and an ID 32 letters from a to p.
   Patterns, paths, and other entries are ignored. With neither set, no panel
-  can sign in.
+  can sign in. The extension's development ID belongs only on local and
+  development deployments, since its key is in the repository; Critiqs Cloud
+  lists the ID the Chrome Web Store assigns.
 - **Routes.** `POST /auth/panel/email` with `{ email }` starts an attempt,
   sends a code, and answers with the attempt key; with `{ email, attempt }` it
   sends a new code for the same attempt. `POST /auth/panel/code` with
@@ -1888,6 +1890,14 @@ and can fail when elements it owns are removed.
 - **Showing it.** The copy is shown in an `<iframe sandbox="allow-same-origin">`
   covering the page: no script in it runs, and the prototype's own styles can't
   reach it.
+- **In the browser extension.** The side panel has no page beneath it to
+  cover, so its Mockup mode button opens Mockup mode in a tab of its own
+  beside the page, the Mockup tab (`mockups: { kind: "elsewhere" }` on the
+  panel). That tab runs the same panel in Mockup mode alone (`kind: "window"`)
+  and freezes the reviewed tab's page through a page layer of its own there,
+  beside the side panel's. Holding O to compare isn't offered, since the live
+  page isn't beneath the copy, and neither is a copy at the tab's width, since
+  the page keeps its own. Leaving Mockup mode closes the tab.
 - **One mockup per thread.** Each mockup thread is its own proposal, so
   starting one first saves the frozen page as a new mockup, named after the
   message, then creates the thread on it. Comments added beforehand go to

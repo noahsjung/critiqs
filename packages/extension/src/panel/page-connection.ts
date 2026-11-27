@@ -20,7 +20,8 @@ export interface TabConnection {
   connect(): void;
 }
 
-export function tabConnection(chrome: Pick<ChromeApi, "tabs" | "runtime">, tabId: number): TabConnection {
+/** `port` names whose line it is: the side panel's, or the Mockup tab's. */
+export function tabConnection(chrome: Pick<ChromeApi, "tabs" | "runtime">, tabId: number, port: string = PANEL_PORT): TabConnection {
   const receivers = new Set<(message: unknown) => void>();
   const changes = new Set<() => void>();
   const closing = new Set<() => void>();
@@ -40,18 +41,18 @@ export function tabConnection(chrome: Pick<ChromeApi, "tabs" | "runtime">, tabId
     current = null;
     live = false;
     previous?.close();
-    let port;
+    let line;
     try {
-      port = chrome.tabs.connect(tabId, { name: PANEL_PORT, frameId: 0 });
+      line = chrome.tabs.connect(tabId, { name: port, frameId: 0 });
     } catch {
       return;
     }
     replaced = false;
     // Before the page layer's messages: the content script's note that another panel took over.
-    port.onMessage.addListener((message) => {
+    line.onMessage.addListener((message) => {
       if (isReplaced(message)) replaced = true;
     });
-    const transport = portTransport(port);
+    const transport = portTransport(line);
     current = transport;
     transport.listen((message) => {
       if (current !== transport || isReplaced(message)) return;

@@ -37,7 +37,9 @@ interface Lock {
 /** What a package's build takes in, by package name; `null` when the record doesn't say. */
 type Knowledge = Set<string> | null;
 
-const SHIPPED = /^packages\//;
+// Every package under packages/ is a released package or a private workspace bundled into one, except the
+// browser extension, which no Critiqs package bundles: it ships through the Chrome Web Store.
+const SHIPPED = /^packages\/(?!extension\/)/;
 const TEST = /(^|\/)(test|tests|__tests__|spec)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]*\.py$|_(test|spec)\.rb$|^packages\/[^/]+\/scripts\/check-[^/]*\.ts$/;
 /** Whether a file is part of what a package ships or is built from: under packages/, and not a test or check script. */
 export const shipsFile = (path: string) => SHIPPED.test(path) && !TEST.test(path);

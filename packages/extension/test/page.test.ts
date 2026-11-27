@@ -43,6 +43,40 @@ test("the side panel's port gets a page layer; when the panel closes, nothing of
   expect(hosts()).toBe(0);
 });
 
+test("the Mockup tab's port gets a page layer of its own, beside the side panel's, and only it goes when the tab closes", async () => {
+  const chrome = fakeChrome();
+  stop = startPage(chrome, document).stop;
+  const [panel, panelEnd] = fakePorts("critiqs:panel");
+  chrome.runtime.onConnect.fire(panelEnd);
+  await settle(10);
+  const [mockups, mockupEnd] = fakePorts("critiqs:mockup");
+  const heard: unknown[] = [];
+  mockups.onMessage.addListener((message) => heard.push(message));
+  chrome.runtime.onConnect.fire(mockupEnd);
+  await settle(10);
+  expect(hosts()).toBe(2);
+  expect(heard.some((message) => (message as { event?: string }).event === "ready")).toBe(true);
+  // The side panel keeps its page layer: the Mockup tab doesn't take it over.
+  expect(panel.disconnected).toBe(false);
+  mockups.disconnect();
+  await settle(10);
+  expect(hosts()).toBe(1);
+  expect(panel.disconnected).toBe(false);
+});
+
+test("a second Mockup tab replaces the first one's page layer", async () => {
+  const chrome = fakeChrome();
+  stop = startPage(chrome, document).stop;
+  const [first, firstEnd] = fakePorts("critiqs:mockup");
+  chrome.runtime.onConnect.fire(firstEnd);
+  await settle(10);
+  const [, secondEnd] = fakePorts("critiqs:mockup");
+  chrome.runtime.onConnect.fire(secondEnd);
+  await settle(10);
+  expect(first.disconnected).toBe(true);
+  expect(hosts()).toBe(1);
+});
+
 test("ports that aren't the side panel's are ignored", async () => {
   const chrome = fakeChrome();
   stop = startPage(chrome, document).stop;

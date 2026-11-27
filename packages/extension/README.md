@@ -3,7 +3,8 @@
 The Critiqs extension lets a reviewer comment on any page they can open,
 including logged-in apps, `localhost`, and VPN-only staging, without the team
 installing anything. It runs in Chromium browsers (Chrome, Edge, Brave, Arc).
-This workspace is private: it isn't published to npm.
+This workspace is private: it isn't published to npm. It ships through the
+Chrome Web Store (see [Publishing](#publishing-to-the-chrome-web-store)).
 
 ## How it works
 
@@ -29,14 +30,26 @@ This workspace is private: it isn't published to npm.
   visits with no click. Turning it off removes both.
 - **Sites with Critiqs installed** get nothing from the extension; the panel
   says **Built in**.
-- **Mockup mode** isn't offered: its page copy is drawn over the page, which a
-  side panel can't do yet.
+- **Sharing a comment:** **⋯ → Copy link** in a comment copies its page on
+  Critiqs's website (`<website>/t/<key>`) where the deployment has one, as on
+  Critiqs Cloud. That page opens for people without the extension once they
+  sign in. Without a website, the link is the page's own address with the
+  comment in it.
+- **Mockup mode** opens in a tab of its own beside the page, the Mockup tab,
+  since its copy of the page covers a window and the side panel has no page
+  beneath it. The tab freezes the page through a page layer of its own there
+  and shows Critiqs's Mockup panel; Mockup threads are made there as when
+  installed. Holding O to compare with the live page isn't offered there, and
+  leaving Mockup mode (V) closes the tab and goes back to the page. When the
+  page reloads, the Mockup tab says on top of the copy to click the Critiqs
+  icon on the page; the copy and its threads keep working meanwhile.
 
 | File | Runs in |
 | --- | --- |
 | `src/worker.ts` | The background service worker |
 | `src/page.ts` | The page, as a content script: the page layer |
 | `src/panel/` | The side panel |
+| `src/mockup/`, `src/mockup-tab.ts` | The Mockup tab, and opening it from the side panel |
 
 ## Build and load it unpacked
 
@@ -57,24 +70,87 @@ panel only when its deployment lists that ID:
 bunx convex env set CRITIQS_EXTENSION_IDS pfdpnmmiemejphfghkalofichdcoandg
 ```
 
-The Chrome Web Store assigns the published extension its own ID, which is
-listed the same way.
+List the development ID only on local and development deployments: its key
+is in this repository, so anyone can load an extension with that ID.
+
+Every build takes the Critiqs packages' shared version from the `critiqs`
+package (`packages/critiqs/package.json`), which each release moves. Nothing
+in this folder holds a version.
+
+## Publishing to the Chrome Web Store
+
+```sh
+bun run package
+```
+
+builds the store's version (Critiqs Cloud, no development `key`) and zips it
+as `release/critiqs-extension-<version>.zip`, with the manifest at the zip's
+root. The same files give the same zip, byte for byte. It prints the files it
+holds.
+
+Publishing is by hand, by the account that owns the listing: upload the zip
+in the Chrome Web Store's developer dashboard and fill in the listing, the
+permission justifications, and the data use from
+[store/listing.md](store/listing.md). That file also lists what the first
+upload needs that doesn't exist yet, such as a privacy policy page.
+
+The store assigns the published extension its own ID, a fixed 32-letter ID
+shown in the dashboard once the item is created. Until Critiqs Cloud lists it,
+the published extension's sign-in is refused. Once it exists, the operator
+sets it once on the Cloud deployment, in place of the development ID:
+
+```sh
+bunx convex env set CRITIQS_EXTENSION_IDS <store ID> --prod
+```
+
+Only Critiqs Cloud lists the store's ID. The published extension can reach
+no other deployment: the store's build has Cloud's address built in and
+refuses `CRITIQS_BACKEND`, so listing its ID elsewhere does nothing. A team
+that runs its own Convex deployment builds the extension for it
+(`CRITIQS_BACKEND=<its address> bun run build`), loads that build unpacked,
+and lists that build's ID there: the development ID, with the caution above.
+`CRITIQS_EXTENSION_IDS` takes several IDs separated by commas or spaces.
 
 ## Checks
 
 ```sh
-bun run test        # unit tests, with a fake chrome API
+bun run test             # unit tests, with a fake chrome API
 bun run typecheck
-bun run check:chrome
+bun run check:checklist  # the manual test, run in real Chrome
+bun run check:chrome     # more lookup and screenshot cases, with a test build
 ```
 
-`check:chrome` loads a test build in Chrome for Testing against a local Convex
-deployment with development sign-in (`bun run setup:local` in
-`packages/backend`) and `CRITIQS_EXTENSION_IDS` set. It needs
-`CRITIQS_BACKEND`, `CHROME_PATH`, and `PLAYWRIGHT_CORE` (the path of a
-`playwright-core` package); `CRITIQS_EVIDENCE_DIR` keeps screenshots.
-Automation can't click the toolbar icon or open the side panel, so the test
-build (`CRITIQS_TEST=1`) grants the test sites at install and lets the run
-call the worker's click handler; the side panel's page opens in a window at
-side panel width. The toolbar click, Chrome's side panel, and `activeTab`
-are checked by hand: see [the manual test](MANUAL_TEST.md).
+`check:checklist` runs [the manual test](MANUAL_TEST.md) step by step in
+Chrome for Testing with the real build: no test hooks and no site access at
+install. Chrome DevTools' `Extensions.triggerAction` runs the extension's
+action the way the toolbar icon does, so Chrome grants the page for that
+click (`activeTab`) and opens the real side panel, which the run drives over
+its own DevTools target. It writes `results.md`, with pass, fail, or "not
+automatable" and the reason for every step, and a screenshot of the page and
+the side panel for each, to `CRITIQS_EVIDENCE_DIR`. It needs
+`CRITIQS_BACKEND`, a local Convex deployment with development sign-in
+(`bun run setup:local` in `packages/backend`) and `CRITIQS_EXTENSION_IDS`
+set. `CHROME_PATH` defaults to the newest Chromium Playwright installed;
+branded Chrome no longer loads unpacked extensions from the command line.
+`CRITIQS_EXTENSION_DIR` runs it against an extension built elsewhere, such as
+from an older commit.
+
+What it can't do: answer Chrome's own prompt for a site's access (it allows
+the site through **Details → Site access** instead), press Chrome's keyboard
+shortcut, or click the side panel's X. Those steps are still checked by hand.
+
+What it measured in Chrome 151:
+
+- A click inside the side panel doesn't grant the page: `executeScript` and
+  `captureVisibleTab` are refused until the icon is clicked.
+- The icon's grant lasts through reloads of the same site and ends when the
+  tab opens another site. So after a reload the screenshots are still real
+  pixels, though the panel still asks for a click to add the page layer again.
+- A click on a pin opens the side panel on its comment.
+
+`check:chrome` loads a test build (`CRITIQS_TEST=1`), which grants its test
+sites at install and lets the run call the worker's click handler, with the
+side panel's page in a window of its own. It covers several projects for one
+site, an ambiguous origin, two people adding addresses at once, and real
+pixels with every site allowed. It needs `CRITIQS_BACKEND`, `CHROME_PATH`, and
+`PLAYWRIGHT_CORE` (the path of a `playwright-core` package).

@@ -1,10 +1,12 @@
 import type { ProjectInfo } from "@critiqs/core";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Deployment } from "../../../react/src/deployment.ts";
 import { mountPanel } from "../../../react/src/page-layer/mount.tsx";
 import type { TokenSession } from "../../../react/src/session.ts";
 import { setSidebarWidth, sidebarFillsWindow } from "../../../react/src/ui/sidebar-width.tsx";
+import type { ChromeApi } from "../chrome.ts";
 import { CHANNEL } from "../config.ts";
+import { mockupTabs } from "../mockup-tab.ts";
 import type { TabConnection } from "./page-connection.ts";
 
 /** Where Critiqs's panel keeps whether its sidebar is open (`useStoredState` in App.tsx). */
@@ -13,11 +15,13 @@ const SIDEBAR_OPEN = "critiqs:sidebar-open";
 /**
  * Critiqs's own panel (toolbar, sidebar, threads) for the chosen project,
  * connected to the page layer in the tab. It is the same panel an install
- * shows, drawn in the side panel instead of over the page. Mockup mode isn't
- * offered here: its page copy is drawn over the page, which a side panel
- * can't do yet.
+ * shows, drawn in the side panel instead of over the page. Mockup mode covers
+ * a window with its copy of the page, which a side panel can't, so it opens in
+ * the Mockup tab beside the page.
  */
 export function Review({
+  chrome,
+  tabId,
   project,
   deployment,
   connection,
@@ -25,6 +29,8 @@ export function Review({
   supplyCapture,
   takeOpenThread,
 }: {
+  chrome: ChromeApi;
+  tabId: number;
   project: ProjectInfo;
   deployment: Deployment;
   connection: TabConnection;
@@ -36,6 +42,7 @@ export function Review({
   const box = useRef<HTMLDivElement>(null);
   const capture = useRef(supplyCapture);
   capture.current = supplyCapture;
+  const openMockups = useMemo(() => mockupTabs(chrome, tabId, project._id), [chrome, tabId, project._id]);
   useEffect(() => {
     // The side panel is where the list belongs: Critiqs's sidebar opens with it, rather than as installed, closed until asked,
     // and fills the side panel, which has no page beside it.
@@ -56,11 +63,12 @@ export function Review({
       session,
       supplyCapture: () => capture.current(),
       openThread: takeOpenThread(),
+      mockups: { kind: "elsewhere", open: (request) => void openMockups(request).catch((error) => console.warn("Critiqs: the Mockup tab didn't open", error)) },
     });
     return () => {
       window.removeEventListener("resize", fill);
       mounted.destroy();
     };
-  }, [project._id, deployment.backendUrl, connection, session]);
+  }, [project._id, deployment.backendUrl, connection, session, chrome, tabId]);
   return <div ref={box} className="xt-review" />;
 }
