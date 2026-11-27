@@ -164,8 +164,8 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
 /**
  * The trackers a backend offers, kept only where Critiqs knows the tracker and
  * how it connects, whether threads can create and link tickets, whether the
- * Create dialog drafts with AI and from templates, and whether their status
- * comes back (`ticketStatus`); null when
+ * Create dialog drafts with AI and from templates, whether their status
+ * comes back (`ticketStatus`), and the features after those; null when
  * no tracker is offered.
  */
 function ticketsOf(value: unknown): TicketsConfig | null {
@@ -179,9 +179,10 @@ function ticketsOf(value: unknown): TicketsConfig | null {
     return [{ id: id as TrackerId, signIn: signIn as "oauth" | "token", ...install }];
   });
   if (trackers.length === 0) return null;
-  const flags = value as { threadTickets?: unknown; drafting?: unknown; ticketStatus?: unknown };
-  if (flags.threadTickets !== true) return { trackers, ...(flags.ticketStatus === true ? { ticketStatus: true } : {}) };
-  return { trackers, threadTickets: true, ...(flags.drafting === true ? { drafting: true } : {}), ...(flags.ticketStatus === true ? { ticketStatus: true } : {}) };
+  const flags = value as Record<string, unknown>;
+  const on = (...names: (keyof TicketsConfig)[]) => Object.fromEntries(names.filter((name) => flags[name] === true).map((name) => [name, true]));
+  if (flags.threadTickets !== true) return { trackers, ...on("ticketStatus") };
+  return { trackers, threadTickets: true, ...on("drafting", "ticketStatus", "defaultDestinations") };
 }
 
 /**

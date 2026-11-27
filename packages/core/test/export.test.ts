@@ -86,3 +86,63 @@ test("an exported thread reads where it is now, with each message's link and mar
   expect(thread.target).toEqual({ purposeId: "user.department", recordKey: "user:alex", label: "Team" });
   expect(thread.messages).toEqual([{ id: "m1", link: "https://review.example/?critiqs=t1.m1", author: "Dana", body: "Wrong", createdAt: 5, editedAt: null, revision: "abc", via: "agent" }]);
 });
+
+test("a thread's linked tickets go into the Markdown and JSON export, each with its tracker, key, status, title, and address", () => {
+  const thread = collection.threads[0]!;
+  const withTickets: FeedbackCollection = {
+    ...collection,
+    threads: [
+      {
+        ...thread,
+        tickets: [
+          { tracker: "linear", key: "ENG-1", title: "Department is wrong", status: { label: "In Progress", category: "started" }, url: "https://linear.app/acme/issue/eng-1" },
+          { tracker: "github", key: "acme/web#12", title: "Label\nsplit", status: null, url: "https://github.com/acme/web/issues/12" },
+        ],
+      },
+      { ...thread, id: "t2", tickets: [] },
+      { ...thread, id: "t3" },
+    ],
+  };
+  const markdown = exportMarkdown(withTickets);
+  expect(markdown).toContain('- Ticket: Linear ENG-1 · In Progress, "Department is wrong", https://linear.app/acme/issue/eng-1');
+  expect(markdown).toContain('- Ticket: GitHub Issues acme/web#12 · status unknown, "Label split", https://github.com/acme/web/issues/12');
+  expect(markdown.match(/- Tickets: none/g)).toHaveLength(1);
+  const parsed = JSON.parse(exportJson(withTickets));
+  expect(parsed.schemaVersion).toBe(1);
+  expect(parsed.threads[0].tickets[0]).toEqual({ tracker: "linear", key: "ENG-1", title: "Department is wrong", status: { label: "In Progress", category: "started" }, url: "https://linear.app/acme/issue/eng-1" });
+  expect(parsed.threads[1].tickets).toEqual([]);
+  expect(parsed.threads[2].tickets).toBeUndefined();
+});
+
+test("exportThread keeps the tickets the backend sent, and only their handoff fields", () => {
+  const exported = exportThread(
+    {
+      _id: "t1",
+      status: "open",
+      tags: [],
+      anchor: { screen: "s", viewState: {}, scope: "record", target: { purposeId: null, recordKey: null, clues: { label: null } }, evidence: { url: "https://proto.example/", capturedAt: 1, revision: null, persona: null, viewport: { width: 1, height: 1 }, marker: { x: 0, y: 0, width: 1, height: 1 }, userAgent: "x" } } as never,
+      location: null,
+      hasCapture: false,
+      tickets: [{ tracker: "jira", key: "WEB-3", title: "T", status: { label: "To Do", category: "open" }, url: "https://acme.atlassian.net/browse/WEB-3", extra: "x" } as never],
+      messages: [],
+    },
+    () => "https://proto.example/?critiqs=t1",
+  );
+  expect(exported.tickets).toEqual([{ tracker: "jira", key: "WEB-3", title: "T", status: { label: "To Do", category: "open" }, url: "https://acme.atlassian.net/browse/WEB-3" }]);
+});
+
+test("a ticket whose status Critiqs can no longer check says last known in the Markdown and JSON export", () => {
+  const thread = collection.threads[0]!;
+  const withTickets: FeedbackCollection = {
+    ...collection,
+    threads: [{ ...thread, tickets: [
+      { tracker: "linear", key: "ENG-1", title: "Department is wrong", status: { label: "In Progress", category: "started" }, lastKnown: true, url: "https://linear.app/acme/issue/eng-1" },
+      { tracker: "jira", key: "WEB-3", title: "Label", status: { label: "To Do", category: "open" }, lastKnown: false, url: "https://acme.atlassian.net/browse/WEB-3" },
+    ] }],
+  };
+  const markdown = exportMarkdown(withTickets);
+  expect(markdown).toContain('- Ticket: Linear ENG-1 · In Progress · last known, "Department is wrong", https://linear.app/acme/issue/eng-1');
+  expect(markdown).toContain('- Ticket: Jira WEB-3 · To Do, "Label", https://acme.atlassian.net/browse/WEB-3');
+  const parsed = JSON.parse(exportJson(withTickets));
+  expect(parsed.threads[0].tickets.map((ticket: { lastKnown: boolean }) => ticket.lastKnown)).toEqual([true, false]);
+});

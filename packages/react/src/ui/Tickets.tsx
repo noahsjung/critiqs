@@ -31,7 +31,7 @@ import { ModelChoice } from "./mockup/MockupPanel.tsx";
 export const trackerLabel = (tracker: TrackerId) => TRACKERS.find((entry) => entry.id === tracker)?.label ?? tracker;
 
 /** What a tracker calls the place a ticket goes. */
-const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project and type" };
+export const DESTINATION_LABEL: Record<TrackerId, string> = { linear: "Team", github: "Repository", jira: "Project and type" };
 
 /** A ticket's key and status as people read it, such as `ENG-123 · In Progress`. */
 export function ticketText(ticket: { key: string; status: TicketStatus | null; lastKnown?: boolean }): string {
@@ -160,7 +160,7 @@ export function TicketBadges({ tickets }: { tickets: TicketBadge[] | undefined }
 }
 
 /** Picks the tracker among the person's connected ones; shown only when there is more than one. */
-function TrackerRow({ accounts, value, onChange, disabled }: { accounts: TrackerAccountView[]; value: TrackerId; onChange: (tracker: TrackerId) => void; disabled: boolean }) {
+export function TrackerRow({ accounts, value, onChange, disabled }: { accounts: TrackerAccountView[]; value: TrackerId; onChange: (tracker: TrackerId) => void; disabled: boolean }) {
   if (accounts.length < 2) return null;
   return (
     <SettingRow label="Tracker">
@@ -181,6 +181,17 @@ type Loaded<T> = { status: "loading" } | { status: "ready"; data: T } | { status
 
 /** Critiqs's standard format, in the Template menu. */
 const STANDARD = "";
+
+/**
+ * The "Created from Critiqs" box of Create ticket and Create tickets: it
+ * starts at the person's own setting for the chosen tracker (Your trackers),
+ * and starts there again whenever the tracker changes; what they tick holds
+ * until then.
+ */
+export function useCreatedFromCritiqs(tracker: TrackerId, setting: boolean): [boolean, (on: boolean) => void] {
+  const [ticked, setTicked] = useState<{ tracker: TrackerId; on: boolean } | null>(null);
+  return [ticked?.tracker === tracker ? ticked.on : setting, (on) => setTicked({ tracker, on })];
+}
 
 /** What one request with the model costs, as the model menu says it: "about 6 credits"; null for an own key, which costs none. */
 function draftCost(model: { credits?: number; estimated?: true } | undefined): string | null {
@@ -241,9 +252,16 @@ export function CreateTicketDialog({
   const [loadedDestinations, setDestinations] = useState<{ tracker: TrackerId; loaded: Loaded<TicketDestination[]> }>({ tracker, loaded: { status: "loading" } });
   const destinations: Loaded<TicketDestination[]> = loadedDestinations.tracker === tracker ? loadedDestinations.loaded : { status: "loading" };
   const [remembered, remember] = useStoredState<string | null>(`critiqs:ticket-destination:${projectId}:${personId}:${tracker}`, null);
+  /** Where the project's owners send this tracker's tickets by default, as the draft said; undefined until it loads for the tracker. */
+  const [projectDefault, setProjectDefault] = useState<{ tracker: TrackerId; id: string | null } | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [attribution, setAttribution] = useState(accounts[0]!.attribution);
+  /** The person's setting for the tracker, as its draft said; until it loads, as Your trackers listed it. */
+  const [draftSetting, setDraftSetting] = useState<{ tracker: TrackerId; on: boolean } | null>(null);
+  const [attribution, setAttribution] = useCreatedFromCritiqs(
+    tracker,
+    draftSetting?.tracker === tracker ? draftSetting.on : (accounts.find((account) => account.tracker === tracker) ?? accounts[0]!).attribution,
+  );
   // One submission per tracker while the dialog is open: every try sends its ID, so a retry never creates a second ticket.
   // The server names the person's unfinished one, which the dialog finishes instead of starting another.
   const submissions = useRef(new Map<TrackerId, string>());
@@ -321,7 +339,7 @@ export function CreateTicketDialog({
    * another tracker or team: until it loads, Create waits, and if it can't
    * load, the dialog says why and offers Try again.
    */
-  function replaceDraft(after?: (draft: TicketDraft) => void) {
+  function replaceDraft(after?: (draft: TicketDraft) => void, failed?: () => void) {
     setStale(true);
     fill(
       "plain",
@@ -331,6 +349,7 @@ export function CreateTicketDialog({
         setResuming(draft.resumeSubmissionId !== null);
         after?.(draft);
       },
+      failed,
     );
   }
 
@@ -339,7 +358,14 @@ export function CreateTicketDialog({
     setTemplateId(STANDARD);
     setChoosing(null);
     setAiNote(null);
-    replaceDraft((draft) => setAttribution(draft.createdFromCritiqs));
+    replaceDraft(
+      (draft) => {
+        setDraftSetting({ tracker, on: draft.createdFromCritiqs });
+        setProjectDefault({ tracker, id: draft.projectDestinationId ?? null });
+      },
+      // Without the draft, the list starts at its first destination.
+      () => setProjectDefault({ tracker, id: null }),
+    );
     return () => {
       latestDraft.current++;
     };
@@ -348,7 +374,10 @@ export function CreateTicketDialog({
   }, [tickets, threadId, tracker]);
 
   const options = destinations.status === "ready" ? destinations.data : [];
-  const destination = options.find((option) => option.id === remembered) ?? options[0] ?? null;
+  // The person's own last choice here, else the project's default (known once the draft loads), else the first.
+  const known = projectDefault?.tracker === tracker ? projectDefault.id : undefined;
+  const mine = options.find((option) => option.id === remembered);
+  const destination = mine ?? (known === undefined ? null : (options.find((option) => option.id === known) ?? options[0] ?? null));
   const destinationId = destination?.id ?? null;
 
   // The destination's templates and suggested labels; a template from another destination no longer applies.

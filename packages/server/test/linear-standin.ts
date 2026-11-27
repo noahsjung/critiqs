@@ -212,16 +212,18 @@ export function linearStandIn(origin = "https://linear.test", existing: Omit<Sta
       }
       case "CritiqsTemplates":
       case "CritiqsTeamTemplates":
+      case "CritiqsWorkspaceTemplates":
       case "CritiqsTemplate": {
+        // The filters the adapter sends: every template, a team's, the workspace's (no team), or one by ID.
         const found = standIn.templates.filter(
           (template) =>
-            template.teamId !== null &&
             (operation !== "CritiqsTeamTemplates" || template.teamId === variables.team) &&
+            (operation !== "CritiqsWorkspaceTemplates" || template.teamId === null) &&
             (operation !== "CritiqsTemplate" || template.id === variables.id),
         );
         return {
           templateSearch: found.map((template) => {
-            const team = TEAMS.find((entry) => entry.id === template.teamId)!;
+            const team = template.teamId === null ? null : TEAMS.find((entry) => entry.id === template.teamId)!;
             return { id: template.id, name: template.name, team, ...(operation === "CritiqsTemplate" ? { content: template.content } : {}) };
           }),
         };

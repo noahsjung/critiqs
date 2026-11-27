@@ -39,12 +39,13 @@ export function TagsAiDialog({
   presetTags?: boolean;
   /**
    * The project's ticket settings the backend keeps, so the dialog shows a
-   * Tickets tab: its templates (`tickets.drafting`) and Resolve when done
-   * (`tickets.ticketStatus`).
+   * Tickets tab: its templates (`tickets.drafting`), Resolve when done
+   * (`tickets.ticketStatus`), and where each tracker's tickets go by default
+   * (`tickets.defaultDestinations`).
    */
-  tickets?: { templates: boolean; resolveWhenDone: boolean };
+  tickets?: { templates: boolean; resolveWhenDone: boolean; defaults?: boolean };
 }) {
-  const ticketsTab = tickets !== undefined && (tickets.templates || tickets.resolveWhenDone);
+  const ticketsTab = tickets !== undefined && (tickets.templates || tickets.resolveWhenDone || tickets.defaults === true);
   const [tab, setTab] = useState(initialTab === "tickets" && !ticketsTab ? "groups" : initialTab);
   const label = { groups: "Tags", ai: "AI", tickets: "Tickets" }[tab];
   return (
@@ -71,7 +72,13 @@ export function TagsAiDialog({
         ) : tab === "ai" ? (
           <AiTab projectId={projectId} notify={notify} modelLists={modelLists} />
         ) : (
-          <TicketsTab projectId={projectId} notify={notify} templates={tickets?.templates === true} resolveWhenDone={tickets?.resolveWhenDone === true} />
+          <TicketsTab
+            projectId={projectId}
+            notify={notify}
+            templates={tickets?.templates === true}
+            resolveWhenDone={tickets?.resolveWhenDone === true}
+            defaults={tickets?.defaults === true}
+          />
         )}
       </div>
       <div className="row end">

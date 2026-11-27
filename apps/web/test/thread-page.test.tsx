@@ -237,6 +237,32 @@ describe("the thread page", () => {
     expect(page.querySelector("textarea")).not.toBeNull();
   });
 
+  test("tickets: each linked ticket shows its tracker, key, and status, opening the ticket; a last-known status says so; none shows no list", async () => {
+    const ticket = (changes: Record<string, unknown>) =>
+      ({
+        _id: "l1", threadId: THREAD._id, tracker: "linear", externalId: "i1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "Department is wrong",
+        status: { label: "In Progress", category: "started" }, statusCheckedAt: 1, statusStale: false, createdFromCritiqs: true, linkedByName: "Dana", linkedAt: 1, canUnlink: false, canAddLinkBack: false,
+        ...changes,
+      }) as NonNullable<ThreadPageData["tickets"]>[number];
+    const tickets = [
+      ticket({}),
+      ticket({ _id: "l2", tracker: "github", key: "acme/web#9", url: "https://github.com/acme/web/issues/9", status: { label: "Closed", category: "done" }, statusStale: true }),
+      ticket({ _id: "l3", tracker: "jira", key: "WEB-3", url: "javascript:alert(1)", status: null }),
+    ];
+    const page = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready({ ...THREAD, tickets }) }) });
+    const list = page.querySelector('[aria-label="Linked tickets"]')!;
+    expect([...list.querySelectorAll(".ticket-chip")].map((chip) => text(chip))).toEqual(["LinearENG-12In Progress", "GitHub Issuesacme/web#9Closed · last known", "JiraWEB-3"]);
+    expect([...list.querySelectorAll("a")].map((link) => [link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")])).toEqual([
+      ["https://linear.app/acme/issue/ENG-12", "_blank", "noopener noreferrer"],
+      ["https://github.com/acme/web/issues/9", "_blank", "noopener noreferrer"],
+    ]);
+    expect(list.querySelector("li")!.getAttribute("title")).toBe("Department is wrong");
+    // Between the tags and the discussion.
+    expect(list.compareDocumentPosition(page.querySelector(".discussion")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const none = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready({ ...THREAD, tickets: [] }) }) });
+    expect(none.querySelector('[aria-label="Linked tickets"]')).toBeNull();
+  });
+
   test("Copy link copies the page's own address", async () => {
     const clipboard = fakeClipboard();
     (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(`https://critiqs.app/t/${KEY}?from=email#top`);

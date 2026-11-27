@@ -17,11 +17,14 @@ import {
   prepareAiTicketDraft,
   prepareDraft,
   requireTemplateOwner,
+  saveTicketDefaultDestination,
   saveTicketTemplateSettings,
+  setTicketDefaultDestination,
   TICKET_AI,
   ticketDraft,
   ticketDraftOptions,
 } from "../src/tickets/drafts.ts";
+import { ticketSettings } from "../src/tickets/status.ts";
 import { claimTicketCreation, createTicket, finishTicketCreation, releaseTicketHold, requireTicketCreator, requireTrackerAccount } from "../src/tickets/links.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
 import { NO_GITHUB } from "./github-standin.ts";
@@ -207,8 +210,94 @@ export function defineTicketDraftContract(name: string, fresh: () => ContractBac
           { id: "tpl-feature", name: "Feature request" },
         ],
       },
+      // The workspace's templates belong to no team: one group, offered for every team.
+      { destination: { id: "*", name: "Workspace templates (every team)", key: null }, templates: [{ id: "tpl-workspace", name: "Workspace template" }] },
     ]);
     expect(linear.tokens).toEqual(["lin_api_dana"]);
+  });
+
+  test(`${name}: a Linear workspace template an owner turns on is offered in every team, fills the draft, and creates the issue from it`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend);
+    const linear = linearStandIn();
+    await connect(backend, lee);
+    const workspace: TicketTemplateChoice = { tracker: "linear", destinationId: "*", templateId: "tpl-workspace", name: "Workspace template" };
+    // Off, it isn't offered.
+    await save(backend, dana, projectId, false, [workspace]);
+    expect((await options(backend, lee, linear, threadId, "team-des")).templates).toEqual([]);
+    await save(backend, dana, projectId, true, [workspace, bug]);
+    // Every team offers it; Engineering also its own Bug report.
+    expect((await options(backend, lee, linear, threadId, "team-des")).templates).toEqual([{ id: "tpl-workspace", name: "Workspace template" }]);
+    expect((await options(backend, lee, linear, threadId, "team-eng")).templates.map((template) => template.id).sort()).toEqual(["tpl-bug", "tpl-workspace"]);
+    // Choosing it fills the draft from its text, in any team.
+    expect((await draft(backend, lee, linear, threadId, { destinationId: "team-des", templateId: "tpl-workspace" })).body).toContain("## Notes");
+    // A team's template is still refused in another team.
+    expect((await refusal(draft(backend, lee, linear, threadId, { destinationId: "team-des", templateId: "tpl-bug" }))).code).toBe("invalid");
+    // The issue is created from it in Linear.
+    await create(backend, lee, linear, { threadId, destinationId: "team-des", templateId: "tpl-workspace" });
+    expect(linear.issues.at(-1)).toMatchObject({ teamId: "team-des", templateId: "tpl-workspace" });
+    // A Jira template pasted for every destination is refused: it must name its project and issue type.
+    expect((await refusal(save(backend, dana, projectId, true, [{ tracker: "jira", destinationId: "*", templateId: "pasted-1", name: "Bug", body: "## Steps" }]))).message).toBe(
+      "Choose the project and issue type the template is for.",
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // A project's default destination
+
+  test(`${name}: a project's owners choose where its tickets go by default, among their own tracker's destinations, and every reviewer's draft starts there`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend);
+    const linear = linearStandIn();
+    const steps = (who: Identity) => ({
+      requirePerson: () => backend.run((store) => requireTemplateOwner(store, who, { projectId, tracker: "linear" }, 1_000)),
+      token: () => token(who)(),
+      save: (destination: { destinationId: string; name: string } | null) => backend.run((store) => saveTicketDefaultDestination(store, who, { projectId, tracker: "linear", destination }, 2_000)),
+    });
+    const choose = (who: Identity, destinationId: string | null) => setTicketDefaultDestination(steps(who), deployment, { tracker: "linear", destinationId }, linear.fetchFn);
+    // None by default; the draft says so.
+    await connect(backend, lee);
+    expect((await draft(backend, lee, linear, threadId)).projectDestinationId).toBeNull();
+    // Only an owner, with their own Linear account; Linear isn't asked for anyone else.
+    linear.operations.length = 0;
+    expect((await refusal(choose(lee, "team-des"))).code).toBe("forbidden");
+    expect((await refusal(choose(dana, "team-des"))).message).toBe("Connect Linear in Your trackers first.");
+    expect(linear.operations).toEqual([]);
+    expect((await refusal(backend.run((store) => saveTicketDefaultDestination(store, lee, { projectId, tracker: "linear", destination: { destinationId: "team-des", name: "Design" } }, 2_000)))).code).toBe("forbidden");
+    await connect(backend, dana);
+    // A destination the owner's Linear doesn't list is refused; the name saved is Linear's.
+    expect((await refusal(choose(dana, "team-secret"))).code).toBe("invalid");
+    expect(await choose(dana, "team-des")).toEqual({ resolveWhenDone: false, defaults: [{ tracker: "linear", destinationId: "team-des", name: "Design" }] });
+    expect(await backend.run((store) => ticketSettings(store, dana, { projectId }))).toEqual({ resolveWhenDone: false, defaults: [{ tracker: "linear", destinationId: "team-des", name: "Design" }] });
+    expect((await refusal(backend.run((store) => ticketSettings(store, lee, { projectId })))).code).toBe("forbidden");
+    // Every reviewer's draft starts there; one tracker's default isn't another's.
+    expect((await draft(backend, lee, linear, threadId)).projectDestinationId).toBe("team-des");
+    expect(await choose(dana, "team-eng")).toMatchObject({ defaults: [{ tracker: "linear", destinationId: "team-eng", name: "Engineering" }] });
+    // Turning templates on keeps the default, and clearing it leaves none.
+    await save(backend, dana, projectId, true, [bug]);
+    expect((await backend.run((store) => ticketSettings(store, dana, { projectId }))).defaults).toEqual([{ tracker: "linear", destinationId: "team-eng", name: "Engineering" }]);
+    expect(await choose(dana, null)).toEqual({ resolveWhenDone: false, defaults: [] });
+    expect((await draft(backend, lee, linear, threadId)).projectDestinationId).toBeNull();
+  });
+
+  test(`${name}: a project's default destination isn't shown to someone who may not review it`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend);
+    const linear = linearStandIn();
+    await connect(backend, dana);
+    await setTicketDefaultDestination(
+      {
+        requirePerson: () => backend.run((store) => requireTemplateOwner(store, dana, { projectId, tracker: "linear" }, 1_000)),
+        token: token(dana),
+        save: (destination) => backend.run((store) => saveTicketDefaultDestination(store, dana, { projectId, tracker: "linear", destination }, 2_000)),
+      },
+      deployment,
+      { tracker: "linear", destinationId: "team-des" },
+      linear.fetchFn,
+    );
+    await backend.run((store) => ops.setReviewAccess(store, dana, { projectId, reviewAccess: "organization" }));
+    await connect(backend, lee);
+    expect((await refusal(draft(backend, lee, linear, threadId))).code).toBe("forbidden");
   });
 
   test(`${name}: the Create dialog offers a team's templates only while they're on, by their names in Linear, and labels matching the thread's tags`, async () => {

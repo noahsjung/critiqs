@@ -145,6 +145,8 @@ export interface NewComment {
   body: MentionText;
   tags: string[];
   scope: Scope;
+  /** **Also create a ticket**: Create ticket opens for the new thread once it is saved. */
+  ticket?: boolean;
 }
 
 /** Record-specific by default, so feedback is never shown on a different record (F7). */
@@ -168,6 +170,7 @@ export function Composer({
   onSubmit,
   onCancel,
   rightEdge,
+  ticketOffer = false,
 }: {
   /** Lets the global Escape handler dismiss hovered help without moving focus. */
   dismissHelpRef: { current: (() => void) | null };
@@ -188,6 +191,8 @@ export function Composer({
   onCancel: () => void;
   /** Right edge of the free area, left of an open sidebar. */
   rightEdge: number;
+  /** Offers **Also create a ticket**, where threads can create tickets. */
+  ticketOffer?: boolean;
 }) {
   const rect = useElementRect(picked.element);
   const { body, scope } = comment;
@@ -336,6 +341,12 @@ export function Composer({
               </div>
             )}
             {signInOnPost && <p className="note">You'll sign in with your email when you post. Your comment stays here.</p>}
+            {ticketOffer && (
+              <label className="ticket-check">
+                <input type="checkbox" checked={comment.ticket === true} onChange={(event) => onChange({ ...comment, ticket: event.target.checked })} />
+                Also create a ticket
+              </label>
+            )}
             {error !== null && <div className="error">{error}</div>}
             <div className="row end">
               <button type="button" className="btn" onClick={onCancel}>

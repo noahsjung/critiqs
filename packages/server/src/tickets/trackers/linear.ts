@@ -1,4 +1,4 @@
-import { type TicketDestination, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, type TrackerTemplateGroup, type WebAddress, webAddress } from "@critiqs/core";
+import { EVERY_DESTINATION, type TicketDestination, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, type TrackerTemplateGroup, type WebAddress, webAddress } from "@critiqs/core";
 import { CritiqsError, fail } from "../../errors.ts";
 import {
   checkedAdapter,
@@ -55,12 +55,15 @@ const CREATE = `mutation CritiqsCreate($input: IssueCreateInput!) { issueCreate(
 // it (https://linear.app/developers/attachments), so the link back is safe to repeat.
 const LINK_BACK = "mutation CritiqsLinkBack($input: AttachmentCreateInput!) { attachmentCreate(input: $input) { success } }";
 const COMMENT = "mutation CritiqsComment($input: CommentCreateInput!) { commentCreate(input: $input) { success } }";
-// Issue templates that belong to a team; workspace templates (no team) aren't offered yet.
+// Issue templates: a team's, and the workspace's, which belong to no team and apply to every team.
 // `content` is the template's text as Markdown, its form fields as placeholders.
 const TEMPLATE_FIELDS = "id name team { id name key }";
-const TEMPLATES = `query CritiqsTemplates { templateSearch(filter: { type: { eq: "issue" }, team: { null: false } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
+const TEMPLATES = `query CritiqsTemplates { templateSearch(filter: { type: { eq: "issue" } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
 const TEAM_TEMPLATES = `query CritiqsTeamTemplates($team: ID!) { templateSearch(filter: { type: { eq: "issue" }, team: { id: { eq: $team } } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
-const TEMPLATE = `query CritiqsTemplate($id: ID!) { templateSearch(filter: { id: { eq: $id }, type: { eq: "issue" }, team: { null: false } }, first: 1) { ${TEMPLATE_FIELDS} content } }`;
+const WORKSPACE_TEMPLATES = `query CritiqsWorkspaceTemplates { templateSearch(filter: { type: { eq: "issue" }, team: { null: true } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
+const TEMPLATE = `query CritiqsTemplate($id: ID!) { templateSearch(filter: { id: { eq: $id }, type: { eq: "issue" } }, first: 1) { ${TEMPLATE_FIELDS} content } }`;
+/** Where a workspace's templates show among a person's teams' templates. */
+const WORKSPACE_GROUP: TicketDestination = { id: EVERY_DESTINATION, name: "Workspace templates (every team)", key: null };
 // The team's labels and the workspace's, leaving out label groups, which issues can't take, with each one's group:
 // an issue takes at most one label of a single-select group, which a group without a type is.
 const LABELS =
@@ -151,8 +154,10 @@ export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAda
     },
     uploadImage: async (token, image) => uploadImage(to, token, image),
     templates: async (token, destinationId) =>
-      parseTemplateGroups(destinationId === undefined ? await graphql(to, token, TEMPLATES) : await graphql(to, token, TEAM_TEMPLATES, { team: destinationId })),
-    template: async (token, templateId) => parseTemplate(await graphql(to, token, TEMPLATE, { id: templateId })),
+      destinationId === undefined
+        ? parseTemplateGroups(await graphql(to, token, TEMPLATES))
+        : [...parseTemplateGroups(await graphql(to, token, TEAM_TEMPLATES, { team: destinationId })), ...parseTemplateGroups(await graphql(to, token, WORKSPACE_TEMPLATES))],
+    template: async (token, templateId, destinationId) => parseTemplate(await graphql(to, token, TEMPLATE, { id: templateId }), destinationId),
     labels: async (token, destinationId) => parseLabels(await graphql(to, token, LABELS, { team: destinationId })),
   }, linearPlace(trackerWebOrigins(endpoint, LINEAR_APP_URL)));
 }
@@ -370,25 +375,37 @@ function teamOf(template: Record<string, unknown>): TicketDestination | null {
   return { id: team.id, name: team.name, key: text(team.key) ? team.key : null };
 }
 
-/** Templates by team, teams by name, each team's templates in Linear's order. */
+/** Templates by team, teams by name, each team's templates in Linear's order; the workspace's last, as one group for every team. */
 function parseTemplateGroups(data: unknown): TrackerTemplateGroup[] {
   const groups = new Map<string, TrackerTemplateGroup>();
+  const workspace: TrackerTemplateGroup = { destination: WORKSPACE_GROUP, templates: [] };
   for (const template of templateNodes(data)) {
+    if (!text(template.id) || !text(template.name)) continue;
+    // A template with no team is the workspace's; one whose team can't be read is left out.
+    if (template.team === null || template.team === undefined) {
+      workspace.templates.push({ id: template.id, name: template.name });
+      continue;
+    }
     const team = teamOf(template);
-    if (team === null || !text(template.id) || !text(template.name)) continue;
+    if (team === null) continue;
     const group = groups.get(team.id) ?? { destination: team, templates: [] };
     group.templates.push({ id: template.id, name: template.name });
     groups.set(team.id, group);
   }
-  return [...groups.values()].sort((a, b) => a.destination.name.localeCompare(b.destination.name));
+  const teams = [...groups.values()].sort((a, b) => a.destination.name.localeCompare(b.destination.name));
+  return workspace.templates.length === 0 ? teams : [...teams, workspace];
 }
 
-function parseTemplate(data: unknown): TrackerTemplate | null {
+/** A template with its text, for a draft in a team: the team's own, or the workspace's; null for another team's, or none. */
+function parseTemplate(data: unknown, destinationId: string): TrackerTemplate | null {
   const [template] = templateNodes(data);
   if (template === undefined) return null;
-  const team = teamOf(template);
-  if (team === null || !text(template.id) || !text(template.name)) throw unexpected("template unreadable");
-  return { id: template.id, name: template.name, destinationId: team.id, body: typeof template.content === "string" ? template.content : "" };
+  if (!text(template.id) || !text(template.name)) throw unexpected("template unreadable");
+  const workspace = template.team === null || template.team === undefined;
+  const team = workspace ? null : teamOf(template);
+  if (!workspace && team === null) throw unexpected("template unreadable");
+  if (!workspace && team!.id !== destinationId) return null;
+  return { id: template.id, name: template.name, destinationId, body: typeof template.content === "string" ? template.content : "" };
 }
 
 function parseLabels(data: unknown): TrackerLabel[] {

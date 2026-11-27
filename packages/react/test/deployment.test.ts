@@ -232,6 +232,15 @@ test("offers Your trackers only for the trackers the backend reports, and how ea
     trackers: [{ id: "linear", signIn: "token" }],
     threadTickets: true,
   });
+  // Default destinations only where the backend says so, and only with tickets on threads.
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, defaultDestinations: true }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "token" }],
+    threadTickets: true,
+    defaultDestinations: true,
+  });
+  expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "linear", signIn: "token" }], defaultDestinations: true }))).tickets).toEqual({
+    trackers: [{ id: "linear", signIn: "token" }],
+  });
   // A tracker or sign-in this version doesn't know is left out; with none left, tickets aren't offered.
   expect((await resolveDeployment("https://team.convex.cloud", config({ trackers: [{ id: "asana", signIn: "oauth" }, { id: "linear", signIn: "token" }] }))).tickets).toEqual({
     trackers: [{ id: "linear", signIn: "token" }],

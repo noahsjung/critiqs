@@ -146,6 +146,10 @@ textarea.field:focus, input.field:focus, .tag-field.field:focus { outline: none;
 .row { display: flex; align-items: center; gap: 8px; }
 .row.end { justify-content: flex-end; }
 .row.between { justify-content: space-between; }
+/* The selection's footer: the count and its links on one line, the actions beside them, or on the next line, right-aligned, when the sidebar is narrow; no label wraps. */
+.selection-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.selection-footer > .row { white-space: nowrap; }
+.selection-actions { margin-left: auto; }
 .wrap { flex-wrap: wrap; }
 .grow { flex: 1; min-width: 0; }
 .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
@@ -384,6 +388,9 @@ button.hashtag { cursor: pointer; }
 .ds-steps i { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
 .ds-steps i.on { background: var(--accent); }
 .ds-group-label { margin: 0 0 var(--space-1); font-size: var(--text-s); font-weight: 600; color: var(--muted); }
+.ds-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.ds-section + .ds-section, .ds-group + .ds-section, .note + .ds-section, .ds-page + .ds-section { padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.ds-section-title { margin: 0; font-size: var(--text-m); font-weight: 600; color: var(--text); }
 .ds-person { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ds-person .stacked { gap: 0; min-width: 0; }
 .ds-person .ellipsis, .ds-row .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -482,6 +489,13 @@ button.hashtag { cursor: pointer; }
 .ticket-label .icon-btn { width: 20px; height: 20px; border-radius: 50%; }
 .ticket-label .icon-btn svg { width: 12px; height: 12px; }
 .ticket-check { display: flex; align-items: center; gap: var(--space-2); }
+.bulk-tickets { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-m); }
+.bulk-ticket { display: flex; align-items: center; gap: var(--space-3); min-height: 32px; padding: 0 var(--space-3); font-size: var(--text-s); }
+.bulk-ticket + .bulk-ticket { border-top: 1px solid var(--border); }
+.bulk-ticket .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bulk-state { flex: none; max-width: 55%; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.bulk-ticket.created .bulk-state { color: var(--success); }
+.bulk-ticket.failed .bulk-state { color: var(--danger); }
 .ticket-fields { display: flex; flex-direction: column; gap: var(--space-2); }
 .ticket-fields fieldset { border: 0; margin: 0; padding: 0; gap: var(--space-1); }
 .ticket-check input { margin: 0; accent-color: var(--accent); }

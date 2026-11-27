@@ -554,6 +554,71 @@ test("a thread by ID or link, with mentions, reactions, and who resolved it; and
   expect((await agent.call("critiqs_thread", { thread: "https://planner.example/review", backend: BACKEND })).content[0]!.text).toContain("no Critiqs thread");
 });
 
+test("critiqs_thread names the tickets linked to a thread, with key, title, status, and address, and not ones still being created", async () => {
+  const { t, tools } = local();
+  const ids = await feedback(t);
+  const agent = tools();
+  await signIn(t, agent);
+  await t.run(async (ctx) => {
+    const thread = (await ctx.db.get(ids.department as Id<"threads">))!;
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    // The linker is connected as the account they linked with, so Critiqs can check the Linear ticket.
+    await ctx.db.insert("trackerAccounts", { userId: linkedBy, tracker: "linear", method: "token", accountId: "acct-1", accountName: "Dana", access: { ciphertext: "x", iv: "y" }, attribution: true, connectedAt: 1, updatedAt: 1 });
+    const base = { projectId: thread.projectId, threadId: thread._id, linkedBy, linkedAt: Date.UTC(2026, 10, 20), createdFromCritiqs: true, accountId: "acct-1" };
+    await ctx.db.insert("ticketLinks", { ...base, state: "linked", tracker: "linear", externalId: "issue-1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "Department is wrong", status: { label: "In Progress", category: "started" } });
+    await ctx.db.insert("ticketLinks", { ...base, state: "linked", tracker: "github", externalId: "n1", key: "acme/web#9", url: "https://github.com/acme/web/issues/9", title: "Label", status: { label: "Closed", category: "done" }, statusStale: true });
+    await ctx.db.insert("ticketLinks", { ...base, state: "pending", tracker: "jira", externalId: "c1:1", key: "WEB-1", url: "https://acme.atlassian.net/browse/WEB-1", title: "Pending" });
+  });
+  const answer = data(await agent.call("critiqs_thread", { thread: ids.department, backend: BACKEND }));
+  expect(answer.thread.tickets).toEqual([
+    { tracker: "linear", key: "ENG-12", title: "Department is wrong", status: { label: "In Progress", category: "started" }, lastKnown: false, url: "https://linear.app/acme/issue/ENG-12", linkedBy: expect.any(String), linkedAt: "2026-11-20T00:00:00.000Z" },
+    { tracker: "github", key: "acme/web#9", title: "Label", status: { label: "Closed", category: "done" }, lastKnown: true, url: "https://github.com/acme/web/issues/9", linkedBy: expect.any(String), linkedAt: "2026-11-20T00:00:00.000Z" },
+  ]);
+  // A thread without tickets says so with an empty list.
+  expect(data(await agent.call("critiqs_thread", { thread: ids.spacing, backend: BACKEND })).thread.tickets).toEqual([]);
+});
+
+test("a ticket whose status Critiqs can no longer check reads as last known in critiqs_thread and the export, from the moment its linker disconnects", async () => {
+  const { t, tools } = local();
+  const ids = await feedback(t);
+  const agent = tools();
+  await signIn(t, agent);
+  const { projectId, accountId } = await t.run(async (ctx) => {
+    const thread = (await ctx.db.get(ids.department as Id<"threads">))!;
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    const accountId = await ctx.db.insert("trackerAccounts", { userId: linkedBy, tracker: "linear", method: "token", accountId: "acct-1", accountName: "Dana", access: { ciphertext: "x", iv: "y" }, attribution: true, connectedAt: 1, updatedAt: 1 });
+    await ctx.db.insert("ticketLinks", { projectId: thread.projectId, threadId: thread._id, linkedBy, linkedAt: 1, createdFromCritiqs: true, accountId: "acct-1", state: "linked", tracker: "linear", externalId: "issue-1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "Department is wrong", status: { label: "In Progress", category: "started" } });
+    return { projectId: thread.projectId, accountId };
+  });
+  const exported = async () => {
+    return (await t.withIdentity(reviewer("Dana")).query(api.threads.exportThreads, { projectId, threadIds: [ids.department], threadIndex: 0, paginationOpts: { numItems: 10, cursor: null } })).thread?.tickets;
+  };
+  const agentTickets = async () => data(await agent.call("critiqs_thread", { thread: ids.department, backend: BACKEND })).thread.tickets;
+  expect((await agentTickets())[0]).toMatchObject({ key: "ENG-12", lastKnown: false });
+  expect((await exported())?.[0]).toMatchObject({ key: "ENG-12", lastKnown: false });
+  // The linker disconnects Linear; nothing has checked the ticket since.
+  await t.run(async (ctx) => await ctx.db.delete(accountId));
+  expect((await agentTickets())[0]).toMatchObject({ key: "ENG-12", status: { label: "In Progress" }, lastKnown: true });
+  expect((await exported())?.[0]).toMatchObject({ key: "ENG-12", status: { label: "In Progress" }, lastKnown: true });
+});
+
+test("critiqs_thread gives a ticket's address only when it is a web address, so an agent never follows another kind", async () => {
+  const { t, tools } = local();
+  const ids = await feedback(t);
+  const agent = tools();
+  await signIn(t, agent);
+  await t.run(async (ctx) => {
+    const thread = (await ctx.db.get(ids.department as Id<"threads">))!;
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    const base = { projectId: thread.projectId, threadId: thread._id, linkedBy, linkedAt: 1, createdFromCritiqs: true, state: "linked" as const, tracker: "jira" as const, title: "T" };
+    for (const [index, url] of ["https://acme.atlassian.net/browse/WEB-1", "HTTP://acme.example/2", "javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "file:///etc/passwd", "//evil.example/x"].entries()) {
+      await ctx.db.insert("ticketLinks", { ...base, externalId: `c1:${index}`, key: `WEB-${index}`, url });
+    }
+  });
+  const answer = data(await agent.call("critiqs_thread", { thread: ids.department, backend: BACKEND }));
+  expect(answer.thread.tickets.map((ticket: { url: string | null }) => ticket.url)).toEqual(["https://acme.atlassian.net/browse/WEB-1", "HTTP://acme.example/2", null, null, null, null]);
+});
+
 test("the kept sign-in renews when its token runs out, once even for agents reading at the same time, and signing out ends it", async () => {
   const { t, config, tools, calls } = local();
   const ids = await feedback(t);

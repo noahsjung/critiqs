@@ -7,6 +7,7 @@ import { App } from "../src/App.tsx";
 import type { Deployment } from "../src/deployment.ts";
 import { Session } from "../src/session.ts";
 import { TransportContext } from "../src/transport.ts";
+import { commentField, typeInto } from "./comment-field.ts";
 import { type FakeBackend, fakeTicketView, fakeTransport } from "./fake-transport.tsx";
 
 // Tickets in the interface: Create ticket… and Link ticket… in the thread
@@ -440,6 +441,36 @@ test("the thread list row shows each linked ticket's key and status, and the pin
   expect(pin.querySelector(".pin-ticket")).not.toBeNull();
   expect(pin.getAttribute("aria-label")).toBe("Open comment by Dana, ticket Linear ENG-1 · In Progress");
   expect(pin.getAttribute("title")).toContain("ENG-1 · In Progress");
+});
+
+test("Has ticket in the filter menu shows only threads with a ticket, says so, and resets", async () => {
+  const plain = { ...summary(), _id: "plain", preview: { body: "No ticket here", authorName: "Lee", authorImageUrl: null } };
+  const shadow = await mount(backend({ threads: [summary([badge]), plain] }), OFFERED, { sidebarOpen: true });
+  expect(shadow.querySelectorAll(".entry")).toHaveLength(2);
+  await click(shadow.querySelector('button[aria-label="Filter"]'));
+  await click([...shadow.querySelectorAll('[role^="menuitem"]')].find((item) => item.textContent === "Has ticket"));
+  const entries = [...shadow.querySelectorAll(".entry")];
+  expect(entries.map((entry) => entry.querySelector(".excerpt")?.textContent)).toEqual(["Align the review button"]);
+  expect(entries[0]!.querySelector(".ticket-badge")?.textContent).toBe("ENG-1 · In Progress");
+  expect(shadow.querySelector(".filter-summary")!.textContent).toContain("has ticket");
+  expect(shadow.querySelector(".filter-summary")!.textContent).toContain("1 hidden by filters");
+  await click(button(shadow.querySelector(".filter-summary")!, "Reset"));
+  expect(shadow.querySelectorAll(".entry")).toHaveLength(2);
+});
+
+test("with no thread linked to a ticket, Has ticket says so and offers to clear it; a backend without tickets has no Has ticket", async () => {
+  let shadow = await mount(backend(), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Filter"]'));
+  await click([...shadow.querySelectorAll('[role^="menuitem"]')].find((item) => item.textContent === "Has ticket"));
+  expect(shadow.querySelector(".empty")!.textContent).toContain("No threads with tickets");
+  await click(button(shadow.querySelector(".empty")!, "Clear filters"));
+  expect(shadow.querySelectorAll(".entry")).toHaveLength(1);
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend({ trackers: undefined }), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Filter"]'));
+  expect([...shadow.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent)).not.toContain("Has ticket");
 });
 
 test("a thread without tickets shows no chips, badge, or pin mark", async () => {
@@ -919,7 +950,10 @@ test("with Linear and GitHub connected, the Tickets tab lists each tracker's tem
     { projectId: "project", tracker: "linear" },
     { projectId: "project", tracker: "github" },
   ]);
-  expect([...settings.querySelectorAll("h4.ds-group-label")].map((label) => label.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  // Each tracker is a titled section; its repositories and teams are groups inside it.
+  expect([...settings.querySelectorAll("section h4.ds-section-title")].map((label) => label.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  expect([...settings.querySelectorAll('section[aria-label="GitHub Issues"] .ds-group-label')].map((label) => label.textContent)).toEqual(["acme/web"]);
+  expect([...settings.querySelectorAll('section[aria-label="Linear"] .ds-group-label')].map((label) => label.textContent)).toEqual(["Engineering"]);
   expect(settings.querySelector('[role="group"][aria-label="GitHub Issues templates"]')!.textContent).toContain("in their repository");
   await click(switchFor(settings, "Bug form"));
   expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({
@@ -1022,4 +1056,333 @@ test("with all three trackers connected, switching the tracker never asks one tr
   const asked = calls(data, "ticketDraftOptions") as { tracker: TrackerId; destinationId: string }[];
   expect(asked.map((call) => call.tracker)).toEqual(["linear", "github", "jira"]);
   for (const call of asked) expect(call.destinationId).toBe(own[call.tracker]);
+});
+
+// ---------------------------------------------------------------------------
+// The project's default destination
+
+const DEFAULTS: TicketsConfig = { ...OFFERED, drafting: true, ticketStatus: true, defaultDestinations: true };
+
+test("an owner chooses each connected tracker's default destination in the Tickets tab, or none, among their own destinations", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB], destinations: async (tracker) => (tracker === "github" ? [{ id: "acme/web", name: "acme/web", key: null }] : [{ id: "team-des", name: "Design", key: "DES" }, { id: "team-eng", name: "Engineering", key: "ENG" }]) } });
+  const shadow = await mount(data, { ...DEFAULTS, trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "oauth" }] }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  // One titled section per tracker, each with its own default.
+  expect([...settings.querySelectorAll("section h4.ds-section-title")].map((title) => title.textContent)).toEqual(["Linear", "GitHub Issues"]);
+  const linear = settings.querySelector('section[aria-label="Linear"]')!;
+  expect(rowSelect(linear, "Default team")!.textContent).toContain("None");
+  expect(rowSelect(settings.querySelector('section[aria-label="GitHub Issues"]')!, "Default repository")).not.toBeNull();
+  await chooseOption(shadow, rowSelect(linear, "Default team"), "Engineering");
+  expect(calls(data, "setTicketDefaultDestination")).toEqual([{ projectId: "project", tracker: "linear", destinationId: "team-eng" }]);
+  expect(shadow.textContent).toContain("New Linear tickets go to Engineering by default");
+  expect(rowSelect(linear, "Default team")!.textContent).toContain("Engineering");
+  await chooseOption(shadow, rowSelect(linear, "Default team"), "None");
+  expect(calls(data, "setTicketDefaultDestination").at(-1)).toEqual({ projectId: "project", tracker: "linear", destinationId: null });
+  expect(shadow.textContent).toContain("New Linear tickets have no default team");
+});
+
+test("a default another owner chose that this owner can't see stays listed by its saved name", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], settings: { project: { resolveWhenDone: false, defaults: [{ tracker: "linear", destinationId: "team-ops", name: "Operations" }] } } } });
+  const shadow = await mount(data, DEFAULTS, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  const linear = settings.querySelector('section[aria-label="Linear"]')!;
+  expect(rowSelect(linear, "Default team")!.textContent).toContain("Operations");
+});
+
+test("without default destinations on the backend, the Tickets tab has no default rows", async () => {
+  const shadow = await mount(backend(), { ...OFFERED, drafting: true, ticketStatus: true }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect(rowSelect(settings, "Default team")).toBeNull();
+});
+
+test("Create ticket starts at the project's default destination, unless the person chose another for this project before", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], draft: async () => ({ title: "Department is wrong", body: "Text\n", createdFromCritiqs: true, resumeSubmissionId: null, projectDestinationId: "team-eng" }) } });
+  let shadow = await mount(data, DEFAULTS);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  let create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Team")!.textContent).toContain("Engineering");
+  // Only the project's default is asked about: the first team never is.
+  expect(calls(data, "ticketDraftOptions")).toEqual([{ threadId: "thread", tracker: "linear", destinationId: "team-eng" }]);
+  await chooseOption(shadow, rowSelect(create, "Team"), "Design");
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  // The person's own choice wins from then on.
+  shadow = await mount(data, DEFAULTS);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  create = dialog(shadow, "Create ticket")!;
+  expect(rowSelect(create, "Team")!.textContent).toContain("Design");
+});
+
+test("a project default the person can't create tickets in falls back to their first destination", async () => {
+  const data = backend({ trackers: { accounts: [LINEAR], draft: async () => ({ title: "T", body: "Text\n", createdFromCritiqs: true, resumeSubmissionId: null, projectDestinationId: "team-secret" }) } });
+  const shadow = await mount(data, DEFAULTS);
+  await openThreadMenu(shadow);
+  await click(button(shadow, "Create ticket…"));
+  expect(rowSelect(dialog(shadow, "Create ticket")!, "Team")!.textContent).toContain("Design");
+});
+
+test("templates from an organization's .github repository say where they come from, and a Linear workspace template is saved for every team", async () => {
+  const groups = async (tracker: TrackerId): Promise<TrackerTemplateGroup[]> =>
+    tracker === "github"
+      ? [{ destination: { id: "acme/api", name: "acme/api", key: null }, templates: [{ id: "acme/.github:bug.md", name: "Organization bug" }], from: "acme/.github" }]
+      : [{ destination: { id: "*", name: "Workspace templates (every team)", key: null }, templates: [{ id: "tpl-ws", name: "Workspace template" }] }];
+  const data = backend({ trackers: { accounts: [LINEAR, GITHUB], templateSettings: { on: true, templates: [] }, trackerTemplates: groups } });
+  const shadow = await mount(data, { ...DRAFTING, trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "oauth" }] }, { sidebarOpen: true });
+  const settings = await openTicketsTab(shadow);
+  expect(settings.querySelector('[role="group"][aria-label="acme/api"]')!.textContent).toContain("From acme/.github: this repository has no templates of its own, so GitHub uses these.");
+  expect(settings.querySelector('[role="group"][aria-label="Workspace templates (every team)"] .note')).toBeNull();
+  await click(switchFor(settings, "Workspace template"));
+  expect(calls(data, "saveTicketTemplateSettings").at(-1)).toEqual({
+    projectId: "project",
+    on: true,
+    templates: [{ tracker: "linear", destinationId: "*", templateId: "tpl-ws", name: "Workspace template" }],
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Also create a ticket, and Create tickets for a collection
+
+/** Selects the page's button in Comment mode (already on) and writes a comment. */
+async function startComment(shadow: ShadowRoot, text: string) {
+  const target = page!.querySelector("button")!;
+  document.elementFromPoint = () => target;
+  await act(async () => void target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: 50, clientY: 90 })));
+  await settle();
+  const form = shadow.querySelector<HTMLFormElement>('form[aria-label="New comment"]')!;
+  await typeInto(commentField(form)!, text);
+  return form;
+}
+
+test("Also create a ticket in the new-comment box opens Create ticket for the saved thread; unchecked, it doesn't", async () => {
+  const data = backend();
+  const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+  let form = await startComment(shadow, "Align the review button");
+  const also = [...form.querySelectorAll("label")].find((label) => label.textContent === "Also create a ticket")!.querySelector("input")!;
+  expect(also.checked).toBe(false);
+  await click(also);
+  await act(async () => form.requestSubmit());
+  await settle(6);
+  expect(calls(data, "createThread")).toHaveLength(1);
+  const create = dialog(shadow, "Create ticket")!;
+  expect(create).not.toBeNull();
+  expect(calls(data, "ticketDraft").at(-1)).toMatchObject({ threadId: "thread", tracker: "linear" });
+  await click(button(create, "Close"));
+  expect(dialog(shadow, "Create ticket")).toBeNull();
+  // A second comment, left unchecked, opens no dialog.
+  form = await startComment(shadow, "Another");
+  expect([...form.querySelectorAll("label")].find((label) => label.textContent === "Also create a ticket")!.querySelector("input")!.checked).toBe(false);
+  await act(async () => form.requestSubmit());
+  await settle(6);
+  expect(dialog(shadow, "Create ticket")).toBeNull();
+});
+
+test("without a tracker connected, Also create a ticket opens Your trackers; a backend without tickets on threads doesn't offer it", async () => {
+  let shadow = await mount(backend({ trackers: { accounts: [] } }), OFFERED, { sidebarOpen: true });
+  const form = await startComment(shadow, "Align the review button");
+  await click([...form.querySelectorAll("label")].find((label) => label.textContent === "Also create a ticket")!.querySelector("input"));
+  await act(async () => form.requestSubmit());
+  await settle(6);
+  expect(dialog(shadow, "Your trackers")).not.toBeNull();
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend(), { trackers: [{ id: "linear", signIn: "token" }] }, { sidebarOpen: true });
+  const plain = await startComment(shadow, "Hi");
+  expect([...plain.querySelectorAll("label")].map((label) => label.textContent)).not.toContain("Also create a ticket");
+});
+
+const thread = (id: string, body: string, tickets: TicketBadge[] = []) => ({ ...summary(tickets), _id: id, preview: { body, authorName: "Dana", authorImageUrl: null } });
+
+async function openBulk(shadow: ShadowRoot, ids: string[]) {
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  for (const entry of [...shadow.querySelectorAll<HTMLLabelElement>("label.entry")]) {
+    const excerpt = entry.querySelector(".excerpt")?.textContent ?? "";
+    if (ids.some((id) => excerpt.startsWith(id))) await click(entry.querySelector("input"));
+  }
+  await click(button(shadow, "Create tickets…"));
+  return dialog(shadow, "Create tickets")!;
+}
+
+test("Create tickets makes one ticket per selected thread, skipping ones with a ticket, with progress, at the project's default team", async () => {
+  const data = backend({
+    threads: [thread("t1", "First issue"), thread("t2", "Second issue"), thread("t3", "Third has one", [badge])],
+    trackers: {
+      accounts: [LINEAR],
+      draft: async (threadId) => ({ title: `Title ${threadId}`, body: `Body ${threadId}\n`, createdFromCritiqs: true, resumeSubmissionId: null, projectDestinationId: "team-eng" }),
+      create: async (input) => {
+        const ticket = fakeTicketView({ _id: `link-${input.threadId}`, threadId: input.threadId, key: `ENG-${input.threadId.slice(1)}` });
+        // The thread list updates with the new ticket as the backend's would, while the run goes on.
+        data.threads = data.threads!.map((each) => (each._id === input.threadId ? { ...each, tickets: [{ tracker: "linear", key: ticket.key, status: ticket.status }] } : each));
+        return ticket;
+      },
+    },
+  });
+  const shadow = await mount(data, { ...OFFERED, drafting: true }, { sidebarOpen: true });
+  const bulk = await openBulk(shadow, ["First", "Second", "Third"]);
+  expect(rowSelect(bulk, "Team")!.textContent).toContain("Engineering");
+  expect(bulk.textContent).toContain("Creates 2 tickets in Engineering.");
+  expect([...bulk.querySelectorAll(".bulk-ticket")].map((row) => row.textContent)).toContain("Third has oneSkipped: Has ENG-1");
+  await click(button(bulk, "Create tickets"));
+  await settle(4);
+  const created = calls(data, "createTicket") as { threadId: string; destinationId: string; title: string; body: string; createdFromCritiqs: boolean; submissionId: string }[];
+  expect(created.map((input) => [input.threadId, input.destinationId, input.title, input.body, input.createdFromCritiqs])).toEqual([
+    ["t1", "team-eng", "Title t1", "Body t1\n", false],
+    ["t2", "team-eng", "Title t2", "Body t2\n", false],
+  ]);
+  expect(new Set(created.map((input) => input.submissionId)).size).toBe(2);
+  expect([...bulk.querySelectorAll(".bulk-ticket.created")].map((row) => row.querySelector(".bulk-state")!.textContent)).toEqual(["Created ENG-1 · Triage", "Created ENG-2 · Triage"]);
+  expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 2 tickets.");
+  expect(shadow.textContent).toContain("Created 2 tickets");
+});
+
+test("a partial failure names the threads with no ticket; a limit pauses the rest and continues them on its own a minute later; Try again retries the others, under the same submissions", async () => {
+  let refuse = new Set(["t2"]);
+  let limited = false;
+  const data = backend({
+    threads: [thread("t1", "First issue"), thread("t2", "Second issue"), thread("t3", "Third issue"), thread("t4", "Fourth issue")],
+    trackers: {
+      accounts: [LINEAR],
+      create: async (input) => {
+        if (refuse.has(input.threadId)) throw new ConvexError({ code: "invalid", message: "Linear refused this ticket." });
+        if (limited && input.threadId === "t3") throw new ConvexError({ code: "limit", message: "Too many tickets created or linked. Wait a minute, then try again." });
+        return fakeTicketView({ _id: `link-${input.threadId}`, threadId: input.threadId, key: `ENG-${input.threadId.slice(1)}` });
+      },
+    },
+  });
+  limited = true;
+  // The dialog's wait for the limit is taken here and run by hand, so the test never waits a minute.
+  const waits: { run: () => void; ms: number }[] = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((run: () => void, ms?: number, ...rest: unknown[]) => {
+    if ((ms ?? 0) >= 60_000) {
+      waits.push({ run, ms: ms! });
+      return 0 as never;
+    }
+    return realSetTimeout(run, ms, ...rest);
+  }) as typeof setTimeout;
+  try {
+    const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+    const bulk = await openBulk(shadow, ["First", "Second", "Third", "Fourth"]);
+    await click(button(bulk, "Create tickets"));
+    await settle(4);
+    const state = () => Object.fromEntries([...bulk.querySelectorAll(".bulk-ticket")].map((row) => [row.querySelector(".grow")!.textContent, row.querySelector(".bulk-state")!.textContent]));
+    expect(state()).toEqual({
+      "First issue": "Created ENG-1 · Triage",
+      "Second issue": "Not created: Linear refused this ticket.",
+      "Third issue": "Waiting for the limit of tickets a minute",
+      "Fourth issue": "Waiting for the limit of tickets a minute",
+    });
+    // The fourth was never sent; the rest wait a minute, said with the time they continue.
+    expect((calls(data, "createTicket") as { threadId: string }[]).map((input) => input.threadId)).toEqual(["t1", "t2", "t3"]);
+    expect(waits.map((wait) => wait.ms)).toEqual([61_000]);
+    expect(bulk.querySelector('[role="status"]')!.textContent).toMatch(/^Created 1 of 4\. Paused at the limit of tickets a minute: 2 more continue on their own at .+ while this stays open\. 1 thread has no ticket: “Second issue”\.$/);
+    const firstTries = Object.fromEntries((calls(data, "createTicket") as { threadId: string; submissionId: string }[]).map((input) => [input.threadId, input.submissionId]));
+    limited = false;
+    await act(async () => waits.shift()!.run());
+    await settle(4);
+    const continued = (calls(data, "createTicket") as { threadId: string; submissionId: string }[]).slice(3);
+    expect(continued.map((input) => input.threadId)).toEqual(["t3", "t4"]);
+    // The third is sent again under its first submission, so a creation the limit's answer hid can't make a second ticket.
+    expect(continued[0]!.submissionId).toBe(firstTries.t3!);
+    expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 3 of 4. 1 thread has no ticket: “Second issue”.");
+    refuse = new Set();
+    await click(button(bulk, "Try again"));
+    await settle(4);
+    const retries = (calls(data, "createTicket") as { threadId: string; submissionId: string }[]).slice(5);
+    expect(retries.map((input) => input.threadId)).toEqual(["t2"]);
+    expect(retries[0]!.submissionId).toBe(firstTries.t2!);
+    expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 4 tickets.");
+    expect(waits).toEqual([]);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
+test("a bulk run that keeps meeting the limit stops continuing on its own and says to press Try again", async () => {
+  const data = backend({
+    threads: [thread("t1", "First issue")],
+    trackers: { accounts: [LINEAR], create: async () => { throw new ConvexError({ code: "limit", message: "Too many tickets created or linked. Wait a minute, then try again." }); } },
+  });
+  const waits: (() => void)[] = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((run: () => void, ms?: number, ...rest: unknown[]) => ((ms ?? 0) >= 60_000 ? (waits.push(run), 0 as never) : realSetTimeout(run, ms, ...rest))) as typeof setTimeout;
+  try {
+    const shadow = await mount(data, OFFERED, { sidebarOpen: true });
+    const bulk = await openBulk(shadow, ["First"]);
+    await click(button(bulk, "Create ticket"));
+    await settle(4);
+    // Three times on its own, at most.
+    for (let round = 0; round < 3; round++) {
+      expect(waits).toHaveLength(1);
+      await act(async () => waits.shift()!());
+      await settle(4);
+    }
+    expect(waits).toHaveLength(0);
+    expect(calls(data, "createTicket")).toHaveLength(4);
+    expect(bulk.querySelector(".bulk-state")!.textContent).toBe("Not created: Too many tickets created or linked. Wait a minute, then try again.");
+    expect(bulk.querySelector('[role="status"]')!.textContent).toBe("Created 0 of 1. The limit of tickets a minute was reached again: press Try again in a minute. 1 thread has no ticket: “First issue”.");
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
+test("Create tickets holds at most 20 threads, and refuses an issue type whose required fields it can't fill", async () => {
+  const many = Array.from({ length: 21 }, (_, index) => thread(`t${index + 1}`, `Issue ${String(index + 1).padStart(2, "0")}`));
+  let shadow = await mount(backend({ threads: many }), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  await click(button(shadow, "Select all"));
+  await click(button(shadow, "Create tickets…"));
+  let bulk = dialog(shadow, "Create tickets")!;
+  expect(bulk.textContent).toContain("Create tickets works on up to 20 threads at a time; 21 are selected without a ticket. Select fewer.");
+  expect(button(bulk, "Create tickets")!.disabled).toBe(true);
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  const data = backend({ threads: [thread("t1", "First issue")], trackers: { accounts: [LINEAR], options: async () => ({ templates: [], labels: [], fields: [{ id: "f1", name: "Severity", kind: "text", options: [] } as never], unsupportedFields: ["Reviewer"] }) } });
+  shadow = await mount(data, { ...OFFERED, drafting: true }, { sidebarOpen: true });
+  bulk = await openBulk(shadow, ["First"]);
+  expect(bulk.textContent).toContain("This team needs Severity, Reviewer on each ticket. Choose another, or create these tickets one at a time.");
+  expect(button(bulk, "Create ticket")!.disabled).toBe(true);
+  expect(calls(data, "createTicket")).toEqual([]);
+});
+
+test("with no tracker connected, Create tickets… opens Your trackers; a backend without tickets on threads doesn't offer it", async () => {
+  let shadow = await mount(backend({ trackers: { accounts: [] } }), OFFERED, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  await click(shadow.querySelector("label.entry input"));
+  await click(button(shadow, "Create tickets…"));
+  expect(dialog(shadow, "Create tickets")).toBeNull();
+  expect(dialog(shadow, "Your trackers")).not.toBeNull();
+  await act(async () => root?.unmount());
+  host?.remove();
+  page?.remove();
+  shadow = await mount(backend(), { trackers: [{ id: "linear", signIn: "token" }] }, { sidebarOpen: true });
+  await click(shadow.querySelector('button[aria-label="Select threads to export"]'));
+  expect(button(shadow, "Create tickets…")).toBeNull();
+});
+
+test("Create tickets' Created from Critiqs box starts at each tracker's own setting when the tracker changes, as Create ticket's does", async () => {
+  const both: TicketsConfig = { trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }], threadTickets: true };
+  // Linear's setting is on and GitHub's off: the opposite of the defaults, so a kept box shows.
+  const data = backend({ threads: [thread("t1", "First issue")], trackers: { accounts: [{ ...LINEAR, attribution: true }, { ...GITHUB, attribution: false }] } });
+  const shadow = await mount(data, both, { sidebarOpen: true });
+  const bulk = await openBulk(shadow, ["First"]);
+  const box = () => [...bulk.querySelectorAll("label")].find((label) => label.textContent?.includes("Created from Critiqs"))!.querySelector("input")!;
+  expect(box().checked).toBe(true);
+  await chooseOption(shadow, rowSelect(bulk, "Tracker"), "GitHub Issues");
+  await settle(3);
+  expect(box().checked).toBe(false);
+  // What the person ticks holds while the tracker stays; switching back starts at Linear's setting again.
+  await click(box());
+  expect(box().checked).toBe(true);
+  await chooseOption(shadow, rowSelect(bulk, "Tracker"), "Linear");
+  await settle(3);
+  expect(box().checked).toBe(true);
+  await click(box());
+  await chooseOption(shadow, rowSelect(bulk, "Tracker"), "GitHub Issues");
+  await settle(3);
+  expect(box().checked).toBe(false);
 });

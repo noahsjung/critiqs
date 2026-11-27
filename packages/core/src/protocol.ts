@@ -1,5 +1,5 @@
 import type { ThreadMockup } from "./mockup.ts";
-import type { TicketBadge, TicketLinkView } from "./tickets.ts";
+import type { ThreadTicket, TicketBadge, TicketLinkView } from "./tickets.ts";
 import type { Anchor, Revision, TargetLocation } from "./types.ts";
 
 // What a Critiqs backend returns to the interface, independent of how the
@@ -286,6 +286,8 @@ export interface ExportedThread {
   anchor: Anchor;
   location: TargetLocation | null;
   hasCapture: boolean;
+  /** The thread's linked tickets, oldest first; absent where the backend has no tickets. */
+  tickets?: ThreadTicket[];
   messages: ExportedMessage[];
 }
 

@@ -26,6 +26,7 @@ import {
   parseOnboardingAnswers,
   parseStack,
   startingTags,
+  type ThreadTicket,
   type TicketLinkView,
   validReviewUrl,
 } from "@critiqs/core";
@@ -579,6 +580,14 @@ export async function threadSummary(
   };
 }
 
+/** A thread's linked tickets as handoffs carry them: key, title, status (marked last known as every view marks it), and address. */
+export async function threadTickets(store: Store, tickets: NonNullable<Store["tickets"]>, threadId: string): Promise<ThreadTicket[]> {
+  const lastKnown = lastKnownStatus(store);
+  return await Promise.all(
+    (await linkedTickets(tickets, threadId)).map(async (link) => ({ tracker: link.tracker, key: link.key, title: link.title, status: link.status ?? null, lastKnown: await lastKnown(link), url: link.url })),
+  );
+}
+
 /** A thread's linked tickets, oldest first, leaving out tickets still being created. */
 async function linkedTickets(tickets: NonNullable<Store["tickets"]>, threadId: string) {
   return await tickets.links.listForThread(threadId, "linked", MAX_THREAD_TICKET_ROWS);
@@ -803,6 +812,7 @@ export async function exportThreads(
       anchor: thread.anchor,
       location: thread.reattachment?.location ?? null,
       hasCapture: thread.capture.status !== "failed",
+      ...(store.tickets === undefined ? {} : { tickets: await threadTickets(store, store.tickets, thread._id) }),
     },
     isDone: result.isDone,
     continueCursor: result.continueCursor,

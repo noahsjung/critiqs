@@ -47,6 +47,8 @@ import { YourAiDialog } from "./ui/YourAiDialog.tsx";
 import { type Awaiting, BillingDialog, type OpenBilling, OpenBillingContext, parseBillingReturn, removeBillingReturn } from "./ui/BillingDialog.tsx";
 import { YourTrackersDialog } from "./ui/YourTrackersDialog.tsx";
 import { FilterButton, groupMembers, ThreadList } from "./ui/ThreadList.tsx";
+import { BulkCreateTicketsDialog } from "./ui/BulkTickets.tsx";
+import { connectedTrackers } from "./ui/Tickets.tsx";
 import { type ReplyState, type RevealState, ThreadView } from "./ui/ThreadView.tsx";
 import { ThreadWindow } from "./ui/ThreadWindow.tsx";
 import { SidebarResizer, sidebarWidth, useSidebarWidth, useWindowWidth } from "./ui/sidebar-width.tsx";
@@ -239,6 +241,8 @@ function PanelApp({
   sidebarState.current = { open: sidebarOpen, setOpen: setSidebarOpen };
   const [panel, setPanel] = useState<Panel>("comments");
   const [filters, setFilters] = useState<SidebarFilters>(DEFAULT_FILTERS);
+  /** A thread just saved with **Also create a ticket**, whose thread window opens Create ticket. */
+  const [ticketFor, setTicketFor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected | null>(null);
   const selectedRef = useRef(selected);
   const selections = useRef(0);
@@ -261,6 +265,8 @@ function PanelApp({
   const [selecting, setSelecting] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  /** Create tickets for the selected threads (bulk); the person's connected trackers, once read. */
+  const [bulkTickets, setBulkTickets] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [yourAiOpen, setYourAiOpen] = useState(false);
@@ -335,6 +341,13 @@ function PanelApp({
   // Your trackers is offered where the backend stores tickets and offers a tracker.
   const trackersOffered = transport.tickets !== undefined && deployment.tickets != null ? deployment.tickets : null;
   const openYourTrackers = signedIn && trackersOffered !== null ? () => setYourTrackersOpen(true) : null;
+  const trackerAccounts = transport.tickets?.useTrackerAccounts(signedIn && trackersOffered?.threadTickets === true && selecting);
+  const bulkAccounts = trackersOffered !== null && trackerAccounts?.status === "ready" ? connectedTrackers(trackersOffered, trackerAccounts.data) : [];
+  /** Create tickets…: with no tracker connected, Your trackers opens first. */
+  const startBulkTickets = () => {
+    if (bulkAccounts.length === 0) openYourTrackers?.();
+    else setBulkTickets(true);
+  };
   const organizationMembers = deployment.organizationMembers === true;
   const openOrganization = signedIn && organizationMembers ? () => setOrganizationOpen(true) : null;
   const billingOffered = signedIn && deployment.billing === true && transport.billing !== undefined;
@@ -812,10 +825,16 @@ function PanelApp({
       if (accessEpoch.current !== access) return;
       cancelComment();
       if (page.getState().document !== pageDocument) {
-        notify("Comment saved. The prototype showed another page meanwhile, so it isn't open here.");
+        notify(
+          comment.ticket === true
+            ? "Comment saved. The prototype showed another page meanwhile, so it isn't open here; open it to create its ticket."
+            : "Comment saved. The prototype showed another page meanwhile, so it isn't open here.",
+        );
         return;
       }
       select(threadId, { reveal: false, anchor: picked.occurrence });
+      // Also create a ticket: the thread window opens Create ticket for it.
+      if (comment.ticket === true) setTicketFor(threadId);
       if (capture.status === "failed") {
         notify("Comment saved. Automatic capture failed; you can attach a screenshot in the thread.");
       }
@@ -1104,6 +1123,7 @@ function PanelApp({
             backLabel={projectView ? "Back to project" : "Back to comments"}
             notify={notify}
             reviewLinksAt={deployment.website !== undefined && deployment.reviewLinks === true ? (id) => `${deployment.website!.replace(/\/$/, "")}/review-links/${encodeURIComponent(id)}` : null}
+            {...(trackersOffered !== null && openYourTrackers !== null ? { trackers: { offered: trackersOffered, onOpen: openYourTrackers } } : {})}
           />
         </SidebarFrame>
       );
@@ -1218,14 +1238,15 @@ function PanelApp({
               tags={tagInfo === null ? projectTags : tagInfo.tags.map((tag) => tag.label)}
               groups={(tagInfo?.groups ?? []).map((group) => ({ ...group, members: groupMembers(tagInfo, group._id) }))}
               onFilters={setFilters}
+              tickets={trackersOffered !== null}
             />
           </>
         }
         footer={
           selecting ? (
-            <div className="row between">
-              <span className="note">{checked.size} selected</span>
+            <div className="selection-footer">
               <div className="row">
+                <span className="note">{checked.size} selected</span>
                 <button
                   type="button"
                   className="link-btn"
@@ -1236,6 +1257,13 @@ function PanelApp({
                 <button type="button" className="link-btn" onClick={() => setChecked(new Set())}>
                   Clear
                 </button>
+              </div>
+              <div className="row selection-actions">
+                {trackersOffered?.threadTickets === true && openYourTrackers !== null && reviewerId !== null && (
+                  <button type="button" className="btn small" disabled={checked.size === 0} onClick={startBulkTickets}>
+                    Create tickets…
+                  </button>
+                )}
                 <button type="button" className="btn primary small" disabled={checked.size === 0} onClick={() => setExporting(true)}>
                   Export…
                 </button>
@@ -1367,6 +1395,8 @@ function PanelApp({
                   : undefined
               }
               ticketStatus={trackersOffered?.ticketStatus === true && reviewerId !== null}
+              startCreateTicket={ticketFor === selected.threadId}
+              onCreateTicketStarted={() => setTicketFor(null)}
             />
           )}
         </ThreadWindow>
@@ -1387,6 +1417,7 @@ function PanelApp({
           onSubmit={() => void submitComment()}
           onCancel={cancelComment}
           rightEdge={sidebarBeside ? windowWidth - sideWidth : windowWidth}
+          ticketOffer={trackersOffered?.threadTickets === true && openYourTrackers !== null}
         />
       )}
       {review === undefined && <Toolbar
@@ -1413,6 +1444,21 @@ function PanelApp({
         avoid={pickedElement?.getBoundingClientRect() ?? null}
         sidebarLeft={(inMockup ? mockupPanelOpen : sidebarOpen) ? windowWidth - sideWidth : undefined}
       />}
+      {signedIn && bulkTickets && projectId !== null && reviewerId !== null && bulkAccounts.length > 0 && (
+        <BulkCreateTicketsDialog
+          projectId={projectId}
+          personId={reviewerId}
+          accounts={bulkAccounts}
+          drafting={trackersOffered?.drafting === true}
+          threads={threads
+            .filter((thread) => checked.has(thread.summary._id as string))
+            .map((thread) => ({ id: thread.summary._id as string, title: (thread.summary.preview?.body ?? "").split("\n")[0]!.trim(), tickets: thread.summary.tickets ?? [] }))}
+          onClose={() => setBulkTickets(false)}
+          onDone={(created, missing) =>
+            notify(missing === 0 ? `Created ${created} ${created === 1 ? "ticket" : "tickets"}` : `Created ${created}; ${missing} ${missing === 1 ? "thread has" : "threads have"} no ticket`)
+          }
+        />
+      )}
       {signedIn && exporting && projectId !== null && (
         <ExportDialog
           projectId={projectId}
@@ -1455,7 +1501,11 @@ function PanelApp({
           notify={notify}
           modelLists={deployment.modelLists === true}
           presetTags={deployment.presetTags === true}
-          tickets={{ templates: trackersOffered?.drafting === true && transport.tickets !== undefined, resolveWhenDone: trackersOffered?.ticketStatus === true }}
+          tickets={{
+              templates: trackersOffered?.drafting === true && transport.tickets !== undefined,
+              resolveWhenDone: trackersOffered?.ticketStatus === true,
+              defaults: trackersOffered?.defaultDestinations === true && transport.tickets?.setTicketDefaultDestination !== undefined,
+            }}
         />
       )}
       {billing !== null && openBilling !== null && transport.billing !== undefined && (

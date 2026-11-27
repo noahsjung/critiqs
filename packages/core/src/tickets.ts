@@ -120,6 +120,21 @@ export interface TicketDraft {
    * starting another; null when there is none.
    */
   resumeSubmissionId: string | null;
+  /**
+   * Where the project's owners send its new tickets in this tracker by
+   * default (`TicketDefaultDestination`), as a destination ID; null when they
+   * chose none. The Create dialog starts there unless the person chose another
+   * destination for this project before. Absent on backends from before it.
+   */
+  projectDestinationId?: string | null;
+}
+
+/** Where a project's new tickets go in one tracker by default, which its owners choose. */
+export interface TicketDefaultDestination {
+  tracker: TrackerId;
+  destinationId: string;
+  /** The destination's name when it was chosen, for the owners' settings. */
+  name: string;
 }
 
 /** What creating a ticket from a thread sends. */
@@ -249,9 +264,23 @@ export interface TicketTemplateSettings {
 
 /** A destination's templates in the tracker, for an owner choosing which to offer. */
 export interface TrackerTemplateGroup {
+  /** Where the templates apply: one destination, or `EVERY_DESTINATION` for templates that belong to none (a Linear workspace's). */
   destination: TicketDestination;
   templates: TicketTemplate[];
+  /**
+   * Where the templates come from when not the destination itself: a GitHub
+   * organization's `.github` repository, whose templates a repository without
+   * its own uses. Absent for the destination's own.
+   */
+  from?: string;
 }
+
+/**
+ * The destination ID of templates that apply wherever the tracker's tickets go,
+ * such as a Linear workspace's templates, which belong to no team. A project
+ * that offers one offers it in every destination of that tracker.
+ */
+export const EVERY_DESTINATION = "*";
 
 /** What linking a thread to an existing ticket sends. */
 export interface TicketLinkInput {
@@ -274,6 +303,16 @@ export interface TicketBadge {
    * sent to the page layer, whose pins take only the fields above.
    */
   lastKnown?: boolean;
+}
+
+/**
+ * A ticket linked to a thread, as handoffs carry it (exports, notification
+ * emails, coding agents' tools): its tracker, key, title, status, and
+ * address in the tracker. Only tickets that finished linking.
+ */
+export interface ThreadTicket extends TicketBadge {
+  title: string;
+  url: string;
 }
 
 /** A person's connected tracker account, as Your trackers shows it. Never carries tokens. */
@@ -326,6 +365,12 @@ export interface TicketsConfig {
    * done**. Older backends leave it out.
    */
   ticketStatus?: boolean;
+  /**
+   * Whether a project's owners can choose where its new tickets go by
+   * default in each tracker (`tickets:setDefaultDestination`), which the
+   * Create dialog starts with. Older backends leave it out.
+   */
+  defaultDestinations?: boolean;
 }
 
 /** Whether a ticket's status counts as finished for **Resolve when done**: done, or canceled, since the work is closed either way. */
@@ -337,6 +382,8 @@ export function ticketFinished(status: TicketStatus | null | undefined): boolean
 export interface TicketSettingsView {
   /** Resolve a thread when every ticket linked to it is done or canceled. Off by default. */
   resolveWhenDone: boolean;
+  /** Where new tickets go by default, per tracker; at most one per tracker. Absent on backends from before it. */
+  defaults?: TicketDefaultDestination[];
 }
 
 /**

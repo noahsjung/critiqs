@@ -100,6 +100,7 @@ export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | nu
     threadTickets: true,
     drafting: true,
     ticketStatus: true,
+    defaultDestinations: true,
   };
 }
 

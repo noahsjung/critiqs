@@ -164,3 +164,16 @@ test("a thread page's image can be asked for with its key in a header, keeping t
   // Outsiders, and someone signed out, get the same refusal as for no page.
   for (const who of [f.sam, f.t]) expect((await who.fetch("/capture", { headers: { "X-Critiqs-Thread-Page": f.key } })).status).toBe(404);
 });
+
+test("a thread page carries the thread's linked tickets to those who may open it, and nothing to anyone else", async () => {
+  const f = await pagedThread();
+  await f.t.run(async (ctx) => {
+    const linkedBy = (await ctx.db.query("users").collect())[0]!._id;
+    const base = { projectId: f.projectId, threadId: f.threadId, linkedBy, linkedAt: 1, createdFromCritiqs: true };
+    await ctx.db.insert("ticketLinks", { ...base, state: "linked", tracker: "linear", externalId: "issue-1", key: "ENG-12", url: "https://linear.app/acme/issue/ENG-12", title: "Spacing", status: { label: "In Progress", category: "started" } });
+    await ctx.db.insert("ticketLinks", { ...base, state: "pending", tracker: "github", externalId: "n1", key: "acme/web#9", url: "https://github.com/acme/web/issues/9", title: "Pending" });
+  });
+  const shown = await f.riley.query(api.threads.page, { key: f.key, paginationOpts: page });
+  expect(shown.tickets?.map((ticket) => [ticket.tracker, ticket.key, ticket.status?.label, ticket.url])).toEqual([["linear", "ENG-12", "In Progress", "https://linear.app/acme/issue/ENG-12"]]);
+  expect(await outcome(f.sam.query(api.threads.page, { key: f.key, paginationOpts: page }))).toBe(NOTHING);
+});

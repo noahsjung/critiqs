@@ -24,8 +24,8 @@ fine-grained token, creating and linking issues, repository templates and
 issue forms, labels from tags, status from GitHub's webhooks and the check
 when a thread opens, and **Resolve when done** (see
 [GitHub Issues](#github-issues)); and the same for Jira Cloud, through
-Atlassian sign-in or a pasted API token (see [Jira Cloud](#jira-cloud)). Not
-built yet: a project's default destination.
+Atlassian sign-in or a pasted API token (see [Jira Cloud](#jira-cloud)). Also
+built, for all three: a project's default destination in each tracker.
 
 ## Outcomes
 
@@ -87,8 +87,14 @@ Each person connects their own Linear, GitHub, or Jira account. Critiqs offers
 it in three places:
 
 - **Your trackers…** in the avatar menu, beside **Your AI…**.
-- Project setup, and the onboarding planned for the Critiqs website (being
-  designed separately), after the prototype is set up.
+- Project setup, and the onboarding on the Critiqs website, after the
+  prototype is set up. **Built:** in the panel's Project setup, once the
+  project exists, a **Your trackers** row names the trackers the person has
+  connected and opens Your trackers; on the website's setup screen, a **Your
+  trackers** section lists each tracker the backend offers with the person's
+  account in it, and connects one through the same sign-in window, or a
+  pasted token (Jira asks for its site first). Both show only where the
+  backend offers tickets.
 - The first time someone chooses **Create ticket** or **Link ticket** without a
   connected account.
 
@@ -180,8 +186,8 @@ above. **Built for Linear:** the menu items, Create ticket with its team
 (remembered per person and project), title, text filled without AI, and
 **Created from Critiqs**; and Link ticket with search and the optional
 comment; the Template choice, **Draft with Critiqs AI**, and labels suggested
-from the thread's tags, each removable. The project's default destination is
-not built.
+from the thread's tags, each removable. **Built for all three:** the project's
+default destination.
 
 The thread window's **⋯** menu offers **Create ticket…** and **Link ticket…**.
 Each shows the trackers the person has connected; with none, it offers to
@@ -189,8 +195,14 @@ connect one.
 
 **Create ticket** opens a draft:
 
-- **Destination:** the team, repository, or project, defaulting to the project's
-  choice and then to the person's last one.
+- **Destination:** the team, repository, or project. The dialog starts with the
+  person's own last choice in that project and tracker, when they have one;
+  otherwise with the project's default destination for the tracker, when its
+  owners chose one the person can create tickets in; otherwise with the first
+  in the person's list. Owners choose each tracker's default in the project's
+  settings (Tags and AI, then Tickets), among the destinations their own
+  account in that tracker lists, or None; Critiqs saves the tracker's name for
+  it, and every reviewer's draft says which it is.
 - **Template:** when templates are turned on, the template to fill;
   otherwise Critiqs's standard format.
 - **Title and text:** drafted by Critiqs AI from the thread, or filled directly
@@ -231,7 +243,8 @@ The ticket is created with the text as the person left it. Critiqs adds the
 capture and attribution after it; when the text ends inside a block that a
 blank line doesn't end (a code fence, an HTML comment, a `<pre>`, `<script>`,
 `<style>`, or `<textarea>` block, and the like), it first adds the line that
-ends it, so they stay outside it, and changes nothing else.
+ends it (for those four, the block's own closing tag, as a web page reading the
+rendered text closes it), so they stay outside it, and changes nothing else.
 
 Built for Linear: each draft creates at most one ticket, however often the
 person retries it. When a ticket the person started didn't finish, such as
@@ -263,11 +276,27 @@ the thread: its text says so, and nothing is added to the ticket as a link
 back. Critiqs never links a ticket to the page a
 thread was left on, since the thread's author sends that address and it could
 name any site. Each person may search their tracker or list where tickets go
-60 times a minute, and create or link 20 tickets a minute.
+60 times a minute, and create or link 20 tickets a minute; each try at
+**Add link back** counts as one of those 20.
 
-**Proposed:** an **Also create a ticket** choice in the new-comment composer,
-and **Create tickets** for a selected feedback collection, one ticket per
-thread.
+**Built:** **Also create a ticket** in the new-comment box, where threads
+can create tickets: once the comment is saved, its thread opens with Create
+ticket, so the person reviews the draft before anything is created (with no
+tracker connected, Your trackers opens instead). And **Create tickets…** for a
+selected feedback collection (the comments list's selection, beside
+**Export…**): one ticket per thread, at the destination Create ticket would
+start with, each filled from its thread without AI, created one after another
+with the person's own account. Threads that already have a ticket are
+skipped; a run holds at most 20 threads, the person's creates a minute; a
+destination whose tickets need fields beyond the title and text (a Jira
+issue type's required fields) is refused. The dialog shows each thread's
+progress, then which threads have no ticket and why. A refusal at the
+person's limit of tickets a minute pauses the run: the rest wait, and the
+dialog says at what time they continue on their own, a minute later, while it
+stays open (up to three times; after that it says to press **Try again**).
+**Try again** retries only the threads with no ticket, each under the
+submission it started with, so no retry makes a second ticket. Each creation is an ordinary
+Create ticket on the backend, with its checks and limits.
 
 ## Templates
 
@@ -294,8 +323,10 @@ reading them from Linear for each draft; choosing one fills the draft from it
 new issue is created from that template, so Linear applies its other
 defaults, such as labels, under the person's title and text. Turning templates
 off keeps the choice for next time, and doesn't stop a retry from finding an
-issue Linear already created from one. Built: team templates only; a workspace's
-templates, which belong to no team, aren't offered yet.
+issue Linear already created from one. Built: team templates, and the
+workspace's templates, which belong to no team: they are listed as one group,
+**Workspace templates (every team)**, and one the owner turns on is offered in
+every team.
 
 **Proposed:** a template can be matched to a tag, so a thread tagged Bug starts
 from the team's bug template.
@@ -358,6 +389,10 @@ built as listed:** how each place shows it:
 - **Pin:** a small tracker mark, with the key and status on hover or focus.
 - **Thread list:** the key and status on the thread's row.
 - **Thread window:** the ticket chip under the header, which opens the ticket.
+- **Thread page** (`/t/<key>` on the Critiqs website): each ticket's tracker,
+  key, and status ("last known" when Critiqs can no longer check it) between
+  the tags and the discussion, opening the ticket when its address is a web
+  address. Built.
 - **Mockup threads:** the chip for tickets linked to the mockup thread, and to
   comments added to the mockup. Whether tickets can be created or linked from
   inside a mockup thread, and how their text is built, is open. Built: the
@@ -370,9 +405,29 @@ link Critiqs couldn't confirm stops counting toward that after 10 minutes, and
 can still be finished later, so a thread can show a few more. A thread holds
 at most 40, and all of them always show.
 
-**Proposed:** a **Has ticket** filter in the thread list, and the ticket's
-key, status, and link in notification emails, the Markdown and JSON export,
-and coding agents' `critiqs_thread` answer.
+**Built:** a **Has ticket** filter in the thread list's filter menu, beside
+**Unread only**, wherever the backend has tickets: it shows only threads
+linked to a ticket, with the other filters, and the filter summary says "has
+ticket". The rows keep showing each ticket's key and status.
+
+**Built:** the thread's linked tickets in three handoffs, each only where the
+backend has tickets and only tickets that finished linking:
+
+- **Notification emails** (mentions and replies) name each ticket under the
+  thread's status line, such as "Ticket: Linear ENG-12 · In Progress", with
+  its address; in the HTML part the name links to the ticket only when its
+  address is a web address.
+- **The Markdown and JSON export** of a thread or a collection: the Markdown
+  adds a "Ticket:" line per ticket (tracker, key, status, title, address) to
+  the thread's context, or "Tickets: none"; the JSON adds each thread's
+  `tickets` (`tracker`, `key`, `title`, `status`, `lastKnown`, `url`), with
+  the same schema version, since the field is new and optional.
+
+A status Critiqs can no longer check reads "· last known" in each of them, as
+in the thread window, decided by the same rule.
+- **Coding agents' `critiqs_thread` answer** (the `critiqs` CLI's MCP server)
+  adds `tickets`: each ticket's tracker, key, title, status, whether that
+  status is only the last one known, address, and who linked it when.
 
 ## Status from the tracker
 
@@ -686,8 +741,16 @@ Self-hosted deployments get the same features:
   endpoint (GitHub's own address only, no redirects, 15 seconds, 2 MB), and
   every answer is checked (IDs and addresses, names and titles cut, lists
   capped, a template's text at most 50,000 characters).
-- **Not built:** organization-wide default templates from an organization's
-  `.github` repository, assignees, and Projects fields.
+- **Organization templates.** A repository with no `.github/ISSUE_TEMPLATE`
+  folder of its own uses its owner's `.github` repository's templates, as
+  GitHub does, only when that repository is public (GitHub never uses a
+  private one for defaults, so Critiqs doesn't either, even when the person
+  can read it): Tags and AI lists them under that repository, saying they come
+  from `owner/.github`, and a draft or a new issue in that repository can use
+  them. A repository with its own folder never uses them. The person's token
+  must reach the `.github` repository (with the GitHub App, it must be
+  installed there too); otherwise the repository shows no templates.
+- **Not built:** assignees, and Projects fields.
 
 ## Order of work
 
@@ -710,7 +773,6 @@ Each step is its own pull request.
 
 ## Open questions
 
-- Whether **Also create a ticket** in the composer and bulk creation are wanted.
 - Whether matching templates to tags is wanted.
 - Creating or linking tickets from inside a mockup thread.
 - Copying comments between Critiqs and the tracker, later.

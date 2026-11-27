@@ -139,6 +139,8 @@ export function fakeBackend(
     rotateAllowCritiqs: record("rotateAllowCritiqs", overrides.rotateAllowCritiqs ?? (async () => { throw new Error("Not offered"); })),
     checkAllowCritiqs: record("checkAllowCritiqs", overrides.checkAllowCritiqs ?? (async () => ({ result: "unreachable", verified: false }) as const)),
     useThreadReviewLink: (key) => (key === null ? loading : (overrides.useThreadReviewLink?.(key) ?? { status: "ready", data: null })),
+    // Your trackers only where a test gives the backend tickets.
+    ...(overrides.trackers === undefined ? {} : { trackers: overrides.trackers }),
   };
 }
 

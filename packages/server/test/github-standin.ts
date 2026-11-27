@@ -10,11 +10,11 @@
 // don't change. Issue transfers move an issue to another repository under a
 // new number; whether its node ID stays is not documented, so a test chooses.
 //
-// Not modeled: pagination beyond what a test fills, the `Link` header, ETags
+// An organization's default templates are a `.github` repository a test adds
+// with its own template files; GitHub uses them only when it is public. Not modeled: pagination beyond what a test fills, the `Link` header, ETags
 // and 304s, GitHub's search ranking and index delay (search is a plain word
-// match), secondary rate limits beyond what `intercept` answers,
-// organization-wide default templates from a `.github`
-// repository, labels GitHub might create when named on a new issue (the
+// match), secondary rate limits beyond what `intercept` answers, labels
+// GitHub might create when named on a new issue (the
 // stand-in refuses unknown labels), and how issue-form answers render.
 
 import type { TicketsDeployment } from "../src/tickets/accounts.ts";
@@ -46,6 +46,8 @@ export interface StandInRepository {
   labels: string[];
   /** Files in `.github/ISSUE_TEMPLATE`, by name. */
   templates: Record<string, string>;
+  /** Who can see it; private when absent. GitHub uses a `.github` repository's default templates only when it is public. */
+  visibility?: "public" | "private" | "internal";
 }
 
 export interface StandInGithubIssue {
@@ -243,7 +245,8 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
       name: repository.name,
       full_name: fullName(repository),
       owner: { login: repository.owner },
-      private: true,
+      private: (repository.visibility ?? "private") !== "public",
+      visibility: repository.visibility ?? "private",
       html_url: `${origin}/${fullName(repository)}`,
       has_issues: repository.hasIssues,
       archived: repository.archived,
@@ -427,6 +430,8 @@ export function githubStandIn(origin = "https://github.test"): GithubStandIn {
       return message("Not Found", 404);
     }
     const inRepository = standIn.issues.filter((issue) => issue.repositoryId === repository.id);
+    // Get a repository (https://docs.github.com/en/rest/repos/repos#get-a-repository).
+    if (rest === "" && request.method === "GET") return json(repositoryView(repository, who));
 
     if (rest === "/issues" && request.method === "POST") {
       if (!repository.hasIssues) return message("Issues are disabled for this repo", 410);

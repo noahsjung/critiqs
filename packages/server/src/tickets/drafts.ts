@@ -5,6 +5,7 @@ import {
   type DraftedSection,
   draftedMarkdown,
   draftedSections,
+  EVERY_DESTINATION,
   fillableSections,
   type ExportPageLoader,
   type ExportThread,
@@ -18,6 +19,7 @@ import {
   type TicketLabel,
   type TicketOutline,
   type TicketTemplateChoice,
+  type TicketSettingsView,
   type TicketTemplateSettings,
   type TrackerId,
   type TrackerTemplateGroup,
@@ -109,6 +111,7 @@ function parseChoices(templates: TicketTemplateChoice[]): TicketTemplateChoice[]
     const pasted = pastesTemplates(choice.tracker);
     const body = choice.body?.replace(/\r\n?/g, "\n") ?? "";
     if (pasted && body.trim() === "") fail("invalid", "Paste the template's text.");
+    if (pasted && destinationId === EVERY_DESTINATION) fail("invalid", "Choose the project and issue type the template is for.");
     if (pasted && body.length > MAX_PASTED_TEMPLATE_LENGTH) fail("invalid", `Keep a template under ${MAX_PASTED_TEMPLATE_LENGTH.toLocaleString("en-US")} characters.`);
     if (!pasted && choice.body !== undefined) fail("invalid", "Choose templates from the list.");
     parsed.push({ tracker: choice.tracker, destinationId, templateId, name: name.slice(0, 200), ...(pasted ? { body } : {}) });
@@ -134,6 +137,58 @@ export async function saveTicketTemplateSettings(
   if (existing === null) await tickets.settings.insert({ projectId: project._id, resolveWhenDone: false, defaults: [], ...changes });
   else await tickets.settings.patch(existing._id, changes);
   return { on: args.on, templates };
+}
+
+// ---------------------------------------------------------------------------
+// Where a project's new tickets go by default: its owners choose, per tracker.
+
+/**
+ * Saves where the project's new tickets go by default in a tracker, or that
+ * they go nowhere in particular (null); owners only. The destination was
+ * checked against the owner's own tracker (`setTicketDefaultDestination`).
+ * One transaction.
+ */
+export async function saveTicketDefaultDestination(
+  store: Store,
+  identity: Identity | null,
+  args: { projectId: string; tracker: TrackerId; destination: { destinationId: string; name: string } | null },
+  now: number,
+): Promise<TicketSettingsView> {
+  const tickets = ticketStore(store);
+  const { user, project } = await requireOwner(store, identity, args.projectId);
+  requireOffered(args.tracker);
+  const existing = await tickets.settings.find(project._id);
+  const defaults = [
+    ...(existing?.defaults ?? []).filter((entry) => entry.tracker !== args.tracker),
+    ...(args.destination === null ? [] : [{ tracker: args.tracker, destinationId: args.destination.destinationId, name: args.destination.name }]),
+  ];
+  if (existing === null) await tickets.settings.insert({ projectId: project._id, templates: [], resolveWhenDone: false, defaults, updatedBy: user._id, updatedAt: now });
+  else await tickets.settings.patch(existing._id, { defaults, updatedBy: user._id, updatedAt: now });
+  return { resolveWhenDone: existing?.resolveWhenDone ?? false, defaults };
+}
+
+/** The steps of choosing a project's default destination: the owner and their tracker account, their token, then the save. */
+export interface DefaultDestinationSteps extends TrackerSteps {
+  save(destination: { destinationId: string; name: string } | null): Promise<TicketSettingsView>;
+}
+
+/**
+ * Sets where the project's new tickets go by default in a tracker: one of
+ * the destinations the owner can create tickets in there, as the tracker
+ * lists them now, so its ID and name are the tracker's; or none.
+ */
+export async function setTicketDefaultDestination(
+  steps: DefaultDestinationSteps,
+  deployment: TicketsDeployment,
+  args: { tracker: TrackerId; destinationId: string | null },
+  fetchFn: typeof fetch = fetch,
+): Promise<TicketSettingsView> {
+  const person = await steps.requirePerson();
+  if (args.destinationId === null) return await steps.save(null);
+  const destinations = await trackerAdapter(args.tracker, deployment, fetchFn).destinations(await steps.token(person));
+  const chosen = destinations.find((destination) => destination.id === args.destinationId);
+  if (chosen === undefined) fail("invalid", `Choose where tickets go from the ${trackerLabel(args.tracker)} list.`);
+  return await steps.save({ destinationId: chosen.id, name: chosen.name });
 }
 
 /** Checks the person owns the project and has their own account in the tracker, to list its templates as them. One transaction. */
@@ -224,7 +279,7 @@ export async function ticketDraftOptions(steps: DraftSteps, deployment: TicketsD
       : [
           ...pasted,
           ...(await adapter.templates(token, args.destinationId))
-            .flatMap((group) => (group.destination.id === args.destinationId ? group.templates : []))
+            .flatMap((group) => (group.destination.id === args.destinationId || group.destination.id === EVERY_DESTINATION ? group.templates : []))
             .filter((template) => fromTracker.includes(template.id)),
         ];
   const labels = keys.size === 0 || adapter.labels === undefined ? [] : suggestLabels(await adapter.labels(token, args.destinationId).catch(() => []), keys);
@@ -263,7 +318,7 @@ async function readTemplate(plan: DraftPlan, tracker: TrackerId, deployment: Tic
   const pasted = plan.pasted.find((template) => template.id === plan.template!.templateId);
   if (pasted !== undefined) return { ...pasted, destinationId: plan.template.destinationId };
   const adapter = trackerAdapter(tracker, deployment, fetchFn);
-  const template = adapter.template === undefined ? null : await adapter.template(await token(), plan.template.templateId);
+  const template = adapter.template === undefined ? null : await adapter.template(await token(), plan.template.templateId, plan.template.destinationId);
   if (template === null || template.destinationId !== plan.template.destinationId) {
     fail("not-found", `${trackerLabel(tracker)} no longer has this template. Choose another, or Critiqs's standard format.`);
   }
@@ -290,7 +345,7 @@ export async function ticketDraft(
   const thread = await draftThread(steps.loadPage, plan);
   const template = await readTemplate(plan, args.tracker, deployment, fetchFn, () => steps.token(plan.person));
   const { title, body } = plainDraft(thread, plan, args.tracker, template);
-  return { title, body, createdFromCritiqs: plan.createdFromCritiqs, resumeSubmissionId: plan.resumeSubmissionId };
+  return { title, body, createdFromCritiqs: plan.createdFromCritiqs, resumeSubmissionId: plan.resumeSubmissionId, projectDestinationId: plan.projectDestinationId };
 }
 
 function plainDraft(thread: ExportThread, plan: DraftContext, tracker: TrackerId, template: { name: string; body: string } | null) {

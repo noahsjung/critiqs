@@ -64,6 +64,7 @@ export function ThreadList({
         tags: thread.summary.tags,
         lastActivityAt: thread.summary.lastMessageAt,
         unread: thread.summary.unread,
+        hasTicket: (thread.summary.tickets?.length ?? 0) > 0,
       })),
     [threads],
   );
@@ -207,6 +208,7 @@ function FilterSummary({
     { open: "Open", resolved: "Resolved", all: "Open and resolved" }[filters.status],
     filters.screens === "current" ? "this screen" : "all screens",
     filters.unreadOnly && "unread",
+    filters.hasTicket === true && "has ticket",
     filters.tags.length > 0 && filters.tags.join(", "),
     ...groupParts,
   ].filter(Boolean);
@@ -214,6 +216,7 @@ function FilterSummary({
     filters.status === defaultFilters.status &&
     filters.screens === defaultFilters.screens &&
     filters.unreadOnly === defaultFilters.unreadOnly &&
+    (filters.hasTicket === true) === (defaultFilters.hasTicket === true) &&
     filters.tags.length === 0 &&
     (filters.groups ?? []).length === 0;
   return (
@@ -229,14 +232,17 @@ function FilterSummary({
   );
 }
 
-/** The sidebar's filter menu: status, unread, screens, and tags in separate groups. */
+/** The sidebar's filter menu: status, unread, tickets, screens, and tags in separate groups. */
 export function FilterButton({
   filters,
   tags,
   groups,
   onFilters,
+  tickets = false,
 }: {
   filters: SidebarFilters;
+  /** The backend has tickets, so the menu offers **Has ticket**. */
+  tickets?: boolean;
   /** Every tag to offer, presets and free tags. */
   tags: string[];
   groups: { _id: string; name: string; members: string[] }[];
@@ -274,6 +280,11 @@ export function FilterButton({
           <MenuItem checked={filters.unreadOnly} onSelect={() => set({ unreadOnly: !filters.unreadOnly })}>
             Unread only
           </MenuItem>
+          {tickets && (
+            <MenuItem checked={filters.hasTicket === true} onSelect={() => set({ hasTicket: filters.hasTicket !== true })}>
+              Has ticket
+            </MenuItem>
+          )}
           <MenuItem checked={filters.screens === "current"} onSelect={() => set({ screens: "current" })}>
             This screen
           </MenuItem>
@@ -363,6 +374,17 @@ function EmptyState({
             </button>
           </>
         )}
+      </div>
+    );
+  }
+  if (filters.hasTicket === true && filters.tags.length === 0 && (filters.groups ?? []).length === 0 && !filters.unreadOnly) {
+    return (
+      <div className="empty">
+        <strong>No threads with tickets</strong>
+        <span>Create or link a ticket from a thread's More actions menu.</span>
+        <button type="button" className="btn" onClick={onClear}>
+          Clear filters
+        </button>
       </div>
     );
   }

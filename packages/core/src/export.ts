@@ -1,4 +1,5 @@
 import type { ExportedThread } from "./protocol.ts";
+import { type ThreadTicket, TRACKERS } from "./tickets.ts";
 import { contextLines, discussionLines, EXPORT_STYLE, formatTime, summarize } from "./thread-markdown.ts";
 import type { Revision, Scope, ThreadStatus, ViewState } from "./types.ts";
 
@@ -37,6 +38,12 @@ export interface ExportThread {
   reattached: boolean;
   /** Whether a capture or screenshot is saved; it is viewed by opening the thread's link. */
   hasCapture: boolean;
+  /**
+   * The thread's linked tickets, oldest first: tracker, key, title, status
+   * (null until known), and address in the tracker. Absent where the backend
+   * has no tickets.
+   */
+  tickets?: ThreadTicket[];
   messages: ExportMessage[];
 }
 
@@ -70,6 +77,7 @@ export function exportThread(thread: ExportedThread, linkFor: (messageId: string
     persona: evidence.persona,
     reattached: thread.location !== null,
     hasCapture: thread.hasCapture,
+    ...(thread.tickets === undefined ? {} : { tickets: thread.tickets.map(({ tracker, key, title, status, lastKnown, url }) => ({ tracker, key, title, status, ...(lastKnown === undefined ? {} : { lastKnown }), url })) }),
     messages: thread.messages.map((message) => ({
       id: message._id,
       link: linkFor(message._id),
@@ -110,8 +118,21 @@ function threadMarkdown(thread: ExportThread): string[] {
     `## ${heading}`,
     "",
     ...contextLines(thread, EXPORT_STYLE, { link: thread.link, status: true, capture: thread.hasCapture ? "saved; open the link to view it" : "none" }),
+    ...ticketLines(thread),
     "",
     "### Discussion",
     ...discussionLines(thread, EXPORT_STYLE),
   ];
+}
+
+/** Each linked ticket on its own line: tracker, key and status, title, and address, as written; nothing where the backend has no tickets. */
+function ticketLines(thread: ExportThread): string[] {
+  if (thread.tickets === undefined) return [];
+  if (thread.tickets.length === 0) return ["- Tickets: none"];
+  const one = (value: string) => value.replace(/\s+/g, " ").trim();
+  return thread.tickets.map((ticket) => {
+    const tracker = TRACKERS.find((entry) => entry.id === ticket.tracker)?.label ?? ticket.tracker;
+    const status = ticket.status === null ? "status unknown" : `${one(ticket.status.label)}${ticket.lastKnown === true ? " · last known" : ""}`;
+    return `- Ticket: ${tracker} ${one(ticket.key)} · ${status}, "${one(ticket.title)}", ${one(ticket.url)}`;
+  });
 }

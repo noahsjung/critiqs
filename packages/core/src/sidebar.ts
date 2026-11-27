@@ -9,6 +9,8 @@ export interface SidebarThread {
   /** Newest message time. Reading does not change it. */
   lastActivityAt: number;
   unread: boolean;
+  /** Whether the thread links to a ticket; absent where the backend has no tickets. */
+  hasTicket?: boolean;
 }
 
 export interface SidebarFilters {
@@ -19,6 +21,8 @@ export interface SidebarFilters {
   /** Tag groups chosen in the filter; `expandTagFilter` turns them into their tags. */
   groups?: string[];
   screens: "current" | "all";
+  /** Only threads linked to a ticket (**Has ticket**). */
+  hasTicket?: boolean;
 }
 
 export interface SidebarGroup {
@@ -72,6 +76,7 @@ function matchesFilters(thread: SidebarThread, filters: SidebarFilters, currentS
   if (thread.status === "deleted") return false;
   if (filters.status !== "all" && thread.status !== filters.status) return false;
   if (filters.unreadOnly && !thread.unread) return false;
+  if (filters.hasTicket === true && thread.hasTicket !== true) return false;
   if (filters.tags.length > 0) {
     const wanted = new Set(filters.tags.map(tagKey));
     if (!thread.tags.some((tag) => wanted.has(tagKey(tag)))) return false;

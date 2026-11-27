@@ -345,6 +345,12 @@ export interface TicketTransport {
   useTicketSettings(projectId: string, enabled: boolean): QueryState<TicketSettingsView>;
   /** Turns Resolve when done on or off for a project; owners only. */
   setResolveWhenDone(projectId: string, on: boolean): Promise<void>;
+  /**
+   * Sets where the project's new tickets go by default in a tracker, or none
+   * (null); owners only, among the destinations their own account there
+   * offers. Where the backend reports `tickets.defaultDestinations`.
+   */
+  setTicketDefaultDestination?(projectId: string, tracker: TrackerId, destinationId: string | null): Promise<void>;
 }
 
 /** A page copy's layout as frozen, with its uploaded file. */

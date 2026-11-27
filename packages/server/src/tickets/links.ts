@@ -1,4 +1,5 @@
 import {
+  EVERY_DESTINATION,
   ticketCaptureMissing,
   type NewTicket,
   type TicketDestination,
@@ -182,6 +183,8 @@ export interface DraftContext {
   link: WebAddress | null;
   createdFromCritiqs: boolean;
   resumeSubmissionId: string | null;
+  /** Where the project's owners send new tickets in this tracker by default; null for none. */
+  projectDestinationId: string | null;
 }
 
 /**
@@ -198,6 +201,7 @@ export async function prepareTicketDraft(store: Store, identity: Identity | null
     link: await ticketThreadLink(store, project, thread, args.website ?? null, now),
     createdFromCritiqs: account.attribution,
     resumeSubmissionId: unfinished?.creationId ?? null,
+    projectDestinationId: (await tickets.settings.find(project._id))?.defaults.find((entry) => entry.tracker === args.tracker)?.destinationId ?? null,
   };
 }
 
@@ -344,7 +348,9 @@ const TEMPLATE_NOT_OFFERED = "This project doesn't offer that template here. Cho
 /** The templates a project offers in a destination, by ID: none while its templates are off. */
 export function offeredTemplates(record: TicketSettingsRecord | null, tracker: TrackerId, destinationId: string): string[] {
   if (record?.templatesOn !== true) return [];
-  return record.templates.filter((choice) => choice.tracker === tracker && choice.destinationId === destinationId).map((choice) => choice.templateId);
+  return record.templates
+    .filter((choice) => choice.tracker === tracker && (choice.destinationId === destinationId || choice.destinationId === EVERY_DESTINATION))
+    .map((choice) => choice.templateId);
 }
 
 /** Refuses a creation whose creator's connected account isn't the one they started it with. */

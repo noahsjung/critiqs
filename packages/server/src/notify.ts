@@ -3,6 +3,7 @@ import { fail } from "./errors.ts";
 import { useQuota } from "./limits.ts";
 import { canOpenThreadPage, canReview, projectQuota, projectTeam } from "./organizations.ts";
 import { type EmailEntry, type EmailHeader, type EmailImage, emailImage, MentionEmail } from "./mention-email.ts";
+import { threadTickets } from "./operations.ts";
 import { MailError, type MailMessage } from "./signin.ts";
 import type { NotificationRecord, ProjectRecord, Store, StoredMention, ThreadRecord } from "./store.ts";
 
@@ -594,6 +595,7 @@ export async function beginDelivery(
       mute: await args.preferenceUrl({ userId: recipient._id, projectId: project._id }),
       unsubscribe: await args.preferenceUrl({ userId: recipient._id, projectId: null }),
       ...(page === null ? {} : { threadPage: page }),
+      ...(store.tickets === undefined ? {} : { tickets: await threadTickets(store, store.tickets, thread._id) }),
     },
   };
 }

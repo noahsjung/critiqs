@@ -1187,8 +1187,28 @@ export async function readThread(args, { env = process.env, fetchFn = fetch, now
       context: contextOf(detail.anchor, detail.reattachment?.location ?? null),
       movedBy: detail.reattachedByName ?? null,
       movedAt: iso(detail.reattachment?.reattachedAt),
+      ...(Array.isArray(detail.tickets) ? { tickets: detail.tickets.map(threadTicket) } : {}),
       messages,
     },
+  };
+}
+
+/**
+ * A ticket linked to a thread, as coding agents read it: its tracker, key,
+ * title, status (`lastKnown` when Critiqs can no longer check it), address in
+ * the tracker (only a web address), and who linked it when.
+ */
+function threadTicket(ticket) {
+  const url = typeof ticket.url === "string" && /^https?:\/\//i.test(ticket.url) ? ticket.url : null;
+  return {
+    tracker: ticket.tracker,
+    key: ticket.key,
+    title: ticket.title,
+    status: ticket.status === null || ticket.status === undefined ? null : { label: ticket.status.label, category: ticket.status.category },
+    lastKnown: ticket.statusStale === true,
+    url,
+    linkedBy: ticket.linkedByName ?? null,
+    linkedAt: iso(ticket.linkedAt),
   };
 }
 

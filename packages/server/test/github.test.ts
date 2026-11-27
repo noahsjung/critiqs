@@ -351,18 +351,71 @@ describe("templates and labels", () => {
     expect(await github.templates!(PAT, "acme/api")).toEqual([]);
   });
 
+  test("an owner's .github repository that isn't public gives no templates, as GitHub uses default templates only from a public one", async () => {
+    const { standIn, github } = setup();
+    for (const visibility of ["private", "internal"] as const) {
+      standIn.repositories = standIn.repositories.filter((repository) => repository.name !== ".github");
+      standIn.repositories.push({
+        id: 510, owner: "acme", name: ".github", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug"], visibility,
+        templates: { "org-bug.md": "---\nname: Organization bug\n---\n## What broke\n" },
+      });
+      const tokens = await signIn(standIn);
+      const groups = await github.templates!({ method: "oauth", value: tokens.access });
+      expect(groups.find((group) => group.destination.id === "acme/api")?.templates ?? []).toEqual([]);
+      expect(groups.some((group) => group.from === "acme/.github")).toBe(false);
+      expect(await github.template!(PAT, "acme/.github:org-bug.md", "acme/api")).toBeNull();
+      // Nor is it used to create an issue.
+      standIn.repositories.find((repository) => repository.name === "api")!.pushers.push("dana-smith");
+      const before = standIn.issues.length;
+      expect((await github.create(PAT, { destinationId: "acme/api", title: "T", body: md("B"), labels: [], templateId: "acme/.github:org-bug.md", creationId: `6f1c2b9a-3d4e-4f50-8a1b-00000000010${visibility === "private" ? 1 : 2}` })).status).toBe("refused");
+      expect(standIn.issues.length).toBe(before);
+    }
+  });
+
+  test("a repository without a template folder uses its owner's .github repository's templates, as GitHub does; one with its own doesn't", async () => {
+    const { standIn, github } = setup();
+    standIn.repositories.push({
+      id: 510, owner: "acme", name: ".github", hasIssues: true, archived: false, installationId: 71, pushers: ["dana-smith"], labels: ["bug"], visibility: "public",
+      templates: { "org-bug.md": "---\nname: Organization bug\nlabels: [bug, missing]\n---\n## What broke\n" },
+    });
+    const tokens = await signIn(standIn);
+    const groups = await github.templates!({ method: "oauth", value: tokens.access });
+    // acme/api has no folder: the organization's template, marked as from acme/.github. acme/web keeps its own.
+    expect(groups.find((group) => group.destination.id === "acme/api")).toEqual({
+      destination: { id: "acme/api", name: "acme/api", key: null },
+      templates: [{ id: "acme/.github:org-bug.md", name: "Organization bug" }],
+      from: "acme/.github",
+    });
+    expect(groups.find((group) => group.destination.id === "acme/web")!.templates.map((template) => template.id)).toEqual(["acme/web:bug.yml", "acme/web:feature.md"]);
+    expect(groups.find((group) => group.destination.id === "acme/web")!.from).toBeUndefined();
+    // Read for a draft in acme/api, it applies; in acme/web, which has its own, or another owner's repository, it doesn't.
+    expect(await github.template!(PAT, "acme/.github:org-bug.md", "acme/api")).toEqual({ id: "acme/.github:org-bug.md", name: "Organization bug", destinationId: "acme/api", body: "## What broke\n" });
+    expect(await github.template!(PAT, "acme/.github:org-bug.md", "acme/web")).toBeNull();
+    expect(await github.template!(PAT, "acme/.github:org-bug.md", "dana-smith/notes")).toBeNull();
+    expect(await github.template!(PAT, "acme/web:bug.yml", "acme/api")).toBeNull();
+    // Created from it in acme/api, the issue gets the template's labels that acme/api has (Dana can push there).
+    standIn.repositories.find((repository) => repository.name === "api")!.pushers.push("dana-smith");
+    const created = await github.create(PAT, { destinationId: "acme/api", title: "T", body: md("B"), labels: [], templateId: "acme/.github:org-bug.md", creationId: "6f1c2b9a-3d4e-4f50-8a1b-000000000001" });
+    expect(created.status).toBe("created");
+    expect(standIn.issues.at(-1)?.labels).toEqual(["bug"]);
+    // In acme/web it is refused before GitHub is asked to create anything.
+    const before = standIn.issues.length;
+    expect((await github.create(PAT, { destinationId: "acme/web", title: "T", body: md("B"), labels: [], templateId: "acme/.github:org-bug.md", creationId: "6f1c2b9a-3d4e-4f50-8a1b-000000000002" })).status).toBe("refused");
+    expect(standIn.issues.length).toBe(before);
+  });
+
   test("an issue form reads as the Markdown GitHub writes from it: each field's label a heading, preset values, a checkbox per option of a checkbox or dropdown field", async () => {
     const { github } = setup();
-    expect(await github.template!(PAT, "acme/web:bug.yml")).toEqual({
+    expect(await github.template!(PAT, "acme/web:bug.yml", "acme/web")).toEqual({
       id: "acme/web:bug.yml",
       name: "Bug report",
       destinationId: "acme/web",
       body: "### What happened?\n\n### Version\n\n1\\.0\n\n### Which browsers?\n\n- [ ] Firefox\n- [ ] Chrome\n\n### Code of Conduct\n\n- [ ] I agree to follow this project's Code of Conduct\n",
     });
-    expect((await github.template!(PAT, "acme/web:feature.md"))?.body).toBe("## Problem\n\n## Proposal\n");
-    expect(await github.template!(PAT, "acme/web:gone.md")).toBeNull();
-    expect(await github.template!(PAT, "acme/web:config.yml")).toBeNull();
-    expect(await github.template!(PAT, "../etc:passwd.md")).toBeNull();
+    expect((await github.template!(PAT, "acme/web:feature.md", "acme/web"))?.body).toBe("## Problem\n\n## Proposal\n");
+    expect(await github.template!(PAT, "acme/web:gone.md", "acme/web")).toBeNull();
+    expect(await github.template!(PAT, "acme/web:config.yml", "acme/web")).toBeNull();
+    expect(await github.template!(PAT, "../etc:passwd.md", "acme/web")).toBeNull();
   });
 
   test("an issue form's literal text stays literal: labels and one-line answers as text, and a field GitHub renders as code in a code block", () => {

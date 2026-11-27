@@ -257,6 +257,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       checkTicketStatus: async (threadId) => void (await mutation(api.ticketStatus.checkStatus, { threadId })),
       useTicketSettings: (projectId, enabled) => useQueryState(api.ticketStatus.settings, enabled ? { projectId } : "skip"),
       setResolveWhenDone: (projectId, on) => change(mutation(api.ticketStatus.setResolveWhenDone, { projectId, on })),
+      setTicketDefaultDestination: (projectId, tracker, destinationId) => change(client.action(api.tickets.setDefaultDestination, { projectId: projectId as Id<"projects">, tracker, destinationId })),
     },
   };
 }

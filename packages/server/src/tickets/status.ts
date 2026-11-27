@@ -361,7 +361,8 @@ export async function ticketSettings(store: Store, identity: Identity | null, ar
   const { user } = await currentReviewer(store, identity);
   const project = await requireProject(store, user, args.projectId);
   if ((await projectAccess(store, project, user?._id ?? null)) !== "manage") fail("forbidden", "Only the person who set up this project can change its ticket settings.");
-  return { resolveWhenDone: (await tickets.settings.find(project._id))?.resolveWhenDone ?? false };
+  const settings = await tickets.settings.find(project._id);
+  return { resolveWhenDone: settings?.resolveWhenDone ?? false, defaults: settings?.defaults ?? [] };
 }
 
 /** Turns Resolve when done on or off for a project; only its owners may. Turning it on resolves nothing at once: threads resolve on their tickets' next status update. */
@@ -384,7 +385,7 @@ export async function setResolveWhenDone(
     await tickets.settings.patch(settings._id, { resolveWhenDone: args.on, updatedBy: user._id, updatedAt: now });
   }
   if (args.on && settings?.resolveWhenDone !== true) await turnedOn(project._id);
-  return { resolveWhenDone: args.on };
+  return { resolveWhenDone: args.on, defaults: settings?.defaults ?? [] };
 }
 
 /** How many of a project's threads one step of the catch-up looks at. */
