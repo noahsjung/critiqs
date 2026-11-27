@@ -1,7 +1,9 @@
 import {
+  cleanPresetTag,
   cleanTagLabel,
   hashtagLabels,
   MAX_MESSAGE_HASHTAGS,
+  MAX_PRESET_TAGS,
   MAX_TAG_LIST,
   MAX_THREAD_TAGS,
   MAX_THREAD_TEXT_TAGS,
@@ -205,7 +207,10 @@ function cleanGroupName(name: string): string {
 // ---------------------------------------------------------------------------
 // What clients read
 
-/** A project's tags and groups. Presets come first among tags nobody has used yet. */
+/**
+ * A project's tags and groups, most recently used first. Among tags used at
+ * the same time, or not yet used, presets come first in the owner's order.
+ */
 export async function projectTags(store: Store, project: ProjectRecord, userId: string | null): Promise<ProjectTags> {
   const groups = await store.tagGroups.list(project._id, MAX_GROUPS);
   const groupIds = new Set(groups.map((group) => group._id));
@@ -229,8 +234,10 @@ export async function projectTags(store: Store, project: ProjectRecord, userId: 
     // A preset keeps the project's spelling.
     else byKey.get(key)!.label = label;
   }
+  const presetOrder = new Map(project.tags.map((label, index) => [tagKey(label), index]));
+  const rank = (tag: TagInfo) => presetOrder.get(tag.key) ?? project.tags.length;
   return {
-    tags: [...byKey.values()].sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) || a.label.localeCompare(b.label)),
+    tags: [...byKey.values()].sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) || rank(a) - rank(b) || a.label.localeCompare(b.label)),
     groups: groups.map((group) => ({ _id: group._id, name: group.name, origin: group.origin })),
     canOrganize: (await projectAccess(store, project, userId)) === "manage",
   };
@@ -345,6 +352,44 @@ export async function setTagGroups(
     return;
   }
   await store.tags.patch(tag._id, humanChange(tag, [...new Set(groupIds)]));
+}
+
+/**
+ * Sets a project's preset tags, in order: adding, renaming, reordering, and
+ * removing are all a new list. Presets are the tags `#` suggests first and the
+ * ones a project starts with; threads keep the tags they already carry. A
+ * reviewer's message says `#Bug` in its own words, and an explicit tag must
+ * stay in step with the text (see `explicitTags`), so renaming or removing a
+ * preset never rewrites a thread: its old tag stays on those threads, still
+ * listed and filterable as an ordinary tag, and a group can gather it with
+ * the new one. `previous` is the list the owner edited; when the presets have
+ * changed since, the change is refused rather than undoing someone else's.
+ */
+export async function setPresetTags(
+  store: Store,
+  identity: Identity | null,
+  args: { projectId: string; tags: string[]; previous: string[] },
+): Promise<string[]> {
+  const { project } = await requireOrganizer(store, identity, args.projectId);
+  // Required, so no caller overwrites a change made meanwhile by leaving it out.
+  if (!Array.isArray(args.previous)) fail("invalid", "Send the preset tags you changed as `previous`.");
+  if (args.previous.length !== project.tags.length || args.previous.some((tag, i) => tag !== project.tags[i])) {
+    fail("invalid", "The preset tags changed while you were editing them. Look at them again and redo your change.");
+  }
+  if (args.tags.length > MAX_PRESET_TAGS) fail("invalid", `A project can have up to ${MAX_PRESET_TAGS} preset tags.`);
+  const seen = new Map<string, string>();
+  const tags = args.tags.map((tag) => {
+    const label = cleanPresetTag(tag);
+    if (label === null) {
+      fail("invalid", `“${tag.slice(0, 60)}” can't be a preset tag. Presets have 1 to 50 characters, start with a letter, and use only letters, numbers, spaces, - and _, so reviewers can write them as hashtags.`);
+    }
+    const same = seen.get(tagKey(label));
+    if (same !== undefined) fail("invalid", `“${same}” and “${label}” are the same tag. Keep one of them.`);
+    seen.set(tagKey(label), label);
+    return label;
+  });
+  await store.projects.patch(project._id, { tags });
+  return tags;
 }
 
 /** A person's change to a tag's groups: final, and newer than any grouping run already started. */

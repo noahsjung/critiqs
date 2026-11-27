@@ -182,6 +182,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
     deleteTagGroup: ({ projectId, ...args }) => change(mutation(api.tags.deleteGroup, { projectId: projectId as Id<"projects">, ...args })),
     mergeTagGroups: ({ projectId, ...args }) => change(mutation(api.tags.mergeGroups, { projectId: projectId as Id<"projects">, ...args })),
     setTagGroups: ({ projectId, ...args }) => change(mutation(api.tags.setTagGroups, { projectId: projectId as Id<"projects">, ...args })),
+    setPresetTags: ({ projectId, ...args }) => change(mutation(api.tags.setPresets, { projectId: projectId as Id<"projects">, ...args })),
     search: ({ projectId, ...args }) => client.action(api.ai.search, { projectId: projectId as Id<"projects">, ...args }),
     useAiSettings: (projectId) =>
       useQueryState(api.aiSettings.get, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),

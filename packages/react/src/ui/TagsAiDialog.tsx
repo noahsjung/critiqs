@@ -1,4 +1,4 @@
-import type { AiRule, AiSettingsInput, AiSettingsView, TagGrouping, TagInfo } from "@critiqs/core";
+import { type AiRule, type AiSettingsInput, type AiSettingsView, cleanPresetTag, MAX_PRESET_TAGS, type TagGrouping, type TagInfo, tagKey } from "@critiqs/core";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { errorMessage, useTransport } from "../transport.ts";
 import { type ConnectionDraft, connectionDraftOf, connectionInput, credits, managedOptions, keyName, OwnKeySetup, PlanCredits } from "./AiConnectionForm.tsx";
@@ -15,8 +15,9 @@ const GROUPING: Record<TagGrouping, string> = {
 };
 
 /**
- * The project owner's settings for tags and AI: shared tag groups, which
- * everyone's filters use, and the project's AI connection.
+ * The project owner's settings for tags and AI: the preset tags `#` suggests
+ * first, shared tag groups, which everyone's filters use, and the project's
+ * AI connection.
  */
 export function TagsAiDialog({
   projectId,
@@ -24,6 +25,7 @@ export function TagsAiDialog({
   onClose,
   notify,
   modelLists = false,
+  presetTags = false,
 }: {
   projectId: string;
   initialTab: "groups" | "ai";
@@ -31,6 +33,8 @@ export function TagsAiDialog({
   notify: (message: string) => void;
   /** The backend lists providers' models, so an own key's models are picked from its list. */
   modelLists?: boolean;
+  /** The backend lets the owner change the project's preset tags; older backends don't, so they aren't offered. */
+  presetTags?: boolean;
 }) {
   const [tab, setTab] = useState(initialTab);
   return (
@@ -39,15 +43,15 @@ export function TagsAiDialog({
         <h3>Tags and AI</h3>
         <div className="segmented" role="tablist" aria-label="Settings">
           <button type="button" role="tab" aria-selected={tab === "groups"} aria-pressed={tab === "groups"} onClick={() => setTab("groups")}>
-            Tag groups
+            Tags
           </button>
           <button type="button" role="tab" aria-selected={tab === "ai"} aria-pressed={tab === "ai"} onClick={() => setTab("ai")}>
             AI
           </button>
         </div>
       </div>
-      <div className="dialog-scroll" role="tabpanel" aria-label={tab === "groups" ? "Tag groups" : "AI"}>
-        {tab === "groups" ? <GroupsTab projectId={projectId} notify={notify} /> : <AiTab projectId={projectId} notify={notify} modelLists={modelLists} />}
+      <div className="dialog-scroll" role="tabpanel" aria-label={tab === "groups" ? "Tags" : "AI"}>
+        {tab === "groups" ? <GroupsTab projectId={projectId} notify={notify} presetTags={presetTags} /> : <AiTab projectId={projectId} notify={notify} modelLists={modelLists} />}
       </div>
       <div className="row end">
         <button type="button" className="btn" onClick={onClose}>
@@ -58,7 +62,7 @@ export function TagsAiDialog({
   );
 }
 
-function GroupsTab({ projectId, notify }: { projectId: string; notify: (message: string) => void }) {
+function GroupsTab({ projectId, notify, presetTags }: { projectId: string; notify: (message: string) => void; presetTags: boolean }) {
   const transport = useTransport();
   const state = transport.useTags(projectId);
   const [name, setName] = useState("");
@@ -75,6 +79,8 @@ function GroupsTab({ projectId, notify }: { projectId: string; notify: (message:
   };
   return (
     <div className="settings">
+      {presetTags && <PresetTags projectId={projectId} notify={notify} />}
+      <div className="menu-label">Groups</div>
       <p className="note">
         Groups gather related tags, so filtering by a group shows threads with any of its tags. Everyone in the project uses
         them. Automatic grouping places new tags; your choices are never changed automatically.
@@ -148,6 +154,181 @@ function GroupsTab({ projectId, notify }: { projectId: string; notify: (message:
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * The project's preset tags, in order: after the tags reviewers used most
+ * recently, `#` suggests the unused ones in this order. Rename, move, and
+ * remove act on a preset by its key, so a list changed elsewhere meanwhile
+ * never moves the change onto another preset. Every
+ * change sends the whole list with the list it changed, so a change someone
+ * else made meanwhile is refused rather than undone.
+ */
+function PresetTags({ projectId, notify }: { projectId: string; notify: (message: string) => void }) {
+  const transport = useTransport();
+  const project = transport.useProject(projectId);
+  const [adding, setAdding] = useState("");
+  /** The preset being renamed, by its key, so the form stays on it while the list changes elsewhere. */
+  const [renaming, setRenaming] = useState<{ key: string; label: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  if (project.status === "loading") return <p className="note">Loading preset tags…</p>;
+  if (project.status === "error") return <p className="error">{project.message}</p>;
+  const presets = project.data.tags;
+  /** A preset's place in the list now, by its key; -1 once it was renamed or removed elsewhere. */
+  const placeOf = (key: string) => presets.findIndex((label) => tagKey(label) === key);
+  /** Checks a new or renamed preset here first, with the backend's rules, so the owner can fix it before sending. */
+  const problem = (label: string, except: number | null): string | null => {
+    const cleaned = cleanPresetTag(label);
+    if (cleaned === null) return "Use 1 to 50 letters, numbers, spaces, - or _, starting with a letter.";
+    const same = presets.findIndex((other, index) => index !== except && tagKey(other) === tagKey(cleaned));
+    return same === -1 ? null : `“${presets[same]}” is already a preset.`;
+  };
+  const save = (tags: string[], done: string) => {
+    setSaving(true);
+    return transport
+      .setPresetTags({ projectId, tags, previous: presets })
+      .then(() => {
+        notify(done);
+        return true;
+      })
+      .catch((error) => {
+        notify(errorMessage(error));
+        return false;
+      })
+      .finally(() => setSaving(false));
+  };
+  const move = (key: string, by: -1 | 1) => {
+    const index = placeOf(key);
+    if (index === -1 || index + by < 0 || index + by >= presets.length) return;
+    const next = [...presets];
+    [next[index], next[index + by]] = [next[index + by]!, next[index]!];
+    void save(next, `Moved “${presets[index]}” ${by < 0 ? "up" : "down"}`);
+  };
+  const add = (event: FormEvent) => {
+    event.preventDefault();
+    if (problem(adding, null) !== null) return;
+    void save([...presets, adding], `Preset “${cleanPresetTag(adding)}” added`).then((ok) => ok && setAdding(""));
+  };
+  const addProblem = adding.trim() === "" ? null : problem(adding, null);
+  const full = presets.length >= MAX_PRESET_TAGS;
+  return (
+    <section className="settings" aria-label="Preset tags">
+      <div className="menu-label">Preset tags</div>
+      <p className="note">
+        Typing # suggests the tags reviewers used most recently, then these presets that no one has used yet, in this order.
+        Renaming or removing one leaves the threads that already have it as they are; their tag stays in filters, and a group
+        can gather it with the new one.
+      </p>
+      {presets.length === 0 ? (
+        <p className="note">No preset tags. Typing # suggests only tags reviewers have used.</p>
+      ) : (
+        <ol className="tag-list preset-list">
+          {presets.map((label, index) =>
+            renaming?.key === tagKey(label) ? (
+              <li key={label}>
+                <form
+                  className="row"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const place = placeOf(renaming.key);
+                    if (place === -1 || problem(renaming.label, place) !== null) return;
+                    const next = presets.map((other, i) => (i === place ? renaming.label : other));
+                    void save(next, `Renamed “${label}” to “${cleanPresetTag(renaming.label)}”`).then((ok) => ok && setRenaming(null));
+                  }}
+                >
+                  <input
+                    className="field"
+                    aria-label={`New name for ${label}`}
+                    value={renaming.label}
+                    autoFocus
+                    aria-invalid={problem(renaming.label, index) !== null}
+                    onChange={(event) => setRenaming({ key: renaming.key, label: event.target.value })}
+                  />
+                  <button type="submit" className="btn small" disabled={saving || problem(renaming.label, index) !== null}>
+                    Save
+                  </button>
+                  <button type="button" className="btn small" onClick={() => setRenaming(null)}>
+                    Cancel
+                  </button>
+                </form>
+                {problem(renaming.label, index) !== null && renaming.label.trim() !== "" && <p className="error">{problem(renaming.label, index)}</p>}
+              </li>
+            ) : (
+              <li key={label} className="row between">
+                <span className="tag-chip">{tagDisplay(label)}</span>
+                <PresetActions
+                  label={label}
+                  disabled={saving}
+                  first={index === 0}
+                  last={index === presets.length - 1}
+                  onMove={(by) => move(tagKey(label), by)}
+                  onRename={() => setRenaming({ key: tagKey(label), label })}
+                  onRemove={() => void save(presets.filter((other) => tagKey(other) !== tagKey(label)), `Preset “${label}” removed; threads keep it`)}
+                />
+              </li>
+            ),
+          )}
+        </ol>
+      )}
+      <form className="row" onSubmit={add}>
+        <input
+          className="field"
+          aria-label="New preset tag"
+          placeholder={full ? `Up to ${MAX_PRESET_TAGS} preset tags` : "New preset, such as Accessibility"}
+          value={adding}
+          disabled={full}
+          aria-invalid={addProblem !== null}
+          onChange={(event) => setAdding(event.target.value)}
+        />
+        <button type="submit" className="btn" disabled={saving || full || adding.trim() === "" || addProblem !== null}>
+          Add preset
+        </button>
+      </form>
+      {addProblem !== null && <p className="error">{addProblem}</p>}
+    </section>
+  );
+}
+
+function PresetActions({
+  label,
+  disabled,
+  first,
+  last,
+  onMove,
+  onRename,
+  onRemove,
+}: {
+  label: string;
+  disabled: boolean;
+  first: boolean;
+  last: boolean;
+  onMove: (by: -1 | 1) => void;
+  onRename: () => void;
+  onRemove: () => void;
+}) {
+  const menu = useMenu();
+  const choose = (action: () => void) => () => {
+    menu.close();
+    action();
+  };
+  return (
+    <>
+      <button type="button" className="btn small" aria-haspopup="menu" aria-label={`Change preset ${label}`} disabled={disabled} onClick={menu.toggle}>
+        Change…
+      </button>
+      {menu.open && (
+        <Menu anchor={menu.anchor!} onClose={menu.close}>
+          {!first && <MenuItem onSelect={choose(() => onMove(-1))}>Move up</MenuItem>}
+          {!last && <MenuItem onSelect={choose(() => onMove(1))}>Move down</MenuItem>}
+          <MenuItem onSelect={choose(onRename)}>Rename</MenuItem>
+          <hr />
+          <MenuItem danger onSelect={choose(onRemove)}>
+            Remove preset
+          </MenuItem>
+        </Menu>
+      )}
+    </>
   );
 }
 

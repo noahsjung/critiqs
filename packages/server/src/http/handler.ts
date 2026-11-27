@@ -525,6 +525,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
     deleteTagGroup: (args) => (s, id) => ops.deleteGroup(s, id, args),
     mergeTagGroups: (args) => (s, id) => ops.mergeGroups(s, id, args),
     setTagGroups: (args) => (s, id) => ops.setTagGroups(s, id, args),
+    setPresetTags: (args) => (s, id) => ops.setPresetTags(s, id, args),
     removePersonalAiSettings: () => (s, id) => removePersonalAiSettings(s, id, deployment),
     renameOrganization: (args) => (s, id) => renameOrganization(s, id, args),
     revokeInvite: (args) => (s, id) => revokeInvite(s, id, args),
@@ -1196,6 +1197,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // `addressEdits`: adding or removing one address (`addProjectAddress`, `removeProjectAddress`), and the
       // projects whose lists a person may change (`manageableProjects`).
       // `createKeys`: `idempotencyKey` on `createProject`, so a retried create returns the same project.
+      // `presetTags`: a project's owner changes its preset tags (`setPresetTags`).
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1215,6 +1217,7 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         addressLists: true,
         addressEdits: true,
         createKeys: true,
+        presetTags: true,
       });
     }
     if (path === "/critiqs/health" && get) return await health(request);

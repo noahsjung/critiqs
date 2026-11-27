@@ -67,7 +67,7 @@ These definitions describe the intended product, not completed features.
 | Revision / version | The prototype build a message refers to, such as a release label or Git commit. Different from Critiqs's own package version. |
 | Shared / record-specific scope | Feedback about an element across compatible records, or only one record. Example: every user's department field versus Alex's department value. |
 | Tag | A category attached to a thread, such as Bug or UX copy change. Different from an HTML tag such as `div`. |
-| Project tag (preset) | A tag every reviewer is offered for a project, initially Bug, UX copy change, Design change request, and User feedback. |
+| Project tag (preset) | A tag every reviewer is offered for a project, initially Bug, UX copy change, Design change request, and User feedback. The project's owner can add, rename, reorder, and remove them. |
 | Hashtag | A tag written in a comment's text, such as `#wording`. The thread has it while one of its messages uses it. |
 | Tag group | A shared, named set of related tags, such as Copy & wording. Filtering by a group shows threads with any of its tags. A tag may belong to several. |
 | Automatic grouping | Background work that places new tags in tag groups using the project's AI. It never changes a person's choice. |

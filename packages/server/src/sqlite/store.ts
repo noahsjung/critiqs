@@ -1354,7 +1354,13 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
         ]);
         return id;
       },
-      patch: async (id, changes) => patch("projects", id, { review_url: changes.reviewUrl, organization_id: changes.organizationId, review_access: changes.reviewAccess }),
+      patch: async (id, changes) =>
+        patch("projects", id, {
+          review_url: changes.reviewUrl,
+          organization_id: changes.organizationId,
+          review_access: changes.reviewAccess,
+          tags: changes.tags === undefined ? undefined : JSON.stringify(changes.tags),
+        }),
       listByCreator: async (userId, request) =>
         page<ProjectRow, ProjectRecord>("SELECT * FROM projects WHERE created_by = ?", [userId], request, project),
       createdIn: async (userId, organizationId, limit) =>

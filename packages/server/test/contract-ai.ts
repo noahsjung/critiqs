@@ -311,7 +311,8 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
       ["Onboarding", false],
       ["Bug", true],
     ]);
-    expect(tags.filter((tag) => tag.lastUsedAt === null).map((tag) => tag.label)).toEqual(["Design change request", "User feedback", "UX copy change"]);
+    // Not used yet: presets in the project's order.
+    expect(tags.filter((tag) => tag.lastUsedAt === null).map((tag) => tag.label)).toEqual(["UX copy change", "Design change request", "User feedback"]);
     expect(canOrganize).toBe(true);
     expect((await tagsOf(backend, projectId, lee)).canOrganize).toBe(false);
   });
@@ -355,6 +356,77 @@ export function defineAiContract(name: string, fresh: () => ContractBackend) {
     const research = await backend.run((store) => ops.createGroup(store, dana, { projectId, name: "Research" }));
     await backend.run((store) => ops.setTagGroups(store, dana, { projectId, tag: "User feedback", groupIds: [research] }));
     expect((await tagsOf(backend, projectId)).tags.find((tag) => tag.label === "User feedback")!.groupIds).toEqual([research]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Preset tags
+
+  test(`${name}: the project's owner adds, renames, reorders, and removes preset tags; threads keep their tags`, async () => {
+    const backend = fresh();
+    const { projectId, threadId } = await setup(backend, "Unclear label #wording");
+    const project = () => backend.run((store) => ops.getProject(store, dana, { projectId }));
+    const presets = async () => (await project()).tags;
+    const set = async (tags: string[], previous?: string[], who: Identity = dana) =>
+      backend.run(async (store) => ops.setPresetTags(store, who, { projectId, tags, previous: previous ?? (await ops.getProject(store, dana, { projectId })).tags }));
+    expect(await presets()).toEqual(["Bug", "UX copy change", "Design change request", "User feedback"]);
+    // Unused presets are suggested in the owner's order.
+    expect((await tagsOf(backend, projectId, lee)).tags.filter((tag) => tag.lastUsedAt === null).map((tag) => tag.label)).toEqual(["UX copy change", "Design change request", "User feedback"]);
+
+    await expect(set(["Bug"], undefined, lee)).rejects.toThrow("Only the person");
+    // Rename "Bug" to "Defect", move "User feedback" first, remove "Design change request", add "Accessibility".
+    const edited = ["User feedback", "Defect", "UX copy change", " Accessibility "];
+    expect(await set(edited, await presets())).toEqual(["User feedback", "Defect", "UX copy change", "Accessibility"]);
+    expect(await presets()).toEqual(["User feedback", "Defect", "UX copy change", "Accessibility"]);
+    const { tags } = await tagsOf(backend, projectId, lee);
+    const byKey = Object.fromEntries(tags.map((tag) => [tag.key, tag]));
+    expect(tags.filter((tag) => tag.lastUsedAt === null).map((tag) => tag.label)).toEqual(["User feedback", "Defect", "UX copy change", "Accessibility"]);
+    // The thread tagged "Bug" keeps it: still listed, no longer a preset, and it still filters.
+    expect(byKey.bug).toMatchObject({ label: "Bug", preset: false });
+    expect(byKey["design-change-request"]).toBeUndefined();
+    expect(byKey.defect).toMatchObject({ preset: true, lastUsedAt: null });
+    expect(await backend.run((store) => ops.getThread(store, lee, { threadId }, page))).toMatchObject({ tags: ["Bug", "wording"] });
+    // The sidebar filters by the tags lists carry, which still include it.
+    expect((await backend.run((store) => ops.listThreads(store, lee, { projectId }, page))).page[0]).toMatchObject({ _id: threadId, tags: ["Bug", "wording"] });
+
+    // A new spelling of the same tag is the project's spelling wherever the preset shows.
+    await set(["User feedback", "Defect", "UX copy change", "Wording"]);
+    expect((await tagsOf(backend, projectId)).tags.find((tag) => tag.key === "wording")).toMatchObject({ label: "Wording", preset: true });
+    // An empty list is allowed: then # suggests only tags already used.
+    await set([]);
+    expect((await tagsOf(backend, projectId)).tags.some((tag) => tag.preset)).toBe(false);
+  });
+
+  test(`${name}: a preset change must name the list it changed, so a caller can't overwrite a change made meanwhile by leaving it out`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    const before = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).tags;
+    await expect(backend.run((store) => ops.setPresetTags(store, dana, { projectId, tags: ["Overwritten"] } as Parameters<typeof ops.setPresetTags>[2]))).rejects.toThrow(
+      "Send the preset tags you changed",
+    );
+    expect((await backend.run((store) => ops.getProject(store, dana, { projectId }))).tags).toEqual(before);
+  });
+
+  test(`${name}: preset tags follow the tag rules, and a change made meanwhile isn't overwritten`, async () => {
+    const backend = fresh();
+    const { projectId } = await setup(backend);
+    const set = async (tags: string[], previous?: string[]) =>
+      backend.run(async (store) => ops.setPresetTags(store, dana, { projectId, tags, previous: previous ?? (await ops.getProject(store, dana, { projectId })).tags }));
+    await expect(set([""])).rejects.toThrow("can't be a preset tag");
+    await expect(set(["x".repeat(51)])).rejects.toThrow("1 to 50 characters");
+    await expect(set(["x".repeat(50)])).resolves.toEqual(["x".repeat(50)]);
+    // Presets are inserted as hashtags, so each must be one.
+    for (const bad of ["Bug!", "Design/UX", "1st pass", "zero\u200bwidth", "-dash"]) await expect(set([bad])).rejects.toThrow("can't be a preset tag");
+    // Cleaned as any tag is: a leading # and runs of spaces.
+    expect(await set(["#Bug", "Needs \t review"])).toEqual(["Bug", "Needs review"]);
+    await expect(set(["Needs QA", "needs_qa"])).rejects.toThrow("are the same tag");
+    expect(await set(["Ünïcode wörds", "copy-edit", "Copy edit 2"])).toEqual(["Ünïcode wörds", "copy-edit", "Copy edit 2"]);
+    await expect(set(Array.from({ length: 51 }, (_, i) => `Tag ${i}`))).rejects.toThrow("up to 50 preset tags");
+    await set(Array.from({ length: 50 }, (_, i) => `Tag ${i}`));
+    // Someone else changed the presets after this owner loaded them.
+    const loaded = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).tags;
+    await set(["Other change"], loaded);
+    await expect(set([...loaded, "Mine"], loaded)).rejects.toThrow("changed while you were editing");
+    expect((await backend.run((store) => ops.getProject(store, dana, { projectId }))).tags).toEqual(["Other change"]);
   });
 
   // -------------------------------------------------------------------------

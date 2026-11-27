@@ -1459,7 +1459,26 @@ The plan, status, and checks are in [tags, tag groups, and AI](tags-and-ai.md).
   200 written; the 50-tag limit applies to what remains explicit. `ProjectInfo.tags` stays the project's presets.
 - **Registry.** Each project records its tags: first spelling, last use, groups,
   and how they were grouped (waiting, automatically, starter, by a person, or
-  not). Suggestions list them most recently used first.
+  not). Suggestions list them most recently used first; among tags used at the
+  same time or not yet used, presets come first in the project's order.
+- **Preset tags.** A project starts with its purpose's starting tags
+  (`ProjectInfo.tags`). Only its owner changes them, in Tags and AI, then Tags:
+  adding, renaming, reordering, and removing send the whole ordered list
+  (`tags:setPresets` on Convex, `setPresetTags` on the self-hosted server) with
+  the list the owner edited (`previous`, required), and a list that changed
+  meanwhile is refused rather than overwritten. The panel acts on a preset by
+  its key, so a rename, move, or removal started before the list changed in
+  another window still applies to the preset chosen. A preset follows the explicit-tag rules and must
+  also be writable as a hashtag, since `#` suggestions insert it as one: 1 to
+  50 characters, starting with a letter, with letters, numbers, spaces, `-`,
+  and `_`; no two share a key; up to 50, as many as one thread can carry.
+  Threads keep the tags they have: a renamed or removed preset stays on those
+  threads as an ordinary tag, still listed and filterable, because hashtags
+  are what reviewers wrote and an explicit tag stays in step with the text.
+  Rewriting threads would mean editing people's messages, and an unbounded
+  rewrite in one transaction. A group can gather the old and new tags.
+  Backends report `presetTags` at `/critiqs/config`; the panel offers the
+  editor only there, and older components keep reading `ProjectInfo.tags`.
 - **Groups.** Only the project's owner creates, renames, merges, and deletes
   groups and sets a tag's groups; a tag may belong to several, for ambiguous
   terms. A person's choice, including "no group", is final: automatic grouping
@@ -1961,7 +1980,7 @@ Agreed since the pilot: Critiqs Cloud's plans and their limits
 ([Free, Plus, and Pro](#free-plus-and-pro)).
 
 Still open: how long deleted data is kept and whether it can be restored, who
-may delete individual replies, supported routers, editing a project's preset tags, which provider and model Critiqs-managed
+may delete individual replies, supported routers, which provider and model Critiqs-managed
 AI uses, and sidebar details against the Figma reference.
 
 ## Rename and deployment compatibility

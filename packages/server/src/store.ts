@@ -562,7 +562,7 @@ export type AiSettingsChanges = Partial<Pick<AiSettingsRecord, "enabled" | "mode
 export type PersonalAiSettingsChanges = Partial<Pick<PersonalAiSettingsRecord, "enabled" | "mode" | "epoch" | "updatedAt">> & {
   [K in ConnectionField]?: PersonalAiSettingsRecord[K] | null;
 };
-export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess">>;
+export type ProjectChanges = Partial<Pick<ProjectRecord, "reviewUrl" | "organizationId" | "reviewAccess" | "tags">>;
 export type DeliveryChanges = Partial<
   Pick<DeliveryRecord, "status" | "attempts" | "dueAt" | "claimToken" | "leaseUntil" | "message" | "payload" | "finishedAt" | "reason">
 >;

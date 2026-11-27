@@ -41,6 +41,8 @@ export interface FakeBackend {
   /** Whether the backend checked the token and refused it; otherwise an unaccepted sign-in is temporary. */
   rejected?: boolean;
   project: ProjectInfo | undefined;
+  /** The message the backend refuses a preset tag change with. */
+  presetError?: string;
   /** The backend's refusal of the project, such as to someone outside an organization it's limited to. */
   projectError?: { code: string; message: string };
   /** Saves who can review the project; resolves by default. */
@@ -175,6 +177,15 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
     deleteTagGroup: async (args) => void backend.calls?.push({ name: "deleteTagGroup", args }),
     mergeTagGroups: async (args) => void backend.calls?.push({ name: "mergeTagGroups", args }),
     setTagGroups: async (args) => void backend.calls?.push({ name: "setTagGroups", args }),
+    // Saved presets are what the project reads next, as from a live backend; `presetError` refuses the change.
+    setPresetTags: async (args) => {
+      backend.calls?.push({ name: "setPresetTags", args });
+      if (backend.presetError !== undefined) {
+        const { ConvexError } = await import("convex/values");
+        throw new ConvexError({ code: "invalid", message: backend.presetError });
+      }
+      if (backend.project !== undefined) backend.project = { ...backend.project, tags: args.tags };
+    },
     search: (args) => backend.search?.(args) ?? Promise.reject(new Error("No search")),
     useAiSettings: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.aiSettings)),
     saveAiSettings: (input) => {

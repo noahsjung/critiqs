@@ -190,6 +190,8 @@ export const ARGUMENTS: Record<string, Check> = {
   deleteTagGroup: object({ projectId: string, groupId: string }),
   mergeTagGroups: object({ projectId: string, groupId: string, intoGroupId: string }),
   setTagGroups: object({ projectId: string, tag: string, groupIds: array(string, 20), "automatic?": boolean }),
+  // Longer lists than a project may have reach the operation, which says what the limit is.
+  setPresetTags: object({ projectId: string, tags: array(string, 200), previous: array(string, 200) }),
   search: object({ projectId: string, question: string, scope: object({ status: literal("open", "resolved", "all"), screen: nullable(string) }) }),
   aiSettings: object({ projectId: string }),
   saveAiSettings: aiSettingsInput,

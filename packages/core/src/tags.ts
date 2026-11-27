@@ -11,6 +11,8 @@ export const MAX_TAG_LENGTH = 50;
 export const MAX_THREAD_TAGS = 50;
 /** Most different hashtags one message can write. */
 export const MAX_MESSAGE_HASHTAGS = 30;
+/** Most preset tags a project can have: as many as one thread can carry explicitly. */
+export const MAX_PRESET_TAGS = MAX_THREAD_TAGS;
 /** Most different hashtags one thread's messages can write. */
 export const MAX_THREAD_TEXT_TAGS = 200;
 /**
@@ -103,6 +105,21 @@ export function cleanTagLabel(label: string): string | null {
   // Control and formatting characters would make tags look alike but differ.
   if (/[\p{Cc}\p{Cf}#]/u.test(cleaned)) return null;
   return cleaned;
+}
+
+/**
+ * A preset tag as a project's owner may set it: an explicit tag's rules
+ * (1 to 50 characters, no control characters or `#`), and also one that
+ * reviewers can write as a hashtag, because `#` suggestions insert presets as
+ * hashtags, with spaces as hyphens. So it starts with a letter and holds
+ * letters, numbers, spaces, `-`, and `_`. Returns the cleaned label, or null.
+ */
+export function cleanPresetTag(label: string): string | null {
+  const cleaned = cleanTagLabel(label);
+  if (cleaned === null) return null;
+  const written = `#${cleaned.replace(/\s+/g, "-")}`;
+  const [tag, ...more] = parseHashtags(written);
+  return tag !== undefined && more.length === 0 && tag.start === 0 && tag.end === written.length ? cleaned : null;
 }
 
 /** Tags without repeats by key, keeping each first spelling, in order. */

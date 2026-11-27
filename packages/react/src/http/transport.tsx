@@ -189,6 +189,7 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
     deleteTagGroup: (args) => change("deleteTagGroup", args),
     mergeTagGroups: (args) => change("mergeTagGroups", args),
     setTagGroups: (args) => change("setTagGroups", args),
+    setPresetTags: (args) => change("setPresetTags", args),
     search: (args) => call("search", args),
     useAiSettings: (projectId) => useQuery("aiSettings", projectId === null ? "skip" : { projectId }),
     saveAiSettings: (input) => change("saveAiSettings", { ...input }),

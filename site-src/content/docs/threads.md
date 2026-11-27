@@ -21,7 +21,8 @@ Type `#` in a comment or reply to pick a project tag or create a new hashtag suc
 
 - A thread carries every hashtag used in any of its messages (up to 30 distinct hashtags per message and 200 per thread).
 - Click any `#tag` chip on a thread or message to filter the sidebar to that tag.
-- Project owners organize related tags into shared **Tag groups** under **Tags and AI** in the sidebar header. Every project includes a starter **Copy & wording** group. With AI enabled, new tags are grouped automatically without overriding manual choices.
+- Project owners change the project's preset tags, which typing `#` suggests after the tags reviewers used most recently, in the owner's order, under **Tags and AI** in the sidebar header, then **Tags**: **Add preset**, or **Change…** on one to move, rename, or remove it. Threads that already have a renamed or removed preset keep it.
+- Project owners organize related tags into shared groups in the same place. Every project includes a starter **Copy & wording** group. With AI enabled, new tags are grouped automatically without overriding manual choices.
 
 ## Mention reviewers with @mentions
 
