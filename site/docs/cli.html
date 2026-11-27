@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Command line reference · Critiqs docs</title>
-  <meta name="description" content="Reference for every critiqs-react CLI command, flag, environment variable, and exit code.">
+  <meta name="description" content="Reference for every critiqs CLI command, flag, environment variable, and exit code.">
   <link rel="canonical" href="https://critiqs.app/docs/cli">
   <meta name="theme-color" content="#fbfbfa">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -15,14 +15,14 @@
   <meta property="og:url" content="https://critiqs.app/docs/cli">
   <meta property="og:site_name" content="Critiqs">
   <meta property="og:title" content="Command line reference · Critiqs docs">
-  <meta property="og:description" content="Reference for every critiqs-react CLI command, flag, environment variable, and exit code.">
+  <meta property="og:description" content="Reference for every critiqs CLI command, flag, environment variable, and exit code.">
   <meta property="og:image" content="https://critiqs.app/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Critiqs running in a customer accounts app, with comments from Priya, Mei and Daniel on the same page">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Command line reference · Critiqs docs">
-  <meta name="twitter:description" content="Reference for every critiqs-react CLI command, flag, environment variable, and exit code.">
+  <meta name="twitter:description" content="Reference for every critiqs CLI command, flag, environment variable, and exit code.">
   <meta name="twitter:image" content="https://critiqs.app/og.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,7 +39,7 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "headline": "Command line reference",
-  "description": "Reference for every critiqs-react CLI command, flag, environment variable, and exit code.",
+  "description": "Reference for every critiqs CLI command, flag, environment variable, and exit code.",
   "url": "https://critiqs.app/docs/cli",
   "mainEntityOfPage": "https://critiqs.app/docs/cli",
   "articleSection": "Agents",
@@ -169,12 +169,13 @@
           <header class="doc-header">
             <nav class="crumbs caption-4" aria-label="Breadcrumb"><ol><li><a href="/docs">Docs</a></li><li>Agents</li></ol></nav>
             <h1 class="heading-3">Command line reference</h1>
-            <p class="doc-lede title-2">Reference for every critiqs-react CLI command, flag, environment variable, and exit code.</p>
+            <p class="doc-lede title-2">Reference for every critiqs CLI command, flag, environment variable, and exit code.</p>
           </header>
-<p>The <code>critiqs-react</code> package includes the <code>critiqs</code> command line tool for setting up projects, checking configuration, signing your computer in for coding agents, and running the <a href="/docs/mcp">MCP server</a>.</p>
+<p>The <code>critiqs</code> package includes the <code>critiqs</code> command line tool, the same for every framework, for setting up projects, checking configuration, signing your computer in for coding agents, and running the <a href="/docs/mcp">MCP server</a>.</p>
 <p>Run it with your package manager (Node.js 20 or later required):</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react &lt;<span class="hljs-built_in">command</span>&gt; [options]
-<span class="hljs-comment"># Also works with: pnpm exec critiqs, yarn critiqs, bunx critiqs-react</span></code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs &lt;<span class="hljs-built_in">command</span>&gt; [options]
+<span class="hljs-comment"># Also works with: pnpm exec critiqs, yarn critiqs, bunx critiqs</span></code></pre></div>
+<p>Every Critiqs npm package installs this command, and in a Rails, Django, or Flask app <code>npx</code> fetches it. <code>npx critiqs-react &lt;command&gt;</code> runs the same command in a React app, so commands and MCP configurations written that way keep working.</p>
 <h2 id="exit-codes">Exit codes<a class="anchor" href="#exit-codes"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <div class="table-wrap"><table>
 <thead>
@@ -199,9 +200,9 @@
 </div>
 <h2 id="commands">Commands<a class="anchor" href="#commands"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <h3 id="critiqs-init"><code>critiqs init</code><a class="anchor" href="#critiqs-init"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
-<p>Adds <code>&lt;Critiqs /&gt;</code> where your React app renders (a React root, a Next.js App Router layout, or a Next.js Pages Router <code>_app</code>), signs you in, creates or reuses a Critiqs project, and writes its project ID.</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init [options]</code></pre></div>
-<p>In Vite and Next.js apps, <code>init</code> wires <code>&lt;Critiqs /&gt;</code> to a public environment variable with <code>requireProjectId</code>, writes the ID to <code>.env.local</code>, and adds an empty entry to <code>.env.example</code>. In other setups, it writes the literal <code>projectId</code> into the component. Running <code>init</code> again keeps the existing project unless you pass <code>--new-project</code>.</p>
+<p>Finds your app&#39;s framework, adds Critiqs where the app renders (for React, a React root, a Next.js App Router layout, or a Next.js Pages Router <code>_app</code>; for the other frameworks, see <a href="/docs/install#what-init-changes-by-framework">Install Critiqs</a>), signs you in, creates or reuses a Critiqs project, and writes its project ID.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init [options]</code></pre></div>
+<p>Where the framework has a project ID variable, <code>init</code> reads the ID from it with <code>requireProjectId</code> and sets it for your computer: in <code>.env.local</code> or <code>.env</code> (with an empty entry in <code>.env.example</code>; for Flask, flask-critiqs reads only its own key from <code>.env</code>, under <code>flask run</code>), or for Rails and Django as a development-only default in <code>config/environments/development.rb</code> or <code>manage.py</code>. Otherwise, such as in Angular or a React app with no public variables, it writes the literal project ID into the code. Running <code>init</code> again keeps the existing project unless you pass <code>--new-project</code>.</p>
 <p>In a monorepo workspace, run <code>init</code> once per app with <code>--dir apps/&lt;app&gt;</code>. At the workspace root, interactive terminals ask which app to set up; non-interactive runs list each app&#39;s <code>--dir</code> command and change nothing.</p>
 <div class="table-wrap"><table>
 <thead>
@@ -244,7 +245,7 @@
 </tr>
 <tr>
 <td><code>--project-env-file &lt;file&gt;</code></td>
-<td><code>.env</code> file to write, relative to <code>--dir</code> (default <code>.env.local</code>). Also accepted as <code>--env-file</code>.</td>
+<td>File where <code>init</code> sets the project ID, relative to <code>--dir</code>, instead of the framework&#39;s own (see <a href="/docs/install#what-init-changes-by-framework">what init changes</a>): <code>.env.local</code> for Vite and Next.js apps, <code>.env</code> for Nuxt, Astro and Flask, <code>manage.py</code> for Django, <code>config/environments/development.rb</code> for Rails (<code>.env</code> with dotenv). A <code>.py</code> or <code>.rb</code> file gets a development default in code; any other file gets a <code>NAME=value</code> line. Pick a file your framework loads: Django, and Rails without dotenv, load no <code>.env</code> file. Also accepted as <code>--env-file</code>.</td>
 </tr>
 <tr>
 <td><code>--json</code></td>
@@ -273,7 +274,7 @@
 </ul>
 <h3 id="critiqs-init-projectid"><code>critiqs init &lt;projectId&gt;</code><a class="anchor" href="#critiqs-init-projectid"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Connects your app to an existing project ID without signing in.</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react init &lt;projectId&gt; [--<span class="hljs-built_in">dir</span> &lt;path&gt;] [--entry &lt;file&gt;] [--mount &lt;Element&gt;] [--project-env-file &lt;file&gt;] [--dry-run]</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs init &lt;projectId&gt; [--<span class="hljs-built_in">dir</span> &lt;path&gt;] [--entry &lt;file&gt;] [--mount &lt;Element&gt;] [--project-env-file &lt;file&gt;] [--dry-run]</code></pre></div>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -299,7 +300,7 @@
 </tr>
 <tr>
 <td><code>--project-env-file &lt;file&gt;</code></td>
-<td><code>.env</code> file to write, relative to <code>--dir</code>.</td>
+<td>File where <code>init</code> sets the project ID, relative to <code>--dir</code>, instead of the framework&#39;s own. See <code>--project-env-file</code> under <code>critiqs init</code> above.</td>
 </tr>
 </tbody></table>
 </div>
@@ -307,7 +308,7 @@
 </div>
 <h3 id="critiqs-doctor"><code>critiqs doctor</code><a class="anchor" href="#critiqs-doctor"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Checks your local Critiqs setup: the component, backend reachability and protocol version, local project ID, deployment notes, review address, sign-in configuration, screenshot storage, optional AI status, and mention email status.</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor [options]</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs doctor [options]</code></pre></div>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -325,7 +326,7 @@
 </tr>
 <tr>
 <td><code>--project-env-file &lt;file&gt;</code></td>
-<td><code>.env</code> file to inspect, relative to <code>--dir</code> (default <code>.env.local</code>).</td>
+<td>File to read the project ID from, relative to <code>--dir</code> (default: the one <code>init</code> writes for the framework, such as <code>.env.local</code>, <code>manage.py</code> or <code>config/environments/development.rb</code>).</td>
 </tr>
 <tr>
 <td><code>--json</code></td>
@@ -341,7 +342,7 @@
 <p>Doctor never sends an email, uploads a capture, or posts a comment, and it cannot read environment variables stored in a remote hosting provider&#39;s build settings.</p>
 <h3 id="critiqs-sign-in"><code>critiqs sign-in</code><a class="anchor" href="#critiqs-sign-in"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Signs your computer in once so coding agents running locally can read feedback, inspect mockups, and post replies through <code>critiqs mcp</code>.</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-in [--remote | --browser] [--backend &lt;url&gt;]</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs sign-in [--remote | --browser] [--backend &lt;url&gt;]</code></pre></div>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -365,8 +366,8 @@
 </div>
 <p>Credentials are saved in <code>sign-in.v2.json</code> under <code>$CRITIQS_CONFIG_DIR</code>, <code>$XDG_CONFIG_HOME/critiqs</code> (<code>~/.config/critiqs</code>), or <code>%APPDATA%\critiqs</code>. Sign-in lasts until <code>critiqs sign-out</code>, 30 days without use, or 90 days total.</p>
 <h3 id="critiqs-sign-out"><code>critiqs sign-out</code><a class="anchor" href="#critiqs-sign-out"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
-<p>Ends this computer&#39;s saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of <code>critiqs-react</code> saved on this computer. If the sign-in service doesn&#39;t confirm ending every session saved on this computer, the command says what is left and exits with status 1; run it again once the service is reachable.</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-out [--backend &lt;url&gt;]</code></pre></div>
+<p>Ends this computer&#39;s saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of Critiqs saved on this computer. If the sign-in service doesn&#39;t confirm ending every session saved on this computer, the command says what is left and exits with status 1; run it again once the service is reachable.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs sign-out [--backend &lt;url&gt;]</code></pre></div>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -382,10 +383,10 @@
 </div>
 <h3 id="critiqs-mcp"><code>critiqs mcp</code><a class="anchor" href="#critiqs-mcp"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Starts the stdio MCP server for coding agents. See <a href="/docs/mcp">Connect a coding agent with MCP</a> for client configuration and the full tool list.</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react mcp</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs mcp</code></pre></div>
 <h3 id="help">Help<a class="anchor" href="#help"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Print usage and options at any time:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react --<span class="hljs-built_in">help</span></code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs --<span class="hljs-built_in">help</span></code></pre></div>
         </article>
         <nav class="pager" aria-label="Previous and next">
           <a class="pager-link prev" href="/docs/export"><span class="caption-4">Previous</span><span class="title-3">Export threads</span></a>

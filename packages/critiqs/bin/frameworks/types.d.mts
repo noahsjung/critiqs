@@ -33,7 +33,13 @@ export interface EnvConvention {
   /** Code that reads it where the setting is written, such as `import.meta.env.VITE_CRITIQS_PROJECT_ID`. */
   expression: string;
   readsAt: "build" | "runtime";
-  /** The file setup writes for this computer, relative to the app, such as `.env.local`; null when the framework loads none. */
+  /**
+   * The file setup writes for this computer, relative to the app, such as
+   * `.env.local`. For a server framework that loads no `.env` file, code its
+   * development server runs, where setup writes a default the environment
+   * overrides: Django's `manage.py`, or Rails's
+   * `config/environments/development.rb`. null when there is none.
+   */
   localFile: string | null;
   /** One or two sentences for the person: what each deployment sets, and when it takes effect. */
   deploymentAdvice: string;

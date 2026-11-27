@@ -42,8 +42,17 @@ CRITIQS_PROJECT_ID=<project ID>
 
 Flask reads it on each request. Where it is unset, `critiqs()` renders
 nothing, so production or any copy without a project shows no Critiqs. The
-project ID is public configuration, not a secret. With python-dotenv
-installed, `flask run` also reads it from `.env`.
+project ID is public configuration, not a secret. On your computer, put it in
+`.env` instead, which is where `npx critiqs init` writes it. When a page is
+served by Flask's development server (`flask run`, `app.run()`), flask-critiqs
+reads `CRITIQS_PROJECT_ID`, and only that key, from the nearest `.env`, as
+`flask run` finds it. It never puts it or any other key from that file into
+`os.environ`, so the rest of your `.env` stays as your app loads it. A
+production server such as Gunicorn or Waitress never reads it, and a
+`CRITIQS_PROJECT_ID` set in the environment wins. `FLASK_SKIP_DOTENV=1` turns
+the file off, as it does for Flask. flask-critiqs doesn't need python-dotenv;
+`flask run` may suggest installing it because a `.env` file is present, and
+that is your app's choice.
 
 The extension serves Critiqs's script at `/_critiqs/element.js`.
 

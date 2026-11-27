@@ -688,3 +688,37 @@ test("from inside the app's own folders, pnpm's selector climbs to the app", () 
   expect(runInit(["init", PROJECT, "--dir", ".."], { cwd: join(root, "apps/shop/src"), print: out.print })).toBe(0);
   expect(out.lines).toContain("Next: Install critiqs-react with the app's package manager: pnpm --filter .. add critiqs-react.");
 });
+
+test("in Python and Ruby a default is read and replaced in place; Python places a new one after Django's or the last import, Ruby at the end", () => {
+  const dir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "critiqs-code-env-"));
+  const at = (name: string, text: string) => {
+    writeFileSync(join(dir, name), text);
+    return { files: [join(dir, name)], local: join(dir, name), label: null };
+  };
+  const script = at("run.py", "#!/usr/bin/env python\nimport sys\n\nmain(sys.argv)\n");
+  const added = planEnv(script, "CRITIQS_PROJECT_ID", PROJECT);
+  expect(added).toMatchObject({ changed: true, example: null });
+  expect(added.source).toBe(
+    "#!/usr/bin/env python\nimport sys\nimport os\n# Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n" +
+      `os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n\nmain(sys.argv)\n`,
+  );
+  // Either quote style is read and replaced, keeping the indentation; the first default is the one Python keeps.
+  const indented = at("manage.py", `def main():\n    os.environ.setdefault('CRITIQS_PROJECT_ID', 'old')\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "later")\n`);
+  expect(readEnvValue(indented, "CRITIQS_PROJECT_ID")).toEqual({ value: "old", file: indented.local });
+  expect(planEnv(indented, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`def main():\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n`);
+
+  const ruby = at("development.rb", "Rails.application.configure do\nend");
+  expect(planEnv(ruby, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(
+    `Rails.application.configure do\nend\n\n# Critiqs project for this app in development; the environment wins. Each deployment sets its own.\nENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"`,
+  );
+  const set = at("set.rb", `ENV['CRITIQS_PROJECT_ID'] ||= 'old' # set by hand\n`);
+  expect(readEnvValue(set, "CRITIQS_PROJECT_ID")?.value).toBe("old");
+  expect(planEnv(set, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"\n`);
+  // A plain assignment written by hand is read too, and gets the new value as a plain assignment.
+  const plain = at("plain.rb", `Rails.application.configure do\nend\n  ENV['CRITIQS_PROJECT_ID'] = 'old'\n`);
+  expect(readEnvValue(plain, "CRITIQS_PROJECT_ID")?.value).toBe("old");
+  expect(planEnv(plain, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`Rails.application.configure do\nend\n  ENV["CRITIQS_PROJECT_ID"] = "${PROJECT}"\n`);
+  // A comparison isn't a definition.
+  expect(readEnvValue(at("compare.rb", `puts 1 if ENV["CRITIQS_PROJECT_ID"] == "old"\n`), "CRITIQS_PROJECT_ID")).toBeNull();
+  rmSync(dir, { recursive: true, force: true });
+});

@@ -701,7 +701,7 @@ function llms(docs, posts) {
 
 > ${SUMMARY}
 
-Critiqs is installed with \`npm install critiqs-react\` and set up with \`npx critiqs-react init\`. It runs on Critiqs Cloud or a team's own Convex deployment, under the MIT license. Coding agents read threads through the Critiqs MCP server (\`npx critiqs-react mcp\`). Each doc below links to a plain Markdown copy.
+Critiqs is installed with the package for the app's framework (\`critiqs-react\` for React and Next.js, \`critiqs-vue\`, \`critiqs-nuxt\`, \`critiqs-svelte\`, \`critiqs-angular\`, \`critiqs-astro\`, \`critiqs-solid\`, \`critiqs-rails\`, \`django-critiqs\`, or \`flask-critiqs\`), or a script tag on any other site, and set up with \`npx critiqs init\`. It runs on Critiqs Cloud or a team's own Convex deployment, under the MIT license. Coding agents read threads through the Critiqs MCP server (\`npx critiqs mcp\`). Each doc below links to a plain Markdown copy.
 
 ${docSections}${blog}`;
 }

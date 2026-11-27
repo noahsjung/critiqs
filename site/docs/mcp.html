@@ -171,18 +171,18 @@
             <h1 class="heading-3">Connect a coding agent with MCP</h1>
             <p class="doc-lede title-2">Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.</p>
           </header>
-<p>Critiqs ships a stdio Model Context Protocol (MCP) server inside <code>critiqs-react</code>. Run it with <code>npx critiqs-react mcp</code> so your coding agent can list open threads, inspect captures, read mockups, and post replies marked &quot;via coding agent&quot;.</p>
+<p>Critiqs ships a stdio Model Context Protocol (MCP) server in its <code>critiqs</code> command, the same for every framework. Run it with <code>npx critiqs mcp</code> so your coding agent can list open threads, inspect captures, read mockups, and post replies marked &quot;via coding agent&quot;.</p>
 <div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>The MCP feedback tools work with Critiqs Cloud and team-owned Convex deployments. Node.js 20 or later is required.</p>
 </div>
 <h2 id="add-the-mcp-server-to-your-client">Add the MCP server to your client<a class="anchor" href="#add-the-mcp-server-to-your-client"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>Critiqs uses the standard stdio MCP transport with command <code>npx</code> and arguments <code>[&quot;critiqs-react&quot;, &quot;mcp&quot;]</code>.</p>
+<p>Critiqs uses the standard stdio MCP transport with command <code>npx</code> and arguments <code>[&quot;critiqs&quot;, &quot;mcp&quot;]</code>.</p>
 <h3 id="claude-code">Claude Code<a class="anchor" href="#claude-code"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Add Critiqs to <code>.mcp.json</code> in your repository root:</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">&quot;mcpServers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
       <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
-      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
     <span class="hljs-punctuation">}</span>
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span></code></pre></div>
@@ -190,14 +190,14 @@
 <p>Add Critiqs to <code>.codex/config.toml</code> in your repository (or your user-level Codex config):</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">toml</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs">[mcp_servers.critiqs]
 command = &quot;npx&quot;
-args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
+args = [&quot;critiqs&quot;, &quot;mcp&quot;]</code></pre></div>
 <h3 id="cursor">Cursor<a class="anchor" href="#cursor"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Add Critiqs to <code>.cursor/mcp.json</code> in your repository (or your global Cursor MCP settings):</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">json</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">&quot;mcpServers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
       <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
-      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
     <span class="hljs-punctuation">}</span>
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span></code></pre></div>
@@ -207,7 +207,7 @@ args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
   <span class="hljs-attr">&quot;mcpServers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
       <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
-      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
     <span class="hljs-punctuation">}</span>
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span></code></pre></div>
@@ -217,18 +217,18 @@ args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
     <span class="hljs-attr">&quot;critiqs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
       <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;stdio&quot;</span><span class="hljs-punctuation">,</span>
       <span class="hljs-attr">&quot;command&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;npx&quot;</span><span class="hljs-punctuation">,</span>
-      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs-react&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
+      <span class="hljs-attr">&quot;args&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;critiqs&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;mcp&quot;</span><span class="hljs-punctuation">]</span>
     <span class="hljs-punctuation">}</span>
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span></code></pre></div>
 <p>Windsurf reads <code>~/.codeium/windsurf/mcp_config.json</code>, with the same <code>mcpServers</code> block as above.</p>
-<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>If you deploy to your team&#39;s own Convex backend through MCP (<code>target: &quot;own-convex&quot;</code>), inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or your shell environment instead of writing a literal key into a repository config file. Never paste API keys or deploy keys into chat or tool arguments. Alternatively, run <code>npx critiqs-react init --own-convex</code> in a terminal and enter the key at its hidden prompt.</p>
+<div class="callout callout-note" role="note"><p class="callout-label caption-3"><svg class="icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg>Note</p><p>If you deploy to your team&#39;s own Convex backend through MCP (<code>target: &quot;own-convex&quot;</code>), inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or your shell environment instead of writing a literal key into a repository config file. Never paste API keys or deploy keys into chat or tool arguments. Alternatively, run <code>npx critiqs init --own-convex</code> in a terminal and enter the key at its hidden prompt.</p>
 </div>
 <h2 id="sign-in-once-on-your-computer">Sign in once on your computer<a class="anchor" href="#sign-in-once-on-your-computer"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>Reading feedback and replying require a saved sign-in on the computer running the MCP server. You sign in once and every future agent session on that computer reuses it.</p>
 <ol>
 <li><p>Run the sign-in command in a terminal:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react sign-in</code></pre></div>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs sign-in</code></pre></div>
 <p>If you use a team-owned Convex deployment instead of Critiqs Cloud, pass <code>--backend https://&lt;deployment&gt;.convex.cloud</code>.</p>
 </li>
 <li><p>Open the printed approval address in a browser on this computer or any other device, enter the short setup code (such as <code>BCDF-GHJK</code>), sign in with your email, and choose <strong>Approve</strong>. The code expires after 10 minutes.</p>
@@ -242,10 +242,10 @@ args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
 <li>Windows: <code>%APPDATA%\critiqs\sign-in.v2.json</code></li>
 <li>Custom folder: set <code>CRITIQS_CONFIG_DIR</code></li>
 </ul>
-<p>Earlier versions of <code>critiqs-react</code> used <code>sign-in.json</code> in the same folder. The first time a newer version runs, it moves that file&#39;s Critiqs Cloud sign-in over and leaves <code>sign-in.json</code> signed out. Signing out of Critiqs Cloud signs out both.</p>
-<p>The sign-in lasts until you run <code>npx critiqs-react sign-out</code> (or call <code>critiqs_sign_out</code>), 30 days without use, or 90 days total.</p>
+<p>Earlier versions of Critiqs used <code>sign-in.json</code> in the same folder. The first time a newer version runs, it moves that file&#39;s Critiqs Cloud sign-in over and leaves <code>sign-in.json</code> signed out. Signing out of Critiqs Cloud signs out both.</p>
+<p>The sign-in lasts until you run <code>npx critiqs sign-out</code> (or call <code>critiqs_sign_out</code>), 30 days without use, or 90 days total.</p>
 <h2 id="mcp-tools-reference">MCP tools reference<a class="anchor" href="#mcp-tools-reference"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>All 13 tools below are served by <code>npx critiqs-react mcp</code>. Pass <code>backend</code> only when your project runs on a deployment other than Critiqs Cloud.</p>
+<p>All 13 tools below are served by <code>npx critiqs mcp</code>. Pass <code>backend</code> only when your project runs on a deployment other than Critiqs Cloud.</p>
 <h3 id="reading-feedback-and-mockups">Reading feedback and mockups<a class="anchor" href="#reading-feedback-and-mockups"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <div class="table-wrap"><table>
 <thead>
@@ -346,7 +346,7 @@ args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
 <tr>
 <td><code>critiqs_write_project_id</code></td>
 <td><code>projectId</code> (required), <code>dir</code>, <code>dryRun</code>, <code>entry</code>, <code>mount</code>, <code>envFile</code></td>
-<td>Connects <code>&lt;Critiqs /&gt;</code> to an existing project without signing in.</td>
+<td>Connects the app&#39;s Critiqs to an existing project without signing in.</td>
 </tr>
 <tr>
 <td><code>critiqs_doctor</code></td>
@@ -359,7 +359,7 @@ args = [&quot;critiqs-react&quot;, &quot;mcp&quot;]</code></pre></div>
 <ol>
 <li><strong>List open feedback.</strong> Ask your agent to call <code>critiqs_comments</code> with your project ID (defaults to <code>status: &quot;open&quot;</code>). Filter by <code>tag</code>, <code>screen</code>, <code>author</code>, or <code>since</code> to focus on one area.</li>
 <li><strong>Inspect a thread.</strong> Have the agent call <code>critiqs_thread</code> for full discussion details and <code>critiqs_screenshot</code> to see the exact element outlined on screen.</li>
-<li><strong>Locate and fix the code.</strong> The agent uses <code>context.target.purposeId</code> (your element&#39;s <code>data-critiqs-id</code>), <code>context.screen</code>, <code>context.viewState</code>, and the capture to find the component, make the edit, and run tests. For visual proposals in Mockup mode, it calls <code>critiqs_mockups</code> and <code>critiqs_mockup</code> and implements the edits in your real React components rather than copying frozen HTML.</li>
+<li><strong>Locate and fix the code.</strong> The agent uses <code>context.target.purposeId</code> (your element&#39;s <code>data-critiqs-id</code>), <code>context.screen</code>, <code>context.viewState</code>, and the capture to find the component, make the edit, and run tests. For visual proposals in Mockup mode, it calls <code>critiqs_mockups</code> and <code>critiqs_mockup</code> and implements the edits in your real components and templates rather than copying frozen HTML.</li>
 <li><strong>Reply in the thread.</strong> Once the fix is verified, the agent calls <code>critiqs_reply</code> with a short summary of what changed, the build or commit in <code>revision</code>, and optional <code>mention</code> recipients. Critiqs labels the reply &quot;via coding agent&quot;.</li>
 <li><strong>Resolve after review.</strong> Leave the thread open so a reviewer can confirm the change on the next staging or preview build and resolve it.</li>
 </ol>

@@ -4,7 +4,7 @@
 
 ## Which apps and frameworks does Critiqs support?
 
-Any React 18 or 19 app, including Vite, Next.js (App Router and Pages Router), Remix, Create React App, and custom React setups. `react` and `react-dom` are its only peer dependencies. The setup CLI and MCP server require Node.js 20 or later. See [Install Critiqs](/docs/install).
+React 18 or 19 apps (Vite, Next.js App Router and Pages Router, Remix, Create React App, and custom React setups), Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask each have a Critiqs package, and any other site can use the script tag. The setup CLI and MCP server require Node.js 20 or later. See [Install Critiqs](/docs/install).
 
 ## Will our production users see Critiqs?
 
@@ -36,7 +36,7 @@ No. Commenting, threads, mentions, tags, manual tag groups, Basic search, and ex
 
 ## How do coding agents read feedback and mockups?
 
-Connect the built-in MCP server (`npx critiqs-react mcp`) and install the Critiqs agent skill. Your agent can list open threads, inspect captures, read Mockup mode edits, and post replies marked "via coding agent". You can also export selected threads as Markdown or JSON from the sidebar. See [MCP](/docs/mcp), [Agent skill](/docs/agent-skill), and [Export threads](/docs/export).
+Connect the built-in MCP server (`npx critiqs mcp`) and install the Critiqs agent skill. Your agent can list open threads, inspect captures, read Mockup mode edits, and post replies marked "via coding agent". You can also export selected threads as Markdown or JSON from the sidebar. See [MCP](/docs/mcp), [Agent skill](/docs/agent-skill), and [Export threads](/docs/export).
 
 ## Where is feedback stored, and can we self-host?
 

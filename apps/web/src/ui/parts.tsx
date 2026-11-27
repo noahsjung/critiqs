@@ -1,3 +1,4 @@
+import { backendSetting, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAuth } from "../backend.ts";
 import { copyText } from "../clipboard.ts";
@@ -142,17 +143,36 @@ export function Command({ commands, onCopied, after }: { commands: readonly stri
 }
 
 /**
- * The step for a backend other than Critiqs Cloud: `init <projectId>`
- * doesn't write the component's `backend` property, so it is added by hand.
+ * The step for a backend other than Critiqs Cloud: `init <projectId>` and
+ * the script tag's guide don't set it, so it is added by hand, in the form
+ * the stack's package reads.
  */
-export function BackendStep({ backend, whose }: { backend: string; whose: string }) {
-  const property = copy.install.backendProperty(backend);
+export function BackendStep({ backend, whose, stack }: { backend: string; whose: string; stack: StackId | null }) {
+  const { where, setting: property } = backendSetting(stack, backend);
   return (
     <div className="stacked">
-      <p className="note">{copy.install.customBackend(whose)}</p>
+      <p className="note">{copy.install.customBackend(whose, where)}</p>
       <div className="property">
         <code>{property}</code>
         <CopyButton text={property} label={copy.install.copyProperty} copiedLabel={copy.install.propertyCopied} className="btn small" shown />
+      </div>
+    </div>
+  );
+}
+
+/** For a stack with no Critiqs package: the script tag's guide and the project ID to give it. */
+export function ScriptTagStep({ label, projectId, onCopied }: { label: string; projectId: string; onCopied?: () => void }) {
+  return (
+    <div className="stacked">
+      <p className="note">{copy.install.scriptTag(label)}</p>
+      <div>
+        <a className="btn" href={SCRIPT_TAG_GUIDE} target="_blank" rel="noopener noreferrer">
+          {copy.install.scriptTagGuide}
+        </a>
+      </div>
+      <div className="property">
+        <code>{projectId}</code>
+        <CopyButton text={projectId} label={copy.install.copyProjectId} copiedLabel={copy.install.projectIdCopied} className="btn small" shown onCopied={onCopied} />
       </div>
     </div>
   );

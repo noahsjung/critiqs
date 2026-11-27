@@ -2,12 +2,12 @@
 
 > Critiqs is a React component that lets teams comment on staging and preview builds. Reviewers click an element and comment on the real app; every thread keeps a capture and the screen it was left on, for developers and coding agents.
 
-Critiqs is installed with `npm install critiqs-react` and set up with `npx critiqs-react init`. It runs on Critiqs Cloud or a team's own Convex deployment, under the MIT license. Coding agents read threads through the Critiqs MCP server (`npx critiqs-react mcp`). Each doc below links to a plain Markdown copy.
+Critiqs is installed with the package for the app's framework (`critiqs-react` for React and Next.js, `critiqs-vue`, `critiqs-nuxt`, `critiqs-svelte`, `critiqs-angular`, `critiqs-astro`, `critiqs-solid`, `critiqs-rails`, `django-critiqs`, or `flask-critiqs`), or a script tag on any other site, and set up with `npx critiqs init`. It runs on Critiqs Cloud or a team's own Convex deployment, under the MIT license. Coding agents read threads through the Critiqs MCP server (`npx critiqs mcp`). Each doc below links to a plain Markdown copy.
 
 ## Get started
 
 - [Introduction](https://critiqs.app/docs/introduction.md): Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.
-- [Install Critiqs](https://critiqs.app/docs/install.md): Install critiqs-react in a React 18 or 19 app, run critiqs init for Vite or Next.js, configure requireProjectId, and verify your setup.
+- [Install Critiqs](https://critiqs.app/docs/install.md): Install the Critiqs package for any of 12 frameworks, from React and Vue to Rails and Django, run npx critiqs init, and verify your setup.
 - [Projects and project IDs](https://critiqs.app/docs/projects.md): Share one feedback list across staging, preview, and QA builds using a single project ID, and configure monorepos and review addresses.
 - [Backends](https://critiqs.app/docs/backends.md): Choose between Critiqs Cloud (the default hosted service) and self-hosting Critiqs on your team's own Convex deployment.
 
@@ -29,7 +29,7 @@ Critiqs is installed with `npm install critiqs-react` and set up with `npx criti
 - [Connect a coding agent with MCP](https://critiqs.app/docs/mcp.md): Configure the Critiqs MCP server for your coding agent, sign in once on your computer, and read threads, captures, and mockups.
 - [Add the Critiqs agent skill](https://critiqs.app/docs/agent-skill.md): Install the Critiqs SKILL.md file so Claude Code, Codex, and Cursor know how to install Critiqs, read threads and mockups, and reply.
 - [Export threads](https://critiqs.app/docs/export.md): Select feedback threads in the Critiqs sidebar and export them as Markdown for teammates or structured JSON for scripts and agents.
-- [Command line reference](https://critiqs.app/docs/cli.md): Reference for every critiqs-react CLI command, flag, environment variable, and exit code.
+- [Command line reference](https://critiqs.app/docs/cli.md): Reference for every critiqs CLI command, flag, environment variable, and exit code.
 
 ## Teams and plans
 

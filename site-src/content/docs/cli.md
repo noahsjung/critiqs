@@ -1,18 +1,20 @@
 ---
 title: Command line reference
-description: Reference for every critiqs-react CLI command, flag, environment variable, and exit code.
+description: Reference for every critiqs CLI command, flag, environment variable, and exit code.
 section: Agents
 order: 4
 ---
 
-The `critiqs-react` package includes the `critiqs` command line tool for setting up projects, checking configuration, signing your computer in for coding agents, and running the [MCP server](/docs/mcp).
+The `critiqs` package includes the `critiqs` command line tool, the same for every framework, for setting up projects, checking configuration, signing your computer in for coding agents, and running the [MCP server](/docs/mcp).
 
 Run it with your package manager (Node.js 20 or later required):
 
 ```sh
-npx critiqs-react <command> [options]
-# Also works with: pnpm exec critiqs, yarn critiqs, bunx critiqs-react
+npx critiqs <command> [options]
+# Also works with: pnpm exec critiqs, yarn critiqs, bunx critiqs
 ```
+
+Every Critiqs npm package installs this command, and in a Rails, Django, or Flask app `npx` fetches it. `npx critiqs-react <command>` runs the same command in a React app, so commands and MCP configurations written that way keep working.
 
 ## Exit codes
 
@@ -26,13 +28,13 @@ npx critiqs-react <command> [options]
 
 ### `critiqs init`
 
-Adds `<Critiqs />` where your React app renders (a React root, a Next.js App Router layout, or a Next.js Pages Router `_app`), signs you in, creates or reuses a Critiqs project, and writes its project ID.
+Finds your app's framework, adds Critiqs where the app renders (for React, a React root, a Next.js App Router layout, or a Next.js Pages Router `_app`; for the other frameworks, see [Install Critiqs](/docs/install#what-init-changes-by-framework)), signs you in, creates or reuses a Critiqs project, and writes its project ID.
 
 ```sh
-npx critiqs-react init [options]
+npx critiqs init [options]
 ```
 
-In Vite and Next.js apps, `init` wires `<Critiqs />` to a public environment variable with `requireProjectId`, writes the ID to `.env.local`, and adds an empty entry to `.env.example`. In other setups, it writes the literal `projectId` into the component. Running `init` again keeps the existing project unless you pass `--new-project`.
+Where the framework has a project ID variable, `init` reads the ID from it with `requireProjectId` and sets it for your computer: in `.env.local` or `.env` (with an empty entry in `.env.example`; for Flask, flask-critiqs reads only its own key from `.env`, under `flask run`), or for Rails and Django as a development-only default in `config/environments/development.rb` or `manage.py`. Otherwise, such as in Angular or a React app with no public variables, it writes the literal project ID into the code. Running `init` again keeps the existing project unless you pass `--new-project`.
 
 In a monorepo workspace, run `init` once per app with `--dir apps/<app>`. At the workspace root, interactive terminals ask which app to set up; non-interactive runs list each app's `--dir` command and change nothing.
 
@@ -46,7 +48,7 @@ In a monorepo workspace, run `init` once per app with `--dir apps/<app>`. At the
 | `--browser` | Open sign-in in a browser on this computer (default when a desktop is available). |
 | `--new-project` | Create a new project even if the code or your account already has one. |
 | `--dir <path>` | App folder to inspect and update (defaults to current folder). |
-| `--project-env-file <file>` | `.env` file to write, relative to `--dir` (default `.env.local`). Also accepted as `--env-file`. |
+| `--project-env-file <file>` | File where `init` sets the project ID, relative to `--dir`, instead of the framework's own (see [what init changes](/docs/install#what-init-changes-by-framework)): `.env.local` for Vite and Next.js apps, `.env` for Nuxt, Astro and Flask, `manage.py` for Django, `config/environments/development.rb` for Rails (`.env` with dotenv). A `.py` or `.rb` file gets a development default in code; any other file gets a `NAME=value` line. Pick a file your framework loads: Django, and Rails without dotenv, load no `.env` file. Also accepted as `--env-file`. |
 | `--json` | Print one JSON result to stdout and send progress (including remote setup codes) to stderr. |
 | `--cloud` | Use Critiqs Cloud (the default). |
 | `--own-convex` | Deploy Critiqs's functions to your team's own Convex deployment and write `backend`. See [self-hosting](/docs/self-hosting). |
@@ -64,7 +66,7 @@ Environment variables read with `--own-convex` (never passed as CLI arguments):
 Connects your app to an existing project ID without signing in.
 
 ```sh
-npx critiqs-react init <projectId> [--dir <path>] [--entry <file>] [--mount <Element>] [--project-env-file <file>] [--dry-run]
+npx critiqs init <projectId> [--dir <path>] [--entry <file>] [--mount <Element>] [--project-env-file <file>] [--dry-run]
 ```
 
 | Flag | Description |
@@ -73,7 +75,7 @@ npx critiqs-react init <projectId> [--dir <path>] [--entry <file>] [--mount <Ele
 | `--dir <path>` | App folder (defaults to current folder). |
 | `--entry <file>` | File where the app renders, relative to `--dir`. |
 | `--mount <Element>` | Element to place `<Critiqs />` beside. |
-| `--project-env-file <file>` | `.env` file to write, relative to `--dir`. |
+| `--project-env-file <file>` | File where `init` sets the project ID, relative to `--dir`, instead of the framework's own. See `--project-env-file` under `critiqs init` above. |
 
 > **Note:** Flags for creating projects (`--cloud`, `--own-convex`, `--backend`, `--name`, `--review-url`, `--remote`, `--browser`, `--new-project`, `--json`) cannot be combined with a `<projectId>` argument.
 
@@ -82,14 +84,14 @@ npx critiqs-react init <projectId> [--dir <path>] [--entry <file>] [--mount <Ele
 Checks your local Critiqs setup: the component, backend reachability and protocol version, local project ID, deployment notes, review address, sign-in configuration, screenshot storage, optional AI status, and mention email status.
 
 ```sh
-npx critiqs-react doctor [options]
+npx critiqs doctor [options]
 ```
 
 | Flag | Description |
 | --- | --- |
 | `--backend <url>` | Check a specific backend URL instead of the one in your code. |
 | `--dir <path>` | App folder to check (defaults to current folder). |
-| `--project-env-file <file>` | `.env` file to inspect, relative to `--dir` (default `.env.local`). |
+| `--project-env-file <file>` | File to read the project ID from, relative to `--dir` (default: the one `init` writes for the framework, such as `.env.local`, `manage.py` or `config/environments/development.rb`). |
 | `--json` | Print the check report as JSON (`ok`, `checks`, `note`). |
 
 Each check reports a `basis`:
@@ -104,7 +106,7 @@ Doctor never sends an email, uploads a capture, or posts a comment, and it canno
 Signs your computer in once so coding agents running locally can read feedback, inspect mockups, and post replies through `critiqs mcp`.
 
 ```sh
-npx critiqs-react sign-in [--remote | --browser] [--backend <url>]
+npx critiqs sign-in [--remote | --browser] [--backend <url>]
 ```
 
 | Flag | Description |
@@ -117,10 +119,10 @@ Credentials are saved in `sign-in.v2.json` under `$CRITIQS_CONFIG_DIR`, `$XDG_CO
 
 ### `critiqs sign-out`
 
-Ends this computer's saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of `critiqs-react` saved on this computer. If the sign-in service doesn't confirm ending every session saved on this computer, the command says what is left and exits with status 1; run it again once the service is reachable.
+Ends this computer's saved sign-in with the sign-in service and deletes the local session entry. Signing out of Critiqs Cloud also signs out a Critiqs Cloud sign-in that an earlier version of Critiqs saved on this computer. If the sign-in service doesn't confirm ending every session saved on this computer, the command says what is left and exits with status 1; run it again once the service is reachable.
 
 ```sh
-npx critiqs-react sign-out [--backend <url>]
+npx critiqs sign-out [--backend <url>]
 ```
 
 | Flag | Description |
@@ -132,7 +134,7 @@ npx critiqs-react sign-out [--backend <url>]
 Starts the stdio MCP server for coding agents. See [Connect a coding agent with MCP](/docs/mcp) for client configuration and the full tool list.
 
 ```sh
-npx critiqs-react mcp
+npx critiqs mcp
 ```
 
 ### Help
@@ -140,5 +142,5 @@ npx critiqs-react mcp
 Print usage and options at any time:
 
 ```sh
-npx critiqs-react --help
+npx critiqs --help
 ```

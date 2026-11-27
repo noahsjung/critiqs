@@ -1,4 +1,5 @@
 import {
+  backendSetting,
   type DeveloperInvite,
   type DeveloperSendResult,
   type DeveloperSendSummary,
@@ -14,7 +15,7 @@ import { copy } from "../copy.ts";
 import { type CreatedProject, developerErrors, emailAddress, filledDevelopers, shownHost } from "../flow.ts";
 import type { QueryState } from "../shared.ts";
 import { DeveloperEmails } from "./DeveloperEmails.tsx";
-import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand } from "./parts.tsx";
+import { BackendStep, CheckIcon, Command, CopyButton, Heading, oneCommand, ScriptTagStep } from "./parts.tsx";
 
 // The two ways to add Critiqs to the prototype: run one command, or send the
 // steps to a developer.
@@ -25,24 +26,28 @@ export function projectSetupUrl(projectId: string, origin = window.location.orig
 }
 
 /**
- * "I will": one command, one Copy, and what happens next. A stack Critiqs
- * can't be installed in yet says so in place of the command. `onDone` runs
- * once the command or the agent's instructions are copied.
+ * "I will": the commands, one Copy, and what happens next. A stack with no
+ * Critiqs package gets the script tag's guide and the project ID instead.
+ * `onDone` runs once the command, the agent's instructions, or the project ID
+ * is copied.
  */
 export function InstallPanel({ project, onDone }: { project: CreatedProject; onDone?: () => void }) {
   const { componentBackend } = useBackend();
   const stack = STACKS.find((candidate) => candidate.id === project.stack) ?? null;
-  const commands = installCommands(project.id);
-  const command = oneCommand(commands);
+  const commands = installCommands(project.id, stack?.id ?? null);
   const host = project.reviewUrl === null ? null : shownHost(project.reviewUrl);
-  if (stack !== null && !stack.installable) {
+  const backendStep = componentBackend === null ? null : <BackendStep backend={componentBackend} whose="your team's" stack={stack?.id ?? null} />;
+  if (commands === null) {
     return (
       <>
         <Heading title={copy.install.title} />
-        <p className="caution">{copy.install.notInstallable(stack.label)}</p>
+        <ScriptTagStep label={stack?.label ?? ""} projectId={project.id} onCopied={onDone} />
+        {backendStep}
       </>
     );
   }
+  const command = oneCommand(commands);
+  const agentBackend = componentBackend === null ? null : { address: componentBackend, ...backendSetting(stack?.id ?? null, componentBackend) };
   return (
     <>
       <Heading title={copy.install.title} lead={copy.install.lead} />
@@ -50,10 +55,10 @@ export function InstallPanel({ project, onDone }: { project: CreatedProject; onD
         commands={commands}
         onCopied={onDone}
         after={
-          <CopyButton text={copy.install.agentPrompt(command, stack?.label ?? null, componentBackend)} label={copy.install.agent} copiedLabel={copy.install.agentCopied} className="quiet" onCopied={onDone} />
+          <CopyButton text={copy.install.agentPrompt(command, stack?.label ?? null, agentBackend)} label={copy.install.agent} copiedLabel={copy.install.agentCopied} className="quiet" onCopied={onDone} />
         }
       />
-      {componentBackend !== null && <BackendStep backend={componentBackend} whose="your team's" />}
+      {backendStep}
       <p className="then">{copy.install.then(host)}</p>
       {stack === null && <p className="note">{copy.install.unknownStack}</p>}
     </>
@@ -62,14 +67,14 @@ export function InstallPanel({ project, onDone }: { project: CreatedProject; onD
 
 /**
  * The copied message, with the step for a backend other than Critiqs Cloud
- * after the commands when it has them: `init <projectId>` doesn't write the
- * component's `backend` property.
+ * before the setup page's link: `init <projectId>` and the script tag's
+ * guide don't set it.
  */
 function withBackendStep(message: string, stack: CreatedProject["stack"], backend: string | null): string {
-  const installable = STACKS.find((candidate) => candidate.id === stack)?.installable ?? true;
-  if (backend === null || !installable) return message;
+  if (backend === null) return message;
+  const { where, setting } = backendSetting(stack, backend);
   const parts = message.split("\n\n");
-  parts.splice(parts.length - 1, 0, `${copy.install.customBackend("our")}\n${copy.install.backendProperty(backend)}`);
+  parts.splice(parts.length - 1, 0, `${copy.install.customBackend("our", where)}\n${setting}`);
   return parts.join("\n\n");
 }
 

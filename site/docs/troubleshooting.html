@@ -172,21 +172,21 @@
             <p class="doc-lede title-2">Fix common Critiqs issues with missing toolbars, unreachable backends, sign-in pop-ups, CSP headers, MCP sign-in, and captures.</p>
           </header>
 <p>Start by running <code>doctor</code> in your app folder:</p>
-<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs-react doctor</code></pre></div>
-<p>If your app lives in a monorepo, pass <code>--dir apps/&lt;app&gt;</code>. If your Vite app uses a custom <code>envDir</code>, pass <code>--project-env-file &lt;relative path&gt;</code>. Doctor checks your component, backend reachability and version, local project ID, review address, sign-in, screenshot storage, AI, and mention emails.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs doctor</code></pre></div>
+<p>If your app lives in a monorepo, pass <code>--dir apps/&lt;app&gt;</code>. If your Vite app uses a custom <code>envDir</code>, pass <code>--project-env-file &lt;relative path&gt;</code>. Doctor checks Critiqs in your code, backend reachability and version, local project ID, review address, sign-in, screenshot storage, AI, and mention emails.</p>
 <h2 id="critiqs-does-not-appear-on-the-page">Critiqs does not appear on the page<a class="anchor" href="#critiqs-does-not-appear-on-the-page"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>When <code>&lt;Critiqs /&gt;</code> has <code>requireProjectId</code>, it renders nothing and makes no requests when the project ID is unset or malformed. If a well-formed ID does not exist on the backend, Critiqs contacts the backend to check it, logs a warning, and keeps the UI hidden.</p>
+<p>When Critiqs has <code>requireProjectId</code>, it renders nothing and makes no requests when the project ID is unset or malformed. If a well-formed ID does not exist on the backend, Critiqs contacts the backend to check it, logs a warning, and keeps the UI hidden.</p>
 <ol>
 <li>Open your browser developer console and look for a warning starting with <code>Critiqs:</code>.</li>
-<li>Check that your environment variable is set (<code>VITE_CRITIQS_PROJECT_ID</code> for Vite, <code>NEXT_PUBLIC_CRITIQS_PROJECT_ID</code> for Next.js, or the app-suffixed variable in a monorepo such as <code>VITE_CRITIQS_PROJECT_ID_ADMIN</code>).</li>
+<li>Check that your project ID variable is set: <code>VITE_CRITIQS_PROJECT_ID</code> for Vite apps (React, Vue, Svelte, Solid), <code>NEXT_PUBLIC_CRITIQS_PROJECT_ID</code> for Next.js, <code>NUXT_PUBLIC_CRITIQS_PROJECT_ID</code> for Nuxt, <code>PUBLIC_CRITIQS_PROJECT_ID</code> for SvelteKit and Astro, <code>CRITIQS_PROJECT_ID</code> for Rails, Django, and Flask, or the app-suffixed variable in a monorepo such as <code>VITE_CRITIQS_PROJECT_ID_ADMIN</code>.</li>
 <li>Restart your dev server after changing <code>.env.local</code>.</li>
-<li>For staging or preview deployments, set the variable in the host&#39;s <strong>build settings</strong> and trigger a new build. Vite and Next.js inline <code>VITE_*</code> and <code>NEXT_PUBLIC_*</code> values at build time, not at runtime.</li>
+<li>For staging or preview deployments, set the variable in the host&#39;s <strong>build settings</strong> and trigger a new build: Vite, Next.js, and Astro inline the value at build time, not at runtime. For Nuxt, SvelteKit, Rails, Django, and Flask, set it in the server&#39;s environment and restart.</li>
 <li>If you build once and promote the same bundle across environments, pass the ID from your own runtime config to <code>projectId</code> and keep <code>requireProjectId</code>.</li>
 </ol>
 <h2 id="backend-not-reachable-or-version-mismatch">Backend not reachable or version mismatch<a class="anchor" href="#backend-not-reachable-or-version-mismatch"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <ul>
-<li><strong><code>Critiqs Cloud isn&#39;t ready for this version</code></strong> or <strong><code>runs an older version</code></strong>: your installed <code>critiqs-react</code> package requires a newer backend protocol than the deployment serves. On a team-owned Convex deployment, deploy the matching backend functions. On Critiqs Cloud, wait for the hosted backend update or check for a matching package release.</li>
-<li><strong>Unreachable backend</strong>: run <code>npx critiqs-react doctor</code> and check whether <code>/critiqs/config</code> and <code>/critiqs/health</code> succeed from your browser&#39;s Network tab. Confirm the <code>backend</code> prop matches your Convex <code>.convex.cloud</code> URL (omit <code>backend</code> to use Critiqs Cloud).</li>
+<li><strong><code>Critiqs Cloud isn&#39;t ready for this version</code></strong> or <strong><code>runs an older version</code></strong>: your installed Critiqs package requires a newer backend protocol than the deployment serves. On a team-owned Convex deployment, deploy the matching backend functions. On Critiqs Cloud, wait for the hosted backend update or check for a matching package release.</li>
+<li><strong>Unreachable backend</strong>: run <code>npx critiqs doctor</code> and check whether <code>/critiqs/config</code> and <code>/critiqs/health</code> succeed from your browser&#39;s Network tab. Confirm the backend setting matches your Convex <code>.convex.cloud</code> URL (omit it to use Critiqs Cloud). The setting each package reads is in <a href="/docs/install">Install Critiqs</a> and each package&#39;s README: <code>backend=&quot;…&quot;</code> on the component for React, Vue, Svelte, and Solid; the <code>critiqs</code> options in Nuxt, Astro, and Angular; <code>critiqs_tag(backend: …)</code> in Rails; <code>CRITIQS = {&quot;BACKEND&quot;: …}</code> in Django&#39;s settings; <code>CRITIQS_BACKEND</code> in Flask&#39;s config; and <code>data-backend</code> on the script tag.</li>
 <li><strong>Project not found on backend</strong>: the <code>projectId</code> does not exist on the configured backend. Check that you are not pointing a Critiqs Cloud project ID at a team-owned Convex backend (or the reverse).</li>
 </ul>
 <h2 id="sign-in-issues">Sign-in issues<a class="anchor" href="#sign-in-issues"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
@@ -217,7 +217,7 @@
 </thead>
 <tbody><tr>
 <td><code>This computer isn&#39;t signed in to Critiqs</code> or <code>sign-in ended</code></td>
-<td>Run <code>npx critiqs-react sign-in</code> (or have the agent call <code>critiqs_sign_in</code> and <code>critiqs_sign_in_finish</code>). Sessions expire after 30 days unused or 90 days total.</td>
+<td>Run <code>npx critiqs sign-in</code> (or have the agent call <code>critiqs_sign_in</code> and <code>critiqs_sign_in_finish</code>). Sessions expire after 30 days unused or 90 days total.</td>
 </tr>
 <tr>
 <td><code>Another Critiqs process is using this computer&#39;s sign-in</code></td>
@@ -233,23 +233,23 @@
 </tr>
 <tr>
 <td><code>can&#39;t post agent replies yet</code> or <code>has no mockups yet</code></td>
-<td>The backend runs an older version than <code>critiqs-react</code>. Upgrade the backend deployment.</td>
+<td>The backend runs an older version than your Critiqs package. Upgrade the backend deployment.</td>
 </tr>
 <tr>
 <td><code>didn&#39;t confirm signing out</code></td>
-<td>The sign-in service was unreachable, so your local sign-in was kept. Run <code>npx critiqs-react sign-out</code> again once it is reachable.</td>
+<td>The sign-in service was unreachable, so your local sign-in was kept. Run <code>npx critiqs sign-out</code> again once it is reachable.</td>
 </tr>
 <tr>
 <td><code>didn&#39;t confirm ending an earlier session</code></td>
-<td>Your sign-in ended, but the sign-in service didn&#39;t answer for a session this computer kept from an interrupted renewal, so its token stays saved. Run <code>npx critiqs-react sign-out</code> again once the service is reachable.</td>
+<td>Your sign-in ended, but the sign-in service didn&#39;t answer for a session this computer kept from an interrupted renewal, so its token stays saved. Run <code>npx critiqs sign-out</code> again once the service is reachable.</td>
 </tr>
 <tr>
 <td><code>changed this computer&#39;s sign-in while it was signing out</code></td>
-<td>Another Critiqs process renewed the sign-in, or signed in again, during sign-out. Run <code>npx critiqs-react sign-out</code> again.</td>
+<td>Another Critiqs process renewed the sign-in, or signed in again, during sign-out. Run <code>npx critiqs sign-out</code> again.</td>
 </tr>
 <tr>
 <td><code>Deploying to the team&#39;s own Convex needs CONVEX_DEPLOY_KEY</code></td>
-<td>Inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or shell environment (not in a committed config file, chat messages, or tool arguments), or run <code>npx critiqs-react init --own-convex</code> in a terminal using its hidden prompt.</td>
+<td>Inject <code>CONVEX_DEPLOY_KEY</code> into the MCP server&#39;s process environment from a secret store or shell environment (not in a committed config file, chat messages, or tool arguments), or run <code>npx critiqs init --own-convex</code> in a terminal using its hidden prompt.</td>
 </tr>
 </tbody></table>
 </div>
@@ -263,7 +263,7 @@
 </thead>
 <tbody><tr>
 <td><code>Init didn&#39;t find where the app renders</code></td>
-<td>Pass <code>--entry &lt;file&gt;</code> (and <code>--mount &lt;Element&gt;</code>), or add <code>&lt;Critiqs /&gt;</code> manually and rerun <code>npx critiqs-react init</code>.</td>
+<td>Pass <code>--entry &lt;file&gt;</code> (and <code>--mount &lt;Element&gt;</code>), or add Critiqs manually as your framework&#39;s package README shows and rerun <code>npx critiqs init</code>.</td>
 </tr>
 <tr>
 <td><code>Found several places the app could render Critiqs</code></td>
@@ -271,7 +271,7 @@
 </tr>
 <tr>
 <td><code>... is a workspace with N apps</code></td>
-<td>Run one of the printed <code>npx critiqs-react init --dir &lt;app&gt;</code> commands for each app.</td>
+<td>Run one of the printed <code>npx critiqs init --dir &lt;app&gt;</code> commands for each app.</td>
 </tr>
 <tr>
 <td><code>sets envDir in a way init can&#39;t follow</code></td>
@@ -297,8 +297,8 @@
 </div>
 <h2 id="mention-and-reply-emails">Mention and reply emails<a class="anchor" href="#mention-and-reply-emails"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <ul>
-<li><strong>Emails do not open the deployed build (or doctor warns about a missing or local review address):</strong> Run <code>npx critiqs-react init --review-url https://&lt;your-staging-url&gt;</code> or update <strong>Review address</strong> in <strong>Project setup</strong>. Addresses like <code>localhost</code> or <code>.ts.net</code> only open on one computer or private network.</li>
-<li><strong>No emails arrive on a self-hosted Convex deployment:</strong> Check that <code>RESEND_API_KEY</code> and <code>CRITIQS_EMAIL_FROM</code> are set on the backend and that the sender domain is verified in Resend. Run <code>npx critiqs-react doctor</code> to see whether the last email failed or scheduled sending is overdue.</li>
+<li><strong>Emails do not open the deployed build (or doctor warns about a missing or local review address):</strong> Run <code>npx critiqs init --review-url https://&lt;your-staging-url&gt;</code> or update <strong>Review address</strong> in <strong>Project setup</strong>. Addresses like <code>localhost</code> or <code>.ts.net</code> only open on one computer or private network.</li>
+<li><strong>No emails arrive on a self-hosted Convex deployment:</strong> Check that <code>RESEND_API_KEY</code> and <code>CRITIQS_EMAIL_FROM</code> are set on the backend and that the sender domain is verified in Resend. Run <code>npx critiqs doctor</code> to see whether the last email failed or scheduled sending is overdue.</li>
 <li><strong>One reviewer stopped getting emails:</strong> Check <strong>Email notifications…</strong> in their avatar menu or the Project panel. Muting a project turns off both mention and reply emails for that project.</li>
 </ul>
 <h2 id="automatic-captures-fail">Automatic captures fail<a class="anchor" href="#automatic-captures-fail"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>

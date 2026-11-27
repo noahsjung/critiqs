@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chooseWiring, connectionSettings, envTargetOf, isFile, packageOf, quoted, readLocalValue, readUsage, shown, UNRECOGNIZED, workspaceApps, workspaceRefusal, writeConnection } from "./app.mjs";
-import { checkWritable, describeApp } from "./env.mjs";
+import { checkWritable, describeApp, isCodeFile } from "./env.mjs";
 import { isValidProjectId } from "./init.mjs";
 
 /** Critiqs Cloud's deployment, the component's default backend. Matches `HOSTED_BACKEND_URL`. */
@@ -803,7 +803,7 @@ export async function doctor({ root, cwd = root, backendUrl: chosenBackend, fetc
   else if (setting !== null && setting.problem !== null) {
     add("warn", "Project", `${at} reads ${setting.variable}, but doctor can't determine its local value: ${setting.problem} Check with doctor --project-env-file <the .env file this app loads>.`, "project");
   } else if (setting !== null && setting.found === null) {
-    add("warn", "Project", `${at} reads its project ID from ${setting.variable}, which ${setting.fromShell ? "this shell's environment doesn't set" : "no .env file here sets"}, so ${hidden} on this computer. Run npx critiqs init to create or connect a project and set it.`, "project");
+    add("warn", "Project", `${at} reads its project ID from ${setting.variable}, which ${setting.fromShell ? "this shell's environment doesn't set" : setting.env.localFile !== null && isCodeFile(setting.env.localFile) ? `${setting.env.localFile} doesn't set` : "no .env file here sets"}, so ${hidden} on this computer. Run npx critiqs init to create or connect a project and set it.`, "project");
   } else if (setting !== null && !isValidProjectId(projectId)) {
     add("fail", "Project", `${setting.variable} in ${setting.where} is ${JSON.stringify(projectId.slice(0, 80))}, not a Critiqs project ID, so ${hidden} wherever it's used. Set it to the ID from project setup in the Critiqs sidebar, or run npx critiqs init.`, "project");
   } else if (setting !== null && health.project === undefined) {

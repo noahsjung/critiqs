@@ -7,8 +7,11 @@ import {
   type DeveloperSendSummary,
   type DeveloperSetup,
   installCommands,
+  listOr,
   MAX_DEVELOPER_INVITES_PER_PROJECT,
+  PACKAGE_STACK_NAMES,
   type ProjectSetup,
+  SCRIPT_TAG_GUIDE,
   STACKS,
   type StackId,
   type StackInfo,
@@ -404,17 +407,14 @@ export async function deliverDeveloperEmail(steps: {
   return "sent";
 }
 
-/** Copy for the stacks Critiqs installs in today. */
-const INSTALLABLE = "React apps built with Vite or Next.js";
-
 /**
  * The setup email: from Critiqs's address, shown as "{inviter} via Critiqs",
  * with replies going to the inviter. Text the sender controls is on one line,
  * without control characters, shortened, and escaped, and never a link. The
  * prototype's address isn't in it at all: the sender typed it, and mail apps
  * turn plain-text addresses into links, so only the setup page, after sign-in,
- * shows it. Install commands appear only for a stack Critiqs installs in, or
- * one not confirmed.
+ * shows it. A stack with no Critiqs package gets the script tag's guide in
+ * place of commands.
  */
 export function developerSetupMessage(parts: {
   to: string;
@@ -433,7 +433,7 @@ export function developerSetupMessage(parts: {
   const inviter = shorten(parts.inviterName) || "Someone";
   const project = shorten(parts.projectName) || "the prototype";
   const stack: StackInfo | null = STACKS.find((candidate) => candidate.id === parts.stack) ?? null;
-  const commands = stack === null || stack.installable ? installCommands(parts.projectId) : null;
+  const commands = installCommands(parts.projectId, stack?.id ?? null);
   const why = parts.someoneElseChangesCode ? "They said someone else changes its code, so they asked us to send you the setup steps." : "They asked us to send you the setup steps.";
   const intro = (who: string, email: string) => `${who} (${email}) is setting up Critiqs so your team can comment right on the prototype. ${why}`;
   const facts: [string, string][] = [
@@ -443,18 +443,18 @@ export function developerSetupMessage(parts: {
   const addressNote = "The setup page shows the prototype's address once you sign in.";
   const how =
     commands === null
-      ? `Critiqs installs in ${INSTALLABLE} today. ${stack!.label} support is coming. The setup page has the project's details.`
+      ? `${stack!.label} has no Critiqs package, so Critiqs goes in with a script tag on every page. This guide shows the tag; give it this project ID:`
       : stack === null
-        ? "If it's a React app built with Vite or Next.js, run this in its folder. It already has the project ID:"
-        : "Run this in the prototype's folder. It already has the project ID:";
+        ? `Run this in the prototype's folder. It already has the project ID, finds the framework (${listOr(PACKAGE_STACK_NAMES)}), and adds Critiqs:`
+        : "Run these in the prototype's folder. They already have the project ID:";
   const joining = parts.joining === null ? null : shorten(parts.joining);
   const closing = (show: (text: string) => string) =>
     `You don't need anyone's approval.${joining === null ? "" : ` Sign in to Critiqs with ${show(parts.to)} to join ${show(joining)}.`} Reply to this email to reach ${show(inviter)}.`;
-  const preheader = "Set up comments on the prototype in one command.";
+  const preheader = "How to add Critiqs to the prototype, so your team can comment on it.";
   const text = [
     intro(inviter, parts.inviterEmail),
     facts.map(([label, value]) => `${label}: ${value}`).join("\n"),
-    commands === null ? how : `${how}\n\n${commands.join("\n")}`,
+    `${how}\n\n${commands === null ? `${SCRIPT_TAG_GUIDE}\nProject ID: ${parts.projectId}` : commands.join("\n")}`,
     `Setup steps: ${parts.setupUrl}\n${addressNote}`,
     closing((plain) => plain),
     `Didn't expect this? Report it: ${parts.reportUrl}`,
@@ -464,7 +464,7 @@ export function developerSetupMessage(parts: {
 <p>${intro(inert(inviter), inert(parts.inviterEmail))}</p>
 <p>${facts.map(([label, value]) => `${escapeHtml(label)}: <strong>${inert(value)}</strong>`).join("<br>")}</p>
 <p>${escapeHtml(how)}</p>
-${commands === null ? "" : `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${commands.map(escapeHtml).join("\n")}</pre>`}
+${commands === null ? `<p><a href="${escapeHtml(SCRIPT_TAG_GUIDE)}">How to add the script tag</a><br>Project ID: <code>${escapeHtml(parts.projectId)}</code></p>` : `<pre style="background:#f4f4f5;padding:12px;border-radius:6px">${commands.map(escapeHtml).join("\n")}</pre>`}
 <p><a href="${escapeHtml(parts.setupUrl)}">Open the setup steps</a><br>${escapeHtml(addressNote)}</p>
 <p>${closing(inert)}</p>
 <p style="color:#666">Didn't expect this? <a href="${escapeHtml(parts.reportUrl)}">Report it</a>.</p>
@@ -547,7 +547,7 @@ function setupOf(project: ProjectRecord, showStack = true): ProjectSetup {
     projectName: project.name,
     address: project.reviewUrl ?? null,
     stack,
-    installCommands: stack === null || stack.installable ? installCommands(project._id) : null,
+    installCommands: installCommands(project._id, stack?.id ?? null),
   };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AVAILABLE_WAYS,
+  backendSetting,
   type AddressCheck,
   classifyAddress,
   detectStack,
@@ -267,9 +268,10 @@ describe("stacks", () => {
     for (const [name, make] of scenarios) expect([name, growsLinearly(make, run)]).toEqual([name, true]);
   }, 120_000);
 
-  test("are each listed once, with React (Vite) and Next.js installable today", () => {
+  test("are each listed once, and every framework with a Critiqs package is installable", () => {
     expect(new Set(STACKS.map((stack) => stack.id)).size).toBe(STACKS.length);
-    expect(STACKS.filter((stack) => stack.installable).map((stack) => stack.id)).toEqual(["react", "next"]);
+    expect(STACKS.filter((stack) => stack.installable).map((stack) => stack.id)).toEqual(["react", "next", "vue", "nuxt", "svelte", "sveltekit", "angular", "astro", "solid", "rails", "django", "flask"]);
+    expect(STACKS.filter((stack) => !stack.installable).map((stack) => stack.id)).toEqual(["gatsby", "laravel", "remix", "wordpress"]);
   });
 });
 
@@ -725,14 +727,35 @@ describe("starting tags", () => {
 });
 
 describe("sending to a developer", () => {
-  test("the install command carries the project ID", () => {
-    expect(installCommands("k57abc123def456ghi")).toEqual(["npm install critiqs-react", "npx critiqs-react init k57abc123def456ghi"]);
-    expect(installCommands("p_0123456789abcdef0123456789abcdef")[1]).toBe("npx critiqs-react init p_0123456789abcdef0123456789abcdef");
+  test("the commands install the stack's package, then run critiqs init with the project ID", () => {
+    const id = "k57abc123def456ghi";
+    const cases: [StackId | null, readonly string[] | null][] = [
+      ["react", ["npm install critiqs-react", `npx critiqs init ${id}`]],
+      ["next", ["npm install critiqs-react", `npx critiqs init ${id}`]],
+      ["vue", ["npm install critiqs-vue", `npx critiqs init ${id}`]],
+      ["nuxt", ["npm install critiqs-nuxt", `npx critiqs init ${id}`]],
+      ["svelte", ["npm install critiqs-svelte", `npx critiqs init ${id}`]],
+      ["sveltekit", ["npm install critiqs-svelte", `npx critiqs init ${id}`]],
+      ["angular", ["npm install critiqs-angular", `npx critiqs init ${id}`]],
+      ["astro", ["npm install critiqs-astro", `npx critiqs init ${id}`]],
+      ["solid", ["npm install critiqs-solid", `npx critiqs init ${id}`]],
+      ["rails", ["bundle add critiqs-rails", `npx critiqs init ${id}`]],
+      ["django", ["pip install django-critiqs", `npx critiqs init ${id}`]],
+      ["flask", ["pip install flask-critiqs", `npx critiqs init ${id}`]],
+      // Init finds the framework and names its package.
+      [null, [`npx critiqs init ${id}`]],
+      // No package: the script tag.
+      ["laravel", null],
+      ["wordpress", null],
+    ];
+    for (const [stack, expected] of cases) expect([stack, installCommands(id, stack)]).toEqual([stack, expected]);
+    expect(installCommands("p_0123456789abcdef0123456789abcdef", null)).toEqual(["npx critiqs init p_0123456789abcdef0123456789abcdef"]);
   });
 
   test("the install command refuses anything but a project ID", () => {
     for (const id of ["", "prj_123", "abc; rm -rf ~", "$(whoami)aaaaaaaaaaaaaa", "ABCDEFGHIJKLMNOPQR"]) {
-      expect(() => installCommands(id)).toThrow("Not a Critiqs project ID");
+      expect(() => installCommands(id, "react")).toThrow("Not a Critiqs project ID");
+      expect(() => installCommands(id, "laravel")).toThrow("Not a Critiqs project ID");
     }
   });
 
@@ -740,26 +763,57 @@ describe("sending to a developer", () => {
     const base = { projectName: "Acme prototype", address: "https://acme-proto.vercel.app/", projectId: "k57abc123def456ghi", setupUrl: "https://critiqs.app/setup/k57abc123def456ghi" };
     const cases: [string, Parameters<typeof developerMessage>[0], string][] = [
       [
-        "an installable stack",
+        "a stack with a package",
         { ...base, stack: "next" },
-        "Can you add Critiqs to Acme prototype at acme-proto.vercel.app? It lets us comment right on the prototype.\n\nIt's built with Next.js, so run these in its folder:\nnpm install critiqs-react\nnpx critiqs-react init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
+        "Can you add Critiqs to Acme prototype at acme-proto.vercel.app? It lets us comment right on the prototype.\n\nIt's built with Next.js, so run these in its folder:\nnpm install critiqs-react\nnpx critiqs init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
+      ],
+      [
+        "a stack with a gem",
+        { ...base, stack: "rails" },
+        "Can you add Critiqs to Acme prototype at acme-proto.vercel.app? It lets us comment right on the prototype.\n\nIt's built with Rails, so run these in its folder:\nbundle add critiqs-rails\nnpx critiqs init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
       ],
       [
         "an unknown stack",
         { ...base, address: "https://acme.com/proto/#/start", stack: null },
-        "Can you add Critiqs to Acme prototype at acme.com/proto/#/start? It lets us comment right on the prototype.\n\nIf it's built with React (Vite) or Next.js, run these in its folder:\nnpm install critiqs-react\nnpx critiqs-react init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
+        "Can you add Critiqs to Acme prototype at acme.com/proto/#/start? It lets us comment right on the prototype.\n\nRun this in its folder. It finds the framework (React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Rails, Django, or Flask) and adds Critiqs:\nnpx critiqs init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
       ],
       [
-        "a stack Critiqs can't be installed in yet",
-        { ...base, stack: "nuxt" },
-        "Can you add Critiqs to Acme prototype at acme-proto.vercel.app? It lets us comment right on the prototype.\n\nIt's built with Nuxt, and Critiqs can't be added to Nuxt apps yet.\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
+        "a stack with no package",
+        { ...base, stack: "laravel" },
+        "Can you add Critiqs to Acme prototype at acme-proto.vercel.app? It lets us comment right on the prototype.\n\nIt's built with Laravel, which has no Critiqs package, so add Critiqs with a script tag on every page: https://github.com/noahsjung/critiqs/tree/main/packages/critiqs#with-a-script-tag\nProject ID: k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
       ],
       [
         "no address and no name",
         { ...base, projectName: "  ", address: null, stack: "react" },
-        "Can you add Critiqs to our prototype? It lets us comment right on the prototype.\n\nIt's built with React (Vite), so run these in its folder:\nnpm install critiqs-react\nnpx critiqs-react init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
+        "Can you add Critiqs to our prototype? It lets us comment right on the prototype.\n\nIt's built with React (Vite), so run these in its folder:\nnpm install critiqs-react\nnpx critiqs init k57abc123def456ghi\n\nSetup page: https://critiqs.app/setup/k57abc123def456ghi",
       ],
     ];
     for (const [name, args, expected] of cases) expect([name, developerMessage(args)]).toEqual([name, expected]);
+  });
+});
+
+describe("backendSetting", () => {
+  test("every stack gets the form its package reads, and an unknown stack the address alone", () => {
+    const url = "https://team.example.com";
+    const forms = Object.fromEntries(STACKS.map((stack) => [stack.id, backendSetting(stack.id, url).setting]));
+    expect(forms).toEqual({
+      react: `backend="${url}"`,
+      next: `backend="${url}"`,
+      vue: `backend="${url}"`,
+      nuxt: `critiqs: { backend: "${url}" }`,
+      svelte: `backend="${url}"`,
+      sveltekit: `backend="${url}"`,
+      angular: `backend: "${url}",`,
+      astro: `critiqs({ backend: "${url}" })`,
+      solid: `backend="${url}"`,
+      rails: `<%= critiqs_tag(backend: "${url}") %>`,
+      django: `CRITIQS = {"BACKEND": "${url}"}`,
+      flask: `app.config["CRITIQS_BACKEND"] = "${url}"`,
+      gatsby: `data-backend="${url}"`,
+      laravel: `data-backend="${url}"`,
+      remix: `data-backend="${url}"`,
+      wordpress: `data-backend="${url}"`,
+    });
+    expect(backendSetting(null, url)).toEqual({ where: expect.stringContaining("README"), setting: url });
   });
 });

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FRAMEWORKS } from "../bin/frameworks/index.mjs";
+import { runInit } from "../bin/init.mjs";
 import type { EnvConvention, Plan, Settings } from "../bin/frameworks/types.d.mts";
 
 const django = FRAMEWORKS.find((adapter) => adapter.id === "django")!;
@@ -203,9 +204,41 @@ test("reads the project ID from CRITIQS_PROJECT_ID on each request", () => {
     variable: "CRITIQS_PROJECT_ID",
     expression: 'os.environ.get("CRITIQS_PROJECT_ID")',
     readsAt: "runtime",
-    localFile: null,
+    localFile: "manage.py",
     deploymentAdvice: expect.stringContaining("Set CRITIQS_PROJECT_ID in each deployment's environment"),
   } satisfies EnvConvention);
+});
+
+function init(root: string, projectId: string, shell: Record<string, string> = {}) {
+  const messages: string[] = [];
+  const code = runInit(["init", projectId], { cwd: root, print: (message) => messages.push(message), env: shell });
+  return { code, output: messages.join("\n") };
+}
+
+test("init gives the development server the project: a default in manage.py beside Django's own, which the environment overrides", () => {
+  const root = starter();
+  const first = init(root, PROJECT);
+  expect(first.code).toBe(0);
+  const manage = MANAGE.replace(
+    "    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n",
+    "    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n" +
+      "    # Critiqs project for this app in development; the environment wins. Each deployment sets its own.\n" +
+      `    os.environ.setdefault("CRITIQS_PROJECT_ID", "${PROJECT}")\n`,
+  );
+  expect(read(root, "manage.py")).toBe(manage);
+  expect(first.output).toContain(`Set CRITIQS_PROJECT_ID=${PROJECT} in manage.py for development.`);
+  expect(first.output).not.toContain("in the environment the app runs with");
+  // Code is committed and shared, so there is no .env.example to keep beside it.
+  expect(existsSync(join(root, ".env.example"))).toBe(false);
+
+  // A second run reads the default back and changes nothing.
+  expect(init(root, PROJECT).output).toStartWith(`templates/base.html:9 already uses this project ID (CRITIQS_PROJECT_ID in manage.py).`);
+  expect(read(root, "manage.py")).toBe(manage);
+
+  // Another project replaces the default in place.
+  const other = "k98765432109876543210987654321098";
+  expect(init(root, other).code).toBe(0);
+  expect(read(root, "manage.py")).toBe(manage.replace(PROJECT, other));
 });
 
 test("adds the app to INSTALLED_APPS and the tag to templates/base.html", () => {
@@ -215,8 +248,8 @@ test("adds the app to INSTALLED_APPS and the tag to templates/base.html", () => 
   expect(plan.ok && plan.preview).toBe(
     `${join(root, "mysite/settings.py")}:\n+     'django_critiqs',\n${join(root, "templates/base.html")}:\n+ {% load critiqs %}\n+   {% critiqs %}`,
   );
-  expect(plan.ok && plan.next.join("\n")).toContain("pip install django-critiqs");
-  expect(plan.ok && plan.next.join("\n")).toContain("Set CRITIQS_PROJECT_ID");
+  // Setup itself names installing the package and what deployments set, so the plan names only Django's own step.
+  expect(plan.ok && plan.next).toEqual(["Run python manage.py collectstatic when you deploy, so Critiqs's script (critiqs/element.js) is served."]);
   expect(read(root, "mysite/settings.py")).toBe(
     SETTINGS.replace("    'django.contrib.staticfiles',\n]", "    'django.contrib.staticfiles',\n    'django_critiqs',\n]"),
   );

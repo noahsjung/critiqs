@@ -1,4 +1,4 @@
-import type { Role, TeamSize } from "@critiqs/core";
+import { listOr, PACKAGE_STACK_NAMES, type Role, type TeamSize } from "@critiqs/core";
 
 // Every string the website's app shows. Short, plain, and in the order people
 // read it: one heading, at most one line under it, and buttons that say what
@@ -67,18 +67,21 @@ export const copy = {
     copied: "Copied",
     copyCommand: "Copy command",
     then: (host: string | null) => (host === null ? "Then open your prototype. You'll see Critiqs at the bottom of the page." : `Then open ${host}. You'll see Critiqs at the bottom of the page.`),
-    unknownStack: "Works with React apps built with Vite or Next.js.",
-    notInstallable: (label: string) => `Critiqs works with React apps built with Vite or Next.js today. ${label} support is coming soon.`,
+    unknownStack: `It finds your framework (${listOr(PACKAGE_STACK_NAMES)}) and adds Critiqs.`,
+    scriptTag: (label: string) => `${label} has no Critiqs package, so add Critiqs with a script tag on every page. The guide shows the tag; give it this project ID.`,
+    scriptTagGuide: "How to add the script tag",
+    copyProjectId: "Copy project ID",
+    projectIdCopied: "Project ID copied",
     agent: "Copy for a coding agent",
     agentCopied: "Instructions copied",
-    agentPrompt: (command: string, stackLabel: string | null, backend: string | null) =>
-      `Add Critiqs to this ${stackLabel ?? "React"} app: run \`${command}\` in its folder, and follow the steps it prints.` +
-      (backend === null ? "" : ` Then add \`backend="${backend}"\` to the <Critiqs /> component init added, so it connects to this project's backend instead of Critiqs Cloud.`),
-    /** For a backend other than Critiqs Cloud, which `init <projectId>` doesn't write. `whose` is "your team's" or "our". */
-    customBackend: (whose: string) => `This project is on ${whose} own Critiqs backend, not Critiqs Cloud. Then add this property to the <Critiqs /> component that init adds, so it connects there:`,
-    backendProperty: (backend: string) => `backend="${backend}"`,
-    copyProperty: "Copy property",
-    propertyCopied: "Property copied",
+    /** `backend`: for a backend other than Critiqs Cloud, `backendSetting`'s answer and the backend's address. */
+    agentPrompt: (command: string, stackLabel: string | null, backend: { address: string; where: string; setting: string } | null) =>
+      `Add Critiqs to this ${stackLabel === null ? "" : `${stackLabel} `}app: run \`${command}\` in its folder, and follow the steps it prints.` +
+      (backend === null ? "" : ` Then set Critiqs's backend to ${backend.address}: add \`${backend.setting}\` ${backend.where}, so it connects to this project's backend instead of Critiqs Cloud.`),
+    /** For a backend other than Critiqs Cloud, which `init <projectId>` and the script tag's guide don't set. `whose` is "your team's" or "our"; `where` completes "add this …". */
+    customBackend: (whose: string, where: string) => `This project is on ${whose} own Critiqs backend, not Critiqs Cloud. Add this ${where}, so Critiqs connects there:`,
+    copyProperty: "Copy setting",
+    propertyCopied: "Setting copied",
     switch: "Someone else will add it",
   },
 

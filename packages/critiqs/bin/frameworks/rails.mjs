@@ -8,6 +8,7 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describeProjectId, readText } from "./shared.mjs";
 
+const DEVELOPMENT = "config/environments/development.rb";
 const GEM = "critiqs-rails";
 const LAYOUT = "app/views/layouts/application.html.erb";
 const DEFAULT_VARIABLE = "CRITIQS_PROJECT_ID";
@@ -534,10 +535,13 @@ export const rails = {
   detect: (root) => gemDeclared(readText(join(root, "Gemfile")) ?? "", "rails"),
 
   env(root, suffix) {
-    // Rails loads no .env file itself; dotenv does when the app uses it.
+    // Rails loads no .env file itself; dotenv does when the app uses it. Otherwise
+    // setup writes a default into the development environment's configuration,
+    // which only `rails server` in development runs.
     const gemfile = readText(join(root, "Gemfile")) ?? "";
     const dotenv = gemDeclared(gemfile, "dotenv-rails") || gemDeclared(gemfile, "dotenv");
-    return railsEnv(`${DEFAULT_VARIABLE}${suffix}`, dotenv ? ".env" : null);
+    const development = readText(join(root, DEVELOPMENT)) === null ? null : DEVELOPMENT;
+    return railsEnv(`${DEFAULT_VARIABLE}${suffix}`, dotenv ? ".env" : development);
   },
 
   find: (root) => viewFiles(root).flatMap(usagesIn),
@@ -584,7 +588,6 @@ export const rails = {
       writes.push({ file: gemfilePath, original: gemfile, source: addGem(gemfile) });
       next.push("Run bundle install.");
     }
-    if ("env" in settings.projectId) next.push(railsEnv(settings.projectId.env.variable, null).deploymentAdvice);
 
     const source = readText(target);
     if (source === null) {

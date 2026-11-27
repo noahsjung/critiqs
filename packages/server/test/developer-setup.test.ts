@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { inboxOf as coresInboxOf, type StackId } from "@critiqs/core";
+import { inboxOf as coresInboxOf, SCRIPT_TAG_GUIDE, type StackId } from "@critiqs/core";
 import { developerSetupMessage, hasWebAddress, readReportToken, reportToken, sendStatus, webBase } from "../src/developer-setup.ts";
 import { inboxOf } from "../src/index.ts";
 import { MAX_NAME_SHOWN } from "../src/organizations.ts";
@@ -37,7 +37,7 @@ test("the setup email comes from Critiqs as the inviter, with replies to them", 
     [
       "Sam Lee (sam@acme.com) is setting up Critiqs so your team can comment right on the prototype. They said someone else changes its code, so they asked us to send you the setup steps.",
       "Project: Acme prototype\nBuilt with: Next.js",
-      `Run this in the prototype's folder. It already has the project ID:\n\nnpm install critiqs-react\nnpx critiqs-react init ${PROJECT}`,
+      `Run these in the prototype's folder. They already have the project ID:\n\nnpm install critiqs-react\nnpx critiqs init ${PROJECT}`,
       "Setup steps: https://critiqs.app/setup/e_1\nThe setup page shows the prototype's address once you sign in.",
       "You don't need anyone's approval. Sign in to Critiqs with dev@acme.com to join Acme. Reply to this email to reach Sam Lee.",
       "Didn't expect this? Report it: https://backend.example/developer-emails/report?token=a.b",
@@ -45,16 +45,22 @@ test("the setup email comes from Critiqs as the inviter, with replies to them", 
   );
 });
 
-test("the install commands appear for an installable or unknown stack, and never for one Critiqs can't install in yet", () => {
-  const cases: [StackId | null, string, boolean][] = [
-    ["react", "Run this in the prototype's folder.", true],
-    [null, "If it's a React app built with Vite or Next.js, run this in its folder.", true],
-    ["vue", "Critiqs installs in React apps built with Vite or Next.js today. Vue support is coming. The setup page has the project's details.", false],
+test("every stack with a Critiqs package gets its own commands, an unknown one critiqs init alone, and one without a package the script tag", () => {
+  const cases: [StackId | null, string, string[] | null][] = [
+    ["react", "Run these in the prototype's folder.", ["npm install critiqs-react", `npx critiqs init ${PROJECT}`]],
+    ["vue", "Run these in the prototype's folder.", ["npm install critiqs-vue", `npx critiqs init ${PROJECT}`]],
+    ["rails", "Run these in the prototype's folder.", ["bundle add critiqs-rails", `npx critiqs init ${PROJECT}`]],
+    ["django", "Run these in the prototype's folder.", ["pip install django-critiqs", `npx critiqs init ${PROJECT}`]],
+    [null, "Run this in the prototype's folder. It already has the project ID, finds the framework (React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Rails, Django, or Flask), and adds Critiqs:", [`npx critiqs init ${PROJECT}`]],
+    ["laravel", "Laravel has no Critiqs package, so Critiqs goes in with a script tag on every page.", null],
   ];
   for (const [stack, how, commands] of cases) {
     const email = message({ stack });
-    expect([stack, email.text.includes(how), email.html.includes(how.replace("'", "&#39;"))]).toEqual([stack, true, true]);
-    expect([stack, email.text.includes("npx critiqs-react init"), email.html.includes("npx critiqs-react init")]).toEqual([stack, commands, commands]);
+    expect([stack, email.text.includes(how), email.html.includes(how.replaceAll("'", "&#39;"))]).toEqual([stack, true, true]);
+    expect([stack, email.text.includes(`npx critiqs init ${PROJECT}`), email.html.includes(`npx critiqs init ${PROJECT}`)]).toEqual([stack, commands !== null, commands !== null]);
+    if (commands !== null) expect([stack, email.text.includes(commands.join("\n")), email.html.includes(commands.join("\n"))]).toEqual([stack, true, true]);
+    else expect([stack, email.text.includes(`${SCRIPT_TAG_GUIDE}\nProject ID: ${PROJECT}`), email.html.includes(`href="${SCRIPT_TAG_GUIDE}"`)]).toEqual([stack, true, true]);
+    expect([stack, /coming|can't be added|npx critiqs-react/.test(email.text)]).toEqual([stack, false]);
   }
   expect(message({ stack: null }).text).toContain("Built with: Not confirmed");
 });

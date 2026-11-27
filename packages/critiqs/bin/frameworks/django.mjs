@@ -25,7 +25,9 @@ export const django = {
     variable: `${VARIABLE}${suffix}`,
     expression: `os.environ.get("${VARIABLE}${suffix}")`,
     readsAt: "runtime",
-    localFile: null,
+    // Django loads no .env file. manage.py, which starts the development server
+    // (and not a deployment's WSGI or ASGI server), gets a default beside Django's own.
+    localFile: "manage.py",
     deploymentAdvice:
       `Set ${VARIABLE}${suffix} in each deployment's environment to that deployment's project ID; Django reads it on each request, so restart the server after changing it. ` +
       "Leave it unset where Critiqs shouldn't appear.",
@@ -79,7 +81,7 @@ export const django = {
     ].filter((write) => write.source !== write.original);
     const before = usages[0];
     const after = djangoSettings(readDict(settingsSource, "CRITIQS"));
-    return finishPlan({ writes, file: template.file, line: placed.line, before, after, settings, next: djangoNext(settings) });
+    return finishPlan({ writes, file: template.file, line: placed.line, before, after, settings, next: djangoNext() });
   },
   manual(settings) {
     const config = dictBlock("CRITIQS", desiredEntries(desiredDjango(settings), '"'), '"');
@@ -119,12 +121,10 @@ function djangoSettings(config) {
   };
 }
 
-function djangoNext(settings) {
-  return [
-    "Install django-critiqs in the app's environment (pip install django-critiqs) and add it to your requirements.",
-    ...envAdvice(settings, "Django"),
-    "Run python manage.py collectstatic when you deploy, so Critiqs's script (critiqs/element.js) is served.",
-  ];
+// Setup names installing the package itself, from the app's requirements, and
+// what each deployment sets with the variable, so these are only Django's own.
+function djangoNext() {
+  return ["Run python manage.py collectstatic when you deploy, so Critiqs's script (critiqs/element.js) is served."];
 }
 
 /** The settings module manage.py names, as `{ file, source }`, a `{ problem }`, or null. */

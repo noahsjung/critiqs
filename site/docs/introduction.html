@@ -171,17 +171,17 @@
             <h1 class="heading-3">Introduction</h1>
             <p class="doc-lede title-2">Learn what Critiqs is, who uses it, and how feedback flows from a staging or preview build to developers and coding agents.</p>
           </header>
-<p>Critiqs is a React component (<code>&lt;Critiqs /&gt;</code> from <code>critiqs-react</code>) that you add to your staging, preview, or QA builds. Product managers, designers, QA testers, and clients open your build in a browser, click any element on the page, and leave comments in threads.</p>
+<p>Critiqs is a toolbar and sidebar that you add to your staging, preview, or QA builds, with a package for React and Next.js (<code>critiqs-react</code>), Vue, Nuxt, Svelte, SvelteKit, Angular, Astro, Solid, Ruby on Rails, Django, and Flask, and a script tag for any other site. Product managers, designers, QA testers, and clients open your build in a browser, click any element on the page, and leave comments in threads.</p>
 <p>Every comment keeps a capture of the screen, the page address, the element it points to, and any tab or view state your app reports. Developers and coding agents get the full context without chasing screenshots in chat.</p>
 <h2 id="who-critiqs-is-for">Who Critiqs is for<a class="anchor" href="#who-critiqs-is-for"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <p>Critiqs fits teams where non-engineers and engineers review builds together before release.</p>
 <ul>
 <li><strong>Reviewers:</strong> Product managers, designers, QA testers, stakeholders, and clients. They open the build link in a browser, sign in with a one-time email code, and comment without installing a browser extension or cloning a repository.</li>
-<li><strong>Developers and coding agents:</strong> Engineers read threads directly on the build or export selected threads as Markdown or JSON. Coding agents connect through the Critiqs MCP server (<code>npx critiqs-react mcp</code>) to read threads, inspect captures and mockups, and post replies marked &quot;via coding agent&quot;.</li>
+<li><strong>Developers and coding agents:</strong> Engineers read threads directly on the build or export selected threads as Markdown or JSON. Coding agents connect through the Critiqs MCP server (<code>npx critiqs mcp</code>) to read threads, inspect captures and mockups, and post replies marked &quot;via coding agent&quot;.</li>
 <li><strong>Project owners:</strong> Developers who add <code>&lt;Critiqs /&gt;</code> to the app, manage the project ID and review address, and configure tags, tag groups, and AI settings.</li>
 </ul>
 <h2 id="what-critiqs-adds-to-your-app">What Critiqs adds to your app<a class="anchor" href="#what-critiqs-adds-to-your-app"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
-<p>When <code>&lt;Critiqs /&gt;</code> is active on a build, it mounts inside its own shadow root above your app. Its styles, keyboard shortcuts, and React tree stay isolated from your code.</p>
+<p>When Critiqs is active on a build, it mounts inside its own shadow root above your app. Its styles, keyboard shortcuts, and UI stay isolated from your code.</p>
 <p>The floating toolbar at the bottom of the screen gives reviewers three modes:</p>
 <ul>
 <li><strong>Browse mode:</strong> Use the app as usual. Open the side panel to see the <strong>Project</strong> panel, including open and unread thread counts, recent participants, email notification settings, and the project ID.</li>
@@ -202,7 +202,7 @@
 <p>AI is optional. Commenting, threads, mentions, tags, filters, basic search, and exports work without AI. When enabled, AI powers Mockup mode, plain-language search with cited insights, and automatic tag grouping, using either Critiqs AI credits or your own AI provider key. See <a href="/docs/ai-models-and-credits">AI models and credits</a> and <a href="/docs/your-ai">Your AI</a>.</p>
 <h2 id="next-steps">Next steps<a class="anchor" href="#next-steps"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h2>
 <ul>
-<li>Follow <a href="/docs/install">Install Critiqs</a> to add <code>&lt;Critiqs /&gt;</code> to your React app.</li>
+<li>Follow <a href="/docs/install">Install Critiqs</a> to add Critiqs to your app with <code>npx critiqs init</code>.</li>
 <li>Read <a href="/docs/projects">Projects and project IDs</a> to share one feedback list across staging, preview, and QA builds.</li>
 </ul>
         </article>

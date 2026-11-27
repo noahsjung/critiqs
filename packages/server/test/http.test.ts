@@ -1083,7 +1083,7 @@ test("a project's owner emails its setup steps; the developer opens the setup li
   ]);
   // The developer, signed in with that address, sees the steps; someone else sees nothing, as for a send that doesn't exist.
   const shown = await personBrowser(handler, "sam").api("developerSetup", { sendId });
-  expect(shown.body.value).toMatchObject({ projectId, projectName: "Acme", stack: { id: "react" }, installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`], inviterName: "Dana" });
+  expect(shown.body.value).toMatchObject({ projectId, projectName: "Acme", stack: { id: "react" }, installCommands: ["npm install critiqs-react", `npx critiqs init ${projectId}`], inviterName: "Dana" });
   const lee = personBrowser(handler, "lee");
   expect((await lee.api("developerSetup", { sendId })).status).toBe(404);
   // A copied message links to the project instead: anyone signed in sees it, as with `project`, but only its managers see the saved stack.
@@ -1092,7 +1092,7 @@ test("a project's owner emails its setup steps; the developer opens the setup li
     projectName: "Acme",
     address: "https://acme.example/",
     stack: null,
-    installCommands: ["npm install critiqs-react", `npx critiqs-react init ${projectId}`],
+    installCommands: [`npx critiqs init ${projectId}`],
   });
   expect((await dana.api("projectSetup", { projectId })).body.value).toMatchObject({ stack: { id: "react", label: "React (Vite)", installable: true } });
   expect((await personBrowser(handler, "nobody").api("projectSetup", { projectId })).body.error?.code).toBe("unauthenticated");
