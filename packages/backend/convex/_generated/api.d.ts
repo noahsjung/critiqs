@@ -38,6 +38,7 @@ import type * as organizations from "../organizations.js";
 import type * as planAlerts from "../planAlerts.js";
 import type * as plans from "../plans.js";
 import type * as projects from "../projects.js";
+import type * as reviewBuilds from "../reviewBuilds.js";
 import type * as reviewHttp from "../reviewHttp.js";
 import type * as reviewLinks from "../reviewLinks.js";
 import type * as search from "../search.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   planAlerts: typeof planAlerts;
   plans: typeof plans;
   projects: typeof projects;
+  reviewBuilds: typeof reviewBuilds;
   reviewHttp: typeof reviewHttp;
   reviewLinks: typeof reviewLinks;
   search: typeof search;

@@ -1294,6 +1294,49 @@ page's address, with the prototype's path after `#`), and the account.
 - **Owners** create, copy, open and remove a project's links at
   `/review-links/<project ID>`.
 
+### Shared builds
+
+`critiqs share <folder>` (`packages/critiqs/bin/share.mjs`) shares a static
+build with nothing to deploy: the files go to the deployment's own storage,
+and a review link of kind `share` serves them through the same proxy, lease
+hosts and project review access as a live link. `/critiqs/config` reports
+`reviewLinks.builds` wherever the proxy is set up; a build has no address on
+the web, so it needs no reputation provider.
+
+- **Who.** The project's owners (the people who may create its review links),
+  with the computer's sign-in from `critiqs sign-in`. `--project` names the
+  project; otherwise the one the app's code names, or the person's only one.
+- **What.** A folder with `index.html` at its top. At most 1,000 files and
+  50 MiB, 16 MiB a file (2 MiB a page, 1 MiB a stylesheet), from an
+  allow-list of static web types; the server sets each file's type from its
+  extension. Refused: source maps, hidden files and folders, anything outside
+  the allow-list (scripts for a server or shell, `.env`, keys), names with
+  `..`, backslashes or control characters, names that differ only in case,
+  and symbolic links, which the command line never follows. Both the command
+  line and `reviewBuilds:begin` check every rule
+  (`@critiqs/server/review-builds`).
+- **Upload.** `begin` returns one upload address per distinct file, with a
+  grant only the uploader holds, stored as a hash. `POST /review-build/upload`
+  reads exactly the size the manifest gave, keeps the file only when its
+  SHA-256 matches, and takes each file once. The same files again within 30
+  minutes resume the same upload. `publish` needs every file stored and
+  creates the link. A project serves 5 builds at once; a person starts 10 a day.
+- **Serving.** For a `share` lease the proxy asks
+  `/internal/review/v1/build-file` which file a path is on every request
+  (`buildLookup`: the file, then `<path>.html` or `<path>/index.html`, then
+  `index.html` for a single-page app's routes with `--spa`, then `404.html`),
+  and reads its bytes from `/internal/review/v1/build-blob`, keeping recent
+  ones by SHA-256. It never opens a connection to anything else. Pages get the
+  runtime shim and page layer and nothing else is changed, so a build must not
+  load files from other sites (the frame's policy refuses them).
+- **Saved addresses.** Comments on a build keep
+  `https://<publicId>.build.invalid/<path>`, which never resolves and never
+  contains the link's key or a frame host.
+- **Expiry and deletion.** A build is served for 7 days (`--expires`, 1 to
+  30). `critiqs share delete <id or link>`, Remove on the review-links page,
+  or expiry stop it at once; cleanup then removes its stored files. Its
+  comments stay in the project.
+
 ## Private R2 screenshot storage
 
 **Agreed:** screenshots may live in a private Cloudflare R2 bucket while Convex

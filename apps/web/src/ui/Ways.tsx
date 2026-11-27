@@ -469,3 +469,22 @@ export function listableOrigin(address: string | null): string | null {
     return null;
   }
 }
+/**
+ * "Share a build": the command that uploads the prototype's built output and
+ * prints a review link (`critiqs share`), for a prototype with no address
+ * people can reach. Shown only where the deployment offers shared builds.
+ */
+export function ShareBuildPanel({ projectId }: { projectId: string }) {
+  const { componentBackend } = useBackend();
+  return (
+    <>
+      <h2>{copy.shareBuild.title}</h2>
+      <p className="lead">{copy.shareBuild.lead}</p>
+      <p className="note">{copy.shareBuild.step}</p>
+      <Command commands={[copy.shareBuild.command(projectId, componentBackend)]} />
+      <p className="then">{copy.shareBuild.then}</p>
+      <p className="note">{copy.shareBuild.signIn}</p>
+      <p className="caution">{copy.shareBuild.caution}</p>
+    </>
+  );
+}

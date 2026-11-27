@@ -1,8 +1,9 @@
 /**
  * The `critiqs` command: `init` sets up Critiqs for a prototype in any
  * framework setup knows, `doctor` checks the setup works, `sign-in` lets
- * coding agents on this computer read feedback, and `mcp` offers these steps
- * to coding agents. `npx critiqs-react <command>` runs this too.
+ * coding agents on this computer read feedback, `share` uploads a static
+ * build for review without installing (share.mjs), and `mcp` offers these
+ * steps to coding agents. `npx critiqs-react <command>` runs this too.
  */
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
@@ -10,6 +11,7 @@ import { relative } from "node:path";
 import { beginSignIn, signInStatus, signOutComputer } from "./agent.mjs";
 import { workspaceApps } from "./app.mjs";
 import { runInit } from "./init.mjs";
+import { runShare } from "./share.mjs";
 import { beginSetup, checkProjectName, CLOUD_BACKEND_URL, DOCTOR_NOTE, doctor, doctorReport, isConvexCloudPair, openBrowser, readiness, SetupError } from "./setup.mjs";
 
 export const USAGE = `Usage:
@@ -19,6 +21,7 @@ export const USAGE = `Usage:
   critiqs sign-in              Sign this computer in, so coding agents here can read feedback
   critiqs sign-out             End this computer's sign-in
   critiqs mcp                  Run the MCP server that lets coding agents do the same
+  critiqs share <folder>       Share a static build (such as dist/) as a review link; see critiqs share --help
 
 Init finds the app's framework (React, Next.js, Vue, Nuxt, Svelte, SvelteKit,
 Angular, Astro, Solid, Ruby on Rails, Django, or Flask), adds the Critiqs
@@ -336,6 +339,8 @@ async function runDoctor(options, { cwd, print }) {
  * `env`, `fetchFn`, and `sleep` stand in for the real ones in `sign-in`.
  */
 export async function runCli(argv, { cwd = process.cwd(), print = console.log, env = process.env, fetchFn = fetch, sleep } = {}) {
+  // `share` has its own options and subcommands.
+  if (argv[0] === "share") return await runShare(argv.slice(1), { cwd, print, env, fetchFn });
   const options = parseCommand(argv);
   if ("error" in options) {
     print(`${options.error}\n\n${USAGE}`);

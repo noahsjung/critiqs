@@ -171,7 +171,7 @@
             <h1 class="heading-3">Command line reference</h1>
             <p class="doc-lede title-2">Reference for every critiqs CLI command, flag, environment variable, and exit code.</p>
           </header>
-<p>The <code>critiqs</code> package includes the <code>critiqs</code> command line tool, the same for every framework, for setting up projects, checking configuration, signing your computer in for coding agents, and running the <a href="/docs/mcp">MCP server</a>.</p>
+<p>The <code>critiqs</code> package includes the <code>critiqs</code> command line tool, the same for every framework, for setting up projects, checking configuration, signing your computer in for coding agents, sharing a build for review, and running the <a href="/docs/mcp">MCP server</a>.</p>
 <p>Run it with your package manager (Node.js 20 or later required):</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs &lt;<span class="hljs-built_in">command</span>&gt; [options]
 <span class="hljs-comment"># Also works with: pnpm exec critiqs, yarn critiqs, bunx critiqs</span></code></pre></div>
@@ -381,6 +381,45 @@
 </tr>
 </tbody></table>
 </div>
+<h3 id="critiqs-share"><code>critiqs share</code><a class="anchor" href="#critiqs-share"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
+<p>Uploads a built prototype (the output folder, such as <code>dist/</code>, never the source) and prints a review link that people open in their browser with nothing installed. Only the project&#39;s owners can share, from a computer signed in with <code>critiqs sign-in</code>. Source maps, hidden files and anything that isn&#39;t a static web file are refused.</p>
+<div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs share &lt;folder&gt; [--project &lt;<span class="hljs-built_in">id</span>&gt;] [--expires &lt;days&gt;]
+npx critiqs share list
+npx critiqs share delete &lt;<span class="hljs-built_in">id</span>|<span class="hljs-built_in">link</span>&gt;</code></pre></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--project &lt;id&gt;</code></td>
+<td>The project to share for. By default, the one the app&#39;s code names, or your only project.</td>
+</tr>
+<tr>
+<td><code>--dir &lt;path&gt;</code></td>
+<td>The app whose code names the project (default: the current folder).</td>
+</tr>
+<tr>
+<td><code>--backend &lt;url&gt;</code></td>
+<td>A Critiqs backend other than Critiqs Cloud.</td>
+</tr>
+<tr>
+<td><code>--spa</code>, <code>--no-spa</code></td>
+<td>Serve <code>index.html</code> for addresses without a file extension. On by default when <code>index.html</code> is the build&#39;s only page.</td>
+</tr>
+<tr>
+<td><code>--expires &lt;days&gt;</code></td>
+<td>How long the link lasts: 1 to 30 days (default 7).</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Print the result as JSON.</td>
+</tr>
+</tbody></table>
+</div>
+<p><code>share list</code> shows the project&#39;s shared builds and their links; <code>share delete</code> stops one at once and removes its files. Whoever opens the link can read every file in the folder. Review links are offered only where the backend serves them.</p>
 <h3 id="critiqs-mcp"><code>critiqs mcp</code><a class="anchor" href="#critiqs-mcp"><span class="visually-hidden">Link to this section</span><span aria-hidden="true">#</span></a></h3>
 <p>Starts the stdio MCP server for coding agents. See <a href="/docs/mcp">Connect a coding agent with MCP</a> for client configuration and the full tool list.</p>
 <div class="code-block"><div class="code-head"><span class="code-lang caption-4">sh</span><button class="code-copy caption-3" type="button"><svg class="icon i-copy" aria-hidden="true"><use href="/icons.svg#copy"></use></svg><svg class="icon i-check" aria-hidden="true"><use href="/icons.svg#check"></use></svg><span class="copy-label">Copy</span></button></div><pre><code class="hljs language-sh">npx critiqs mcp</code></pre></div>
@@ -404,6 +443,7 @@
             <li class="toc-h3"><a href="#critiqs-doctor">critiqs doctor</a></li>
             <li class="toc-h3"><a href="#critiqs-sign-in">critiqs sign-in</a></li>
             <li class="toc-h3"><a href="#critiqs-sign-out">critiqs sign-out</a></li>
+            <li class="toc-h3"><a href="#critiqs-share">critiqs share</a></li>
             <li class="toc-h3"><a href="#critiqs-mcp">critiqs mcp</a></li>
             <li class="toc-h3"><a href="#help">Help</a></li>
           </ul>

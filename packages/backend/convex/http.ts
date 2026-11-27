@@ -43,7 +43,8 @@ import { deployment } from "./lib/ai";
 import { billingConfig, billingHealth, verifyWebhook } from "./lib/billing";
 import { emailConfigured } from "./lib/email";
 import { syncOrganization } from "./billing";
-import { resolve as resolveReviewHost, usage as reportReviewUsage } from "./reviewHttp";
+import { upload as uploadBuildFile } from "./reviewBuilds";
+import { buildBlob, buildFile, resolve as resolveReviewHost, usage as reportReviewUsage } from "./reviewHttp";
 import { reviewLinksCapability } from "./reviewLinks";
 
 /** Which AI this deployment offers, without any key or address. */
@@ -67,6 +68,10 @@ for (const path of ["/capture", "/capture/upload", "/mockup/snapshot", "/mockup/
 // Review links: routes only the review proxy calls, with its shared secret (reviewHttp.ts).
 http.route({ path: "/internal/review/v1/resolve", method: "POST", handler: resolveReviewHost });
 http.route({ path: "/internal/review/v1/usage", method: "POST", handler: reportReviewUsage });
+http.route({ path: "/internal/review/v1/build-file", method: "POST", handler: buildFile });
+http.route({ path: "/internal/review/v1/build-blob", method: "POST", handler: buildBlob });
+// Shared builds: `critiqs share` uploads each file here with the grant `reviewBuilds:begin` gave (reviewBuilds.ts).
+http.route({ path: "/review-build/upload", method: "POST", handler: uploadBuildFile });
 
 // ---------------------------------------------------------------------------
 // Deployment configuration
@@ -132,7 +137,8 @@ http.route({
       // a panel asks the sign-in service's own `/critiqs/config` before offering it.
       // `reviewLinks`: review links through this deployment's review proxy (`reviewLinks:createLive`, `list`, `copy`,
       // `revoke`, `open`, `renew`, `adopt`, `recordOpened`), absent without one. `live`: links to a prototype's address
-      // can be served (a reputation provider is set up); `builds`: shared builds; `allowCritiqs`: published egress.
+      // can be served (a reputation provider is set up); `builds`: shared builds (`reviewBuilds:begin`, `publish`, `list`,
+      // `remove`, and `critiqs share`); `allowCritiqs`: published egress.
       {
         signInUrl: signInUrl(),
         protocol: 5,

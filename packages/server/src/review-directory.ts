@@ -7,6 +7,9 @@ import {
   type ReviewResolution,
   type ReviewUsageReport,
 } from "./review-links.ts";
+import { BUILD_LIMITS, BUILD_TYPES, type BuildFileAnswer, sha256Hex } from "./review-builds.ts";
+
+export type { BuildFileAnswer };
 
 // The review proxy's view of review links: what a frame host stands for, and
 // where its traffic is reported. The proxy depends only on `ReviewDirectory`;
@@ -29,6 +32,28 @@ export interface ReviewDirectory {
   resolve(label: string, signal?: AbortSignal): Promise<ReviewResolution | null>;
   /** Reports traffic per link; returns the links now paused, whose hosts serve nothing until the next day. */
   report(usage: readonly ReviewUsageReport[], signal?: AbortSignal): Promise<{ paused: readonly string[] }>;
+  /**
+   * For a shared build's frame host: the file a request's path is, with the
+   * status to serve it with (`buildLookup`), or null when the host serves
+   * nothing now or no file matches. Asked on every request, so a build that
+   * is deleted or expires stops at once.
+   */
+  buildFile(label: string, path: string, signal?: AbortSignal): Promise<BuildFileAnswer | null>;
+  /** A shared build's file's bytes, by its SHA-256, while the host still serves that build and it holds that file; null otherwise. */
+  buildBlob(label: string, sha256: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer> | null>;
+}
+
+const SERVED_TYPES = new Set(Object.values(BUILD_TYPES));
+
+/** A build file answer from the backend, or null for anything else. */
+export function parseBuildFileAnswer(raw: unknown): BuildFileAnswer | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const { status, sha256, size, contentType } = raw as Record<string, unknown>;
+  if (status !== 200 && status !== 404) return null;
+  if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || size > BUILD_LIMITS.fileBytes) return null;
+  if (typeof contentType !== "string" || !SERVED_TYPES.has(contentType)) return null;
+  return { status, sha256, size, contentType };
 }
 
 export interface ConvexDirectoryOptions {
@@ -131,6 +156,43 @@ export function convexDirectory(options: ConvexDirectoryOptions): ReviewDirector
         signal.addEventListener("abort", stop, { once: true });
         void answer.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
       });
+    },
+
+    async buildFile(label, path, signal) {
+      if (!FRAME_LABEL.test(label) || !path.startsWith("/") || path.length > 4_096) return null;
+      const response = await post("/internal/review/v1/build-file", { hostHash: await frameHostHash(label), path }, signal);
+      if (response === null || !response.ok) return null;
+      return parseBuildFileAnswer(await response.json().catch(() => null));
+    },
+
+    async buildBlob(label, sha256, signal) {
+      if (!FRAME_LABEL.test(label) || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+      const response = await post("/internal/review/v1/build-blob", { hostHash: await frameHostHash(label), sha256 }, signal);
+      if (response === null || !response.ok || response.body === null) return null;
+      const length = Number(response.headers.get("content-length") ?? "0");
+      if (!Number.isFinite(length) || length > BUILD_LIMITS.fileBytes) return null;
+      // Read within the largest file a build holds, then check it is the file asked for.
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        const step = await reader.read().catch(() => null);
+        if (step === null) return null;
+        if (step.done) break;
+        size += step.value.byteLength;
+        if (size > BUILD_LIMITS.fileBytes) {
+          await reader.cancel().catch(() => undefined);
+          return null;
+        }
+        chunks.push(step.value);
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return (await sha256Hex(bytes)) === sha256 ? bytes : null;
     },
 
     async report(usage, signal) {

@@ -1020,6 +1020,15 @@ function connectedProject(root, wiring, shell) {
   return { projectId: found.value, backendUrl, env: { name: wiring.env.variable, file: found.file } };
 }
 
+/** The project (and backend) the app in `root` already names, as setup and doctor read it; null when it names none or can't be read. */
+export function projectInCode(root, { env = process.env } = {}) {
+  try {
+    return connectedProject(root, chooseWiring(root, { cwd: root }), env);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Sets up Critiqs for the prototype in `root`, in two halves so a coding agent
  * can hand the sign-in to a person between them:

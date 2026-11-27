@@ -56,3 +56,29 @@ export const usage = httpAction(async (ctx, request) => {
   const result = await ctx.runMutation(internal.reviewLinks.recordUsage, { reports });
   return Response.json(result, { headers: { "Cache-Control": "no-store" } });
 });
+
+/** `POST /internal/review/v1/build-file` `{ hostHash, path }` → `BuildFileAnswer`, or 404: a shared build's file for a frame's path, checked now. */
+export const buildFile = httpAction(async (ctx, request) => {
+  const body = (await proxyBody(request)) as { hostHash?: unknown; path?: unknown } | null;
+  if (body === null || typeof body !== "object" || typeof body.hostHash !== "string" || !HOST_HASH.test(body.hostHash)) return notFound();
+  if (typeof body.path !== "string" || !body.path.startsWith("/") || body.path.length > 4_096) return notFound();
+  const answer = await ctx.runQuery(internal.reviewBuilds.fileForHost, { hostHash: body.hostHash, path: body.path, now: Date.now() });
+  if (answer === null) return notFound();
+  return Response.json(answer, { headers: { "Cache-Control": "no-store" } });
+});
+
+/**
+ * `POST /internal/review/v1/build-blob` `{ hostHash, sha256 }` → the file's
+ * bytes, or 404. Checked before storage is read and again after, so a build
+ * deleted meanwhile sends nothing.
+ */
+export const buildBlob = httpAction(async (ctx, request) => {
+  const body = (await proxyBody(request)) as { hostHash?: unknown; sha256?: unknown } | null;
+  if (body === null || typeof body !== "object" || typeof body.hostHash !== "string" || !HOST_HASH.test(body.hostHash)) return notFound();
+  if (typeof body.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(body.sha256)) return notFound();
+  const args = { hostHash: body.hostHash, sha256: body.sha256 };
+  const storageId = await ctx.runQuery(internal.reviewBuilds.blobForHost, { ...args, now: Date.now() });
+  const blob = storageId === null ? null : await ctx.storage.get(storageId);
+  if (blob === null || (await ctx.runQuery(internal.reviewBuilds.blobForHost, { ...args, now: Date.now() })) !== storageId) return notFound();
+  return new Response(blob, { headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+});

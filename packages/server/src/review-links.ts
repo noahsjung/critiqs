@@ -1,6 +1,7 @@
 import { canonicalHost, hostOf, isHostWithin, isLocalAddress, MAX_REVIEW_URL_LENGTH, parseProjectAddress, siteOf } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { isPublicAddress } from "./public-web.ts";
+import { isBuildOrigin } from "./review-builds.ts";
 
 // Review links: the rules the backend, the review proxy, and the website
 // agree on. A review link is a durable, unguessable key on the Critiqs
@@ -299,13 +300,19 @@ export async function webRiskVerdict(
 // ---------------------------------------------------------------------------
 // What the backend tells the proxy (`/internal/review/v1/*`)
 
-/** What a frame host stands for, while every check still passes. */
+/**
+ * What a frame host stands for, while every check still passes. A `site`
+ * link's frames show a live prototype, fetched from its origin; a `share`
+ * link's show a shared build, read from the deployment's storage and never
+ * from anywhere else, whose origin is the build's `.build.invalid` name and
+ * which has no other origins and no Allow Critiqs tokens.
+ */
 export interface ReviewResolution {
   v: 1;
-  kind: "site";
+  kind: "site" | "share";
   linkId: string;
   leaseId: string;
-  /** The prototype's origin, served at the root of the frame host. */
+  /** The prototype's origin, served at the root of the frame host; for a shared build, `https://<publicId>.build.invalid`. */
   origin: string;
   /** Owner-approved origins the pages may read from, by slot (`/__critiqs/o/<slot>/…`). */
   assetOrigins: { slot: number; origin: string }[];
@@ -345,8 +352,11 @@ const count = (value: unknown): value is number => typeof value === "number" && 
 export function parseReviewResolution(raw: unknown): ReviewResolution | null {
   if (raw === null || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
-  if (value.v !== 1 || value.kind !== "site") return null;
+  if (value.v !== 1 || (value.kind !== "site" && value.kind !== "share")) return null;
   if (typeof value.linkId !== "string" || typeof value.leaseId !== "string" || !isOrigin(value.origin)) return null;
+  // A shared build is only ever its own `.build.invalid` name, with nothing else to read from and no tokens to send.
+  if (value.kind === "share" && (!isBuildOrigin(value.origin) || !Array.isArray(value.assetOrigins) || value.assetOrigins.length > 0 || (Array.isArray(value.allow) && value.allow.length > 0))) return null;
+  if (value.kind === "site" && isBuildOrigin(value.origin)) return null;
   if (!count(value.expiresAt) || !count(value.cacheUntil) || value.cacheUntil > value.expiresAt) return null;
   if (!Array.isArray(value.assetOrigins) || value.assetOrigins.length > REVIEW_LINK_LIMITS.assetOrigins) return null;
   const assetOrigins: ReviewResolution["assetOrigins"] = [];
@@ -369,7 +379,7 @@ export function parseReviewResolution(raw: unknown): ReviewResolution | null {
   }
   return {
     v: 1,
-    kind: "site",
+    kind: value.kind,
     linkId: value.linkId,
     leaseId: value.leaseId,
     origin: value.origin,
@@ -407,14 +417,19 @@ export type ReviewOpen =
   | { kind: "unavailable" }
   | { kind: "pending" }
   | { kind: "limited" }
+  /** A shared build that ran out, said only to someone it was open to; a deleted build, or one closed to the viewer, is `unavailable`. */
+  | { kind: "expired"; expiredAt: number }
   | {
       kind: "ready";
       entry: ReviewEntry;
       /** Null until the viewer has signed in. */
       projectId: string | null;
       projectName: string | null;
-      source: { kind: "site"; origin: string };
+      source: ReviewSource;
     };
+
+/** What a review link shows: a live prototype at its origin, or a shared build until it expires. */
+export type ReviewSource = { kind: "site"; origin: string } | { kind: "share"; origin: string; expiresAt: number };
 
 export type ReviewRenewal = { kind: "renewed"; expiresAt: number } | { kind: "ended" };
 export type ReviewAdoption = { kind: "adopted"; projectId: string; projectName: string } | { kind: "ended" };
@@ -424,7 +439,7 @@ export type ReviewLinkStatus = "checking" | "active" | "blocked" | "revoked";
 /** A link as its project's owners see it. Never its key: `reviewLinks:copy` derives that on request. */
 export interface ReviewLinkSummary {
   linkId: string;
-  kind: "site";
+  kind: "site" | "share";
   origin: string;
   startPath: string;
   assetOrigins: string[];
@@ -434,6 +449,8 @@ export interface ReviewLinkSummary {
   createdAt: number;
   createdByName: string;
   usageToday: { requests: number; bytes: number };
+  /** A shared build's files, size and expiry; null for a live link. */
+  build: { buildId: string; fileCount: number; bytes: number; expiresAt: number } | null;
 }
 
 /** The capability `/critiqs/config` reports, absent when the deployment has no review proxy. */

@@ -788,7 +788,7 @@ export async function signOutComputer({ backendUrl, env = process.env, fetchFn =
 // ---------------------------------------------------------------------------
 // Reading feedback
 
-async function connect({ backendUrl, env, fetchFn, now }) {
+export async function connect({ backendUrl, env, fetchFn, now }) {
   const backend = await backendFor(backendUrl, fetchFn);
   // Screenshots and page copies come from the site address, which the sign-in must have been approved for too.
   requireSecureTokenTarget(backend.backendUrl);

@@ -370,5 +370,7 @@ export const APP_STYLES = `
   .review.narrow .review-source strong { overflow-wrap: break-word; line-height: 18px; }
   .review.narrow .review-source span { max-width: 100%; white-space: nowrap; font-size: 12px; line-height: 16px; }
   .review.narrow .review-account { max-width: 120px; }
+  /* A shared build's label carries its end date: on a phone it wraps rather than losing it. */
+  .review.narrow .review-source.shared { flex-wrap: wrap; white-space: normal; row-gap: 0; line-height: 18px; }
 }
 `;

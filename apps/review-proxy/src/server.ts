@@ -1,4 +1,5 @@
 import { canonicalHost, classifyAddress, REVIEW_FILE_TIMING, REVIEW_LIMITED_TIMING, REVIEW_REFUSED_TIMING, type ReviewFailure } from "@critiqs/core";
+import { type BuildFile, type BuildSource, buildSource } from "./build-source.ts";
 import { clientKey } from "./clients.ts";
 import type { ProxyConfig } from "./config.ts";
 import { rewriteCss } from "./css.ts";
@@ -6,7 +7,7 @@ import { BodyError, boundedChunks, readDecoded } from "./decompress.ts";
 import { FRAME_LABEL, type ReviewDirectory, type ReviewResolution, type ReviewUsageReport } from "./directory.ts";
 import type { Egress, EgressOutcome } from "./egress.ts";
 import { type ContentType, charsetOf, contentType, contentTypeHeader, frameworkHeaders, inboundHeaders, isPrefetch, type RequestClass, requestHeaderBytes } from "./headers.ts";
-import { decodeHtml, rewriteHtml } from "./html.ts";
+import { decodeHtml, injectPageLayer, rewriteHtml } from "./html.ts";
 import { budget, type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
 import { failurePage, frameCsp, inertCsp, leavePage, topLevelPage } from "./pages.ts";
 import { framePath } from "./paths.ts";
@@ -28,7 +29,10 @@ import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from 
 // through an egress (egress.ts) within the body limits. How a response is
 // served is decided by `handlingOf`, from the route and the response's type
 // as a browser reads it, never from what the client says a request is for:
-// the only documents a frame host serves are the proxy's own pages.
+// the only documents a frame host serves are the proxy's own pages. A shared
+// build's frame host (a `share` lease) goes through every one of those checks
+// too, up to its read slot, then reads its files from the backend
+// (build-source.ts) and never from the network, served by the same rules.
 
 /** The two scripts put in every page, built by `scripts/build-assets.ts`. */
 export interface ProxyAssets {
@@ -41,6 +45,8 @@ export interface ProxyDeps {
   /** `primary` sends the review user agent (a link's own and owner-approved origins); `asset` the non-privileged one (third-party files). */
   egress: { primary: Egress; asset: Egress };
   assets: ProxyAssets;
+  /** Where a shared build's files come from; by default the directory's backend. */
+  builds?: BuildSource;
   now?: () => number;
 }
 
@@ -116,14 +122,23 @@ function destination(request: Request): string {
  */
 type Handling = { kind: "page" } | { kind: "style"; imports: "style" | "import" | null } | { kind: "pass"; cap: number } | { kind: "refuse"; status: number };
 
+/**
+ * A shared build's file: the backend typed it from its extension, and it is
+ * served as it was uploaded. Its pages get the page layer and nothing else;
+ * a stylesheet is never rewritten, so nothing it names is fetched by the
+ * proxy; anything else passes through as a file that can't be a document.
+ */
+type BuildRoute = { kind: "build" };
+
 /** What the browser says a page's own file is for: these count against the files' budget, not the pages'. */
 const FILE_HINTS: ReadonlySet<RequestClass> = new Set(["image", "font", "style", "script", "media"]);
 
-function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }>, hint: RequestClass, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
+function handlingOf(route: Extract<ProxyRoute, { kind: "primary" | "slot" | "asset" }> | BuildRoute, hint: RequestClass, status: number, parsed: ContentType | null, limits: ProxyConfig["limits"]): Handling {
   const ok = status >= 200 && status < 300;
   const type = parsed?.essence ?? "";
+  // A request that said it was for a file got a page: served as a file that can't be a document, never rewritten, so the files' budget can't open pages.
+  if (route.kind === "build") return HTML_TYPES.has(type) && !FILE_HINTS.has(hint) ? { kind: "page" } : { kind: "pass", cap: limits.assetBytes };
   if (route.kind === "primary") {
-    // A request that said it was for a file got a page: served as a file that can't be a document, never rewritten, so the files' budget can't open pages.
     if (HTML_TYPES.has(type)) return FILE_HINTS.has(hint) ? { kind: "pass", cap: limits.assetBytes } : { kind: "page" };
     if (type === "text/css" && ok) return { kind: "style", imports: "style" };
     return { kind: "pass", cap: limits.assetBytes };
@@ -180,6 +195,7 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   let slowReads = 0;
   const slowPerLease = new Map<string, number>();
   const usage = new Map<string, { requests: number; bytes: number }>();
+  const builds = deps.builds ?? buildSource(deps.directory);
 
   /** Headers every response carries; anything that isn't one of the proxy's documents is inert and may be framed only by the website. */
   const common = (headers: Headers) => {
@@ -407,6 +423,32 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   }
 
   /**
+   * A shared build's file, once its request has passed every check a live
+   * prototype's request passes and holds its read slot: the backend's answer
+   * for this path now, read from the backend, never the network. A page is
+   * served like a live page (the page layer injected, nothing else changed);
+   * anything else gets `passHeaders`, so no file in a build, whatever its
+   * extension or type, can be a document in the frame.
+   */
+  async function serveBuild(lease: ReviewResolution, file: BuildFile, hint: RequestClass, head: boolean): Promise<Response> {
+    count(lease, file.body.byteLength);
+    const type = contentType(file.contentType);
+    const handling = handlingOf({ kind: "build" }, hint, file.status, type, limits);
+    if (handling.kind === "page") {
+      const text = decodeHtml(file.body, charsetOf(file.contentType));
+      if (text === null) return failure("unsupported", head);
+      const html = injectPageLayer(text, lease.origin, { runtime: deps.assets.runtime.file, layer: deps.assets.layer.file, panelOrigins: config.webOrigins, finalPath: null });
+      return document(file.status, html, head);
+    }
+    if (handling.kind !== "pass" || file.body.byteLength > handling.cap) return refusedFile(502);
+    const headers = passHeaders({}, type);
+    headers.set("content-length", String(file.body.byteLength));
+    headers.set("cache-control", "private, no-store");
+    headers.set("etag", `"${file.sha256}"`);
+    return new Response(head ? null : file.body, { status: file.status, headers });
+  }
+
+  /**
    * A read slot from every pool a request counts against, all or none:
    * waited for in line, briefly, when one has no room (`slotLine`). The
    * shares stay what they were: a lease 8, a link and an upstream host 24, the
@@ -530,6 +572,8 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       });
     }
     const head = request.method === "HEAD";
+    // A shared build has only its own files: no other origin, signed asset, or leave notice.
+    if (lease.kind === "share" && route.kind !== "primary") return notFound();
     if (route.kind === "leave") return document(200, leavePage(route.to, false, config.webOrigins), head);
 
     // What the browser says the request is for, as a hint only (see `hintOf`).
@@ -563,6 +607,11 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
     const method = head ? "HEAD" : "GET";
     let streaming = false;
     try {
+      if (lease.kind === "share") {
+        const file = await builds.file(label, url.pathname, signal).catch(() => null);
+        if (file === null) return asPage ? failure("not-found", head) : plain(404, "");
+        return await serveBuild(lease, file, hint, head);
+      }
       const egress = route.kind === "asset" ? deps.egress.asset : deps.egress.primary;
       // The prototype's own data requests may carry its framework's headers, each checked by name and shape.
       const framework = route.kind === "primary" && hint === "data" ? frameworkHeaders(request.headers) : {};
