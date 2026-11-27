@@ -70,7 +70,7 @@
     },
     "packages/angular": {
       "name": "critiqs-angular",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "critiqs": "0.3.0",
       },
@@ -93,7 +93,7 @@
     },
     "packages/astro": {
       "name": "critiqs-astro",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "critiqs": "0.3.0",
       },
@@ -137,7 +137,7 @@
     },
     "packages/critiqs": {
       "name": "critiqs",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "bin": {
         "critiqs": "./bin/critiqs.mjs",
       },
@@ -159,7 +159,7 @@
     },
     "packages/django": {
       "name": "critiqs-django",
-      "version": "0.3.0",
+      "version": "0.4.0",
     },
     "packages/extension": {
       "name": "@critiqs/extension",
@@ -179,11 +179,11 @@
     },
     "packages/flask": {
       "name": "critiqs-flask",
-      "version": "0.3.0",
+      "version": "0.4.0",
     },
     "packages/nuxt": {
       "name": "critiqs-nuxt",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@nuxt/kit": "^4.0.0",
         "critiqs": "0.3.0",
@@ -199,11 +199,11 @@
     },
     "packages/rails": {
       "name": "critiqs-rails",
-      "version": "0.3.0",
+      "version": "0.4.0",
     },
     "packages/react": {
       "name": "critiqs-react",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "bin": {
         "critiqs": "./bin/critiqs.mjs",
       },
@@ -249,7 +249,7 @@
     },
     "packages/solid": {
       "name": "critiqs-solid",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "critiqs": "0.3.0",
       },
@@ -272,7 +272,7 @@
     },
     "packages/svelte": {
       "name": "critiqs-svelte",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "critiqs": "0.3.0",
       },
@@ -296,7 +296,7 @@
     },
     "packages/vue": {
       "name": "critiqs-vue",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "critiqs": "0.3.0",
       },

@@ -1,5 +1,0 @@
----
-"critiqs-react": minor
----
-
-Backends gain three additions for the browser extension, and for any setup flow that creates projects. Adding or removing one address (`projects:addAddress`, `projects:removeAddress` on Convex; `addProjectAddress`, `removeProjectAddress` on the self-hosted server) changes a project's address list in one step, so two people adding at once both keep their address; owners only, with the same checks and 20-address cap as the whole list. `projects:manageable` (`manageableProjects`) lists the projects whose address lists the signed-in person may change: every project in organizations they're an admin of, and the projects they created while a member. `projects:create` (`createProject`) takes an optional `idempotencyKey`: a retry with the same key by the same person within a day returns the same project instead of making another, and creates without a key work as before. Backends report these with `addressEdits` and `createKeys` at `/critiqs/config`; the protocol stays 5 and older components keep working unchanged. Deploy the matching backend; the self-hosted server's database moves to schema version 13 when it starts.

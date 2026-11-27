@@ -1,5 +1,0 @@
----
-"critiqs-react": minor
----
-
-A project's owners can now choose **Who can review** it in Project setup: **Anyone who signs in** (the default, and every existing project's setting, so a shared link keeps working) or **Organization members**. Limited to its organization, a project refuses everyone else on every operation, including threads, search, export, captures and page copies, mockups and Critiqs AI, participants, comments, and replies, and on any thread, message, page copy, or capture named by its own ID. People outside the organization aren't suggested for mentions or emailed about it. Invited people join when they sign in. Projects report the setting as `reviewAccess`, and backends report `reviewAccess` in their configuration. Older components never show the row. Deleting a thread is now limited to its author and the project's owners; anyone who can review can still resolve and reopen it. Deploy the matching backend for the setting. The self-hosted SQLite store adds the column on start.
