@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chmod, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { check, isNoteName, prBody, releasePackages, version } from "./release.ts";
+import { check, isNoteName, prBody, releasePackages, version, workingTree } from "./release.ts";
 
 setDefaultTimeout(60_000);
 const root = new URL("../", import.meta.url).pathname;
@@ -211,6 +211,9 @@ describe("pull request gate", () => {
     ["a note naming the shared package", { "packages/critiqs/src/index.ts": "export const m = 2;\n", ".changeset/f.md": note({ critiqs: "minor" }, "Add m.") }, true, /f\.md: critiqs minor/],
     ["a note naming the gem", { "packages/rails/lib/critiqs.rb": "module Critiqs; VERSION = 1; end\n", ".changeset/f.md": note({ "critiqs-rails": "patch" }, "Fix.") }, true, /critiqs-rails patch/],
     ["a note naming several packages", { ".changeset/f.md": note({ "critiqs-django": "minor", critiqs: "minor" }, "Add.") }, true, /critiqs-django minor\n.*critiqs minor/],
+    ["a no-release note for a package's consumer check", { "packages/react/scripts/check-consumer.ts": "// pinned\n", ".changeset/t.md": "---\n---\n\nConsumer check only.\n" }, true, /no release/],
+    ["a forged skip for a package's build script", { "packages/react/scripts/build.ts": "// changed\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /packages\/react\/scripts\/build\.ts/],
+    ["a forged skip for source in a folder named scripts", { "packages/core/src/scripts/check-x.ts": "export {};\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /packages\/core\/src\/scripts\/check-x\.ts/],
     ["a no-release note for gem and Python tests", { "packages/rails/test/critiqs_test.rb": "# more\n", "packages/django/tests/test_tags.py": "# more\n", ".changeset/t.md": "---\n---\n\nTests only.\n" }, true, /no release/],
     ["a forged skip for shipped code in a bundled workspace", { "packages/core/src/index.ts": "export const b = 2;\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /ship in Critiqs packages/],
     ["a forged skip for shipped Python code", { "packages/django/django_critiqs/__init__.py": "x = 1\n", ".changeset/f.md": "---\n---\n\nNothing to see.\n" }, false, /packages\/django\/django_critiqs\/__init__\.py/],
@@ -337,6 +340,22 @@ describe("note file names the Changesets CLI skips", () => {
     expect(await version(repo.dir)).toBeNull();
     expect(await sh(repo.dir, "git", "status", "--porcelain")).toBe("");
   });
+});
+
+test("no released package publishes the check scripts the gate counts as tests", async () => {
+  const published: string[] = [];
+  for (const pkg of await releasePackages(workingTree(root))) {
+    if (pkg.registry === "npm") published.push(...pkg.manifest.files!.map((entry) => `${pkg.name}: ${entry}`));
+    else {
+      // The gem's spec.files and the Python sdist's include list.
+      const source = await Bun.file(join(root, pkg.dir, pkg.registry === "rubygems" ? `${pkg.name}.gemspec` : "pyproject.toml")).text();
+      const lists = [...source.matchAll(/^\s*(?:spec\.files = Dir|include = )\[([^\]]*)\]/gm)].map((match) => match[1]!);
+      expect(lists.length, pkg.name).toBeGreaterThan(0);
+      published.push(...lists.flatMap((list) => list.split(",").map((entry) => `${pkg.name}: ${entry.trim().replaceAll('"', "")}`)));
+    }
+  }
+  expect(published.length).toBeGreaterThan(20);
+  expect(published.filter((entry) => /: \/?(scripts|\*)/.test(entry))).toEqual([]);
 });
 
 describe("unusual paths", () => {

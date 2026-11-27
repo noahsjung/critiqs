@@ -19,7 +19,9 @@ const astro = FRAMEWORKS.find((adapter) => adapter.id === "astro")!;
 
 const dir = await scratch("astro");
 process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
-await run(["npm", "create", "--yes", "astro@latest", "--", "site", "--template", "minimal", "--no-install", "--no-git", "--skip-houston", "--yes"], dir);
+// create-astro and its template at fixed versions, as the other checks pin
+// their starters: unpinned, both follow each day's newest release.
+await run(["npm", "create", "--yes", "astro@5.3.2", "--", "site", "--template", "minimal", "--ref", "astro@7.4.13", "--no-install", "--no-git", "--skip-houston", "--yes"], dir);
 const app = join(dir, "site");
 
 const manifest = await Bun.file(join(app, "package.json")).json();
