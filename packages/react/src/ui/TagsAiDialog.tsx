@@ -5,6 +5,7 @@ import { type ConnectionDraft, connectionDraftOf, connectionInput, credits, mana
 import { Dialog, Menu, MenuItem, useMenu } from "./common.tsx";
 import { DialogHeader, NavRow, Select, SettingRow, Switch, usePageFocus } from "./ds.tsx";
 import { tagDisplay } from "./MentionInput.tsx";
+import { TicketsTab } from "./TicketSettings.tsx";
 
 const GROUPING: Record<TagGrouping, string> = {
   pending: "Waiting for automatic grouping",
@@ -16,8 +17,8 @@ const GROUPING: Record<TagGrouping, string> = {
 
 /**
  * The project owner's settings for tags and AI: the preset tags `#` suggests
- * first, shared tag groups, which everyone's filters use, and the project's
- * AI connection.
+ * first, shared tag groups, which everyone's filters use, the project's AI
+ * connection, and, where the backend offers them, its ticket settings.
  */
 export function TagsAiDialog({
   projectId,
@@ -26,17 +27,26 @@ export function TagsAiDialog({
   notify,
   modelLists = false,
   presetTags = false,
+  tickets,
 }: {
   projectId: string;
-  initialTab: "groups" | "ai";
+  initialTab: "groups" | "ai" | "tickets";
   onClose: () => void;
   notify: (message: string) => void;
   /** The backend lists providers' models, so an own key's models are picked from its list. */
   modelLists?: boolean;
   /** The backend lets the owner change the project's preset tags; older backends don't, so they aren't offered. */
   presetTags?: boolean;
+  /**
+   * The project's ticket settings the backend keeps, so the dialog shows a
+   * Tickets tab: its templates (`tickets.drafting`) and Resolve when done
+   * (`tickets.ticketStatus`).
+   */
+  tickets?: { templates: boolean; resolveWhenDone: boolean };
 }) {
-  const [tab, setTab] = useState(initialTab);
+  const ticketsTab = tickets !== undefined && (tickets.templates || tickets.resolveWhenDone);
+  const [tab, setTab] = useState(initialTab === "tickets" && !ticketsTab ? "groups" : initialTab);
+  const label = { groups: "Tags", ai: "AI", tickets: "Tickets" }[tab];
   return (
     <Dialog label="Tags and AI" onClose={onClose}>
       <div className="row between">
@@ -48,10 +58,21 @@ export function TagsAiDialog({
           <button type="button" role="tab" aria-selected={tab === "ai"} aria-pressed={tab === "ai"} onClick={() => setTab("ai")}>
             AI
           </button>
+          {ticketsTab && (
+            <button type="button" role="tab" aria-selected={tab === "tickets"} aria-pressed={tab === "tickets"} onClick={() => setTab("tickets")}>
+              Tickets
+            </button>
+          )}
         </div>
       </div>
-      <div className="dialog-scroll" role="tabpanel" aria-label={tab === "groups" ? "Tags" : "AI"}>
-        {tab === "groups" ? <GroupsTab projectId={projectId} notify={notify} presetTags={presetTags} /> : <AiTab projectId={projectId} notify={notify} modelLists={modelLists} />}
+      <div className="dialog-scroll" role="tabpanel" aria-label={label}>
+        {tab === "groups" ? (
+          <GroupsTab projectId={projectId} notify={notify} presetTags={presetTags} />
+        ) : tab === "ai" ? (
+          <AiTab projectId={projectId} notify={notify} modelLists={modelLists} />
+        ) : (
+          <TicketsTab projectId={projectId} notify={notify} templates={tickets?.templates === true} resolveWhenDone={tickets?.resolveWhenDone === true} />
+        )}
       </div>
       <div className="row end">
         <button type="button" className="btn" onClick={onClose}>

@@ -36,6 +36,23 @@ import type {
   TargetLocation,
   ThreadDetail,
   ThreadSummary,
+  NewTicket,
+  TicketDestination,
+  AiTicketDraft,
+  AiTicketDraftInput,
+  TicketDraft,
+  TicketDraftFormat,
+  TicketDraftOptions,
+  TicketTemplateSettings,
+  TrackerTemplateGroup,
+  TicketLinkInput,
+  TicketLinkView,
+  TicketSearchResult,
+  TicketSettingsView,
+  TrackerAccountView,
+  TrackerDisconnected,
+  TrackerId,
+  TrackerSignInStart,
 } from "@critiqs/core";
 import { PageLayerError } from "@critiqs/core";
 import { createContext, type ReactNode, useContext } from "react";
@@ -233,6 +250,12 @@ export interface CritiqsTransport {
    * nothing more is needed; while one is in progress, another is refused.
    */
   billing?: BillingTransport;
+  /**
+   * Tickets' backend, on backends that store tickets (Convex). The interface
+   * offers Your trackers only when this is present and the backend's
+   * configuration reports `tickets`.
+   */
+  tickets?: TicketTransport;
 }
 
 /** An organization's plan and payment: members see it, admins change it; see `CritiqsTransport.billing`. */
@@ -256,6 +279,67 @@ export interface BillingTransport {
   openPortal(args: { organizationId: string; returnUrl: string }): Promise<{ url: string }>;
   /** Asks the backend to read plan prices when status has none yet; status updates when they arrive. */
   loadPrices(): Promise<void>;
+}
+
+/**
+ * Each person's own tracker accounts (Your trackers), and tickets linked to
+ * threads. Tokens go to the backend once and never come back; tracker calls
+ * use the person's own account.
+ */
+export interface TicketTransport {
+  /** The signed-in person's tracker accounts; skipped while `enabled` is false. */
+  useTrackerAccounts(enabled: boolean): QueryState<TrackerAccountView[]>;
+  /** Connects a tracker with a personal token the person pasted, after the tracker confirms whose it is. */
+  connectTrackerWithToken(tracker: TrackerId, token: string): Promise<TrackerAccountView>;
+  /**
+   * Starts the tracker's sign-in; returns where the sign-in window posts the
+   * state and binding secret, which only this caller gets. The account appears
+   * in `useTrackerAccounts` once it finishes.
+   */
+  startTrackerSignIn(tracker: TrackerId): Promise<TrackerSignInStart>;
+  /** Removes the person's account for the tracker, ends Critiqs's access there where it can, and says what it did there. */
+  disconnectTracker(tracker: TrackerId): Promise<TrackerDisconnected>;
+  /** Whether the person's new tickets in the tracker say they came from Critiqs, by default. */
+  setTrackerAttribution(tracker: TrackerId, on: boolean): Promise<void>;
+  /** Where the person can create tickets in a tracker, such as their Linear teams. */
+  listTicketDestinations(tracker: TrackerId): Promise<TicketDestination[]>;
+  /** Tickets the person can see in their tracker, by key (such as `ENG-123`) or words. */
+  searchTickets(tracker: TrackerId, query: string): Promise<TicketSearchResult[]>;
+  /**
+   * A new ticket's title and text, filled from the thread without AI, to edit
+   * before creating it: Critiqs's standard format, or, with `format` naming a
+   * template the project offers (on backends that report `drafting`), that template.
+   */
+  ticketDraft(threadId: string, tracker: TrackerId, format?: TicketDraftFormat): Promise<TicketDraft>;
+  /** What the Create dialog offers for a destination: the project's templates there, and labels matching the thread's tags. On backends that report `drafting`. */
+  ticketDraftOptions(threadId: string, tracker: TrackerId, destinationId: string): Promise<TicketDraftOptions>;
+  /** A draft by Critiqs AI, or, when it can't draft, one filled without AI that says why. On backends that report `drafting`. */
+  draftTicketWithAi(input: AiTicketDraftInput): Promise<AiTicketDraft>;
+  /** The project's ticket templates, for its owners; skipped while `projectId` is null. */
+  useTicketTemplateSettings(projectId: string | null): QueryState<TicketTemplateSettings>;
+  /** Turns the project's ticket templates on or off and sets which it offers; owners only. */
+  saveTicketTemplateSettings(projectId: string, settings: TicketTemplateSettings): Promise<TicketTemplateSettings>;
+  /** The templates of the owner's own teams in the tracker, to choose which the project offers. */
+  listTrackerTemplates(projectId: string, tracker: TrackerId): Promise<TrackerTemplateGroup[]>;
+  /** Creates a ticket from a thread in the person's tracker; it then shows on the thread. */
+  createTicket(input: NewTicket): Promise<TicketLinkView>;
+  /** Links a thread to an existing ticket; linking one it already links to changes nothing. */
+  linkTicket(input: TicketLinkInput): Promise<TicketLinkView>;
+  /** Adds the link back to the thread that the tracker didn't add when the person created the ticket; safe to repeat. */
+  addTicketLinkBack(linkId: string): Promise<TicketLinkView>;
+  /** Removes a ticket's link from its thread, in Critiqs only. */
+  unlinkTicket(linkId: string): Promise<void>;
+  /**
+   * When the person opens a thread: asks the backend to check its tickets'
+   * status, which it does only for status more than a few minutes old, with
+   * each ticket's linker's own account. Only where the backend reports
+   * `tickets.ticketStatus`.
+   */
+  checkTicketStatus(threadId: string): Promise<void>;
+  /** A project's ticket settings, for its owners; skipped while `enabled` is false. */
+  useTicketSettings(projectId: string, enabled: boolean): QueryState<TicketSettingsView>;
+  /** Turns Resolve when done on or off for a project; owners only. */
+  setResolveWhenDone(projectId: string, on: boolean): Promise<void>;
 }
 
 /** A page copy's layout as frozen, with its uploaded file. */

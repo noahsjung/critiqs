@@ -15,6 +15,7 @@ import {
   type SidebarFilters,
   type Target,
   type TargetLocation,
+  type TicketBadge,
 } from "@critiqs/core";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { reportConnected } from "./connected.ts";
@@ -44,6 +45,7 @@ import { TagsAiDialog } from "./ui/TagsAiDialog.tsx";
 import { OrganizationDialog } from "./ui/OrganizationDialog.tsx";
 import { YourAiDialog } from "./ui/YourAiDialog.tsx";
 import { type Awaiting, BillingDialog, type OpenBilling, OpenBillingContext, parseBillingReturn, removeBillingReturn } from "./ui/BillingDialog.tsx";
+import { YourTrackersDialog } from "./ui/YourTrackersDialog.tsx";
 import { FilterButton, groupMembers, ThreadList } from "./ui/ThreadList.tsx";
 import { type ReplyState, type RevealState, ThreadView } from "./ui/ThreadView.tsx";
 import { ThreadWindow } from "./ui/ThreadWindow.tsx";
@@ -148,6 +150,11 @@ interface AppProps {
  * run here and the host's `getContext` and `restoreContext` go to the page
  * layer.
  */
+/** A thread's tickets as the page layer's pins take them: exactly these fields, which it checks, so nothing else is sent. */
+function pinTickets(tickets: ThreadSummary["tickets"]): TicketBadge[] {
+  return (tickets ?? []).map(({ tracker, key, status }) => ({ tracker, key, status }));
+}
+
 export function App({ page, ...args }: AppProps) {
   const own = useInDocumentPage(page === undefined ? args.host : null, args.props);
   const link = page ?? own;
@@ -257,6 +264,7 @@ function PanelApp({
   const [renaming, setRenaming] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [yourAiOpen, setYourAiOpen] = useState(false);
+  const [yourTrackersOpen, setYourTrackersOpen] = useState(false);
   const [organizationOpen, setOrganizationOpen] = useState(false);
   const [billing, setBilling] = useState<{ organizationId: string | null; awaiting: Awaiting } | null>(null);
   const [tagsDialog, setTagsDialog] = useState<"groups" | "ai" | null>(null);
@@ -324,6 +332,9 @@ function PanelApp({
   const inMockup = mode === "mockup" && mockupsAvailable;
   // Your AI is offered where the backend keeps each person's own AI settings.
   const openYourAi = signedIn && deployment.personalAi === true ? () => setYourAiOpen(true) : null;
+  // Your trackers is offered where the backend stores tickets and offers a tracker.
+  const trackersOffered = transport.tickets !== undefined && deployment.tickets != null ? deployment.tickets : null;
+  const openYourTrackers = signedIn && trackersOffered !== null ? () => setYourTrackersOpen(true) : null;
   const organizationMembers = deployment.organizationMembers === true;
   const openOrganization = signedIn && organizationMembers ? () => setOrganizationOpen(true) : null;
   const billingOffered = signedIn && deployment.billing === true && transport.billing !== undefined;
@@ -399,6 +410,7 @@ function PanelApp({
     setRenaming(false);
     setNotificationsOpen(false);
     setYourAiOpen(false);
+    setYourTrackersOpen(false);
     setOrganizationOpen(false);
     setBilling(null);
     setTagsDialog(null);
@@ -980,7 +992,7 @@ function PanelApp({
         // The open thread keeps its pin, such as a resolved thread opened from a link or search.
         const open = summary._id === selected?.threadId;
         if (filters.status !== "all" && summary.status !== filters.status && !open) return [];
-        return [{ threadId: summary._id, authorName: summary.preview?.authorName ?? "Unknown", unread: summary.unread, resolved: summary.status === "resolved" }];
+        return [{ threadId: summary._id, authorName: summary.preview?.authorName ?? "Unknown", unread: summary.unread, resolved: summary.status === "resolved", tickets: pinTickets(summary.tickets) }];
       }),
     [pageSummaries, filters.status, selected?.threadId],
   );
@@ -1349,6 +1361,12 @@ function PanelApp({
               notify={notify}
               onTag={filterByTag}
               onOpenMockup={mockupsAvailable ? openMockup : undefined}
+              tickets={
+                trackersOffered?.threadTickets === true && openYourTrackers !== null && reviewerId !== null
+                  ? { offered: trackersOffered, onYourTrackers: openYourTrackers, personId: reviewerId, modelLists: deployment.modelLists === true, onSetUpAi: openYourAi }
+                  : undefined
+              }
+              ticketStatus={trackersOffered?.ticketStatus === true && reviewerId !== null}
             />
           )}
         </ThreadWindow>
@@ -1383,6 +1401,7 @@ function PanelApp({
         onSignOut={signOut}
         onRename={() => setRenaming(true)}
         onYourAi={openYourAi}
+        onYourTrackers={openYourTrackers}
         onOrganization={openOrganization}
         onBilling={openBilling === null ? null : () => openBilling.open()}
         onNotifications={signedIn && projectQuery.status === "ready" ? () => setNotificationsOpen(true) : null}
@@ -1425,6 +1444,9 @@ function PanelApp({
         />
       )}
       {yourAiOpen && openYourAi !== null && <YourAiDialog onClose={() => setYourAiOpen(false)} notify={notify} modelLists={deployment.modelLists === true} />}
+      {yourTrackersOpen && openYourTrackers !== null && trackersOffered !== null && (
+        <YourTrackersDialog offered={trackersOffered} onClose={() => setYourTrackersOpen(false)} notify={notify} />
+      )}
       {signedIn && tagsDialog !== null && isOwner && projectId !== null && (
         <TagsAiDialog
           projectId={projectId}
@@ -1433,6 +1455,7 @@ function PanelApp({
           notify={notify}
           modelLists={deployment.modelLists === true}
           presetTags={deployment.presetTags === true}
+          tickets={{ templates: trackersOffered?.drafting === true && transport.tickets !== undefined, resolveWhenDone: trackersOffered?.ticketStatus === true }}
         />
       )}
       {billing !== null && openBilling !== null && transport.billing !== undefined && (

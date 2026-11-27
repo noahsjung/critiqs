@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-crons.interval("remove expired sign-in attempts and sessions", { hours: 1 }, internal.signIn.cleanUp, {});
+crons.interval("remove expired sign-in attempts, sessions, and tracker sign-ins", { hours: 1 }, internal.signIn.cleanUp, {});
 
 crons.interval("send mention emails", { minutes: 1 }, internal.notificationEmails.deliver, {});
 crons.interval("send plan alert emails", { minutes: 1 }, internal.notificationEmails.deliverPlanAlerts, {});

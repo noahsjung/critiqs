@@ -1,4 +1,4 @@
-import type { Anchor, CodeAccess, FeedbackFrom, MockupEdit, MockupSource, Purpose, Role, StackId, TargetLocation, TeamSize } from "@critiqs/core";
+import type { Anchor, CodeAccess, FeedbackFrom, MockupEdit, MockupSource, Purpose, Role, StackId, TargetLocation, TeamSize, TicketStatus, TrackerId } from "@critiqs/core";
 import { type Infer, v } from "convex/values";
 
 export const viewStateValidator = v.record(
@@ -187,3 +187,28 @@ export const storedMailValidator = v.object({
   fromName: v.string(),
   replyTo: v.string(),
 });
+
+/** A tracker tickets can be created in; see TrackerId in @critiqs/core. */
+export const trackerValidator = v.union(v.literal("linear"), v.literal("github"), v.literal("jira"));
+
+/** A ticket's last known status; see TicketStatus in @critiqs/core. */
+export const ticketStatusValidator = v.object({
+  label: v.string(),
+  category: v.union(v.literal("open"), v.literal("started"), v.literal("done"), v.literal("canceled"), v.literal("unknown")),
+});
+
+/** A tracker token as stored: AES-GCM ciphertext and IV, base64. */
+export const storedTokenValidator = v.object({ ciphertext: v.string(), iv: v.string() });
+
+// Keep stored trackers and statuses identical to @critiqs/core's types.
+type StoredTracker = Infer<typeof trackerValidator>;
+export const trackerTypesMatch: [StoredTracker, TrackerId] extends [TrackerId, StoredTracker] ? true : never = true;
+type StoredTicketStatus = Infer<typeof ticketStatusValidator>;
+export const ticketStatusTypesMatch: [StoredTicketStatus, TicketStatus] extends [TicketStatus, StoredTicketStatus] ? true : never = true;
+
+/** What a person's stored tracker token is read for (`TokenUse`): their own request, a job in projects they may review, or removing what Critiqs registered. */
+export const tokenUseValidator = v.union(
+  v.object({ by: v.literal("person") }),
+  v.object({ by: v.literal("job"), projects: v.array(v.string()) }),
+  v.object({ by: v.literal("cleanup") }),
+);

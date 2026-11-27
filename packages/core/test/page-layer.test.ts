@@ -88,6 +88,16 @@ describe("checking messages", () => {
     if (parsed.ok && parsed.message.kind === "request") expect(parsed.message.method).toBe("display");
   });
 
+  test("a pin carries its thread's linked tickets, and only well-formed ones", () => {
+    const pin = { threadId: "t1", authorName: "Dana", unread: false, resolved: false, tickets: [{ tracker: "linear", key: "ENG-10", status: { label: "Triage", category: "open" } }] };
+    const parsed = parsePageMessage(request("display", { ...DISPLAY, pins: [pin] }), CHANNEL);
+    expect(parsed.ok && parsed.message.kind === "request" ? parsed.message.params : null).toMatchObject({ pins: [pin] });
+    const odd = (ticket: Record<string, unknown>) => parsePageMessage(request("display", { ...DISPLAY, pins: [{ ...pin, tickets: [ticket] }] }), CHANNEL);
+    expect(odd({ tracker: "asana", key: "A-1", status: null })).toMatchObject({ ok: false, code: "bad-request" });
+    expect(odd({ tracker: "linear", key: "ENG-10", status: { label: "Done", category: "finished" } })).toMatchObject({ ok: false, code: "bad-request" });
+    expect(odd({ tracker: "linear", key: "ENG-10", status: null, url: "javascript:alert(1)" })).toMatchObject({ ok: false, code: "bad-request" });
+  });
+
   test("refuses another protocol version", () => {
     const parsed = parsePageMessage(request("display", DISPLAY, { v: 2 }), CHANNEL);
     expect(parsed).toMatchObject({ ok: false, ignore: false, reply: "request", id: 7, code: "unsupported-version" });

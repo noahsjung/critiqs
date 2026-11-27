@@ -260,7 +260,7 @@ test("AT-24: a spoofed measurement fails the request; a spoofed state is ignored
   expect(seen).toEqual(["https://shop.example.com/ok"]);
 });
 
-test("AT-23: threads reach the frame only as aliases with generic labels, and come back as themselves", async () => {
+test("AT-23: threads reach the frame only as aliases with generic labels and no tickets, and come back as themselves", async () => {
   const sent: unknown[] = [];
   const page = scriptedPage({ display: async (params) => (sent.push(params), frameState(`${FRAME}/`, { p1: { status: "not-found" }, p9: { status: "not-found" } })), reveal: async (params) => (sent.push(params), { status: "failed", reason: "x", keepOccurrence: false }) });
   const endpoint = reviewEndpoint(page.endpoint, frame);
@@ -269,7 +269,10 @@ test("AT-23: threads reach the frame only as aliases with generic labels, and co
     hidden: false,
     exposedRight: null,
     watch: [{ threadId: "jd7realthreadid", location }],
-    pins: [{ threadId: "jd7realthreadid", authorName: "Lee Reviewer", unread: true, resolved: false }, { threadId: "jd7otherthread", authorName: "Dana Owner", unread: false, resolved: true }],
+    pins: [
+      { threadId: "jd7realthreadid", authorName: "Lee Reviewer", unread: true, resolved: false, tickets: [{ tracker: "linear", key: "ENG-14", status: { label: "Triage", category: "open" } }] },
+      { threadId: "jd7otherthread", authorName: "Dana Owner", unread: false, resolved: true, tickets: [] },
+    ],
     selected: { threadId: "jd7realthreadid", ref: null },
     highlight: null,
     picking: null,
@@ -280,6 +283,8 @@ test("AT-23: threads reach the frame only as aliases with generic labels, and co
   expect(wire).not.toContain("jd7");
   expect(wire).not.toContain("Lee Reviewer");
   expect(wire).not.toContain("Dana Owner");
+  expect(wire).not.toContain("ENG-14");
+  expect(wire).not.toContain("Triage");
   expect(wire.match(/"authorName":"Reviewer"/g)?.length).toBe(2);
   // Located comes back by real ID; an alias the panel never sent is dropped.
   expect(Object.keys(state.located)).toEqual(["jd7realthreadid"]);

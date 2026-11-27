@@ -36,6 +36,11 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
     isDone: result.isDone,
     continueCursor: result.continueCursor,
   });
+  const ticketTableId = <T extends "trackerAccounts" | "ticketLinks" | "ticketSettings" | "trackerSignIns">(table: T, raw: string): Id<T> => {
+    const id = db.normalizeId(table, raw);
+    if (id === null) throw new Error(`Not a ${table} ID: ${raw}`);
+    return id;
+  };
 
   return {
     normalizeId: (table, raw) => {
@@ -749,6 +754,116 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
         if (id !== null && (await db.get(id)) !== null) await writer().delete(id);
       },
     },
+    tickets: {
+      // Writes check the ID's table first: Convex writes to whatever table an
+      // ID names, so another table's ID must never reach them.
+      accounts: {
+        find: async (userId, tracker) => {
+          const id = db.normalizeId("users", userId);
+          if (id === null) return null;
+          const row = await db
+            .query("trackerAccounts")
+            .withIndex("by_user_tracker", (q) => q.eq("userId", id).eq("tracker", tracker))
+            .unique();
+          return row === null ? null : withoutCreationTime(row);
+        },
+        list: async (userId) => {
+          const id = db.normalizeId("users", userId);
+          if (id === null) return [];
+          // One row per tracker at most, so the range is small.
+          const rows = await db
+            .query("trackerAccounts")
+            .withIndex("by_user_tracker", (q) => q.eq("userId", id))
+            .collect();
+          return rows.map(withoutCreationTime);
+        },
+        insert: async (account) => await writer().insert("trackerAccounts", defined({ ...account, userId: account.userId as Id<"users"> })),
+        patch: async (id, changes) => await writer().patch(ticketTableId("trackerAccounts", id), clearingNulls(changes) as Partial<Doc<"trackerAccounts">>),
+        delete: async (id) => await writer().delete(ticketTableId("trackerAccounts", id)),
+      },
+      links: {
+        get: async (raw) => {
+          const id = db.normalizeId("ticketLinks", raw);
+          const row = id === null ? null : await db.get(id);
+          return row === null ? null : withoutCreationTime(row);
+        },
+        listForThread: async (threadId, state, limit) => {
+          const id = db.normalizeId("threads", threadId);
+          if (id === null) return [];
+          const rows = await db
+            .query("ticketLinks")
+            .withIndex("by_thread_state", (q) => q.eq("threadId", id).eq("state", state))
+            .take(limit);
+          return rows.map(withoutCreationTime);
+        },
+        findByExternal: async (tracker, externalId, limit) => {
+          const rows = await db
+            .query("ticketLinks")
+            .withIndex("by_tracker_external", (q) => q.eq("tracker", tracker).eq("externalId", externalId))
+            .take(limit);
+          return rows.map(withoutCreationTime);
+        },
+        findByCreation: async (creationId) => {
+          const row = await db
+            .query("ticketLinks")
+            .withIndex("by_creation", (q) => q.eq("creationId", creationId))
+            .first();
+          return row === null ? null : withoutCreationTime(row);
+        },
+        insert: async (link) =>
+          await writer().insert(
+            "ticketLinks",
+            defined({
+              ...link,
+              projectId: link.projectId as Id<"projects">,
+              threadId: link.threadId as Id<"threads">,
+              linkedBy: link.linkedBy as Id<"users">,
+            }),
+          ),
+        patch: async (id, changes) => await writer().patch(ticketTableId("ticketLinks", id), clearingNulls(changes) as Partial<Doc<"ticketLinks">>),
+        delete: async (id) => await writer().delete(ticketTableId("ticketLinks", id)),
+      },
+      settings: {
+        find: async (projectId) => {
+          const id = db.normalizeId("projects", projectId);
+          if (id === null) return null;
+          const row = await db
+            .query("ticketSettings")
+            .withIndex("by_project", (q) => q.eq("projectId", id))
+            .unique();
+          return row === null ? null : withoutCreationTime(row);
+        },
+        insert: async (settings) =>
+          await writer().insert("ticketSettings", {
+            ...settings,
+            projectId: settings.projectId as Id<"projects">,
+            updatedBy: settings.updatedBy as Id<"users">,
+          }),
+        patch: async (id, changes) => await writer().patch(ticketTableId("ticketSettings", id), defined(changes) as Partial<Doc<"ticketSettings">>),
+      },
+      signIns: {
+        findByState: async (state) => {
+          const row = await db
+            .query("trackerSignIns")
+            .withIndex("by_state", (q) => q.eq("state", state))
+            .unique();
+          return row === null ? null : withoutCreationTime(row);
+        },
+        insert: async (signIn) => await writer().insert("trackerSignIns", defined({ ...signIn, userId: signIn.userId as Id<"users"> })),
+        patch: async (id, changes) => await writer().patch(ticketTableId("trackerSignIns", id), defined(changes)),
+        delete: async (id) => await writer().delete(ticketTableId("trackerSignIns", id)),
+        listForUser: async (userId, tracker) => {
+          const user = db.normalizeId("users", userId);
+          if (user === null) return [];
+          // A person starts at most ten a minute, each kept for minutes.
+          const rows = await db
+            .query("trackerSignIns")
+            .withIndex("by_user", (q) => q.eq("userId", user).eq("tracker", tracker))
+            .take(500);
+          return rows.map(withoutCreationTime);
+        },
+      },
+    },
     files: {
       info: async (fileId) => {
         const id = db.normalizeId("captureFiles", fileId);
@@ -805,6 +920,21 @@ export async function run<T>(operation: () => Promise<T>): Promise<T> {
  */
 function defined<T extends object>(changes: T): T {
   return Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)) as T;
+}
+
+/** Changes where `null` clears an optional field: Convex removes fields patched to undefined. Fields left undefined stay unchanged. */
+function clearingNulls(changes: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(changes)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, value === null ? undefined : value]),
+  );
+}
+
+/** A row as Critiqs's records have it, without Convex's creation time. */
+function withoutCreationTime<T extends { _creationTime: number }>(row: T): Omit<T, "_creationTime"> {
+  const { _creationTime: _created, ...rest } = row;
+  return rest;
 }
 
 function organizationRef<K extends string>(field: K, id: string | undefined): { [P in K]?: Id<"organizations"> } {

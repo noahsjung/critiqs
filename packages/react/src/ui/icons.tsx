@@ -61,3 +61,7 @@ export const InfoIcon = () => (
 export const MockupIcon = () => (
   <svg {...base} aria-hidden="true"><path d="M8.5 2.5h-4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-4" /><path d="M12 2l.7 1.6L14.3 4.3l-1.6.7L12 6.6l-.7-1.6-1.6-.7 1.6-.7z" /><path d="M5.5 10.5l2-2.5 1.5 1.5" /></svg>
 );
+/** A ticket in a tracker: a stub with a notch on each side. */
+export const TicketIcon = ({ size = 16 }: { size?: number }) => (
+  <svg {...base} width={size} height={size} aria-hidden="true"><path d="M2.5 4.5h11v2a1.5 1.5 0 0 0 0 3v2h-11v-2a1.5 1.5 0 0 0 0-3z" /><path d="M9.5 5v6" strokeDasharray="1 1.5" /></svg>
+);

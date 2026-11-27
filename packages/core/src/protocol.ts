@@ -1,4 +1,5 @@
 import type { ThreadMockup } from "./mockup.ts";
+import type { TicketBadge, TicketLinkView } from "./tickets.ts";
 import type { Anchor, Revision, TargetLocation } from "./types.ts";
 
 // What a Critiqs backend returns to the interface, independent of how the
@@ -182,6 +183,8 @@ export interface ThreadSummary {
   preview: { body: string; authorName: string; authorImageUrl: string | null } | null;
   /** Set on a mockup thread; absent from backends without mockups. */
   mockup?: ThreadMockup;
+  /** Tickets linked to the thread, oldest first; absent from backends without tickets. */
+  tickets?: TicketBadge[];
 }
 
 export interface ReviewerInfo {
@@ -244,6 +247,8 @@ export interface ThreadDetail {
   messageCount: number;
   statusChangedByName: string | null;
   statusChangedAt?: number;
+  /** Set when the thread was resolved because every ticket linked to it was done (**Resolve when done**); `statusChangedByName` is then null. */
+  resolvedByTickets?: true;
   reattachment?: { location: TargetLocation; reattachedAt: number };
   reattachedByName: string | null;
   readState: { lastReadAt: number; manualUnread: boolean } | null;
@@ -254,6 +259,8 @@ export interface ThreadDetail {
    * project. Absent from older backends, which let anyone who could review it.
    */
   canDelete?: boolean;
+  /** Tickets linked to the thread, oldest first; absent from backends without tickets. */
+  tickets?: TicketLinkView[];
   messages: MessageView[];
 }
 

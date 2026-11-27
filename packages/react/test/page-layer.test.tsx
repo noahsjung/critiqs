@@ -102,7 +102,7 @@ test("the page layer locates watched threads and draws pins only for those it fi
         { threadId: "gone", location: at("delete") },
         { threadId: "elsewhere", location: { ...at("save"), screen: "billing" } },
       ],
-      pins: ["shown", "gone", "elsewhere"].map((threadId) => ({ threadId, authorName: "Dana Reviewer", unread: false, resolved: false })),
+      pins: ["shown", "gone", "elsewhere"].map((threadId) => ({ threadId, authorName: "Dana Reviewer", unread: false, resolved: false, tickets: [] })),
     }),
   );
   expect(state.located.shown).toEqual({ status: "found", occurrences: [{ ref: expect.any(String), recordKey: null }] });
@@ -162,7 +162,7 @@ test("a panel that goes away leaves nothing on the page: no pins, and no Comment
     void (await panel.request("display", {
       ...NOTHING,
       watch: [{ threadId: "shown", location: at("save") }],
-      pins: [{ threadId: "shown", authorName: "Dana", unread: false, resolved: false }],
+      pins: [{ threadId: "shown", authorName: "Dana", unread: false, resolved: false, tickets: [] }],
       picking: { hint: "Select an element", paused: false },
     })),
   );
@@ -230,7 +230,7 @@ test("a panel in another document follows the page, and starts again with a page
   await link.connect();
   expect(link.overPage).toBe(false);
   expect(link.getState().context.screen).toBe("settings");
-  link.display({ ...NOTHING, watch: [{ threadId: "shown", location: at("save") }], pins: [{ threadId: "shown", authorName: "Dana", unread: true, resolved: false }] });
+  link.display({ ...NOTHING, watch: [{ threadId: "shown", location: at("save") }], pins: [{ threadId: "shown", authorName: "Dana", unread: true, resolved: false, tickets: [] }] });
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   expect(link.getState().located.shown?.status).toBe("found");
   expect(shadow.querySelectorAll(".pin")).toHaveLength(1);

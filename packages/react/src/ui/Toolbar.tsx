@@ -20,6 +20,8 @@ interface ToolbarProps {
   onRename: () => void;
   /** Opens Your AI, the reviewer's own AI connection; null where the backend has none. */
   onYourAi: (() => void) | null;
+  /** Opens Your trackers; null where the backend offers no tickets. */
+  onYourTrackers: (() => void) | null;
   /** Opens the reviewer's organization: its name, members, and invites; null where the backend has none. */
   onOrganization: (() => void) | null;
   /** Opens the organization's plan and billing; null where the backend doesn't take payment. */
@@ -225,6 +227,16 @@ export function Toolbar(props: ToolbarProps) {
                 }}
               >
                 Your AI…
+              </MenuItem>
+            )}
+            {props.onYourTrackers !== null && (
+              <MenuItem
+                onSelect={() => {
+                  account.close();
+                  props.onYourTrackers?.();
+                }}
+              >
+                Your trackers…
               </MenuItem>
             )}
             {props.onOrganization !== null && (

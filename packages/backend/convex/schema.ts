@@ -13,7 +13,10 @@ import {
   storedMailValidator,
   teamSizeValidator,
   revisionValidator,
+  storedTokenValidator,
   threadMockupValidator,
+  ticketStatusValidator,
+  trackerValidator,
 } from "./lib/validators";
 
 /** The fields every AI connection has, a project's or a person's. */
@@ -423,6 +426,8 @@ export default defineSchema({
     editCount: v.optional(v.number()),
     statusChangedBy: v.optional(v.id("users")),
     statusChangedAt: v.optional(v.number()),
+    /** True when the thread was last resolved because every ticket linked to it was done (Resolve when done). */
+    statusChangedByTickets: v.optional(v.boolean()),
     /** Replacement target. The anchor keeps the original target and evidence. */
     reattachment: v.optional(
       v.object({ location: locationValidator, reattachedBy: v.id("users"), reattachedAt: v.number() }),
@@ -586,6 +591,97 @@ export default defineSchema({
     userId: v.id("users"),
     ...aiConnectionFields,
   }).index("by_user", ["userId"]),
+
+  /** A person's connected tracker account, one per person and tracker. Tokens are stored only encrypted (AES-GCM), bound to the person and tracker, never returned. */
+  trackerAccounts: defineTable({
+    userId: v.id("users"),
+    tracker: trackerValidator,
+    method: v.union(v.literal("oauth"), v.literal("token")),
+    accountId: v.string(),
+    accountName: v.string(),
+    /** The workspace, organization, or Jira site the account is in, where the tracker has one. */
+    site: v.optional(v.object({ id: v.string(), name: v.string() })),
+    access: storedTokenValidator,
+    refresh: v.optional(storedTokenValidator),
+    expiresAt: v.optional(v.number()),
+    /** Whether the person's new tickets say they came from Critiqs, by default. */
+    attribution: v.boolean(),
+    connectedAt: v.number(),
+    updatedAt: v.number(),
+    /** A token refresh in progress, so only one runs at a time. */
+    refreshLease: v.optional(v.object({ id: v.string(), until: v.number() })),
+  }).index("by_user_tracker", ["userId", "tracker"]),
+
+  /** A ticket linked to a thread. A pending link, saved before the tracker is called, has empty `externalId`, `key`, and `url`. */
+  ticketLinks: defineTable({
+    projectId: v.id("projects"),
+    threadId: v.id("threads"),
+    tracker: trackerValidator,
+    externalId: v.string(),
+    key: v.string(),
+    url: v.string(),
+    title: v.string(),
+    /** The tracker's workspace, organization, or site ID, to match webhooks. */
+    site: v.optional(v.string()),
+    state: v.union(v.literal("pending"), v.literal("linked")),
+    creationId: v.optional(v.string()),
+    creatorAccountId: v.optional(v.string()),
+    linkBack: v.optional(v.object({ url: v.string(), title: v.string(), added: v.boolean() })),
+    claimToken: v.optional(v.string()),
+    leaseUntil: v.optional(v.number()),
+    parked: v.optional(v.boolean()),
+    status: v.optional(ticketStatusValidator),
+    statusCheckedAt: v.optional(v.number()),
+    statusChangedAt: v.optional(v.number()),
+    /** The tracker's own time the status was current as of; older updates change nothing. */
+    statusAsOf: v.optional(v.number()),
+    /** The status says the tracker deleted the ticket; an update at the same time never replaces it. */
+    statusDeleted: v.optional(v.boolean()),
+    /** When opening the thread last started a status check, at most once every few minutes. */
+    statusCheckStartedAt: v.optional(v.number()),
+    /** Critiqs can't check the status with the linker's account; the status is the last one it knew. */
+    statusStale: v.optional(v.boolean()),
+    /** The tracker account the person linked or created it with; status checks use only its token. */
+    accountId: v.optional(v.string()),
+    linkedBy: v.id("users"),
+    linkedAt: v.number(),
+    createdFromCritiqs: v.boolean(),
+  })
+    .index("by_thread_state", ["threadId", "state"])
+    .index("by_tracker_external", ["tracker", "externalId"])
+    .index("by_creation", ["creationId"])
+    .index("by_project", ["projectId"]),
+
+  /** A project's ticket settings. No record means templates off and Resolve when done off. */
+  ticketSettings: defineTable({
+    projectId: v.id("projects"),
+    /** Whether the Create dialog offers the chosen templates; absent means off. */
+    templatesOn: v.optional(v.boolean()),
+    templates: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), templateId: v.string(), name: v.string() })),
+    resolveWhenDone: v.boolean(),
+    defaults: v.array(v.object({ tracker: trackerValidator, destinationId: v.string(), name: v.string() })),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  /** A tracker sign-in in progress, found by the OAuth state the tracker returns. */
+  trackerSignIns: defineTable({
+    state: v.string(),
+    userId: v.id("users"),
+    tracker: trackerValidator,
+    expiresAt: v.number(),
+    /** The PKCE code verifier, sent only to the tracker with the code. */
+    verifier: v.optional(v.string()),
+    /** Hash of a secret only the starting interface gets; its window brings it to open the sign-in, and its cookie to finish it. */
+    bindingHash: v.optional(v.string()),
+    /** When the starting interface's window opened the sign-in; it opens once. */
+    openedAt: v.optional(v.number()),
+    /** When the tracker sent the window back; kept until its tokens are saved, so disconnecting cancels it. */
+    claimedAt: v.optional(v.number()),
+  })
+    .index("by_state", ["state"])
+    .index("by_expiry", ["expiresAt"])
+    .index("by_user", ["userId", "tracker"]),
 
   /** Critiqs AI credits held while a request's model answers, per payer's counter scope. */
   creditHolds: defineTable({ scope: v.string(), credits: v.number(), expiresAt: v.number() }).index("by_scope_expiry", ["scope", "expiresAt"]),

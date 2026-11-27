@@ -1,11 +1,10 @@
 import { api } from "@critiqs/backend/api";
-import type { Page, ReactionRow, ThreadDetail, ThreadDetailPage } from "@critiqs/core";
+import { loadExport, type Page, type ReactionRow, type ThreadDetail, type ThreadDetailPage } from "@critiqs/core";
 import { ConvexProviderWithAuth, type ConvexReactClient, useConvexAuth, usePaginatedQuery } from "convex/react";
 import { ConvexError, type GenericId as Id } from "convex/values";
 import { type ReactNode, useCallback, useSyncExternalStore } from "react";
 import { creditsArg, type Deployment, madeWithArg, mentionThreadArg } from "../deployment.ts";
 import { uploadCapture, uploadFile } from "../capture-upload.ts";
-import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
 import type { TokenSession } from "../session.ts";
 import type { NewCapture } from "@critiqs/core";
@@ -236,6 +235,28 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       loadPrices: async () => {
         await client.action(api.billing.loadPrices, {});
       },
+    },
+    tickets: {
+      useTrackerAccounts: (enabled) => useQueryState(api.trackers.mine, enabled ? {} : "skip"),
+      connectTrackerWithToken: (tracker, token) => client.action(api.trackers.connectWithToken, { tracker, token }),
+      startTrackerSignIn: (tracker) => client.action(api.trackers.startSignIn, { tracker }),
+      disconnectTracker: (tracker) => client.action(api.trackers.disconnect, { tracker }),
+      setTrackerAttribution: (tracker, attribution) => change(mutation(api.trackers.setAttribution, { tracker, attribution })),
+      listTicketDestinations: (tracker) => client.action(api.tickets.destinations, { tracker }),
+      searchTickets: (tracker, query) => client.action(api.tickets.search, { tracker, query }),
+      ticketDraft: (threadId, tracker, format) => client.action(api.tickets.draft, { threadId: threadId as Id<"threads">, tracker, ...format }),
+      ticketDraftOptions: (threadId, tracker, destinationId) => client.action(api.tickets.options, { threadId: threadId as Id<"threads">, tracker, destinationId }),
+      draftTicketWithAi: ({ threadId, ...input }) => client.action(api.ai.draftTicket, { threadId: threadId as Id<"threads">, ...input }),
+      useTicketTemplateSettings: (projectId) => useQueryState(api.tickets.templateSettings, projectId === null ? "skip" : { projectId: projectId as Id<"projects"> }),
+      saveTicketTemplateSettings: (projectId, settings) => mutation(api.tickets.saveTemplateSettings, { projectId: projectId as Id<"projects">, ...settings }),
+      listTrackerTemplates: (projectId, tracker) => client.action(api.tickets.trackerTemplates, { projectId: projectId as Id<"projects">, tracker }),
+      createTicket: ({ threadId, ...input }) => client.action(api.tickets.create, { threadId: threadId as Id<"threads">, ...input }),
+      linkTicket: ({ threadId, ...input }) => client.action(api.tickets.link, { threadId: threadId as Id<"threads">, ...input }),
+      addTicketLinkBack: (linkId) => client.action(api.tickets.addLinkBack, { linkId }),
+      unlinkTicket: (linkId) => change(mutation(api.tickets.unlink, { linkId })),
+      checkTicketStatus: async (threadId) => void (await mutation(api.ticketStatus.checkStatus, { threadId })),
+      useTicketSettings: (projectId, enabled) => useQueryState(api.ticketStatus.settings, enabled ? { projectId } : "skip"),
+      setResolveWhenDone: (projectId, on) => change(mutation(api.ticketStatus.setResolveWhenDone, { projectId, on })),
     },
   };
 }

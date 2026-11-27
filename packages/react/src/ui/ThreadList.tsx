@@ -2,6 +2,7 @@ import { expandTagFilter, groupThreads, type ProjectTags, type SidebarFilters, t
 import { useMemo } from "react";
 import { describeTargetState, type LiveThread, targetState } from "../model.ts";
 import { Avatar, Menu, MenuItem, useMenu } from "./common.tsx";
+import { TicketBadges } from "./Tickets.tsx";
 import { relativeTime } from "./format.ts";
 import { tagDisplay } from "./MentionInput.tsx";
 import { FilterIcon } from "./icons.tsx";
@@ -147,6 +148,7 @@ function Entry({
           {replies > 0 && <span>{replies === 1 ? "1 reply" : `${replies} replies`}</span>}
           {summary.status === "resolved" && <span className="resolved-tag">Resolved</span>}
           {state !== "live" && <span className="status-tag">{describeTargetState(thread)}</span>}
+          <TicketBadges tickets={summary.tickets} />
           {summary.tags.map((tag) => (
             // The entry itself is the button; the keyboard filters by tag from the filter menu.
             <span

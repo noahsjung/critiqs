@@ -728,6 +728,15 @@ test("a linked comment shows as a chip in the composer, above the reply field, a
   expect(data.calls).toContainEqual({ name: "unlink", args: { mockupId: "mockup", threadId: "feedback" } });
 });
 
+test("a comment added to a mockup shows its linked tickets' keys and status on its chip", async () => {
+  const withTicket: ThreadSummary = { ...feedback, tickets: [{ tracker: "linear", key: "ENG-4", status: { label: "In Progress", category: "started" } }] };
+  const shadow = await mount(backend({ threads: [withTicket] }));
+  await openThread(shadow);
+  const chip = panel(shadow)!.querySelector('[aria-label="Comments"] .comment-chip')!;
+  expect(chip.querySelector(".chip-tickets")?.textContent).toBe("ENG-4 · In Progress");
+  expect(chip.getAttribute("title")).toBe("Save is hard to find\nENG-4 · In Progress");
+});
+
 test("a comment linked to a mockup opens its thread, and mockup threads stay out of the comments list", async () => {
   const data = backend({ threads: [feedback, mockupThread] });
   const shadow = await mount(data);
@@ -1142,7 +1151,7 @@ test("the Project panel opens the documentation, which explains every part of Cr
   const escape = () => act(async () => void search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   await escape();
   expect(search.value).toBe("");
-  expect(titles()).toHaveLength(16);
+  expect(titles()).toHaveLength(18);
   await escape();
   expect(shadow.querySelector('aside[aria-label="Critiqs documentation"]')).toBeNull();
   await click(button(shadow, "Project"));

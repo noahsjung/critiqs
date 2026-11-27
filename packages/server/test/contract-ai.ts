@@ -51,13 +51,13 @@ export const managedAi: ManagedAi = { provider: "openai", apiKey: "managed-key",
 
 /** A model that answers from `answer`, each call using `usage`, recording the prompts it was given. */
 export function fakeModel(answer: (request: StructuredRequest<unknown>) => unknown, usage: ModelUsage = { inputTokens: 100, outputTokens: 50 }) {
-  const prompts: { task: string; prompt: string }[] = [];
+  const prompts: { task: string; prompt: string; schema: StructuredRequest<unknown>["schema"] }[] = [];
   const model: StructuredModel = {
     description: "Fake",
     async generate<T>(request: StructuredRequest<T>) {
       // As the AI SDK path does, right before the request is sent.
       await request.beforeSend?.();
-      prompts.push({ task: request.task, prompt: request.prompt });
+      prompts.push({ task: request.task, prompt: request.prompt, schema: request.schema });
       const parsed = request.parse(answer(request as StructuredRequest<unknown>));
       if (parsed === null) throw new AiError("capability", "The model's answer didn't match what Critiqs asked for.");
       return { output: parsed, usage };

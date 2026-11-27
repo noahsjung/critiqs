@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { exportJson, exportMarkdown, type FeedbackCollection } from "../src/export.ts";
+import { exportJson, exportMarkdown, exportThread, type FeedbackCollection } from "../src/export.ts";
+import type { ExportedThread } from "../src/protocol.ts";
 
 const collection: FeedbackCollection = {
   title: "Sprint 4 handoff",
@@ -59,4 +60,29 @@ test("a reply a coding agent wrote keeps that mark in Markdown and JSON", () => 
   expect(markdown).toContain("**Dana**, 2026-10-09T00:00:00.000Z, revision abc123:");
   const parsed = JSON.parse(exportJson(agent));
   expect(parsed.threads[0].messages.map((message: { via?: string }) => message.via ?? null)).toEqual([null, null, "agent"]);
+});
+
+test("an exported thread reads where it is now, with each message's link and mark", () => {
+  const target = { purposeId: "user.department", recordKey: "user:alex", clues: { tagName: "span", role: null, label: "Sales", path: "main:1/span:1" } };
+  const anchor = {
+    screen: "user-details",
+    viewState: { tab: "permissions" },
+    target,
+    scope: "record" as const,
+    evidence: { url: "https://proto.example/users/alex", viewport: { width: 1440, height: 900 }, marker: { x: 0, y: 0, width: 1, height: 1 }, capturedAt: 1, revision: "abc", persona: null, userAgent: "UA" },
+  };
+  const moved = { screen: "user-list", viewState: {}, target: { ...target, clues: { ...target.clues, label: "Team" } }, scope: "shared" as const };
+  const exported: ExportedThread = {
+    _id: "t1",
+    status: "resolved",
+    tags: ["Bug"],
+    anchor,
+    location: moved,
+    hasCapture: false,
+    messages: [{ _id: "m1", author: "Dana", body: "Wrong", createdAt: 5, editedAt: null, revision: "abc", via: "agent" }],
+  };
+  const thread = exportThread(exported, (messageId) => `https://review.example/?critiqs=t1${messageId === null ? "" : `.${messageId}`}`);
+  expect(thread).toMatchObject({ id: "t1", link: "https://review.example/?critiqs=t1", status: "resolved", screen: "user-list", scope: "shared", reattached: true, pageUrl: anchor.evidence.url });
+  expect(thread.target).toEqual({ purposeId: "user.department", recordKey: "user:alex", label: "Team" });
+  expect(thread.messages).toEqual([{ id: "m1", link: "https://review.example/?critiqs=t1.m1", author: "Dana", body: "Wrong", createdAt: 5, editedAt: null, revision: "abc", via: "agent" }]);
 });

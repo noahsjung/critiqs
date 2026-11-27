@@ -1,3 +1,4 @@
+import { type TicketBadge, type TicketStatus, TRACKER_LIMITS, type TrackerId } from "../tickets.ts";
 import type { Rect, Scope, Target, TargetLocation, ViewState } from "../types.ts";
 import {
   array,
@@ -98,6 +99,8 @@ export interface PinSpec {
   authorName: string;
   unread: boolean;
   resolved: boolean;
+  /** The thread's linked tickets, marked on its pin; empty where the backend has no tickets. */
+  tickets: TicketBadge[];
 }
 
 /**
@@ -291,6 +294,8 @@ const rect: Check<Rect> = object({ x: finite, y: finite, width: finite, height: 
 const size = object<{ width: number; height: number }>({ width: finite, height: finite });
 const scope: Check<Scope> = oneOf(["shared", "record"]);
 const empty: Check<Record<string, never>> = object({});
+/** At most as many as a thread links (`MAX_THREAD_TICKET_ROWS` in @critiqs/server). */
+const MAX_PIN_TICKETS = 40;
 
 /** An image of at most `max` bytes. */
 const image =
@@ -344,11 +349,13 @@ function pageChecks(limits: PageLimits): PageChecks {
       return checked;
     },
   });
+  const ticketStatus: Check<TicketStatus> = object({ label: text(MAX_TEXT), category: oneOf(["open", "started", "done", "canceled", "unknown"]) });
+  const ticketBadge: Check<TicketBadge> = object({ tracker: oneOf<TrackerId>(["linear", "github", "jira"]), key: text(TRACKER_LIMITS.key), status: nullable(ticketStatus) });
   const display: Check<PageDisplay> = object({
     hidden: boolean,
     exposedRight: nullable(finite),
     watch: array(object<WatchedThread>({ threadId: id, location })),
-    pins: array(object<PinSpec>({ threadId: id, authorName: text(MAX_TEXT), unread: boolean, resolved: boolean })),
+    pins: array(object<PinSpec>({ threadId: id, authorName: text(MAX_TEXT), unread: boolean, resolved: boolean, tickets: array(ticketBadge, MAX_PIN_TICKETS) })),
     selected: nullable(object({ threadId: id, ref: nullable(ref) })),
     highlight: nullable(object({ id: integer, location })),
     picking: nullable(object({ hint: nullable(text(MAX_TEXT)), paused: boolean })),

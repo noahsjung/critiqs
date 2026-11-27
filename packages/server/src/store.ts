@@ -1,4 +1,20 @@
-import type { Anchor, CodeAccess, FeedbackFrom, OrganizationRole, PageRequest, Purpose, ReviewAccess, Revision, Role, StackId, TargetLocation, TeamSize, ThreadMockup } from "@critiqs/core";
+import type {
+  Anchor,
+  CodeAccess,
+  FeedbackFrom,
+  OrganizationRole,
+  PageRequest,
+  Purpose,
+  ReviewAccess,
+  Revision,
+  Role,
+  StackId,
+  TargetLocation,
+  TeamSize,
+  ThreadMockup,
+  TicketStatus,
+  TrackerId,
+} from "@critiqs/core";
 import type { Plan } from "./limits.ts";
 
 // The storage a backend gives Critiqs's rules. Each operation runs in one
@@ -223,6 +239,8 @@ export interface ThreadRecord {
   editCount?: number;
   statusChangedBy?: string;
   statusChangedAt?: number;
+  /** True when the thread was last resolved because every ticket linked to it was done (Resolve when done), not by a person; `statusChangedBy` then doesn't apply. */
+  statusChangedByTickets?: boolean;
   /** Replacement target. The anchor keeps the original target and evidence. */
   reattachment?: { location: TargetLocation; reattachedBy: string; reattachedAt: number };
   /**
@@ -527,6 +545,136 @@ export interface PersonalAiSettingsRecord extends StoredConnection {
   userId: string;
 }
 
+/** A tracker token as stored: AES-GCM ciphertext and IV, base64, bound to its person and tracker (`trackerTokenBinding`). */
+export interface StoredToken {
+  ciphertext: string;
+  iv: string;
+}
+
+/** A person's connected tracker account, one per person and tracker. Tokens are stored only encrypted, never returned. */
+export interface TrackerAccountRecord {
+  _id: string;
+  userId: string;
+  tracker: TrackerId;
+  /** Connected through the tracker's sign-in, or with a pasted personal token. */
+  method: "oauth" | "token";
+  /** The tracker's ID for the person, and the name it shows. */
+  accountId: string;
+  accountName: string;
+  /** The workspace, organization, or Jira site the account is in, where the tracker has one. */
+  site?: { id: string; name: string };
+  access: StoredToken;
+  /** Sign-in's refresh token, when the tracker issues one. */
+  refresh?: StoredToken;
+  /** When the access token expires, when the tracker says. */
+  expiresAt?: number;
+  /** Whether the person's new tickets say they came from Critiqs, by default. */
+  attribution: boolean;
+  connectedAt: number;
+  updatedAt: number;
+  /** A token refresh in progress, so only one runs at a time: trackers that rotate refresh tokens accept each only once. */
+  refreshLease?: { id: string; until: number };
+}
+
+/**
+ * A ticket linked to a thread. A ticket Critiqs is creating is saved as
+ * `pending` before the tracker is called, so a retry knows a creation was
+ * started; until it is `linked`, its `externalId`, `key`, and `url` are empty.
+ */
+export interface TicketLinkRecord {
+  _id: string;
+  projectId: string;
+  threadId: string;
+  tracker: TrackerId;
+  externalId: string;
+  key: string;
+  url: string;
+  title: string;
+  /** The tracker's workspace, organization, or site ID, to match webhooks. */
+  site?: string;
+  state: "pending" | "linked";
+  /**
+   * For a ticket Critiqs creates: the creation's ID, which the ticket takes in
+   * the tracker (Linear accepts it as the issue's ID). It is the Create
+   * dialog's submission ID, the same across the creation's attempts and kept
+   * once it is linked, so a retry never makes a second ticket.
+   */
+  creationId?: string;
+  /** For a ticket Critiqs creates: the tracker account (the tracker's ID for it) its creator submitted it with. Only that account recovers it. */
+  creatorAccountId?: string;
+  /** For a ticket Critiqs creates: the link back to the thread, as recorded when it was submitted, and whether the tracker has it. */
+  linkBack?: { url: string; title: string; added: boolean };
+  /** The attempt working on a pending link, and until when it may: only it calls the tracker for this creation, and only it may finish or release it. */
+  claimToken?: string;
+  /** When the attempt's lease ends; after an attempt ends without a ticket, when it ended. */
+  leaseUntil?: number;
+  /** A pending link set aside at once, without waiting to sit idle, because the tracker refused its creator's token while checking it. */
+  parked?: boolean;
+  /** The last status Critiqs knew, when it last read it, and when the tracker says it last changed. */
+  status?: TicketStatus;
+  statusCheckedAt?: number;
+  statusChangedAt?: number;
+  /**
+   * The tracker's own time `status` was current as of (the ticket's last
+   * update there), so an update older than the one already saved, such as a
+   * webhook delivered late or replayed, changes nothing.
+   */
+  statusAsOf?: number;
+  /** True when `status` says the tracker deleted the ticket: an update at the same `statusAsOf` never replaces it. */
+  statusDeleted?: boolean;
+  /** When opening the thread last started a check of the status, so it is checked at most once every few minutes. */
+  statusCheckStartedAt?: number;
+  /** Set when Critiqs can't check the status with the linker's account (disconnected, another account, or no longer allowed to see the ticket): `status` is the last one it knew. */
+  statusStale?: boolean;
+  /** The tracker account (the tracker's ID for it) the person linked or created the ticket with: status checks use only this account's token. */
+  accountId?: string;
+  /** Who linked or created it. */
+  linkedBy: string;
+  linkedAt: number;
+  createdFromCritiqs: boolean;
+}
+
+/** A project's ticket settings. No record means templates off and Resolve when done off. */
+export interface TicketSettingsRecord {
+  _id: string;
+  projectId: string;
+  /** Whether the Create dialog offers the chosen tracker templates; absent means off. */
+  templatesOn?: boolean;
+  /** Tracker templates the project offers while templates are on, by destination. */
+  templates: { tracker: TrackerId; destinationId: string; templateId: string; name: string }[];
+  /** Resolve a thread when every ticket linked to it is done. */
+  resolveWhenDone: boolean;
+  /** Where the project's new tickets go by default, per tracker. */
+  defaults: { tracker: TrackerId; destinationId: string; name: string }[];
+  updatedBy: string;
+  updatedAt: number;
+}
+
+/** A tracker sign-in in progress: the OAuth state the tracker returns, whose it is, and until when it is accepted. */
+export interface TrackerSignInRecord {
+  _id: string;
+  state: string;
+  userId: string;
+  tracker: TrackerId;
+  expiresAt: number;
+  /** The PKCE code verifier sent with the code, so a stolen code alone is useless. */
+  verifier?: string;
+  /**
+   * Hash of a secret given only to the interface that started the sign-in. Its
+   * window brings the secret to open the sign-in, and keeps it in a cookie to
+   * finish it; a forwarded link has neither.
+   */
+  bindingHash?: string;
+  /** When the starting interface's window opened the sign-in; it opens once. */
+  openedAt?: number;
+  /**
+   * When the tracker sent the window back and Critiqs began trading its code
+   * for tokens; the sign-in is kept until they are saved, so disconnecting
+   * meanwhile, which removes it, cancels it.
+   */
+  claimedAt?: number;
+}
+
 export interface FileInfo {
   /** Absent when the upload declared no type. */
   contentType?: string;
@@ -562,6 +710,7 @@ export type ThreadChanges = Partial<
     | "editCount"
     | "statusChangedBy"
     | "statusChangedAt"
+    | "statusChangedByTickets"
     | "reattachment"
     | "textTags"
     | "followersReady"
@@ -593,6 +742,15 @@ export type DeliveryChanges = Partial<
 export type DeveloperSendChanges = Partial<Pick<DeveloperSendRecord, "sentBy" | "reservedAt" | "emailNumber" | "attempts" | "resends">> & { message?: StoredMail | null };
 export type PreferenceChanges = Partial<Pick<PreferenceRecord, "mentionEmails" | "replyEmails" | "mutedProjects">>;
 export type ReadStateChanges = Partial<Pick<ReadStateRecord, "lastReadAt" | "manualUnread">>;
+/** Changes to a tracker account; `null` clears an optional field. */
+export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" | "accountId" | "accountName" | "access" | "attribution" | "connectedAt" | "updatedAt">> & {
+  [K in "site" | "refresh" | "expiresAt" | "refreshLease"]?: TrackerAccountRecord[K] | null;
+};
+/** Changes to a ticket link; `null` clears an optional field. */
+export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
+  [K in "site" | "creationId" | "creatorAccountId" | "linkBack" | "claimToken" | "leaseUntil" | "parked" | "status" | "statusCheckedAt" | "statusChangedAt" | "statusAsOf" | "statusDeleted" | "statusCheckStartedAt" | "statusStale" | "accountId"]?: TicketLinkRecord[K] | null;
+};
+export type TicketSettingsChanges = Partial<Pick<TicketSettingsRecord, "templatesOn" | "templates" | "resolveWhenDone" | "defaults" | "updatedBy" | "updatedAt">>;
 
 export interface Store {
   /** The ID if `raw` is a well-formed ID for that table in this backend, else null. */
@@ -860,5 +1018,46 @@ export interface Store {
     insert(hold: { scope: string; credits: number; expiresAt: number }, now: number): Promise<string>;
     /** Releases a hold; nothing happens if it is gone. */
     delete(id: string): Promise<void>;
+  };
+  /**
+   * Tickets in trackers: people's tracker accounts, threads' ticket links,
+   * projects' ticket settings, and tracker sign-ins in progress. Optional:
+   * a backend without it offers no tickets (the SQLite store).
+   */
+  tickets?: {
+    accounts: {
+      find(userId: string, tracker: TrackerId): Promise<TrackerAccountRecord | null>;
+      /** A person's tracker accounts, by tracker. */
+      list(userId: string): Promise<TrackerAccountRecord[]>;
+      insert(account: New<TrackerAccountRecord>): Promise<string>;
+      patch(id: string, changes: TrackerAccountChanges): Promise<void>;
+      delete(id: string): Promise<void>;
+    };
+    links: {
+      /** The link, or null when `id` isn't one of this backend's link IDs. */
+      get(id: string): Promise<TicketLinkRecord | null>;
+      /** A thread's links in one state only (linked, or still being created), in the order they were added; at most `limit`. */
+      listForThread(threadId: string, state: TicketLinkRecord["state"], limit: number): Promise<TicketLinkRecord[]>;
+      /** Links to one ticket, in any thread, as status updates find them: at most `limit`. */
+      findByExternal(tracker: TrackerId, externalId: string, limit: number): Promise<TicketLinkRecord[]>;
+      /** The link a creation made or is making, in any thread, by its creation ID; null when there is none. */
+      findByCreation(creationId: string): Promise<TicketLinkRecord | null>;
+      insert(link: New<TicketLinkRecord>): Promise<string>;
+      patch(id: string, changes: TicketLinkChanges): Promise<void>;
+      delete(id: string): Promise<void>;
+    };
+    settings: {
+      find(projectId: string): Promise<TicketSettingsRecord | null>;
+      insert(settings: New<TicketSettingsRecord>): Promise<string>;
+      patch(id: string, changes: TicketSettingsChanges): Promise<void>;
+    };
+    signIns: {
+      findByState(state: string): Promise<TrackerSignInRecord | null>;
+      insert(signIn: New<TrackerSignInRecord>): Promise<string>;
+      patch(id: string, changes: Partial<Pick<TrackerSignInRecord, "openedAt" | "claimedAt">>): Promise<void>;
+      delete(id: string): Promise<void>;
+      /** A person's sign-ins under way for a tracker. */
+      listForUser(userId: string, tracker: TrackerId): Promise<TrackerSignInRecord[]>;
+    };
   };
 }

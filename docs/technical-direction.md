@@ -21,8 +21,8 @@ pilot** are implemented in this repository but not yet agreed. Choices marked
 | WorkOS AuthKit | No longer used for sign-in. Agreed for later: enterprise sign-in (SSO) such as Okta, on Critiqs Cloud only, when a customer needs it ([Sign-in and organizations](#sign-in-and-organizations)). |
 | Autumn | Built, off unless turned on: Critiqs Cloud's billing on Stripe. Holds the plans, prices, checkout, and the `ai_credits` meter. Unused elsewhere. |
 
-Supabase and other Postgres hosts are not planned; they can be added later as
-another backend if teams ask. Supported React/browser versions and routing
+**Agreed (2026-11-23), not built:** Postgres replaces SQLite as the
+self-hosted database inside the host app's server. Supported React/browser versions and routing
 support remain open. The package builds browser ES modules and public
 TypeScript declarations, with React and React DOM as peer dependencies.
 
@@ -2271,6 +2271,210 @@ and can fail when elements it owns are removed.
   5. `/critiqs/config` reports `mockups: true`; components hide Mockup mode
   without it, so the embedded SQLite server, which doesn't build mockups yet,
   keeps working unchanged.
+
+## Tickets
+
+**Agreed (2026-11-25), partly built.** Reviewers create tickets in Linear, GitHub
+Issues, or Jira Cloud from a thread, or link a thread to an existing ticket,
+using their own tracker accounts. Behavior and order of work are in
+[tickets](tickets.md).
+
+**Built:** the ticket types and ticket text in `@critiqs/core`, the optional
+`tickets` part of `Store` on Convex with its contract tests, tracker token
+encryption, and Your trackers for Linear on Convex: Linear's adapter checks
+whose token it is, Linear sign-in (OAuth with PKCE) runs in a window served by
+the backend, refreshes run one at a time, and `/critiqs/config` reports
+`tickets`. Also built, for Linear on Convex: creating a ticket from a thread,
+linking an existing one, and unlinking, with the rules in
+`packages/server/src/tickets/links.ts` and the adapter's search, create, link
+back (a URL attachment), comment, status, and capture upload (Linear's signed
+upload). Also built, for Linear on Convex: drafting with Critiqs AI, the
+project's ticket templates, and labels suggested from tags, with the rules in
+`packages/server/src/tickets/drafts.ts` and the adapter's `templates`,
+`template`, and `labels`; and status from Linear's webhooks and from the check
+when a thread opens, and **Resolve when done**, with the rules in
+`packages/server/src/tickets/status.ts`. The storage, token, sign-in, calls to
+trackers, webhooks, drafting, and compatibility items below describe them.
+
+**Proposed:** the technical choices.
+
+- **One interface per tracker.** `@critiqs/core` defines the ticket-link type
+  and builds the ticket text from the thread's export (`ExportThread`), as
+  Markdown, with links on the project's review address when it has one.
+  `@critiqs/server` holds each tracker's adapter, since they run only on
+  servers: search, create, link, read status, and read a webhook. Jira's
+  adapter converts the text to Atlassian Document Format.
+- **Storage.** Three new records behind the shared `Store` interface, with
+  matching contract tests: a person's tracker accounts, a thread's ticket links
+  (tracker, ticket ID, key, URL, title, last known status and when, who linked
+  it, and whether Critiqs created it), and a project's ticket settings
+  (templates turned on, default destinations, **Resolve when done**). They are
+  an optional part of `Store`, so the SQLite store needn't implement them
+  before Postgres replaces it. Convex first; Postgres with the Postgres store.
+- **Tokens.** Stored only encrypted, as AI provider keys are
+  (`packages/server/src/ai/secrets.ts`), under the same operator key but with
+  their own derivation and a binding to the person and tracker, so a token
+  can't move to anyone else. Connecting a tracker needs that operator key to be
+  set, as saving an AI key does. Linear, Jira, and GitHub Apps replace the
+  refresh token on each use, so refreshes for one person and tracker run one at
+  a time.
+- **Sign-in to trackers.** OAuth pages served by the backend open in a window,
+  as Critiqs sign-in does. Only the interface that starts a sign-in gets its
+  one-time binding secret, and it posts the secret into the window, never in
+  an address. The backend then keeps it in a cookie for that sign-in alone and
+  finishes the sign-in only in that browser, so a forwarded link can't save
+  someone else's tracker account under the person who started. That still
+  doesn't prove who finishes: Critiqs keeps no session in the window, and
+  anything the component holds can be copied, so a site could start a sign-in
+  on its own Critiqs account and lead a visitor through the tracker's consent.
+  So a sign-in is saved only when the tracker account's email equals the
+  starting Critiqs account's verified email, compared as Critiqs sign-in
+  compares addresses (trimmed and lowercased). Otherwise its tokens are
+  dropped, and the window names the tracker account used, never the Critiqs
+  account's address. Pasted tokens need no such check. Critiqs Cloud registers one Linear app, one
+  Atlassian app, and one GitHub App. On GitHub, creating and searching use the
+  app's user access token, so the issue is the person's and they reach only
+  repositories both they and the app can. Self-hosted operators may register
+  their own apps; without them, people paste personal tokens.
+- **Calls to trackers.** On Convex they run in actions, never mutations. A
+  pending link is saved before the tracker is called, so a retry knows a
+  creation was started. When the outcome is unknown, such as a timeout or a
+  server stopping before it saved the ticket's ID, Critiqs must find out
+  whether the ticket exists before trying again; whether by the tracker's own
+  duplicate protection or by searching for the thread's link is open. Built
+  for Linear: each creation is named by the Create dialog's submission ID, a
+  UUID v4 the dialog sends with each of its tries. Linear takes it as the new
+  issue's ID, and the link keeps it once linked, so a retry of a submission
+  that already finished returns its link. A submission belongs to one person,
+  thread, and tracker account, and a person has at most one unfinished
+  creation per thread and account: the draft names it, the dialog submits
+  under its ID instead of a new one, and a new submission is refused while it
+  is unfinished. One attempt
+  at a time holds a creation, under a 60-second lease taken in a mutation;
+  another attempt meanwhile is told it is still being created and doesn't
+  call Linear. The holder's requests stop 10 seconds before the lease ends and
+  never start after, and only the holder finishes or releases the creation.
+  The adapter reads a write's own answer before its errors, so a write Linear
+  says it made is never a refusal, and an issue made with errors in the answer
+  is an unknown outcome. It tells a refusal Linear answered with (input it
+  turned down, sign-in, rate limit, or `success: false`), which removes the
+  creation and shows Linear's reason, from an unknown outcome (no answer, a
+  server error), which leaves it idle. Only the creator's own requests
+  recover a creation, with their own token and the tracker account and link
+  back recorded when they submitted it, and another connected account is
+  refused. Every call to a tracker names the tracker account its first step
+  checked, and the token is read only for that account, in the transaction
+  that reads it; a person who connected another account meanwhile is told
+  their connection changed, and the tracker isn't called. Whether the person
+  may create tickets from the thread is checked before anything calls Linear.
+  The submission's next try, a retry or the reopened dialog, looks the issue
+  up by its ID, archived issues included: found, it is linked, even past the
+  thread's 20 tickets, with its link back added again (Linear keeps one
+  attachment per address), or dropped into the thread's link to that issue if
+  it has one; not found, it is created under the same ID, which Linear won't
+  take twice. A creation idle for 10 minutes is parked: it stops counting
+  toward the thread's 20 tickets but keeps its ID until its creator finishes
+  it. A lookup Linear refuses for the creator's token parks it at once, with a
+  message to connect Linear again. A thread
+  holds at most 40 ticket links of any kind, which is also how many of its
+  tickets are read, so all of them show. A link back Linear doesn't add when
+  the ticket is created is saved as missing, and its creator can add it again
+  (`tickets:addLinkBack`), with the recorded address and title. Linking holds
+  the thread's place for the ticket in a mutation before anything is written
+  to Linear: a pending link to that ticket, one per ticket, counted toward the
+  20 as a creation is, so two links can't both write to Linear for the last
+  place. It then adds the link back and saves the link; a refusal frees the
+  place, and a link back with no answer keeps it, idle then parked, until the
+  ticket is linked again. Only the call that saved the link adds the optional
+  summary comment, so a repeated or retried link comments at most once. A self-hosted server, which may run on
+  a serverless host with no background work, makes the call within the
+  request, with the same handling.
+- **Webhooks.** New HTTP routes on Convex and the self-hosted server, each
+  checking that a call came from the tracker (a signature, or a secret in the
+  registered address, as each tracker allows) before using it. Convex renews
+  Jira's registered webhooks on a schedule before they expire; a self-hosted
+  server without background work renews them when tickets are used. Where no
+  webhook can arrive, opening a thread checks its tickets' status, at most once
+  every few minutes. Built for Linear on Convex: `POST
+  /trackers/linear/webhook` reads the raw body, checks `Linear-Signature` (hex
+  HMAC-SHA256 under `CRITIQS_LINEAR_WEBHOOK_SECRET`, compared in constant
+  time), then that the signed `webhookTimestamp` is within a minute of now,
+  before using anything in it; it answers 401 otherwise, 404 when the secret
+  isn't set, and 200 for events it ignores, so Linear doesn't retry them.
+  Issue create, update, and remove events save the issue's status, mapped as
+  the adapter maps Linear's state types (a removed issue is **Deleted**,
+  canceled), on every link to it in the delivery's workspace, in one
+  mutation. Each link keeps the tracker's time its status is as of (the
+  issue's `updatedAt`), and an update older than that changes nothing, so
+  replays and Linear's retries (1 minute, 1 hour, 6 hours) are safe. The
+  check when a thread opens is `ticketStatus:checkStatus`: for links whose
+  status is over 5 minutes old and whose last check started over 5 minutes
+  ago, it records the start and schedules one action per link. The action
+  reads the link's linker and the tracker account recorded on the link
+  (`accountId`, saved when it was linked or created) and uses only that
+  account's token; a person disconnected or connected as another account
+  marks the status stale without calling Linear, as does Linear refusing the
+  token or not finding the issue for them. Passing failures change nothing.
+  **Resolve when done** runs in the same mutation that saves a status: when
+  the update made a link done or canceled and every linked ticket of its open
+  thread now is, and the project has it on, the thread is resolved with
+  `statusChangedByTickets` set instead of a person, and thread answers say
+  `resolvedByTickets`. A person's later status change clears it.
+- **Drafting and templates.** A project's ticket settings record whether its
+  templates are on (`templatesOn`, absent meaning off) and which it offers,
+  by tracker, destination, and template ID; only its owners read or change
+  them. Templates are read from the tracker for each draft (Linear's
+  `templateSearch`, team issue templates, their Markdown `content`), never
+  copied. The Create dialog asks `tickets:options` for a destination's
+  offered templates and the labels matching the thread's tags (at most five,
+  never two of one single-select Linear label group, so the suggestion as it
+  is always creates);
+  `tickets:draft` fills the chosen template without AI; `ai:draftTicket` asks
+  Critiqs AI, as a mockup turn does: one mutation checks the person, the
+  template, the per-minute limit, and the AI usage rule's connection, then
+  the action reads the thread's export and the template, asks the model
+  through `askPaid` for a structured `{ title, sections }`, plain text only:
+  each section `{ heading, text, items, numbered }`, its heading one of the
+  outline's names (the schema's `enum`). The outline is the template's
+  top-level headings, read by `markdownBlocks` (a port of commonmark.js's
+  block parser in `@critiqs/core`), or Critiqs's standard sections. The
+  answer is parsed at that boundary into `PlainText` pieces matched to the
+  outline by exact name, and `aiTicketText` writes the Markdown: the
+  outline's headings, the pieces with ASCII punctuation escaped, and the
+  thread's link. `ticketBody` sends the person's text unchanged, adding a
+  closing fence only when `markdownBlocks` finds it ends inside a top-level
+  code fence. The
+  model reads only the messages (authors, times, text), tags, screen, target,
+  and scope, never the page's address, view state, or the thread's link, which
+  can carry a prototype's sign-in token; the template's name and text and the
+  thread go inside the prompt's data block. Any failure there returns the
+  draft filled without AI with a notice, so creating never depends on AI.
+  Creating checks that a named template is one the project offers in that
+  destination before the tracker is asked to create it (a retry first looks
+  for the issue an earlier try made, whatever the project offers now), and
+  sends it to Linear as `templateId` with the chosen `labelIds`.
+- **Compatibility.** The backend reports `tickets` in `/critiqs/config`, with
+  which trackers it offers and whether each uses sign-in or a pasted token,
+  `threadTickets: true` where threads can create and link tickets;
+  `drafting: true` where the Create dialog drafts with AI and templates and
+  owners choose templates; and `ticketStatus: true` where opening a thread
+  checks its tickets' status and projects have **Resolve when done**. Older
+  backends leave these out: the component sends a template or labels only to
+  a backend that reports `drafting`, and calls `ticketStatus:*` only with
+  `ticketStatus`. The component shows Your
+  trackers only with `tickets`, and **Create ticket…** and **Link ticket…**
+  only with `threadTickets`, through an optional `tickets` part of its
+  transport, as Mockup mode does with `mockups`. Linked tickets show wherever
+  thread answers carry them.
+
+Settings for tickets on a Convex deployment (built: Linear):
+
+| Setting (Convex deployment) | Purpose |
+| --- | --- |
+| `CRITIQS_AI_ENCRYPTION_KEY` | Encrypts tracker tokens too, under its own derived key. Without it, `/critiqs/config` reports no `tickets` and Your trackers isn't offered |
+| `CRITIQS_LINEAR_CLIENT_ID`, `CRITIQS_LINEAR_CLIENT_SECRET` | The operator's Linear OAuth app, both or neither. Its callback address is `<deployment site>/trackers/linear/callback`. Without them, people paste a Linear API key |
+| `CRITIQS_LINEAR_WEBHOOK_SECRET` | The signing secret of the operator's Linear app's webhook. In the app's settings, turn on webhooks with the address `<deployment site>/trackers/linear/webhook` and the Issues events, then copy its signing secret here. Linear then sends each workspace's issue changes once someone there connects through Linear sign-in; tickets linked with pasted API keys get webhooks only from such a workspace. Without it, the webhook route refuses every call and status comes from the check when a thread opens |
+| `CRITIQS_LINEAR_API_URL`, `CRITIQS_LINEAR_APP_URL` | Tests only: Linear's API and sign-in addresses, pointed at a local stand-in. Never set them on a real deployment |
 
 ## Shareable links
 

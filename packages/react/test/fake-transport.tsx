@@ -1,5 +1,6 @@
 import type {
   AiChoiceView,
+  TrackerDisconnected,
   BillingChange,
   BillingPlan,
   BillingStatus,
@@ -26,11 +27,26 @@ import type {
   SearchScope,
   ThreadDetail,
   ThreadSummary,
+  NewTicket,
+  TicketDestination,
+  TicketDraft,
+  TicketDraftFormat,
+  TicketDraftOptions,
+  TicketTemplateSettings,
+  TrackerTemplateGroup,
+  AiTicketDraft,
+  AiTicketDraftInput,
+  TicketLinkInput,
+  TicketLinkView,
+  TicketSearchResult,
+  TicketSettingsView,
+  TrackerAccountView,
+  TrackerId,
+  TrackerSignInStart,
 } from "@critiqs/core";
 import { type ReactNode, useState } from "react";
-import { loadExport } from "../src/export-pages.ts";
-import type { BillingTransport, CritiqsTransport, InviteAnswer, MockupReply, MockupTransport, PagedList, QueryState } from "../src/transport.ts";
-import type { MockupListScope } from "@critiqs/core";
+import type { BillingTransport, CritiqsTransport, InviteAnswer, MockupReply, MockupTransport, PagedList, QueryState, TicketTransport } from "../src/transport.ts";
+import { loadExport, type MockupListScope } from "@critiqs/core";
 
 /** Data a fake backend serves; `undefined` means still loading. Tests may change it between renders. */
 export interface FakeBackend {
@@ -88,6 +104,8 @@ export interface FakeBackend {
   listAiModels?: (draft?: AiModelListDraft) => Promise<AiModelListResult>;
   /** Which connection the reviewer's requests use, and its models; `undefined` means still loading. */
   aiChoice?: AiChoiceView;
+  /** Why the connection's models couldn't load; set, `aiChoice` is ignored. */
+  aiChoiceError?: string;
   /** The reviewer's email choices; mention emails on and nothing muted by default, as from a backend without reply emails. */
   notificationSettings?: NotificationSettings;
   /** The reviewer's organizations; none by default. */
@@ -98,8 +116,66 @@ export interface FakeBackend {
   organizationChange?: (name: string, args: unknown) => Promise<unknown>;
   /** A backend that takes payment; none by default, as on every backend but Critiqs Cloud. */
   billing?: FakeBilling;
+  /** A backend that stores tickets, with the reviewer's tracker accounts; none by default, as on the embedded server. */
+  trackers?: FakeTrackers;
   /** Changes the interface asked for, by name, for assertions. */
   calls?: { name: string; args: unknown }[];
+}
+
+/** The reviewer's tracker accounts a fake backend keeps; `undefined` means still loading. */
+export interface FakeTrackers {
+  accounts: TrackerAccountView[] | undefined;
+  /** Answers a pasted token; by default it connects as Dana Smith in Acme. */
+  connect?: (tracker: TrackerId, token: string) => Promise<TrackerAccountView>;
+  /** The started sign-in; by default one on the backend. */
+  signIn?: () => Promise<TrackerSignInStart>;
+  /** What disconnecting did at the tracker; by default it ended a sign-in there and kept a pasted token. */
+  disconnected?: TrackerDisconnected;
+  /** Where tickets go; by default two Linear teams. */
+  destinations?: (tracker: TrackerId) => Promise<TicketDestination[]>;
+  /** Search results; by default none. */
+  search?: (tracker: TrackerId, query: string) => Promise<TicketSearchResult[]>;
+  /** A thread's draft, in the format asked for; by default a short one, attribution on, or a template's when one is named. */
+  draft?: (threadId: string, tracker: TrackerId, format?: TicketDraftFormat) => Promise<TicketDraft>;
+  /** What the Create dialog offers for a destination; by default nothing. */
+  options?: (destinationId: string) => Promise<TicketDraftOptions>;
+  /** Answers drafting with Critiqs AI; by default a short drafted one. */
+  aiDraft?: (input: AiTicketDraftInput) => Promise<AiTicketDraft>;
+  /** The project's ticket templates; by default off. */
+  templateSettings?: TicketTemplateSettings;
+  /** The owner's teams' templates; by default two teams' worth. */
+  trackerTemplates?: () => Promise<TrackerTemplateGroup[]>;
+  /** Answers creating a ticket; by default ENG-1 in Triage. */
+  create?: (input: NewTicket) => Promise<TicketLinkView>;
+  /** Answers linking a ticket; by default the chosen ticket, linked. */
+  link?: (input: TicketLinkInput) => Promise<TicketLinkView>;
+  /** Answers adding a ticket's link back; by default the ticket, with its link back. */
+  addLinkBack?: (linkId: string) => Promise<TicketLinkView>;
+  /** Projects' ticket settings, by project ID; by default Resolve when done off. */
+  settings?: Record<string, TicketSettingsView>;
+  /** Answers turning Resolve when done on or off; by default it saves. */
+  setResolveWhenDone?: (projectId: string, on: boolean) => Promise<void>;
+}
+
+/** A linked ticket as a fake backend answers it. */
+export function fakeTicketView(changes: Partial<TicketLinkView> = {}): TicketLinkView {
+  return {
+    _id: "link-1",
+    threadId: "thread",
+    tracker: "linear",
+    externalId: "issue-1",
+    key: "ENG-1",
+    url: "https://linear.app/acme/issue/eng-1",
+    title: "Department is wrong",
+    status: { label: "Triage", category: "open" },
+    statusCheckedAt: 1,
+    createdFromCritiqs: true,
+    linkedByName: "Dana",
+    linkedAt: 1,
+    canUnlink: true,
+    canAddLinkBack: false,
+    ...changes,
+  };
 }
 
 /** An in-memory transport, so interface tests need no backend client. */
@@ -249,9 +325,114 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
       backend.calls?.push({ name: "listPersonalAiModels", args: { draft } });
       return backend.listAiModels?.(draft) ?? Promise.reject(new Error("No model list"));
     },
-    useAiChoice: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.aiChoice)),
+    useAiChoice: (projectId) =>
+      projectId === null ? { status: "loading" } : backend.aiChoiceError !== undefined ? { status: "error", code: "unavailable", message: backend.aiChoiceError } : ready(backend.aiChoice),
     ...(backend.billing === undefined ? {} : { billing: fakeBilling(backend.billing, (name, args) => backend.calls?.push({ name, args })) }),
     ...(backend.mockups === undefined ? {} : { mockups: fakeMockups(backend.mockups, (name, args) => backend.calls?.push({ name, args })) }),
+    ...(backend.trackers === undefined ? {} : { tickets: fakeTickets(backend.trackers, (name, args) => backend.calls?.push({ name, args })) }),
+  };
+}
+
+/** Your trackers' backend over a fake's accounts; changes apply to `trackers.accounts`, shown after the next render. */
+function fakeTickets(trackers: FakeTrackers, record: (name: string, args: unknown) => void): TicketTransport {
+  const replace = (account: TrackerAccountView) => (trackers.accounts = [...(trackers.accounts ?? []).filter((each) => each.tracker !== account.tracker), account]);
+  return {
+    useTrackerAccounts: (enabled) => (enabled && trackers.accounts !== undefined ? { status: "ready", data: trackers.accounts } : { status: "loading" }),
+    connectTrackerWithToken: async (tracker, token) => {
+      record("connectTrackerWithToken", { tracker, token });
+      const account = trackers.connect
+        ? await trackers.connect(tracker, token)
+        : { tracker, method: "token" as const, accountName: "Dana Smith", site: "Acme", connectedAt: 1, attribution: true };
+      replace(account);
+      return account;
+    },
+    startTrackerSignIn: async (tracker) => {
+      record("startTrackerSignIn", { tracker });
+      return (await trackers.signIn?.()) ?? { url: `https://backend.convex.site/trackers/${tracker}/start`, state: "s1", binding: "secret-1" };
+    },
+    disconnectTracker: async (tracker) => {
+      record("disconnectTracker", { tracker });
+      const account = (trackers.accounts ?? []).find((each) => each.tracker === tracker);
+      trackers.accounts = (trackers.accounts ?? []).filter((each) => each.tracker !== tracker);
+      return trackers.disconnected ?? (account === undefined ? "none" : account.method === "oauth" ? "ended" : "kept");
+    },
+    setTrackerAttribution: async (tracker, on) => {
+      record("setTrackerAttribution", { tracker, on });
+      trackers.accounts = (trackers.accounts ?? []).map((each) => (each.tracker === tracker ? { ...each, attribution: on } : each));
+    },
+    listTicketDestinations: async (tracker) =>
+      (await trackers.destinations?.(tracker)) ?? [
+        { id: "team-des", name: "Design", key: "DES" },
+        { id: "team-eng", name: "Engineering", key: "ENG" },
+      ],
+    searchTickets: async (tracker, query) => {
+      record("searchTickets", { tracker, query });
+      return (await trackers.search?.(tracker, query)) ?? [];
+    },
+    ticketDraft: async (threadId, tracker, format) => {
+      record("ticketDraft", { threadId, tracker, ...format });
+      return (
+        (await trackers.draft?.(threadId, tracker, format)) ?? {
+          title: "Department is wrong",
+          body: format?.templateId == null ? "> Department is wrong\n" : `## Summary\n\n> Department is wrong\n\n## Steps (${format.templateId})\n`,
+          createdFromCritiqs: true,
+          resumeSubmissionId: null,
+        }
+      );
+    },
+    ticketDraftOptions: async (threadId, tracker, destinationId) => {
+      record("ticketDraftOptions", { threadId, tracker, destinationId });
+      return (await trackers.options?.(destinationId)) ?? { templates: [], labels: [] };
+    },
+    draftTicketWithAi: async (input) => {
+      record("draftTicketWithAi", input);
+      return (await trackers.aiDraft?.(input)) ?? { title: "Department shows the wrong team", body: "Drafted by AI\n", drafted: "ai", notice: null };
+    },
+    useTicketTemplateSettings: (projectId) => (projectId === null ? { status: "loading" } : { status: "ready", data: trackers.templateSettings ?? { on: false, templates: [] } }),
+    saveTicketTemplateSettings: async (projectId, settings) => {
+      record("saveTicketTemplateSettings", { projectId, ...settings });
+      trackers.templateSettings = settings;
+      return settings;
+    },
+    listTrackerTemplates: async (projectId, tracker) => {
+      record("listTrackerTemplates", { projectId, tracker });
+      return (
+        (await trackers.trackerTemplates?.()) ?? [
+          { destination: { id: "team-des", name: "Design", key: "DES" }, templates: [{ id: "tpl-copy", name: "Copy change" }] },
+          {
+            destination: { id: "team-eng", name: "Engineering", key: "ENG" },
+            templates: [
+              { id: "tpl-bug", name: "Bug report" },
+              { id: "tpl-feature", name: "Feature request" },
+            ],
+          },
+        ]
+      );
+    },
+    createTicket: async (input) => {
+      record("createTicket", input);
+      return (await trackers.create?.(input)) ?? fakeTicketView({ threadId: input.threadId });
+    },
+    linkTicket: async (input) => {
+      record("linkTicket", input);
+      return (await trackers.link?.(input)) ?? fakeTicketView({ threadId: input.threadId, createdFromCritiqs: false });
+    },
+    addTicketLinkBack: async (linkId) => {
+      record("addTicketLinkBack", { linkId });
+      return (await trackers.addLinkBack?.(linkId)) ?? fakeTicketView({ _id: linkId });
+    },
+    unlinkTicket: async (linkId) => {
+      record("unlinkTicket", { linkId });
+    },
+    checkTicketStatus: async (threadId) => {
+      record("checkTicketStatus", { threadId });
+    },
+    useTicketSettings: (projectId, enabled) => (enabled ? { status: "ready", data: trackers.settings?.[projectId] ?? { resolveWhenDone: false } } : { status: "loading" }),
+    setResolveWhenDone: async (projectId, on) => {
+      record("setResolveWhenDone", { projectId, on });
+      await trackers.setResolveWhenDone?.(projectId, on);
+      trackers.settings = { ...trackers.settings, [projectId]: { resolveWhenDone: on } };
+    },
   };
 }
 

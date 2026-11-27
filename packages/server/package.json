@@ -16,7 +16,12 @@
     "./ai-providers": "./src/ai/providers.ts",
     "./contract-ai": "./test/contract-ai.ts",
     "./contract-onboarding": "./test/contract-onboarding.ts",
-    "./contract-addresses": "./test/contract-addresses.ts"
+    "./contract-addresses": "./test/contract-addresses.ts",
+    "./contract-tickets": "./test/contract-tickets.ts",
+    "./contract-ticket-links": "./test/contract-ticket-links.ts",
+    "./contract-ticket-drafts": "./test/contract-ticket-drafts.ts",
+    "./contract-ticket-status": "./test/contract-ticket-status.ts",
+    "./linear-standin": "./test/linear-standin.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

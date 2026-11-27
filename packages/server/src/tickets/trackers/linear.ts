@@ -1,0 +1,612 @@
+import { type TicketDestination, type TicketStatus, type TicketStatusCategory, TRACKER_LIMITS, type TrackerTemplateGroup, type WebAddress, webAddress } from "@critiqs/core";
+import { CritiqsError, fail } from "../../errors.ts";
+import {
+  checkedAdapter,
+  type CreatedTicket,
+  type CreateOutcome,
+  type SignInTokens,
+  type TicketImage,
+  type TicketStatusUpdate,
+  type TrackerAdapter,
+  type TrackerEndpoint,
+  type TrackerEndpointOptions,
+  type TicketPlace,
+  type TrackerIdentity,
+  type TrackerLabel,
+  TrackerRefusal,
+  type TrackerTemplate,
+  type TrackerToken,
+  trackerEndpoint,
+  trackerText,
+  trackerWebOrigins,
+} from "./index.ts";
+
+// Linear, through its GraphQL API (https://linear.app/developers). A pasted
+// personal API key is sent as it is; a sign-in's access token as a bearer
+// token. Sign-in is OAuth 2 with PKCE; Linear rotates refresh tokens, so each
+// one is used once.
+
+/** Linear's API, which also issues sign-in tokens. */
+export const LINEAR_API_URL = "https://api.linear.app";
+/** Where people sign in to Linear and allow Critiqs. */
+export const LINEAR_APP_URL = "https://linear.app";
+/** Where a person creates a personal API key. */
+export const LINEAR_API_KEY_PAGE = "https://linear.app/settings/account/security";
+
+/** An operator's Linear OAuth app. */
+export interface LinearApp {
+  clientId: string;
+  clientSecret: string;
+}
+
+const VERIFY = "query CritiqsVerify { viewer { id name email } organization { id name } }";
+/** What Critiqs reads of an issue. */
+const ISSUE = "id identifier title url state { name type } updatedAt team { organization { id } }";
+const TEAMS = "query CritiqsTeams { teams(first: 250) { nodes { id name key } } }";
+// Archived issues too: Linear's lists leave them out unless asked, and an issue
+// archived since it was created or linked is still that ticket.
+const ISSUE_BY_ID = `query CritiqsIssue($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { ${ISSUE} } } }`;
+const ISSUE_BY_KEY = `query CritiqsIssueByKey($team: String!, $number: Float!) { issues(filter: { team: { key: { eqIgnoreCase: $team } }, number: { eq: $number } }, first: 1) { nodes { ${ISSUE} } } }`;
+// With where it is now: an issue moved to another team keeps its ID and gets a new key and page.
+const ISSUE_STATUS = "query CritiqsIssueStatus($id: ID!) { issues(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { id identifier title url state { name type } updatedAt } } }";
+const SEARCH = `query CritiqsSearch($term: String!, $teamId: String) { searchIssues(term: $term, teamId: $teamId, first: 10) { nodes { ${ISSUE} } } }`;
+const CREATE = `mutation CritiqsCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { ${ISSUE} } } }`;
+// Linear keeps one attachment per issue and address: creating it again updates
+// it (https://linear.app/developers/attachments), so the link back is safe to repeat.
+const LINK_BACK = "mutation CritiqsLinkBack($input: AttachmentCreateInput!) { attachmentCreate(input: $input) { success } }";
+const COMMENT = "mutation CritiqsComment($input: CommentCreateInput!) { commentCreate(input: $input) { success } }";
+// Issue templates that belong to a team; workspace templates (no team) aren't offered yet.
+// `content` is the template's text as Markdown, its form fields as placeholders.
+const TEMPLATE_FIELDS = "id name team { id name key }";
+const TEMPLATES = `query CritiqsTemplates { templateSearch(filter: { type: { eq: "issue" }, team: { null: false } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
+const TEAM_TEMPLATES = `query CritiqsTeamTemplates($team: ID!) { templateSearch(filter: { type: { eq: "issue" }, team: { id: { eq: $team } } }, first: 250) { ${TEMPLATE_FIELDS} } }`;
+const TEMPLATE = `query CritiqsTemplate($id: ID!) { templateSearch(filter: { id: { eq: $id }, type: { eq: "issue" }, team: { null: false } }, first: 1) { ${TEMPLATE_FIELDS} content } }`;
+// The team's labels and the workspace's, leaving out label groups, which issues can't take, with each one's group:
+// an issue takes at most one label of a single-select group, which a group without a type is.
+const LABELS =
+  "query CritiqsLabels($team: ID!) { issueLabels(first: 250, filter: { isGroup: { eq: false }, or: [{ team: { id: { eq: $team } } }, { team: { null: true } }] }) { nodes { id name parent { id groupType } } } }";
+const UPLOAD = "mutation CritiqsUpload($contentType: String!, $filename: String!, $size: Int!) { fileUpload(contentType: $contentType, filename: $filename, size: $size) { success uploadFile { uploadUrl assetUrl headers { key value } } } }";
+
+/** A Linear issue key, such as `ENG-123`: the team's key and the issue's number. */
+const KEY_PATTERN = /^([A-Za-z][A-Za-z0-9_]*)-(\d{1,9})$/;
+/** Linear accepts an issue ID chosen by the caller only in UUID v4 form. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Whether two UUIDs are the same, as Linear answers them in lower case. */
+const sameId = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+function endpointOf(endpoint: TrackerEndpointOptions): TrackerEndpoint {
+  return trackerEndpoint(endpoint, LINEAR_API_URL);
+}
+
+/** Linear's adapter: issues in a team, the thread's link as an attachment, and the capture uploaded into the issue's text. */
+export function linearAdapter(endpoint: TrackerEndpointOptions = {}): TrackerAdapter {
+  const to = endpointOf(endpoint);
+  const issueById = async (token: TrackerToken, id: string) => firstIssue(await graphql(to, token, ISSUE_BY_ID, { id }), "issues");
+  return checkedAdapter({
+    verify: async (token) => parseIdentity(await graphql(to, token, VERIFY)),
+    destinations: async (token) => parseTeams(await graphql(to, token, TEAMS)),
+    search: async (token, query, destinationId) => {
+      const term = query.trim();
+      const key = KEY_PATTERN.exec(term);
+      if (key !== null) {
+        const found = firstIssue(await graphql(to, token, ISSUE_BY_KEY, { team: key[1], number: Number(key[2]) }), "issues");
+        if (found !== null) return [found];
+      }
+      return issueList(await graphql(to, token, SEARCH, { term, teamId: destinationId ?? null }), "searchIssues");
+    },
+    get: async (token, externalId) => {
+      const issue = await issueById(token, externalId);
+      if (issue === null) fail("not-found", "Linear can't find this issue, or you can't see it.");
+      return issue;
+    },
+    create: async (token, input): Promise<CreateOutcome> => {
+      let written: Written;
+      try {
+        written = await write(to, token, CREATE, {
+          input: {
+            ...(UUID_PATTERN.test(input.creationId) ? { id: input.creationId } : {}),
+            teamId: input.destinationId,
+            title: input.title,
+            description: input.body,
+            // Linear applies the template's other defaults; the title and text given here take precedence, and labels add to its own.
+            ...(input.templateId === null ? {} : { templateId: input.templateId }),
+            ...(input.labels.length === 0 ? {} : { labelIds: input.labels }),
+          },
+        }, "issueCreate", "issue");
+      } catch (error) {
+        if (error instanceof TrackerRefusal) return { status: "refused", error };
+        return { status: "unknown", error: error instanceof CritiqsError ? error : unexpected("no answer") };
+      }
+      // Linear answered that it made nothing.
+      if (!written.done) return { status: "refused", error: new TrackerRefusal("invalid", "Linear didn't create the issue. Try again, or choose another team.") };
+      // Made, but Critiqs can't read all of it: the next attempt finds it by the creation's ID.
+      const ticket = parseIssue(written.payload.issue);
+      if (ticket === null || !written.clean) return { status: "unknown", error: unexpected(ticket === null ? "issue unreadable" : "errors with the issue") };
+      // The issue Critiqs named is the one it made: an answer about another issue is never linked, and the next attempt looks again.
+      return sameId(ticket.externalId, input.creationId) || !UUID_PATTERN.test(input.creationId) ? { status: "created", ticket } : { status: "unknown", error: unexpected("another issue") };
+    },
+    // The creation's ID became the issue's ID, so the issue is found by it alone, and only that issue is it.
+    findCreated: async (token, created) => {
+      if (!UUID_PATTERN.test(created.creationId)) return null;
+      const found = await issueById(token, created.creationId);
+      if (found !== null && !sameId(found.externalId, created.creationId)) throw unexpected("another issue");
+      return found;
+    },
+    linkBack: async (token, ticket, link) => {
+      const written = await write(to, token, LINK_BACK, { input: { issueId: ticket.externalId, url: link.url, title: link.title } }, "attachmentCreate");
+      if (!written.done) throw new TrackerRefusal("invalid", "Linear didn't add the link back to the thread.");
+    },
+    comment: async (token, ticket, body) => {
+      const written = await write(to, token, COMMENT, { input: { issueId: ticket.externalId, body } }, "commentCreate");
+      if (!written.done) throw new TrackerRefusal("invalid", "Add it in Linear instead.");
+    },
+    status: async (token, ticket) => {
+      const data = await graphql(to, token, ISSUE_STATUS, { id: ticket.externalId });
+      const nodes = isRecord(data) && isRecord(data.issues) && Array.isArray(data.issues.nodes) ? data.issues.nodes : null;
+      if (nodes === null) throw unexpected("no issues");
+      const issue = nodes.find((node) => isRecord(node) && node.id === ticket.externalId);
+      if (!isRecord(issue)) fail("not-found", "Linear can't find this issue, or you can't see it.");
+      const place = text(issue.identifier) && text(issue.url) && typeof issue.title === "string" ? { key: issue.identifier, url: issue.url, title: issue.title } : undefined;
+      return { externalId: String(issue.id), status: parseStatus(issue.state), asOf: timeOf(issue.updatedAt), ...(place === undefined ? {} : { place }) };
+    },
+    uploadImage: async (token, image) => uploadImage(to, token, image),
+    templates: async (token, destinationId) =>
+      parseTemplateGroups(destinationId === undefined ? await graphql(to, token, TEMPLATES) : await graphql(to, token, TEAM_TEMPLATES, { team: destinationId })),
+    template: async (token, templateId) => parseTemplate(await graphql(to, token, TEMPLATE, { id: templateId })),
+    labels: async (token, destinationId) => parseLabels(await graphql(to, token, LABELS, { team: destinationId })),
+  }, linearPlace(trackerWebOrigins(endpoint, LINEAR_APP_URL)));
+}
+
+/**
+ * Where Linear's issues are: `<Linear>/<workspace>/issue/<key>`, with the
+ * issue's title after it. Critiqs doesn't hold the workspace's name in the
+ * address, so an issue's address is kept when it is on Linear's own address
+ * and names the issue's key.
+ */
+function linearPlace(origins: string[]): TicketPlace {
+  return (ticket) => {
+    const url = webAddress(ticket.url);
+    if (url === null) return null;
+    const address = new URL(url);
+    const [workspace, kind, key] = address.pathname.split("/").slice(1);
+    // Compared as Critiqs keeps keys, cut to their limit.
+    const named = key === undefined || /%(?![0-9A-Fa-f]{2})/.test(key) ? "" : trackerText(decodeURIComponent(key), TRACKER_LIMITS.key);
+    return origins.includes(address.origin) && workspace !== undefined && workspace !== "" && kind === "issue" && named.toLowerCase() === ticket.key.toLowerCase() ? url : null;
+  };
+}
+
+/** Linear's state types, as Critiqs's status categories. */
+export function linearStatusCategory(type: string): TicketStatusCategory {
+  switch (type) {
+    case "triage":
+    case "backlog":
+    case "unstarted":
+      return "open";
+    case "started":
+      return "started";
+    case "completed":
+      return "done";
+    // Linear files duplicates under Canceled.
+    case "canceled":
+    case "duplicate":
+      return "canceled";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * Uploads an image to Linear's storage: Linear signs an upload address, the
+ * image goes there with the headers it names, and the issue's text embeds its
+ * asset address, which Linear serves to people in the workspace.
+ */
+async function uploadImage(to: TrackerEndpoint, token: TrackerToken, image: TicketImage): Promise<WebAddress> {
+  const written = await write(to, token, UPLOAD, { contentType: image.contentType, filename: image.name, size: image.data.size }, "fileUpload");
+  const file = written.done && written.clean ? written.payload.uploadFile : null;
+  if (!isRecord(file) || !text(file.uploadUrl) || !text(file.assetUrl) || !Array.isArray(file.headers)) throw unexpected("no upload address");
+  const asset = webAddress(file.assetUrl);
+  if (asset === null) throw unexpected("upload address");
+  const headers = new Headers({ "Content-Type": image.contentType, "Cache-Control": "public, max-age=31536000" });
+  for (const header of file.headers) {
+    // Only the storage's own headers that sign the upload, never ones that could stand for someone, such as Authorization.
+    if (isRecord(header) && text(header.key) && UPLOAD_HEADER.test(header.key) && typeof header.value === "string") headers.set(header.key, header.value);
+  }
+  let response: Response;
+  try {
+    response = await to.fetch(file.uploadUrl, { method: "PUT", headers, body: image.data });
+  } catch {
+    throw unreachable();
+  }
+  if (!response.ok) throw unexpected(`upload status ${response.status}`);
+  return asset;
+}
+
+/** The headers an upload may carry from Linear's answer: its storage's signed `x-goog-` (or `x-amz-`) headers, and how the file is stored. */
+const UPLOAD_HEADER = /^(?:x-goog-[a-z0-9-]+|x-amz-[a-z0-9-]+|content-disposition|content-md5|cache-control)$/i;
+
+const unreachable = () => new CritiqsError("unavailable", "Critiqs couldn't reach Linear. Try again in a moment.");
+const unexpected = (what: string) => new CritiqsError("unavailable", `Linear's answer wasn't what Critiqs expected (${what}). Try again in a moment.`);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Linear's answer to one request, before Critiqs decides what it means. */
+interface Answer {
+  response: Response;
+  body: unknown;
+  errors: unknown[];
+}
+
+async function send(to: TrackerEndpoint, token: TrackerToken, query: string, variables: Record<string, unknown>): Promise<Answer> {
+  let response: Response;
+  try {
+    response = await to.fetch(`${to.baseUrl}/graphql`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token.method === "oauth" ? `Bearer ${token.value}` : token.value,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+  } catch {
+    throw unreachable();
+  }
+  const body: unknown = await response.json().catch(() => null);
+  return { response, body, errors: isRecord(body) && Array.isArray(body.errors) ? body.errors : [] };
+}
+
+/** Throws what an answer with a problem means: a refusal Linear answered with, so it did nothing; or a failure that may have done what was asked. */
+function requireClean({ response, body, errors }: Answer, token: TrackerToken): void {
+  if (response.status === 401 || response.status === 403 || errors.some(isAuthenticationError)) {
+    throw new TrackerRefusal(
+      "invalid",
+      token.method === "oauth"
+        ? "Linear no longer accepts Critiqs's sign-in. Connect Linear again in Your trackers."
+        : "Linear didn't accept this API key. Check that you copied all of it, or create a new one.",
+    );
+  }
+  if (response.status === 429 || errors.some((error) => extensionsOf(error).code === "RATELIMITED")) {
+    throw new TrackerRefusal("limit", "Linear is limiting requests right now. Try again in a minute.");
+  }
+  const refused = errors.find(isUserError);
+  if (refused !== undefined || (response.status >= 400 && response.status < 500 && response.status !== 408)) {
+    const forbidden = refused !== undefined && (extensionsOf(refused).code === "FORBIDDEN" || extensionsOf(refused).type === "forbidden");
+    throw new TrackerRefusal(forbidden ? "forbidden" : "invalid", `Linear turned this down: ${refusalText(refused) ?? `status ${response.status}`}`);
+  }
+  // Anything else may have done what was asked: a server error, or an answer Critiqs can't read.
+  if (!response.ok || errors.length > 0 || !isRecord(body) || !isRecord(body.data)) throw unexpected(`status ${response.status}`);
+}
+
+async function graphql(to: TrackerEndpoint, token: TrackerToken, query: string, variables: Record<string, unknown> = {}): Promise<unknown> {
+  const answer = await send(to, token, query, variables);
+  requireClean(answer, token);
+  return (answer.body as { data: unknown }).data;
+}
+
+/** What a write did, as Linear answered. */
+interface Written {
+  /** The write's answer, `data[field]`; empty when Linear made nothing. */
+  payload: Record<string, unknown>;
+  /** Whether Linear says it made the write. */
+  done: boolean;
+  /** Whether the answer had no errors besides. */
+  clean: boolean;
+}
+
+/**
+ * Sends a write and reads its own answer (`data[field]`) before any error:
+ * Linear can make a write and still report errors elsewhere in its answer,
+ * such as a field of the new issue it couldn't read back. A write Linear says
+ * it made (`success`, or the `record` it wrote present) is done, whatever
+ * those errors say; one it says failed (`success: false`) isn't. Otherwise
+ * the answer's errors decide, as for any request.
+ */
+async function write(to: TrackerEndpoint, token: TrackerToken, query: string, variables: Record<string, unknown>, field: string, record?: string): Promise<Written> {
+  const answer = await send(to, token, query, variables);
+  const data = isRecord(answer.body) && isRecord(answer.body.data) ? answer.body.data : null;
+  const payload = data !== null && isRecord(data[field]) ? data[field] : null;
+  if (payload !== null && (payload.success === true || (record !== undefined && payload[record] != null))) {
+    return { payload, done: true, clean: answer.response.ok && answer.errors.length === 0 };
+  }
+  if (payload !== null && payload.success === false) return { payload, done: false, clean: answer.errors.length === 0 };
+  requireClean(answer, token);
+  throw unexpected(`no ${field}`);
+}
+
+function extensionsOf(error: unknown): Record<string, unknown> {
+  return isRecord(error) && isRecord(error.extensions) ? error.extensions : {};
+}
+
+/** An error Linear says the caller caused, such as input it turned down or something the person may not do: nothing was done. */
+function isUserError(error: unknown): boolean {
+  const extensions = extensionsOf(error);
+  return extensions.userError === true || extensions.code === "INPUT_ERROR" || extensions.code === "FORBIDDEN" || extensions.type === "invalid input" || extensions.type === "forbidden";
+}
+
+/** Linear's own words for a refusal, as one sentence. */
+function refusalText(error: unknown): string | null {
+  const extensions = extensionsOf(error);
+  const text = typeof extensions.userPresentableMessage === "string" ? extensions.userPresentableMessage : isRecord(error) && typeof error.message === "string" ? error.message : "";
+  const line = text.replace(/\s+/g, " ").trim().slice(0, 200);
+  return line === "" ? null : /[.!?]$/.test(line) ? line : `${line}.`;
+}
+
+function isAuthenticationError(error: unknown): boolean {
+  if (!isRecord(error) || !isRecord(error.extensions)) return false;
+  return error.extensions.code === "AUTHENTICATION_ERROR" || error.extensions.type === "authentication error";
+}
+
+function text(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function parseIdentity(data: unknown): TrackerIdentity {
+  const viewer = isRecord(data) ? data.viewer : null;
+  const organization = isRecord(data) ? data.organization : null;
+  if (!isRecord(viewer) || !text(viewer.id) || !text(viewer.name)) throw unexpected("no account");
+  const site = isRecord(organization) && text(organization.id) && text(organization.name) ? { id: organization.id, name: organization.name } : null;
+  return { accountId: viewer.id, accountName: viewer.name, email: text(viewer.email) ? viewer.email : null, site };
+}
+
+function parseTeams(data: unknown): TicketDestination[] {
+  const teams = isRecord(data) && isRecord(data.teams) && Array.isArray(data.teams.nodes) ? data.teams.nodes : null;
+  if (teams === null) throw unexpected("no teams");
+  return teams
+    .filter((team): team is Record<string, unknown> => isRecord(team) && text(team.id) && text(team.name))
+    .map((team) => ({ id: team.id as string, name: team.name as string, key: text(team.key) ? team.key : null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function templateNodes(data: unknown): Record<string, unknown>[] {
+  const nodes = isRecord(data) ? data.templateSearch : null;
+  if (!Array.isArray(nodes)) throw unexpected("no templates");
+  return nodes.filter(isRecord);
+}
+
+function teamOf(template: Record<string, unknown>): TicketDestination | null {
+  const team = template.team;
+  if (!isRecord(team) || !text(team.id) || !text(team.name)) return null;
+  return { id: team.id, name: team.name, key: text(team.key) ? team.key : null };
+}
+
+/** Templates by team, teams by name, each team's templates in Linear's order. */
+function parseTemplateGroups(data: unknown): TrackerTemplateGroup[] {
+  const groups = new Map<string, TrackerTemplateGroup>();
+  for (const template of templateNodes(data)) {
+    const team = teamOf(template);
+    if (team === null || !text(template.id) || !text(template.name)) continue;
+    const group = groups.get(team.id) ?? { destination: team, templates: [] };
+    group.templates.push({ id: template.id, name: template.name });
+    groups.set(team.id, group);
+  }
+  return [...groups.values()].sort((a, b) => a.destination.name.localeCompare(b.destination.name));
+}
+
+function parseTemplate(data: unknown): TrackerTemplate | null {
+  const [template] = templateNodes(data);
+  if (template === undefined) return null;
+  const team = teamOf(template);
+  if (team === null || !text(template.id) || !text(template.name)) throw unexpected("template unreadable");
+  return { id: template.id, name: template.name, destinationId: team.id, body: typeof template.content === "string" ? template.content : "" };
+}
+
+function parseLabels(data: unknown): TrackerLabel[] {
+  const labels = isRecord(data) && isRecord(data.issueLabels) && Array.isArray(data.issueLabels.nodes) ? data.issueLabels.nodes : null;
+  if (labels === null) throw unexpected("no labels");
+  return labels
+    .filter((label): label is { id: string; name: string; parent?: unknown } => isRecord(label) && text(label.id) && text(label.name))
+    .map(({ id, name, parent }) => ({ id, name, exclusiveGroup: isRecord(parent) && text(parent.id) && parent.groupType !== "multiSelect" ? parent.id : null }));
+}
+
+function parseStatus(value: unknown): TicketStatus {
+  if (!isRecord(value) || !text(value.name)) return { label: "Unknown", category: "unknown" };
+  return { label: value.name, category: typeof value.type === "string" ? linearStatusCategory(value.type) : "unknown" };
+}
+
+/** An issue as Linear sent it; null when it isn't one. */
+function parseIssue(value: unknown): CreatedTicket | null {
+  if (!isRecord(value) || !text(value.id) || !text(value.identifier) || typeof value.title !== "string" || !text(value.url) || !/^https?:\/\//.test(value.url)) return null;
+  const organization = isRecord(value.team) && isRecord(value.team.organization) ? value.team.organization : null;
+  return {
+    tracker: "linear",
+    externalId: value.id,
+    key: value.identifier,
+    url: value.url,
+    title: value.title,
+    status: parseStatus(value.state),
+    site: organization !== null && text(organization.id) ? organization.id : null,
+    asOf: timeOf(value.updatedAt),
+  };
+}
+
+function issueList(data: unknown, field: string): CreatedTicket[] {
+  const connection = isRecord(data) ? data[field] : null;
+  if (!isRecord(connection) || !Array.isArray(connection.nodes)) throw unexpected("no issues");
+  return connection.nodes.map(parseIssue).filter((issue): issue is CreatedTicket => issue !== null);
+}
+
+function firstIssue(data: unknown, field: string): CreatedTicket | null {
+  return issueList(data, field)[0] ?? null;
+}
+
+/** A time Linear sent as an ISO 8601 string, in milliseconds; null when it isn't one. */
+function timeOf(value: unknown): number | null {
+  const time = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(time) ? time : null;
+}
+/**
+ * Linear's sign-in page for Critiqs, asking only for what tickets need: to
+ * read, to create and update issues with their attachments and files, and to
+ * add comments. Never Linear's broad `write`.
+ */
+export function linearAuthorizeUrl(appUrl: string, input: { clientId: string; redirectUri: string; state: string; challenge: string }): string {
+  const url = new URL("/oauth/authorize", appUrl);
+  url.search = new URLSearchParams({
+    client_id: input.clientId,
+    redirect_uri: input.redirectUri,
+    response_type: "code",
+    scope: "read,issues:create,comments:create",
+    state: input.state,
+    actor: "user",
+    prompt: "consent",
+    code_challenge: input.challenge,
+    code_challenge_method: "S256",
+  }).toString();
+  return url.toString();
+}
+
+/** Exchanges a sign-in's code for tokens. */
+export async function exchangeLinearCode(
+  endpoint: TrackerEndpointOptions,
+  app: LinearApp,
+  input: { code: string; redirectUri: string; verifier: string },
+  now: number,
+): Promise<SignInTokens> {
+  return await tokenRequest(
+    endpointOf(endpoint),
+    { grant_type: "authorization_code", code: input.code, redirect_uri: input.redirectUri, code_verifier: input.verifier, client_id: app.clientId, client_secret: app.clientSecret },
+    now,
+    "Linear didn't accept this sign-in. Close this window and connect Linear again.",
+  );
+}
+
+/**
+ * Trades a refresh token for new tokens. Linear rotates refresh tokens: the
+ * one used here stops working. `signal` calls the request off, answer included.
+ */
+export async function refreshLinearToken(endpoint: TrackerEndpointOptions, app: LinearApp, refreshToken: string, now: number, signal?: AbortSignal): Promise<SignInTokens> {
+  return await tokenRequest(
+    endpointOf(endpoint),
+    { grant_type: "refresh_token", refresh_token: refreshToken, client_id: app.clientId, client_secret: app.clientSecret },
+    now,
+    "Your Linear sign-in has ended. Connect Linear again in Your trackers.",
+    signal,
+  );
+}
+
+/**
+ * Ends a sign-in's token at Linear (https://linear.app/developers/oauth-2-0-authentication,
+ * "Revoke an access token"): the token in the `token` field, with which kind
+ * it is. `revoked` when Linear answered 200; `refused` when it couldn't revoke
+ * it (400, as for a token already revoked, or any other refusal); and
+ * `unreachable` when there was no answer, or a server error.
+ */
+export async function revokeLinearToken(endpoint: TrackerEndpointOptions, app: LinearApp, token: string, kind: "access_token" | "refresh_token"): Promise<"revoked" | "refused" | "unreachable"> {
+  const to = endpointOf(endpoint);
+  try {
+    const response = await to.fetch(`${to.baseUrl}/oauth/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({ token, token_type_hint: kind, client_id: app.clientId, client_secret: app.clientSecret }).toString(),
+    });
+    await response.body?.cancel().catch(() => undefined);
+    if (response.ok) return "revoked";
+    return response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429 ? "refused" : "unreachable";
+  } catch {
+    return "unreachable";
+  }
+}
+
+async function tokenRequest(to: TrackerEndpoint, form: Record<string, string>, now: number, refused: string, signal?: AbortSignal): Promise<SignInTokens> {
+  let response: Response;
+  try {
+    response = await to.fetch(`${to.baseUrl}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams(form).toString(),
+      ...(signal === undefined ? {} : { signal }),
+    });
+  } catch {
+    throw unreachable();
+  }
+  const body: unknown = await response.json().catch(() => null);
+  // OAuth's refusals: a code or refresh token that is wrong, used, or expired, or a client Linear doesn't know.
+  if (response.status === 400 || response.status === 401) {
+    if (isRecord(body) && (body.error === "invalid_client" || body.error === "unauthorized_client")) {
+      fail("unavailable", "Linear doesn't recognize this deployment's Linear app. Its operator must check CRITIQS_LINEAR_CLIENT_ID and CRITIQS_LINEAR_CLIENT_SECRET.");
+    }
+    fail("invalid", refused);
+  }
+  if (!response.ok || !isRecord(body) || !text(body.access_token)) throw unexpected(`status ${response.status}`);
+  const expiresIn = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : null;
+  return {
+    access: body.access_token,
+    refresh: text(body.refresh_token) ? body.refresh_token : null,
+    expiresAt: expiresIn === null ? null : now + expiresIn * 1000,
+  };
+}
+
+/**
+ * How far from Critiqs's clock a webhook's `webhookTimestamp` may be, as
+ * Linear recommends (https://linear.app/developers/webhooks): older
+ * deliveries, such as a recorded one sent again, are refused.
+ */
+export const LINEAR_WEBHOOK_TOLERANCE_MS = 60_000;
+
+/** The status Critiqs records for an issue Linear deleted: the work is closed there, as for Canceled. */
+export const LINEAR_DELETED_STATUS = { label: "Deleted", category: "canceled" } as const;
+
+/** What a call to the Linear webhook route means. */
+export type LinearWebhook =
+  /** Not from Linear, or too old: a wrong or missing signature, or a timestamp outside the tolerance. Nothing in it is used. */
+  | { status: "refused"; reason: string }
+  /** From Linear, but nothing Critiqs keeps: another kind of event, or an issue event without a state. */
+  | { status: "ignored" }
+  /** An issue's status, for every thread that links it. */
+  | { status: "update"; update: TicketStatusUpdate };
+
+function hexBytes(hex: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^(?:[0-9a-f]{2})+$/i.test(hex)) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index++) bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  return bytes;
+}
+
+/**
+ * Reads a call to the Linear webhook route. Linear signs each delivery's raw
+ * body with the webhook's signing secret (`Linear-Signature`, hex
+ * HMAC-SHA256); the signature is checked over the body's exact bytes, in
+ * constant time, before anything in the body is decoded or read, and then
+ * the body's `webhookTimestamp` must be within a minute of `now`. Issue
+ * events (create, update, remove) become the issue's status, mapped as the
+ * adapter maps it, as of the issue's `updatedAt`; a deletion is as of when
+ * it happened, if that is later.
+ */
+export async function readLinearWebhook(secret: string, rawBody: Uint8Array<ArrayBuffer>, signature: string | null, now: number): Promise<LinearWebhook> {
+  const given = signature === null ? null : hexBytes(signature.trim());
+  if (given === null) return { status: "refused", reason: "missing or malformed signature" };
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  if (!(await crypto.subtle.verify("HMAC", key, given, rawBody))) return { status: "refused", reason: "wrong signature" };
+  let body: unknown;
+  try {
+    // Only now is the body text: strict UTF-8, so bytes that aren't are refused rather than replaced.
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBody));
+  } catch {
+    return { status: "refused", reason: "unreadable body" };
+  }
+  if (!isRecord(body) || typeof body.webhookTimestamp !== "number" || Math.abs(now - body.webhookTimestamp) > LINEAR_WEBHOOK_TOLERANCE_MS) {
+    return { status: "refused", reason: "stale or missing webhookTimestamp" };
+  }
+  const { data } = body;
+  if (body.type !== "Issue" || !isRecord(data) || !text(data.id)) return { status: "ignored" };
+  const site = text(body.organizationId) ? body.organizationId : null;
+  // When the event happened in Linear: the delivery's `createdAt`, else when it was sent.
+  const happenedAt = timeOf(body.createdAt) ?? body.webhookTimestamp;
+  const updatedAt = timeOf(data.updatedAt) ?? happenedAt;
+  const update = (status: TicketStatus, asOf: number, deleted = false): LinearWebhook => ({
+    status: "update",
+    update: { tracker: "linear", externalId: data.id as string, site, status, asOf, deleted },
+  });
+  switch (body.action) {
+    case "create":
+    case "update":
+      return isRecord(data.state) && text(data.state.name) ? update(parseStatus(data.state), updatedAt) : { status: "ignored" };
+    case "remove":
+      // The deletion itself is the change, so it is as of when it happened, never before the issue's last update:
+      // an update delivered late or again can't bring the issue back, and a check that read it since doesn't hide it.
+      return update({ ...LINEAR_DELETED_STATUS }, Math.max(updatedAt, happenedAt), true);
+    default:
+      return { status: "ignored" };
+  }
+}

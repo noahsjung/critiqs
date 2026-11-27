@@ -1,7 +1,5 @@
-import { type ExportThread, exportJson, exportMarkdown, type FeedbackCollection } from "@critiqs/core";
-import type { ExportData } from "@critiqs/core";
+import { type ExportData, exportJson, exportMarkdown, exportThread, type FeedbackCollection } from "@critiqs/core";
 import { useEffect, useState } from "react";
-import { locationOf } from "../model.ts";
 import { describeError, type QueryState, useTransport } from "../transport.ts";
 import { copyText, Dialog } from "./common.tsx";
 
@@ -44,40 +42,7 @@ export function ExportDialog({
       title,
       projectName: result.data.projectName,
       exportedAt: Date.now(),
-      threads: result.data.threads.map((thread): ExportThread => {
-        const location = locationOf(thread);
-        const { evidence } = thread.anchor;
-        return {
-          id: thread._id,
-          link: linkFor(evidence.url, thread._id, null),
-          status: thread.status === "resolved" ? "resolved" : "open",
-          tags: thread.tags,
-          screen: location.screen,
-          viewState: location.viewState,
-          scope: location.scope,
-          target: {
-            purposeId: location.target.purposeId,
-            recordKey: location.target.recordKey,
-            label: location.target.clues.label,
-          },
-          revision: evidence.revision,
-          pageUrl: evidence.url,
-          viewport: evidence.viewport,
-          persona: evidence.persona,
-          reattached: thread.location !== null,
-          hasCapture: thread.hasCapture,
-          messages: thread.messages.map((message) => ({
-            id: message._id,
-            link: linkFor(evidence.url, thread._id, message._id),
-            author: message.author,
-            createdAt: message.createdAt,
-            editedAt: message.editedAt,
-            body: message.body,
-            revision: message.revision,
-            ...(message.via === undefined ? {} : { via: message.via }),
-          })),
-        };
-      }),
+      threads: result.data.threads.map((thread) => exportThread(thread, (messageId) => linkFor(thread.anchor.evidence.url, thread._id, messageId))),
     };
     return format === "markdown" ? exportMarkdown(collection) : exportJson(collection);
   })();
