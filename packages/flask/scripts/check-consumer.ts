@@ -90,7 +90,9 @@ try {
 
   // This computer, after init: the ID in .env, next to keys the app never loaded. flask-critiqs doesn't install python-dotenv.
   await writeFile(join(root, ".env"), `DATABASE_URL=postgres://db:5432/app\nFLASK_DEBUG=1\nCRITIQS_PROJECT_ID=${PROJECT}\n`);
-  const { DATABASE_URL: _url, FLASK_DEBUG: _debug, ...clean } = unset;
+  // Nothing the app could have loaded from .env is inherited, so whatever /env lists came from .env. That includes every
+  // CRITIQS_ setting of the process running this check, such as CRITIQS_PACKED in the Publish workflow.
+  const clean = Object.fromEntries(Object.entries(unset).filter(([key]) => key !== "DATABASE_URL" && key !== "FLASK_DEBUG" && !key.startsWith("CRITIQS")));
   const [development, loaded] = await serve(clean, async (url) => [await expectToolbar(url, "flask-run"), await (await fetch(`${url}env`)).json()] as const, "flask run");
   assert.deepEqual(development.errors, []);
   assert.doesNotMatch(development.toolbar, /Set up Critiqs/);
