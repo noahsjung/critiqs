@@ -509,7 +509,8 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   ago the project last loaded. Backends report `threadMadeWith`, and
   components send `madeWith` only to those. The extension
   doesn't read `?critiqs=`, so the page says to click Critiqs on the opened
-  page. Review links, once built, add their own way here.
+  page. Where the project has a review link for that address, the page
+  offers it too (see Review links).
 - **Where pages are served.** A page link names no deployment, so the website
   at the configured address must reach the backend that holds the thread.
   Critiqs Cloud's website serves Critiqs Cloud's threads. Not decided yet:
@@ -645,10 +646,10 @@ another tab. Browser support is still an open choice.
 without installing verifies their email inside Critiqs's panel (email, code,
 and a display name on a first sign-in), with no popup. Review links ask at the
 first comment; the extension asks when Critiqs first opens on a page. Built
-in the extension's side panel. Review links are not built.
+in the extension's side panel and on the review-link page.
 
 **Proposed, built:** the sign-in service behind that, for Critiqs's own panels
-only. The extension's side panel uses it.
+only. The extension's side panel and the review-link page use it.
 
 - **Panel origins.** `CRITIQS_WEB_ORIGINS` lists Critiqs's website origins
   (a review link's panel) and `CRITIQS_EXTENSION_IDS` the extension IDs whose
@@ -835,10 +836,14 @@ tool, instead of approving every session.
   same name, waited for and taken over the same way; earlier versions can't
   remove a directory, so they wait. A session that ended is removed, and the
   agent is told to sign in again. Signing out cancels a sign-in still waiting
-  for approval, ends both the saved token and a saved replacement, and
+  for approval, ends both the saved token and a saved replacement (together,
+  so it holds the lock for one request's time), and
   forgets the computer's sign-in only once the service answers, including a
-  sign-in another process renewed to that replacement meanwhile. It never
-  reports a clean sign-out while a session it couldn't end stays saved, or
+  sign-in another process renewed to that replacement meanwhile. Sessions kept
+  aside are ended after the lock is released, as a renewal's clean-up is. It never
+  reports a clean sign-out while a session it couldn't end stays saved
+  (counted from the file as it is at the end, so one another process kept
+  aside meanwhile counts), or
   while another process changed the sign-in meanwhile: it says what is left
   and fails;
   `/auth/sign-out` adds `Critiqs-Session-Ended`, so a session it didn't find
@@ -1088,8 +1093,9 @@ project** and onboarding's extension way add the page's origin.
   origin. The list is separate from the review address.
 - **Opened projects.** The installed component records, once per page load,
   that the signed-in reviewer opened its project (`recordProjectOpened`).
-  Recording again writes nothing unless a day has passed. Review links will
-  record the same way; thread pages never do.
+  Recording again writes nothing unless a day has passed. A review link
+  records the same way once its viewer is signed in
+  (`reviewLinks:recordOpened`); thread pages never do.
 - **Lookup** (`findProjectsForOrigin`). It requires sign-in and searches only
   projects in organizations the person belongs to and projects they opened.
   An exact origin wins over a pattern. It returns one project, several to

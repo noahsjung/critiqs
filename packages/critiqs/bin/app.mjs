@@ -7,7 +7,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { applyEnv, checkWritable, describeApp, envTarget, findWorkspace, gitIgnored, isCodeFile, planEnv, readEnvValue, UnreadableEnvFile, workspaceMembers, workspacePatterns } from "./env.mjs";
+import { applyEnv, checkWritable, codeDefinitions, describeApp, envTarget, findWorkspace, gitIgnored, isCodeFile, planEnv, readEnvValue, UnreadableEnvFile, workspaceMembers, workspacePatterns } from "./env.mjs";
 import { detectApp, FRAMEWORKS } from "./frameworks/index.mjs";
 import { ENV_FILES as VITE_ENV_FILES, IGNORED_DIRECTORIES, usesVite } from "./frameworks/jsx.mjs";
 import { react } from "./frameworks/react.mjs";
@@ -438,6 +438,48 @@ function nextSteps(adapter, root, plan, cwd) {
 // Writing a connection
 
 /**
+ * What else decides the value the app gets once `env` (a planned setting) is written: a chosen `.env` file the
+ * framework doesn't load, and lines of its code that setup left as written (see `codeDefinitions`), or that set
+ * the variable in a file other than the one written. `warnings` say when the app may not use `projectId`;
+ * `notes` say why it does although such a line remains.
+ */
+function settingNotes(root, cwd, wiring, env, projectId) {
+  const name = wiring.env.variable;
+  const loads = (wiring.env.loads ?? (wiring.env.localFile === null ? [] : [wiring.env.localFile])).map((file) => resolve(root, file));
+  const written = shown(cwd, env.file);
+  const loaded = loads.includes(env.file);
+  const warnings = [];
+  const notes = [];
+  // A framework whose own file is code its server runs ignores a chosen .env file unless the app loads it (dotenv).
+  const ownFile = wiring.env.localFile;
+  if (wiring.envFile !== null && ownFile !== null && isCodeFile(ownFile) && !isCodeFile(env.file) && !loaded) {
+    warnings.push(
+      `${wiring.adapter.name} doesn't load ${written} by itself, so the app reads ${name} from it only if its own code loads that file (with a dotenv library, for example). ` +
+        `Otherwise run init again without --project-env-file: it sets a development default in ${ownFile}.`,
+    );
+  }
+  for (const file of loads.filter(isCodeFile)) {
+    for (const definition of codeDefinitions(file, name, file === env.file ? env.source : undefined)) {
+      // Setup rewrote it, or it is a default that gives way to the value set before it.
+      if (definition.editable && (file === env.file || definition.default)) continue;
+      const at = `${shown(cwd, file)}:${definition.line}`;
+      const text = definition.text.length > 100 ? `${definition.text.slice(0, 100)}…` : definition.text;
+      if (!loaded) {
+        warnings.push(`${at} sets ${name} itself (\`${text}\`), so the app uses the value it sets, not ${projectId}, unless its own code loads ${written} first${definition.default ? "" : " and that line doesn't run"}.`);
+      } else if (definition.default) {
+        notes.push(`${at} sets ${name} only when nothing set it before (\`${text}\`), and ${written} sets it first, so the app uses ${projectId}. Setup left that line as it is.`);
+      } else {
+        const update = definition.editable ? ", or run init again without --project-env-file to update it" : "";
+        warnings.push(
+          `${at} sets ${name} itself (\`${text}\`) and runs after ${written} sets it, so whenever that line runs the app uses the value it sets, not ${projectId}. Change or remove that line to use this project${update}.`,
+        );
+      }
+    }
+  }
+  return { warnings, notes };
+}
+
+/**
  * Connects the app to a project the way `wiring` says: the adapter's plan
  * for the code, then for an environment-backed ID its setting in this
  * computer's `.env` file. The code is written first, so a failure leaves
@@ -473,7 +515,11 @@ export function writeConnection({ root, cwd = root, wiring, projectId, backend, 
       };
     }
   }
-  const setting = wiring.mode === "env" ? { env: { name: wiring.env.variable, file: env?.file ?? null, advice: wiring.env.deploymentAdvice } } : {};
+  const { warnings, notes } = env === null ? { warnings: [], notes: [] } : settingNotes(root, cwd, wiring, env, projectId);
+  const setting =
+    wiring.mode === "env"
+      ? { env: { name: wiring.env.variable, file: env?.file ?? null, advice: wiring.env.deploymentAdvice, ...(warnings.length + notes.length === 0 ? {} : { warnings, notes }) } }
+      : {};
   const remaining = line === null ? "" : env === null ? `, and set ${line} in the environment the app runs with` : `, and add ${line} to ${shown(cwd, env.file)}`;
   let plan;
   try {
@@ -558,7 +604,7 @@ export function writeConnection({ root, cwd = root, wiring, projectId, backend, 
   return {
     ...code,
     env: { ...setting.env, changed: env.changed, ignored },
-    message: `${code.message} ${env.changed ? "Set" : "Kept"} ${line} in ${file} for this computer.${keepOut}`,
+    message: `${code.message} ${env.changed ? "Set" : "Kept"} ${line} in ${file} for this computer.${keepOut}${[...warnings, ...notes].map((note) => ` ${note}`).join("")}`,
   };
 }
 

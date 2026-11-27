@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accessTokenFor, signOutComputer } from "../bin/agent.mjs";
@@ -271,3 +271,140 @@ test("a renewal that lost a race ends its orphaned session without keeping anoth
   ]);
   expect(read(config).recovered).toBeUndefined();
 }, 30_000);
+
+test("a sign-out keeps the lock only while it ends the saved sign-in, so another process isn't kept waiting by the sessions kept aside", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  service.open("r1");
+  const spares = [service.open("spare-1"), service.open("spare-2")];
+  save(config, { refreshToken: "r1", nextRefreshToken: "n1" }, {
+    recovered: ["spare-1", "spare-2"].map((refreshToken) => ({ signInUrl: SITE, origin: SITE, refreshToken })),
+  });
+  const reached = new Set<string>();
+  let together = false;
+  let waiting: string | undefined;
+  const slow = service.fetchWith(async (path, body) => {
+    if (path !== "/auth/sign-out") return;
+    reached.add(String(body.refreshToken));
+    if (body.refreshToken === "r1") {
+      // The saved token and its saved replacement are ended at once, not one long request after the other.
+      const deadline = Date.now() + 1000;
+      while (!reached.has("n1") && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+      together = reached.has("n1");
+    }
+    // A slow answer for a session kept aside: another process wants the lock meanwhile.
+    if (body.refreshToken === "spare-1") waiting = await usableToken(env, service);
+  });
+  const printed: string[] = [];
+  expect(await runCli(["sign-out", "--backend", TEAM], { print: (line) => void printed.push(line), env, fetchFn: slow })).toBe(0);
+  expect(printed).toEqual(["Signed out Dana."]);
+  expect(together).toBe(true);
+  expect(waiting).toStartWith("error: This computer isn't signed in to Critiqs.");
+  expect(spares.map((id) => service.live(id))).toEqual([false, false]);
+  expect(read(config).recovered).toBeUndefined();
+}, 30_000);
+
+test("a session another process keeps aside while sign-out runs is reported as left, not a clean sign-out", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  const session = service.open("r1");
+  const kept = service.open("kept-meanwhile");
+  save(config, { refreshToken: "r1" });
+  const crossing = service.fetchWith((path) => {
+    if (path !== "/auth/sign-out") return;
+    // Sign-out is suspended long enough to lose the lock; another process loses a renewal race and keeps its session aside.
+    const stored = read(config);
+    writeFileSync(signInFile(config), JSON.stringify({ ...stored, recovered: [{ signInUrl: SITE, origin: SITE, refreshToken: "kept-meanwhile" }] }));
+  });
+  const printed: string[] = [];
+  const signOut = (fetchFn: typeof fetch) => runCli(["sign-out", "--backend", TEAM], { print: (line) => void printed.push(line), env, fetchFn });
+  expect(await signOut(crossing)).toBe(1);
+  expect(printed.at(-1)).toBe(
+    `Signed out Dana, but Critiqs's sign-in service at ${SITE} didn't confirm ending an earlier session from this computer, so it stays saved here. Sign out again when it's reachable.`,
+  );
+  expect(service.live(session)).toBe(false);
+  expect(read(config).recovered).toEqual([{ signInUrl: SITE, origin: SITE, refreshToken: "kept-meanwhile" }]);
+
+  expect(await signOut(service.fetchFn)).toBe(0);
+  expect(service.live(kept)).toBe(false);
+  expect(read(config).recovered).toBeUndefined();
+});
+
+test("a sign-out the service had no session for, with a session kept aside it didn't confirm, says it forgot the sign-in", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  // The saved token was already ended elsewhere; the session kept aside is live but the service doesn't answer for it.
+  save(config, { refreshToken: "gone" }, { recovered: [{ signInUrl: SITE, origin: SITE, refreshToken: "spare" }] });
+  service.open("spare");
+  const offline = (async (url: string, init?: RequestInit) => {
+    if (JSON.parse(String(init?.body ?? "{}")).refreshToken === "spare") throw new TypeError("The request timed out.");
+    return service.fetchFn(url, init);
+  }) as unknown as typeof fetch;
+  const printed: string[] = [];
+  expect(await runCli(["sign-out", "--backend", TEAM], { print: (line) => void printed.push(line), env, fetchFn: offline })).toBe(1);
+  expect(printed).toEqual([
+    `Forgot this computer's sign-in Dana, but Critiqs's sign-in service at ${SITE} didn't confirm ending an earlier session from this computer, so it stays saved here. Sign out again when it's reachable.`,
+  ]);
+});
+
+test("a renewal the service refuses because another process signed out meanwhile says this computer isn't signed in", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  const session = service.open("r1");
+  save(config, { refreshToken: "r1" });
+  const crossing = (async (url: string, init?: RequestInit) => {
+    if (new URL(url).pathname === "/auth/refresh") {
+      // This renewal is suspended long enough to lose the lock; another process signs out, ending the session.
+      suspend(config);
+      expect(await runCli(["sign-out", "--backend", TEAM], { print: () => {}, env, fetchFn: service.fetchFn })).toBe(0);
+    }
+    return service.fetchFn(url, init);
+  }) as unknown as typeof fetch;
+  await expect(accessTokenFor(SITE, { backendUrl: TEAM, env, fetchFn: crossing, now: service.now })).rejects.toThrow("This computer isn't signed in to Critiqs.");
+  expect(service.live(session)).toBe(false);
+  expect(read(config).services[SITE]).toBeUndefined();
+}, 30_000);
+
+test("a sign-in another process finishes while sign-out ends the sessions kept aside is left alone", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  const session = service.open("r1");
+  const spare = service.open("spare");
+  save(config, { refreshToken: "r1" }, { recovered: [{ signInUrl: SITE, origin: SITE, refreshToken: "spare" }] });
+  const fresh = service.open("r2");
+  const crossing = service.fetchWith((path, body) => {
+    // Sign-out has let go of the lock before ending the session kept aside; another process signs in meanwhile.
+    if (path === "/auth/sign-out" && body.refreshToken === "spare") {
+      save(config, { refreshToken: "r2", accessToken: "a2", accessExpiresAt: service.now() + 15 * MINUTE, reviewer: { name: "Sam", email: null }, signedInAt: 2 });
+    }
+  });
+  const printed: string[] = [];
+  expect(await runCli(["sign-out", "--backend", TEAM], { print: (line) => void printed.push(line), env, fetchFn: crossing })).toBe(0);
+  expect(printed).toEqual(["Signed out Dana."]);
+  expect([service.live(session), service.live(spare), service.live(fresh)]).toEqual([false, false, true]);
+  expect(read(config).services[SITE]).toMatchObject({ refreshToken: "r2", reviewer: { name: "Sam" } });
+  expect(read(config).recovered).toBeUndefined();
+  expect(await usableToken(env, service)).toBe("a2");
+}, 30_000);
+
+test("what a process that stopped while removing a lock left behind is cleared by the next one to take the lock", async () => {
+  const config = folder();
+  const env = { CRITIQS_CONFIG_DIR: config };
+  const service = signInService();
+  service.open("r1");
+  save(config, { refreshToken: "r1", accessToken: token({ exp: (service.now() + 10 * MINUTE) / 1000 }), accessExpiresAt: service.now() + 10 * MINUTE });
+  // A lock and a breaker renamed aside but not yet removed when their processes stopped.
+  for (const left of [`${signInFile(config)}.lock.0123456789abcdef01234567.gone`, `${signInFile(config)}.lock.break.89abcdef0123456789abcdef.gone`]) {
+    mkdirSync(left);
+    writeFileSync(join(left, "owner"), "0123456789abcdef01234567");
+  }
+  // Another sign-in file's lock leftovers aren't this one's.
+  mkdirSync(join(config, "sign-in.json.lock.fedcba9876543210fedcba98.gone"));
+  await signOutComputer({ backendUrl: TEAM, env, fetchFn: service.fetchFn });
+  expect(readdirSync(config).filter((name) => name.endsWith(".gone"))).toEqual(["sign-in.json.lock.fedcba9876543210fedcba98.gone"]);
+});

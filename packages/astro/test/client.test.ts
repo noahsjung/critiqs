@@ -90,6 +90,14 @@ const ROUTES: RouteTable = {
 };
 
 const settle = (ms = 50) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Waits until `ready()` holds, however long React takes to render Critiqs on a busy machine, and fails after 5 s. */
+async function until(ready: () => boolean) {
+  const deadline = Date.now() + 5000;
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${ready}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 const hosts = () => [...document.querySelectorAll("critiqs-root")];
 const toolbar = () => hosts()[0]?.shadowRoot?.querySelector(".toolbar") ?? null;
 const lastPushed = () => pushed[pushed.length - 1];
@@ -145,9 +153,8 @@ test("Critiqs starts on the first page and reports its route, with functions giv
   const getContext = () => ({ persona: "Admin" });
   configureCritiqs({ getContext });
   startCritiqs(SETTINGS, router);
-  await settle();
+  await until(() => toolbar() !== null);
   expect(hosts()).toHaveLength(1);
-  expect(toolbar()).not.toBeNull();
   expect(lastPushed()).toEqual({ screen: "items/:id", viewState: { "route.id": "42" } });
   expect(latest.getContext).toBe(getContext);
 });
@@ -164,7 +171,7 @@ test("Critiqs stays mounted, once, across a client-side navigation, and reports 
   await settle();
   expect(carried).toBe(true);
   expect(document.querySelector("h1")?.textContent).toBe("Setup");
-  expect(hosts()).toEqual([before!]);
+  expect(hosts().map((host) => host === before)).toEqual([true]);
   expect(before!.parentElement).toBe(document.body);
   // The same interface, not a new one: its state lives on.
   expect(toolbar()).toBe(shown);
@@ -175,7 +182,7 @@ test("Critiqs stays mounted, once, across a client-side navigation, and reports 
 test("a site's own swap that skips persisted elements still keeps Critiqs, once", async () => {
   const [before] = hosts();
   await clientNavigate("/", "Home", (next, old) => old.replaceWith(next));
-  expect(hosts()).toEqual([before!]);
+  expect(hosts().map((host) => host === before)).toEqual([true]);
   expect(document.querySelector("template")).toBeNull();
   expect(lastPushed()).toEqual({ screen: "/", viewState: {} });
 });

@@ -85,7 +85,7 @@ npx critiqs init <projectId>
 | Angular | `provideCritiqs({ projectId })` in `src/app/app.config.ts` | In that call (Angular has no public environment variables) |
 | Astro | The `critiqs()` integration in `astro.config` | `PUBLIC_CRITIQS_PROJECT_ID` in `.env` |
 | Solid | `<Critiqs />` in `src/App.tsx` | `VITE_CRITIQS_PROJECT_ID` in `.env.local` |
-| Ruby on Rails | `<%= critiqs_tag %>` before `</body>` in the application layout | `CRITIQS_PROJECT_ID` in `.env` with dotenv, otherwise `ENV["CRITIQS_PROJECT_ID"] \|\|= …` in `config/environments/development.rb` |
+| Ruby on Rails | `<%= critiqs_tag %>` before `</body>` in the application layout | `CRITIQS_PROJECT_ID` in `.env` with dotenv (unless a hand-written plain `ENV["CRITIQS_PROJECT_ID"] = "…"` line in `config/environments/development.rb` overrides it; then that line), otherwise `ENV["CRITIQS_PROJECT_ID"] \|\|= …` there. A hand-written line with a condition or an expression is left as written, and `init` says which value the app uses |
 | Django | `django_critiqs` in `INSTALLED_APPS`, `{% critiqs %}` in the base template | `os.environ.setdefault("CRITIQS_PROJECT_ID", …)` in `manage.py`, which starts the development server |
 | Flask | `Critiqs(app)` where the app is created, `{{ critiqs() }}` in the base template | `CRITIQS_PROJECT_ID` in `.env`, which flask-critiqs reads under `flask run` (that key only) |
 

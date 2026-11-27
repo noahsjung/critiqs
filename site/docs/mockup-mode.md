@@ -6,7 +6,7 @@ Mockup mode lets you propose visual and copy changes directly on a page during a
 
 ## How Mockup mode works
 
-When you enter **Mockup mode**, Critiqs freezes the current page into a **page copy**. The copy keeps the page's HTML, collected CSS stylesheets, form values, scroll positions, and canvases converted to images. Scripts and event handlers are removed, and elements marked with `data-critiqs-mask` are covered.
+When you enter **Mockup mode**, Critiqs freezes the current page into a **page copy**. The copy keeps the page's HTML, collected CSS stylesheets, form values, scroll positions, and canvases converted to images. Scripts and event handlers are removed, and elements marked with `data-critiqs-mask` are covered. Since no script runs in a copy, it also leaves out what only the page's scripts read: hidden form values, comments, the content of meta tags other than `viewport`, `color-scheme`, `supported-color-schemes`, `referrer` and `format-detection`, and framework state such as Inertia's `data-page`, Phoenix LiveView's `data-phx-session` and `data-phx-static`, Livewire's `wire:snapshot`, Turbo's `signed-stream-name` and Astro islands' `props` (see [captures](/docs/captures#privacy-and-masking-sensitive-content)).
 
 Critiqs displays the page copy in a sandboxed iframe over your app. Critiqs AI edits only the copy's HTML and CSS, never your running app or source code. You cannot navigate the live app until you leave **Mockup mode** (`V`).
 

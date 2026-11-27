@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { packageTarball, tarballFiles } from "./package-tarball.ts";
+import { packageTarball, packedFile, tarballFiles } from "./package-tarball.ts";
+import { releasePackages, workingTree } from "./release.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const sharedDir = join(root, "packages/critiqs");
@@ -330,6 +331,38 @@ export const listener = toNodeListener(handler);
     "critiqs_sign_in_finish",
     "critiqs_sign_out",
   ]);
+  // Every other npm package in the release group: only its build, README and license, publishable, and no secrets.
+  const others = (await releasePackages(workingTree(root))).filter((pkg) => pkg.registry === "npm" && pkg.name !== "critiqs" && pkg.name !== "critiqs-react");
+  assert(others.length > 0, "found no framework npm packages in the release group");
+  for (const pkg of others) {
+    // The file an app imports, as the manifest names it.
+    const source = await Bun.file(join(root, pkg.dir, "package.json")).json();
+    const main = source.exports?.["."]?.import ?? source.main;
+    assert(typeof main === "string", `${pkg.name} names no entry point`);
+    // The packed file in CRITIQS_PACKED, or packed here from the build the checks before this one made
+    // (its prepack build would print to npm pack's output).
+    let tarball = packedFile("npm", pkg.name, pkg.version);
+    if (tarball === null) {
+      const [result] = JSON.parse(await run(["npm", "pack", "--json", "--ignore-scripts", "--pack-destination", scratch], join(root, pkg.dir)));
+      tarball = join(scratch, result.filename);
+    }
+    const files = await tarballFiles(tarball, run, scratch);
+    for (const file of ["LICENSE", "README.md", "package.json", main.replace(/^\.\//, "")]) assert(files.includes(file), `${basename(tarball)}: missing ${file}`);
+    assert.deepEqual(files.filter((path) => !/^(dist\/|README\.md$|LICENSE$|package\.json$)/.test(path)), [], `${basename(tarball)}: unexpected tarball contents`);
+    const unpacked = join(scratch, `unpacked-${pkg.name}`);
+    await mkdir(unpacked);
+    await run(["tar", "-xzf", tarball, "-C", unpacked]);
+    const manifest = await Bun.file(join(unpacked, "package/package.json")).json();
+    assert.equal(manifest.name, pkg.name);
+    assert.equal(manifest.private, undefined, `${pkg.name} is private`);
+    assert.equal(manifest.license, "MIT", `${pkg.name}'s license`);
+    assert.deepEqual(manifest.publishConfig, { access: "public" }, `${pkg.name}'s publishConfig`);
+    assert.equal(manifest.engines?.node, ">=20", `${pkg.name}'s engines.node`);
+    assert(!Object.keys(manifest.dependencies ?? {}).some((dependency) => dependency.startsWith("@critiqs/")), `${pkg.name} depends on a private workspace package`);
+    assert.equal(await Bun.file(join(unpacked, "package/LICENSE")).text(), await Bun.file(join(root, "LICENSE")).text(), `${pkg.name}'s LICENSE`);
+    await scanForSecrets(join(unpacked, "package"));
+  }
+  console.log(`Package smoke passed: ${others.map((pkg) => pkg.name).join(", ")}: only their build, README and license, MIT and public publishing settings, no secrets.`);
   console.log(`Package smoke passed: critiqs and critiqs-react, ${files.length} files; MIT license and public publishing settings, no secrets; isolated npm install, ESM import, production React 18 and 19 mounts and server rendering, "use client" boundary, Bundler/NodeNext declarations, Node CLI through npx critiqs and npx critiqs-react, MCP server, bundled backend with AI actions, self-hosted server with AI search under Node, no provider code in the browser bundle.`);
 } finally {
   await rm(scratch, { recursive: true, force: true });

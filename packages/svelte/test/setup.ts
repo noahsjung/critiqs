@@ -5,6 +5,8 @@
 // them compiled for the server instead; `--isolate` keeps each file's modules
 // its own.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+// Fails an equality assertion given an element before bun can print the whole page.
+import "../../../scripts/element-equality-guard.ts";
 import { plugin } from "bun";
 import { compile, compileModule } from "svelte/compiler";
 

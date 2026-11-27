@@ -22,6 +22,30 @@ const MASK_COLOR = "#6b7280";
 const PLACEHOLDER_COLOR = "#e5e7eb";
 const REMOVED = new Set([HOST_TAG, "script", "noscript", "template"]);
 const FRAMES = new Set(["iframe", "frame", "object", "embed"]);
+/** Meta tags that change how the page looks; every other one's content shows nothing and is left out. */
+const SHOWN_META = new Set(["viewport", "color-scheme", "supported-color-schemes", "referrer", "format-detection"]);
+/**
+ * Framework state the page's scripts read and the page never shows. A copy shows reviewers what the page looked
+ * like, and no script runs in it, so these values are left out; each attribute keeps its name, empty, so a selector
+ * naming it still matches. Other attributes like these are found by `scriptState`.
+ */
+const SCRIPT_STATE: Record<string, string | undefined> = {
+  // Inertia: every prop the server sent the page, often the signed-in person, sometimes tokens.
+  "data-page": undefined,
+  // Phoenix LiveView: the signed session and static data the page's socket reconnects with.
+  "data-phx-session": undefined,
+  "data-phx-static": undefined,
+  // Livewire: a component's state and checksum (version 3), what its scripts do next, and its state (version 2).
+  "wire:snapshot": undefined,
+  "wire:effects": undefined,
+  "wire:initial-data": undefined,
+  // Turbo (Rails): the signed name of the Action Cable stream a page listens to.
+  "signed-stream-name": "turbo-cable-stream-source",
+  // Astro: the props an island's component is hydrated with.
+  props: "astro-island",
+};
+/** A value long enough to be data rather than a word a selector or attr() would use. */
+const LONG_VALUE = 100;
 /** Layout properties a mask's cover keeps, so the page around it doesn't move. */
 const COVER_LAYOUT = [
   "position", "top", "right", "bottom", "left", "float", "margin", "flex-grow", "flex-shrink", "flex-basis",
@@ -30,7 +54,9 @@ const COVER_LAYOUT = [
 
 /**
  * Freezes the page into a self-contained HTML document: the page's elements
- * without Critiqs, scripts, or event attributes; masked elements covered;
+ * without Critiqs, scripts, event attributes, or what only scripts read
+ * (hidden form values, the content of meta tags that change nothing on screen, comments,
+ * framework state: see `leaveOutScriptState`); masked elements covered;
  * form values, canvases, open shadow roots, and scroll positions kept; and the
  * page's stylesheets as CSS text, so the copy reflows at other widths as the
  * page would. Every element of the body is numbered with `data-critiqs-node`.
@@ -49,6 +75,12 @@ export async function freezePage(options: { document?: Document } = {}): Promise
   const head = html.querySelector("head") ?? html.insertBefore(inert.createElement("head"), html.firstChild);
   for (const sheet of source.adoptedStyleSheets ?? []) head.append(styleElement(inert, sheets.text(sheet), sheet.media.mediaText));
   for (const base of Array.from(head.querySelectorAll("base"))) base.remove();
+  // A meta tag shows nothing unless it sets the layout or colors: the others' content (anti-forgery tokens, keys,
+  // descriptions) stays out. The tags stay, so selectors that count siblings match as on the page.
+  for (const meta of Array.from(html.querySelectorAll("meta[content]"))) {
+    if (!SHOWN_META.has((meta.getAttribute("name") ?? "").toLowerCase())) meta.setAttribute("content", "");
+  }
+  leaveOutScriptState(html);
   const base = inert.createElement("base");
   base.setAttribute("href", source.baseURI);
   head.prepend(base);
@@ -152,6 +184,51 @@ function replaceChild(original: Element, copy: Element, context: Context): void 
   }
 }
 
+/** Every element of a copy, inside its shadow roots' templates too. */
+function elementsIn(root: Element): Element[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((element) =>
+    element.localName === "template" ? [element, ...Array.from((element as HTMLTemplateElement).content.children).flatMap(elementsIn)] : [element],
+  );
+}
+
+/**
+ * Leaves out of the copy what the page's scripts read and the page never shows (scripts never run in a copy):
+ * comments (Blazor keeps component state in them), the attributes `SCRIPT_STATE` lists, and any other
+ * `data-*` or framework (`prefix:name`) attribute that names an anti-forgery token or holds a long JSON value
+ * or a long token, unless the copy's CSS names the attribute. An attribute keeps its name, empty, so a selector
+ * naming it still matches.
+ */
+function leaveOutScriptState(html: Element): void {
+  const elements = elementsIn(html);
+  const css = elements
+    .flatMap((element) => (element.localName === "style" ? [element.textContent ?? ""] : []).concat(element.getAttribute("style") ?? []))
+    .join("\n");
+  const named = (name: string) => css.includes(name) || css.includes(name.replace(/:/g, "\\:"));
+  for (const element of elements) {
+    for (const node of Array.from(element.childNodes)) if (node.nodeType === 8) node.remove();
+    for (const name of element.getAttributeNames()) {
+      if (name in SCRIPT_STATE && (SCRIPT_STATE[name] === undefined || SCRIPT_STATE[name] === element.localName)) element.setAttribute(name, "");
+      else if (scriptState(name, element.getAttribute(name) ?? "") && !named(name)) element.setAttribute(name, "");
+    }
+  }
+}
+
+/** Whether a `data-*` or framework attribute looks like state for scripts: an anti-forgery token, or long JSON or token text. */
+function scriptState(name: string, value: string): boolean {
+  const framework = name.startsWith("data-") ? !name.startsWith("data-critiqs") : /^(?!xml|xlink)[^:]+:/.test(name);
+  if (!framework || value === "") return false;
+  if (/csrf|xsrf/.test(name)) return true;
+  if (value.length < LONG_VALUE) return false;
+  if (/^[\w+/=.:%~-]+$/.test(value)) return true;
+  if (!/^\s*[[{]/.test(value)) return false;
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Form values, selections, images, and video frames as the page shows them now. */
 function keepState(original: Element, copy: Element, context: Context): void {
   switch (original.localName) {
@@ -159,6 +236,8 @@ function keepState(original: Element, copy: Element, context: Context): void {
       const input = original as HTMLInputElement;
       if (input.type === "checkbox" || input.type === "radio") toggle(copy, "checked", input.checked);
       else if (input.type === "password") copy.setAttribute("value", input.value === "" ? "" : "••••••••");
+      // Never shown, and often a form's anti-forgery token or an ID: left out of the copy.
+      else if (input.type === "hidden" || (input.hidden && context.view.getComputedStyle(input).display === "none")) copy.setAttribute("value", "");
       else if (input.type !== "file") copy.setAttribute("value", input.value);
       break;
     }

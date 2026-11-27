@@ -713,7 +713,8 @@ test("in Python and Ruby a default is read and replaced in place; Python places 
   );
   const set = at("set.rb", `ENV['CRITIQS_PROJECT_ID'] ||= 'old' # set by hand\n`);
   expect(readEnvValue(set, "CRITIQS_PROJECT_ID")?.value).toBe("old");
-  expect(planEnv(set, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}"\n`);
+  // The rest of the line, such as a comment, stays.
+  expect(planEnv(set, "CRITIQS_PROJECT_ID", PROJECT).source).toBe(`ENV["CRITIQS_PROJECT_ID"] ||= "${PROJECT}" # set by hand\n`);
   // A plain assignment written by hand is read too, and gets the new value as a plain assignment.
   const plain = at("plain.rb", `Rails.application.configure do\nend\n  ENV['CRITIQS_PROJECT_ID'] = 'old'\n`);
   expect(readEnvValue(plain, "CRITIQS_PROJECT_ID")?.value).toBe("old");

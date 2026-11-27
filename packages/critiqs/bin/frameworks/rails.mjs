@@ -6,6 +6,7 @@
 // </body> outside ERB code, comments and scripts.
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { codeDefinitions } from "../env.mjs";
 import { describeProjectId, readText } from "./shared.mjs";
 
 const DEVELOPMENT = "config/environments/development.rb";
@@ -540,8 +541,15 @@ export const rails = {
     // which only `rails server` in development runs.
     const gemfile = readText(join(root, "Gemfile")) ?? "";
     const dotenv = gemDeclared(gemfile, "dotenv-rails") || gemDeclared(gemfile, "dotenv");
-    const development = readText(join(root, DEVELOPMENT)) === null ? null : DEVELOPMENT;
-    return railsEnv(`${DEFAULT_VARIABLE}${suffix}`, dotenv ? ".env" : development);
+    const variable = `${DEFAULT_VARIABLE}${suffix}`;
+    const developmentSource = readText(join(root, DEVELOPMENT));
+    const development = developmentSource === null ? null : DEVELOPMENT;
+    if (!dotenv) return railsEnv(variable, development);
+    // dotenv sets the environment from .env before Rails runs development.rb, where an `ENV[...] ||=` default
+    // then gives way and a plain `ENV[...] = "…"` someone wrote wins. Setup writes the one that wins, but only
+    // rewrites a line that sets one string (see `codeDefinitions`); it reports any other line instead.
+    const plain = development !== null && codeDefinitions(DEVELOPMENT, variable, developmentSource).some((line) => line.editable && !line.default);
+    return { ...railsEnv(variable, plain ? DEVELOPMENT : ".env"), loads: development === null ? [".env"] : plain ? [DEVELOPMENT, ".env"] : [".env", DEVELOPMENT] };
   },
 
   find: (root) => viewFiles(root).flatMap(usagesIn),

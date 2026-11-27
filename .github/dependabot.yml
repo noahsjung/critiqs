@@ -38,3 +38,35 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: ci
+
+  # The Ruby gem's and the Python packages' own dependencies (Rails, Django,
+  # Flask and their build tools), which the bun entry above can't see.
+  - package-ecosystem: bundler
+    directory: /packages/rails
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 2
+    groups:
+      gems:
+        patterns: ["*"]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: pip
+    directories:
+      - /packages/django
+      - /packages/flask
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 2
+    groups:
+      python:
+        patterns: ["*"]
+    commit-message:
+      prefix: deps

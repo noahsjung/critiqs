@@ -42,9 +42,14 @@ CRITIQS_PROJECT_ID=j1234… bin/rails server
 
 Where `CRITIQS_PROJECT_ID` is unset, the tag renders nothing: production can
 run without Critiqs while a review deployment shows it. `npx critiqs init`
-sets it for development: in `.env` when the app uses dotenv, and otherwise as
-a default at the end of `config/environments/development.rb`, which an
-environment variable still overrides:
+sets it for development: in `.env` when the app uses dotenv (or, when a plain
+`ENV["CRITIQS_PROJECT_ID"] = "…"` line in `config/environments/development.rb`
+would override `.env`, in that line), and otherwise as a default at the end of
+`config/environments/development.rb`, which an environment variable still
+overrides. It rewrites a line you wrote only when the line sets one string,
+with nothing but a comment after it and no condition around it; it leaves any
+other line as it is, puts its own value where Rails reads it first, and says
+which value the app uses:
 
 ```ruby
 ENV["CRITIQS_PROJECT_ID"] ||= "<project ID>"
