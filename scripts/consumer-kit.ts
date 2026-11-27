@@ -72,7 +72,7 @@ export function chrome(): string {
 let playwrightTools: Promise<string> | null = null;
 
 /** Playwright, installed once per run in its own folder. */
-async function playwright() {
+export async function playwright() {
   playwrightTools ??= (async () => {
     const tools = await scratch("browser");
     // Its own package.json, or npm installs into the nearest parent folder with node_modules.

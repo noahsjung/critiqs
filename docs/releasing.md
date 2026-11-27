@@ -10,9 +10,11 @@ Release workflow that keeps one release pull request up to date with the
 calculated version, changelogs, and `bun.lock`, and a manual Publish workflow
 that publishes a released version to npm, RubyGems, and PyPI.
 [Changesets](https://changesets.dev) does the calculation.
-**Not built:** tests of older package versions against current backends, and
-a deprecation and support-window policy. These remain required before the
-first stable release.
+Older packages: every supported published version is tested against the
+current backends (`bun scripts/check-older-packages.ts`, and the Older packages
+workflow), under the support window and deprecation rules in
+[versioning and compatibility](technical-direction.md#versioning-and-compatibility),
+whose 12-month length is proposed for the owner to decide.
 
 ## What is released
 

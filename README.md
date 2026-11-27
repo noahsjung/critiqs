@@ -68,6 +68,7 @@ bun install
 bun run check                        # typecheck and test every package
 bun run check:package                # pack and install the release candidate in isolated React 18 and 19 consumers
 bun run check:consumers              # build apps set up by critiqs init: React (Vite, Next.js) and every framework package (needs the npm registry)
+bun run check:older-packages         # every supported published version against the current Convex and self-hosted backends (needs the registries and Chrome)
 bun run measure:setup                # time the developer's setup steps, from install to a saved comment
 ```
 

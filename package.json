@@ -18,6 +18,7 @@
     "test:release": "bun test ./scripts/",
     "changeset": "changeset",
     "check:consumers": "bun scripts/check-consumers.ts && bun run --filter './packages/*' check:consumer",
+    "check:older-packages": "bun scripts/check-older-packages.ts",
     "measure:setup": "bun scripts/measure-setup.ts"
   },
   "devDependencies": {

@@ -103,6 +103,38 @@ export async function releasePackages(tree: Tree): Promise<ReleasePackage[]> {
 }
 
 /**
+ * Mistakes in the Changesets fixed group that contains `critiqs`, each naming
+ * what is wrong: a name or pattern that matches no workspace package (a typo
+ * there drops packages from the release, and from the older-packages check,
+ * silently), and a package that would be published but isn't in the group.
+ */
+export async function releaseGroupMistakes(tree: Tree): Promise<string[]> {
+  const root = JSON.parse(await tree.read("package.json") ?? "{}");
+  const workspaces: string[] = Array.isArray(root.workspaces) ? root.workspaces : root.workspaces?.packages ?? [];
+  const config = JSON.parse(await tree.read(".changeset/config.json") ?? "{}");
+  const group = ((config.fixed ?? []) as string[][]).find((patterns) => patterns.includes("critiqs"));
+  if (group === undefined) return ['.changeset/config.json has no fixed group containing "critiqs".'];
+  const ignored = ((config.ignore ?? []) as string[]).map((pattern) => new Bun.Glob(pattern));
+  const manifests: Manifest[] = [];
+  for (const path of await tree.match(workspaces.map((workspace) => `${workspace.replace(/\/$/, "")}/package.json`))) {
+    const manifest = JSON.parse(await tree.read(path) ?? "{}") as Manifest;
+    if (manifest.name) manifests.push(manifest);
+  }
+  const mistakes: string[] = [];
+  for (const pattern of group) {
+    const glob = new Bun.Glob(pattern);
+    if (!manifests.some((manifest) => glob.match(manifest.name!))) mistakes.push(`.changeset/config.json's release group lists "${pattern}", which matches no package in this repository.`);
+  }
+  const globs = group.map((pattern) => new Bun.Glob(pattern));
+  const outside = manifests
+    .filter((manifest) => registryOf(manifest) !== null && !globs.some((glob) => glob.match(manifest.name!)) && !ignored.some((glob) => glob.match(manifest.name!)))
+    .map((manifest) => manifest.name!)
+    .sort();
+  if (outside.length > 0) mistakes.push(`These packages would be published but aren't in .changeset/config.json's release group: ${outside.join(", ")}.`);
+  return mistakes;
+}
+
+/**
  * Packages after the group packages they depend on (`critiqs` first, then
  * such as `critiqs-vue` before `critiqs-nuxt`), so a registry never holds a
  * package whose dependency isn't published yet; otherwise in the given order.

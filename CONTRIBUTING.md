@@ -76,6 +76,14 @@ installs 5.5.1 until a newer release exists. vue-router 5.5.2 (26 November
 [vuejs/router#2944](https://github.com/vuejs/router/pull/2944). The tools the
 checks drive, such as `playwright-core`, stay at one exact version everywhere.
 
+When you change the backends (`packages/backend`, `packages/server`, or
+`packages/core`), run `bun run check:older-packages`: it installs every
+supported published version from the registries and drives it in Chrome
+against a fresh local Convex deployment and the self-hosted server. The Older
+packages workflow runs it on such pull requests too, but it isn't required,
+so look at its result. `--backend convex` or `--backend self-hosted` runs one,
+and `--current` runs the same flows with the workspace's packed packages.
+
 The package and consumer checks pack or build the packages themselves. To
 check files you already packed with `bun scripts/publish.ts pack`, set
 `CRITIQS_PACKED` to that folder, as the Publish workflow does so that it
