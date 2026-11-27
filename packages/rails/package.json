@@ -1,7 +1,7 @@
 {
   "name": "critiqs-rails",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Workspace marker for the critiqs-rails Ruby gem: carries its version in the shared release group and its scripts.",
   "critiqsRelease": {
     "registry": "rubygems"

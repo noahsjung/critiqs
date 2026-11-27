@@ -1,5 +1,0 @@
----
-"critiqs-react": minor
----
-
-Project names are now limited to 200 characters, the same as the onboarding name field: creating a project with a longer name is refused with a message saying so, the setup panel's name field stops at 200, and `critiqs init` refuses a longer `--name` before signing in. Existing projects keep working. Longer names from before keep their start, followed by "… " and a short code computed from the whole name, so two long names stay different: a self-hosted SQLite database does this when the server starts (after which an older Critiqs can't open it), and on your own Convex deployment, run `npx convex run projects:shortenLongNames` once after deploying. `critiqs init` shortens a suggested name the same way and finds such a project by either name, before or after the backfill. An older `critiqs init` whose suggested name (the app's package name, with its workspace's) is over 200 characters can't create that project, or find it once shortened: upgrade, pass `--name`, or connect the project by its ID with `npx critiqs-react init <projectId>`. A home organization created from now on is named within an organization name's 80 characters.
