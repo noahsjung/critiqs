@@ -39,7 +39,8 @@ works for comments but not Mockup mode.
 # Docs and blog
 
 `build-pages.mjs` turns the Markdown in `content/` into the docs and blog
-pages in `site/`. Vercel still deploys `site/` as is, so commit what it
+pages in `site/`, and the standalone pages, such as the privacy policy at
+`/privacy`. Vercel still deploys `site/` as is, so commit what it
 writes.
 
 ```sh
@@ -49,7 +50,8 @@ bun build-pages.mjs --check    # exit 1 if site/ is out of date (CI runs this)
 ```
 
 It writes `site/docs/` and `site/blog/` in full (anything else there is
-removed), plus `site/sitemap.xml`, `site/robots.txt`, `site/llms.txt` and
+removed), each standalone page as `site/<slug>.html` (any other HTML file at
+`site/`'s top except `index.html` and `404.html` is removed), plus `site/sitemap.xml`, `site/robots.txt`, `site/llms.txt` and
 `site/blog/feed.xml`. Each doc also gets a plain Markdown copy at
 `site/docs/<slug>.md` for agents. Don't edit these files by hand; `--check`
 fails on any difference. The pages' styles are `site/docs.css` and their
@@ -94,6 +96,25 @@ tags: [Review, Agents]
 
 `updated` is optional. Posts are listed newest first, with a reading time
 worked out from the text.
+
+## Add a standalone page
+
+Create `content/pages/<slug>.md`; it becomes `/<slug>`, outside the docs
+and blog, with the site's header and footer.
+
+```md
+---
+title: Privacy policy
+description: One or two sentences for search results. At most 160 characters.
+updated: 2026-12-02
+---
+```
+
+`updated` is optional and shown under the title. The build refuses a slug
+that `site/vercel.json` rewrites to the website app (`start`, `setup`, `t`,
+`r`, `review-links`, `allow-critiqs`), since the host serves a file before a
+rewrite, and the slugs `index`, `404`, `docs`, `blog`, `app`, `media`, and
+`skills`.
 
 ## Writing
 

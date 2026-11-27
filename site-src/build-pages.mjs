@@ -1,5 +1,6 @@
-// Builds the critiqs.app docs and blog from content/docs/*.md and
-// content/blog/*.md into ../site, which Vercel deploys as is.
+// Builds the critiqs.app docs, blog, and standalone pages (such as /privacy)
+// from content/docs/*.md, content/blog/*.md, and content/pages/*.md into
+// ../site, which Vercel deploys as is.
 //
 //   bun build-pages.mjs           write the pages
 //   bun build-pages.mjs --check   exit 1 if ../site differs from a fresh build
@@ -91,7 +92,7 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 function checkCommon(entry) {
   const { file, slug, data } = entry;
   if (!SLUG.test(slug)) fail(file, "file name must be lowercase words joined by hyphens");
-  else if (slug === "index") fail(file, `\`index\` is reserved for the generated /${entry.kind} page; give the file another name`);
+  else if (slug === "index" && entry.kind !== "pages") fail(file, `\`index\` is reserved for the generated /${entry.kind} page; give the file another name`);
   if (!isText(data.title)) fail(file, "needs a `title`");
   if (!isText(data.description)) fail(file, "needs a `description`");
   else if (data.description.length > 160) fail(file, `\`description\` is ${data.description.length} characters; keep it to 160`);
@@ -126,6 +127,27 @@ function loadPosts() {
     if (!Array.isArray(data.tags) || !data.tags.every(isText)) fail(file, "needs `tags` as a list");
   }
   return posts.sort((a, b) => b.data.date.localeCompare(a.data.date) || a.slug.localeCompare(b.slug));
+}
+
+// A page is served at /<slug> from site/<slug>.html. With clean URLs the host
+// serves a file before any rewrite, so a page must not take a path the
+// website app's rewrites in site/vercel.json own, nor the landing page, the
+// 404 page, or a folder the site already has.
+function reservedPagePaths() {
+  const host = JSON.parse(readFileSync(join(SITE, "vercel.json"), "utf8"));
+  const rewritten = (host.rewrites ?? []).map((rule) => rule.source.split("/")[1]).filter(Boolean);
+  return new Set(["index", "404", "docs", "blog", "app", "media", "skills", ...rewritten]);
+}
+
+function loadPages() {
+  const pages = readFolder("pages");
+  const reserved = reservedPagePaths();
+  for (const page of pages) {
+    checkCommon(page);
+    if (reserved.has(page.slug)) fail(page.file, `/${page.slug} belongs to another part of the site; give the file another name`);
+    if (page.data.updated !== undefined && !isDate(page.data.updated)) fail(page.file, "`updated` must be a real calendar date as YYYY-MM-DD");
+  }
+  return pages;
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +413,7 @@ ${body}
           <a href="/llms.txt">llms.txt</a>
         </nav>
       </div>
-      <p class="foot-legal">© 2026 Critiqs</p>
+      <p class="foot-legal">© 2026 Critiqs · <a href="/privacy">Privacy policy</a></p>
     </div>
   </footer>
 
@@ -668,11 +690,53 @@ ${latest ? `    <lastBuildDate>${rfc822(latest)}</lastBuildDate>\n` : ""}${items
 }
 
 // ---------------------------------------------------------------------------
+// Standalone pages
+
+function standalonePage(entry) {
+  const { title, description, updated } = entry.data;
+  const path = `/${entry.slug}`;
+  const meta = updated ? `\n          <p class="post-meta body-6">Updated <time datetime="${updated}">${longDate(updated)}</time></p>` : "";
+  return page({
+    title: `${title} · Critiqs`,
+    description,
+    path,
+    area: null,
+    isIndex: false,
+    ogType: "website",
+    bodyClass: "standalone-page",
+    structured: [
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: title,
+        description,
+        url: ORIGIN + path,
+        inLanguage: "en",
+        publisher: ORG,
+        ...(updated ? { dateModified: updated } : {}),
+      },
+      breadcrumbs([["Critiqs", "/"], [title, path]]),
+    ],
+    body: `  <main id="main" class="post">
+    <div class="wrap">
+      <article class="prose">
+        <header class="post-header">
+          <h1 class="heading-3">${escapeHtml(title)}</h1>
+          <p class="doc-lede title-2">${escapeHtml(description)}</p>${meta}
+        </header>
+${entry.html}      </article>
+    </div>
+  </main>`,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Site-wide files
 
-function sitemap(docs, posts) {
+function sitemap(docs, posts, pages) {
   const urls = [
     ["/"],
+    ...pages.map((p) => [`/${p.slug}`, p.data.updated]),
     ["/docs"],
     ...docs.map((d) => [`/docs/${d.slug}`]),
     ["/blog"],
@@ -712,15 +776,17 @@ ${docSections}${blog}`;
 function build() {
   const docs = loadDocs();
   const posts = loadPosts();
+  const pages = loadPages();
+  const all = [...docs, ...posts, ...pages];
 
   const links = new Map([...docs.map((d) => [`docs/${d.slug}`, `/docs/${d.slug}`]), ...posts.map((p) => [`blog/${p.slug}`, `/blog/${p.slug}`])]);
-  for (const entry of [...docs, ...posts]) {
+  for (const entry of all) {
     Object.assign(entry, renderMarkdown(entry, links));
     entry.minutes = readingMinutes(entry.body);
   }
   // A #fragment must name a heading id on the page it points to.
-  const ids = new Map([...docs, ...posts].map((e) => [`${e.kind}/${e.slug}`, e.ids]));
-  for (const entry of [...docs, ...posts]) {
+  const ids = new Map(all.map((e) => [`${e.kind}/${e.slug}`, e.ids]));
+  for (const entry of all) {
     for (const { href, target, id } of entry.fragments) {
       let decoded = id;
       try {
@@ -740,22 +806,30 @@ function build() {
   out.set("blog/index.html", blogIndex(posts));
   for (const post of posts) out.set(`blog/${post.slug}.html`, postPage(post));
   out.set("blog/feed.xml", feed(posts));
-  out.set("sitemap.xml", sitemap(docs, posts));
+  for (const entry of pages) out.set(`${entry.slug}.html`, standalonePage(entry));
+  out.set("sitemap.xml", sitemap(docs, posts, pages));
   out.set("robots.txt", robots());
   out.set("llms.txt", llms(docs, posts));
   return out;
 }
 
 // site/docs and site/blog are generated in full; anything else in them is stale.
+// So is any HTML file at the site's root other than the hand-written landing
+// and 404 pages: the root's other pages come from content/pages.
 const OWNED_DIRS = ["docs", "blog"];
-const listOwned = () =>
-  OWNED_DIRS.flatMap((dir) =>
+const HAND_WRITTEN = new Set(["index.html", "404.html"]);
+const listOwned = () => [
+  ...readdirSync(SITE, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".html") && !HAND_WRITTEN.has(entry.name))
+    .map((entry) => entry.name),
+  ...OWNED_DIRS.flatMap((dir) =>
     existsSync(join(SITE, dir))
       ? readdirSync(join(SITE, dir), { recursive: true, withFileTypes: true })
           .filter((entry) => entry.isFile())
           .map((entry) => relative(SITE, join(entry.parentPath, entry.name)))
       : [],
-  );
+  ),
+];
 
 const out = build();
 if (!out) {
