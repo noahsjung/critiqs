@@ -31,6 +31,10 @@ test("the site's ignoreCommand skips a build only when the last deployed commit 
     const first = commit("site/index.html", "one");
     const docs = commit("docs/notes.md", "nothing the site is built from");
     const app = commit("apps/web/src/main.tsx", "the onboarding app");
+    const core = commit("packages/core/src/index.ts", "shared core");
+    const react = commit("packages/react/src/index.ts", "shared react");
+    const backend = commit("packages/backend/convex/schema.ts", "convex schema");
+    const lock = commit("bun.lock", "lockfile");
     const page = commit("site/index.html", "two");
     // Vercel runs the command in the project's root directory, site/.
     const run = (previous: string | undefined, current: string) =>
@@ -44,7 +48,11 @@ test("the site's ignoreCommand skips a build only when the last deployed commit 
     };
     expect(builds(first, docs)).toBe(false);
     expect(builds(docs, app)).toBe(true);
-    expect(builds(app, page)).toBe(true);
+    expect(builds(app, core)).toBe(true);
+    expect(builds(core, react)).toBe(true);
+    expect(builds(react, backend)).toBe(true);
+    expect(builds(backend, lock)).toBe(true);
+    expect(builds(lock, page)).toBe(true);
     expect(builds(first, page)).toBe(true);
     // No earlier deployment, the same commit deployed again, and an earlier commit this clone doesn't have: build.
     expect(builds(undefined, docs)).toBe(true);

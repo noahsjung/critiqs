@@ -14,20 +14,20 @@ describe("supportedVersions", () => {
       .toEqual([{ version: "0.3.1", line: "0.3", until: null }]);
   });
 
-  test("an older line stays supported for 12 months after the next line's first release", () => {
+  test("an older line stays supported for 6 months after the next line's first release", () => {
     const published = [release("0.3.0", "2026-10-30"), release("0.3.2", "2026-12-01"), release("0.4.0", "2027-02-15"), release("0.4.1", "2027-03-01")];
-    expect(supportedVersions(published, at("2028-02-14"))).toEqual([
-      { version: "0.3.2", line: "0.3", until: at("2028-02-15") },
+    expect(supportedVersions(published, at("2027-08-14"))).toEqual([
+      { version: "0.3.2", line: "0.3", until: at("2027-08-15") },
       { version: "0.4.1", line: "0.4", until: null },
     ]);
-    expect(supportedVersions(published, at("2028-02-15")).map((s) => s.version)).toEqual(["0.4.1"]);
+    expect(supportedVersions(published, at("2027-08-15")).map((s) => s.version)).toEqual(["0.4.1"]);
   });
 
   test("lines are ordered by number, and a later backport doesn't restart the window", () => {
     const published = [release("1.0.0", "2027-01-01"), release("2.0.0", "2027-06-01"), release("1.0.1", "2027-09-01"), release("1.1.0", "2027-03-01")];
-    // 1.0 is replaced by 1.1 (March 2027), 1.1 by 2.0 (June 2027).
-    expect(supportedVersions(published, at("2028-04-01"))).toEqual([
-      { version: "1.1.0", line: "1.1", until: at("2028-06-01") },
+    // 1.0 is replaced by 1.1 (March 2027, supported until September 2027), 1.1 by 2.0 (June 2027, supported until December 2027).
+    expect(supportedVersions(published, at("2027-10-01"))).toEqual([
+      { version: "1.1.0", line: "1.1", until: at("2027-12-01") },
       { version: "2.0.0", line: "2.0", until: null },
     ]);
   });

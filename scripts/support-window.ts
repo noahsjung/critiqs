@@ -9,10 +9,10 @@ import { releaseGroupMistakes, releasePackages, workingTree, type Registry, type
 
 /**
  * Months an older release line stays supported after the line that replaces
- * it is first published. Proposed in the docs; change it there and here
- * together.
+ * it is first published: 6 months before 1.0 (12 months at 1.0), per
+ * docs/technical-direction.md. Change it there and here together.
  */
-export const SUPPORT_MONTHS = 12;
+export const SUPPORT_MONTHS = 6;
 
 /** One published version as a registry reports it. */
 export interface Published {

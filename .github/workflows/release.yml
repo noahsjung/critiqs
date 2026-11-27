@@ -25,12 +25,12 @@ jobs:
       actions: write # start CI on the release branch
     env:
       BRANCH: changeset-release/main
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
@@ -41,8 +41,16 @@ jobs:
       - name: Version
         run: bun scripts/release.ts version
       - name: Open or update the release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          auth_git() {
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
+            git "$@"
+          }
           # Only this repository's own branch is the release pull request; a
           # fork's branch can have the same name.
           pr=$(gh pr list --head "$BRANCH" --base main --state open --limit 100 --json number,isCrossRepository \
@@ -73,11 +81,11 @@ jobs:
           # equal. The push is leased on the commit observed here, so a branch
           # that moved meanwhile is never overwritten.
           listed=0
-          git ls-remote --exit-code origin "refs/heads/$BRANCH" > /dev/null || listed=$?
+          auth_git ls-remote --exit-code origin "refs/heads/$BRANCH" > /dev/null || listed=$?
           if [ "$listed" = 2 ]; then
             observed=""
           elif [ "$listed" = 0 ]; then
-            git fetch --quiet origin "refs/heads/$BRANCH"
+            auth_git fetch --quiet origin "refs/heads/$BRANCH"
             observed=$(git rev-parse FETCH_HEAD)
           else
             echo "::error::Couldn't read $BRANCH from origin (git ls-remote exited $listed)."
@@ -98,7 +106,7 @@ jobs:
             head=$observed
           else
             # An empty lease value means the branch must still not exist.
-            git push --force-with-lease="refs/heads/$BRANCH:$observed" origin "HEAD:refs/heads/$BRANCH"
+            auth_git push --force-with-lease="refs/heads/$BRANCH:$observed" origin "HEAD:refs/heads/$BRANCH"
             head=$(git rev-parse HEAD)
           fi
 

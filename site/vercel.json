@@ -91,6 +91,15 @@
       ]
     },
     {
+      "source": "/allow-critiqs",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'none'"
+        }
+      ]
+    },
+    {
       "source": "/(styles.css|main.js|icons.svg|docs.css|docs.js)",
       "headers": [
         {

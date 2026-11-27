@@ -13,8 +13,8 @@ that publishes a released version to npm, RubyGems, and PyPI.
 Older packages: every supported published version is tested against the
 current backends (`bun scripts/check-older-packages.ts`, and the Older packages
 workflow), under the support window and deprecation rules in
-[versioning and compatibility](technical-direction.md#versioning-and-compatibility),
-whose 12-month length is proposed for the owner to decide.
+[versioning and compatibility](technical-direction.md#versioning-and-compatibility)
+(6 months before 1.0, 12 months at 1.0).
 
 ## What is released
 

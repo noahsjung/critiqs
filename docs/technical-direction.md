@@ -2642,16 +2642,16 @@ and a generated release pull request calculates the version and changelog
 from those notes ([releasing](releasing.md)). CI checks each note's form; reviewers
 check that its type matches the change.
 
-**Proposed, built in the pilot:** the support window. The owner decides
-its length; 12 months is a proposal, set in `SUPPORT_MONTHS` in
-`scripts/support-window.ts` so that the window and the check below change
-together.
+**Agreed, built in the pilot:** the support window is 6 months before 1.0
+(12 months at 1.0), set in `SUPPORT_MONTHS` in `scripts/support-window.ts`
+so that the window and the check below change together.
 
 - **Release lines.** A line is every release with the same MAJOR.MINOR
   (0.3, 1.4). Before 1.0.0 a minor release may break, so 0.x lines are lines
   too. Every Critiqs package follows the same rule; they share one version.
 - **Which versions are supported.** The newest line is always supported. An
-  older line stays supported for 12 months after the first stable release of
+  older line stays supported for 6 months before 1.0 (12 months at 1.0) after
+  the first stable release of
   the line that replaced it. Within a supported line, the newest patch release
   is the supported one: a patch is a compatible fix, so developers on an older
   patch upgrade within the line without changing their code. Prereleases
