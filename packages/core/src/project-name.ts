@@ -19,7 +19,7 @@ const KEPT = MAX_PROJECT_NAME_LENGTH - 13;
  * name, so two long names sharing their start stay different, and a shortened
  * name never equals a name someone typed or `critiqs init` suggested that
  * fits. `critiqs init` shortens a long suggested name the same way (its copy
- * in `packages/react/bin/env.mjs` is tested against this one), so it finds a
+ * in `packages/critiqs/bin/setup.mjs` is tested against this one), so it finds a
  * project shortened by the backfill again. Names that fit are unchanged.
  */
 export function shortenProjectName(name: string): string {

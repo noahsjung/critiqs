@@ -38,25 +38,27 @@ build on the shared `critiqs` package:
 
 | Package | Registry | For | Status |
 | --- | --- | --- | --- |
-| `critiqs` | npm | Any web app: `mountCritiqs` and the `<critiqs-app>` element; the base of every framework package | Not on npm yet |
+| `critiqs` | npm | Any web app: `mountCritiqs` and the `<critiqs-app>` element; the base of every framework package | Built, not published yet |
 | `critiqs-react` | npm | React and Next.js | On npm (0.3.0) |
-| `critiqs-vue` | npm | Vue | In progress |
-| `critiqs-nuxt` | npm | Nuxt | In progress |
-| `critiqs-svelte` | npm | Svelte and SvelteKit | In progress |
-| `critiqs-angular` | npm | Angular | In progress |
-| `critiqs-astro` | npm | Astro | In progress |
-| `critiqs-solid` | npm | Solid and SolidStart | In progress |
-| `critiqs-rails` | RubyGems | Rails | In progress |
-| `django-critiqs` | PyPI | Django | In progress |
-| `flask-critiqs` | PyPI | Flask | In progress |
+| `critiqs-vue` | npm | Vue | Built, not published yet |
+| `critiqs-nuxt` | npm | Nuxt | Built, not published yet |
+| `critiqs-svelte` | npm | Svelte and SvelteKit | Built, not published yet |
+| `critiqs-angular` | npm | Angular | Built, not published yet |
+| `critiqs-astro` | npm | Astro | Built, not published yet |
+| `critiqs-solid` | npm | Solid and SolidStart | Built, not published yet |
+| `critiqs-rails` | RubyGems | Rails | Built, not published yet |
+| `django-critiqs` | PyPI | Django | Built, not published yet |
+| `flask-critiqs` | PyPI | Flask | Built, not published yet |
 
 | Path | Contents |
 | --- | --- |
 | `packages/core` | Framework-independent logic: anchors, target location, read state, sidebar grouping, links, export, and the backend contract. |
 | `packages/server` | Critiqs's server rules over a storage interface, with a SQLite store and contract tests every backend passes. |
 | `packages/backend` | Convex schema, server functions, and Critiqs's sign-in service, shared by Critiqs Cloud and team-owned deployments. |
-| `packages/critiqs` | The shared `critiqs` package: `mountCritiqs`, the `<critiqs-app>` element, and the setup adapters for each framework. |
-| `packages/react` | The `<Critiqs />` component (toolbar, sidebar, pins, commenting, setup) and the `critiqs init` command. |
+| `packages/critiqs` | The shared `critiqs` package: `mountCritiqs`, the `<critiqs-app>` element, and the `critiqs` command (`init`, `doctor`, `sign-in`, `sign-out`, `mcp`) with the setup for each framework. |
+| `packages/react` | The `<Critiqs />` component (toolbar, sidebar, pins, commenting, setup); its `critiqs` command runs the shared package's. |
+| `packages/vue`, `nuxt`, `svelte`, `angular`, `astro`, `solid`, `rails`, `django`, `flask` | The framework packages in the table above. |
+| `packages/extension` | The Chrome extension: reviewers comment on a page from a side panel, with nothing installed in the app. Not published. |
 | `examples/pilot` | Small React host app for the [pilot scenarios](docs/first-release.md#pilot-scenarios). |
 | `site` | The [critiqs.app](https://critiqs.app) landing page: static HTML, CSS, and JavaScript with no build step, deployed by Vercel from `main` (pull requests get preview links). |
 | `site-src` | The sample app and script that record the landing page's clips from the real Critiqs UI ([how to run it](site-src/README.md)). |
@@ -65,7 +67,7 @@ build on the shared `critiqs` package:
 bun install
 bun run check                        # typecheck and test every package
 bun run check:package                # pack and install the release candidate in isolated React 18 and 19 consumers
-bun run check:consumers              # build Vite and Next.js apps set up by critiqs init (needs the npm registry)
+bun run check:consumers              # build apps set up by critiqs init: React (Vite, Next.js) and every framework package (needs the npm registry)
 bun run measure:setup                # time the developer's setup steps, from install to a saved comment
 ```
 

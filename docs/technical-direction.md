@@ -19,7 +19,7 @@ pilot** are implemented in this repository but not yet agreed. Choices marked
 | SQLite | Selected backend for embedded self-hosting, inside the host app's own server (`critiqs-react/server`). Built after Critiqs Cloud. |
 | AI SDK | Model calls for automatic tag grouping, search, and insights, with explicit provider instances (OpenAI, Anthropic, Google, OpenRouter through the OpenAI-compatible provider, Vercel AI Gateway, OpenAI-compatible). Runs only on servers: Convex Node actions and the self-hosted server. |
 | WorkOS AuthKit | No longer used for sign-in. Agreed for later: enterprise sign-in (SSO) such as Okta, on Critiqs Cloud only, when a customer needs it ([Sign-in and organizations](#sign-in-and-organizations)). |
-| Autumn | Agreed, not built: Critiqs Cloud's billing on Stripe. Holds the plans, prices, checkout, and the `ai_credits` meter. Unused elsewhere. |
+| Autumn | Built, off unless turned on: Critiqs Cloud's billing on Stripe. Holds the plans, prices, checkout, and the `ai_credits` meter. Unused elsewhere. |
 
 Supabase and other Postgres hosts are not planned; they can be added later as
 another backend if teams ask. Supported React/browser versions and routing
@@ -55,7 +55,7 @@ project keeps one set of feedback.
 so teams can embed and self-host it freely, and `critiqs-react` is published
 publicly on npm.
 
-**Agreed (2026-11-23), not built:** Critiqs Cloud sells hosting, reliability,
+**Agreed (2026-11-23), built:** Critiqs Cloud sells hosting, reliability,
 and administration. Its billing code lives in `packages/backend` and ships
 publicly, so self-hosters receive it too. It does nothing unless a deployment
 sets `CRITIQS_BILLING=autumn` and an Autumn secret key
@@ -111,7 +111,7 @@ SQLite behave the same:
   code units, cut between characters, followed by "… " and 11 letters and
   digits computed from the whole name (`shortenProjectName`), so two long
   names that share their start stay different, and a shortened name never
-  equals one that fits. SQLite's schema version 12 does this on start,
+  equals one that fits. SQLite's schema version 18 does this on start,
   finding names by their bytes, since SQLite's `length` stops at a NUL. On
   Convex, run `npx convex run projects:shortenLongNames` once after
   deploying; it pages through projects and can run again safely. Until it
@@ -619,13 +619,14 @@ covered by local tests. If a browser has neither Web Locks nor IndexedDB,
 Critiqs preserves the stored session and declines refresh rather than race
 another tab. Browser support is still an open choice.
 
-**Agreed (2026-11-25), not built in a panel yet:** every reviewer who reviews
+**Agreed (2026-11-25):** every reviewer who reviews
 without installing verifies their email inside Critiqs's panel (email, code,
 and a display name on a first sign-in), with no popup. Review links ask at the
-first comment; the extension asks when Critiqs first opens on a page.
+first comment; the extension asks when Critiqs first opens on a page. Built
+in the extension's side panel. Review links are not built.
 
 **Proposed, built:** the sign-in service behind that, for Critiqs's own panels
-only. No panel uses it yet.
+only. The extension's side panel uses it.
 
 - **Panel origins.** `CRITIQS_WEB_ORIGINS` lists Critiqs's website origins
   (a review link's panel) and `CRITIQS_EXTENSION_IDS` the extension IDs whose
@@ -826,7 +827,7 @@ tool, instead of approving every session.
   MCP server send its tokens to no other address, even a backend whose
   `/critiqs/config` names the same sign-in service, and say how to sign in for
   it instead: the origin on its own, and a command with the origin in single
-  quotes (`npx critiqs-react sign-in --backend '<origin>'`). A later sign-in
+  quotes (`npx critiqs sign-in --backend '<origin>'`). A later sign-in
   to the same service by the same person adds its backend; by someone else, it
   starts over. A renewal another process made meanwhile is held to the same
   check.
@@ -1037,7 +1038,8 @@ interface sets a list yet; the owner's settings come with the extension.
 
 ## Sign-in and organizations
 
-**Agreed (2026-11-23), not built.**
+**Agreed (2026-11-23), built** on Convex and SQLite. Existing Convex projects
+move into organizations with `organizations:backfill`.
 
 - **Sign-in stays Critiqs's own** email-code sign-in, described above.
 - **Organizations are Critiqs's own records**, built in Convex, with the same
@@ -1145,14 +1147,14 @@ so its usage stays counted.
 Plans are off unless a deployment turns them on: Critiqs Cloud sets
 `CRITIQS_PLANS=enabled`, so team-owned deployments and self-hosting have no plan
 limits or usage counters, only the operational limits in
-[Open choices](#open-choices). Critiqs Cloud starts with built-in Free and Team
-plans whose numbers are placeholders. Operators replace or add plans without a
+[Open choices](#open-choices). The built-in plans are Free, Plus, and Pro
+([Free, Plus, and Pro](#free-plus-and-pro)). Operators replace or add plans without a
 deploy (`npx convex run plans:set`), list them (`plans:list`), and move an
 account to another plan, naming it or one of its projects (`plans:assign`).
 Project owners see their usage in setup; the panel asks for the current UTC day,
 so it moves to a new day or month on its own. Limits on sign-in email stay
-separate, so a project at its limit never blocks sign-in. Payment is not built
-yet; see [Billing with Autumn](#billing-with-autumn).
+separate, so a project at its limit never blocks sign-in. Payment is
+described in [Billing with Autumn](#billing-with-autumn).
 
 Critiqs AI requests count in credits, each costing its model's credits (a
 search is two requests). When the project pays, they count against the
@@ -1175,8 +1177,8 @@ Own providers count nothing against plans.
 
 ### Free, Plus, and Pro
 
-**Agreed (2026-11-23), not built.** These replace the built-in Free and Team
-plans above. Plan ids are `free` ("Free"), `plus` ("Plus"), and `pro` ("Pro").
+**Agreed (2026-11-23), built.** These replaced the earlier built-in Free and
+Team plans, and the credit counting described above. Plan ids are `free` ("Free"), `plus` ("Plus"), and `pro` ("Pro").
 An account assigned `team` moves to `plus`. Prices and what customers see are
 in [first release](first-release.md#plans-and-payment).
 
@@ -1208,10 +1210,10 @@ limits against abuse, such as the sign-in email limits, still apply.
   the maximum is billed. An organization's `overageCap` overrides the default:
   absent uses the plan's default, `null` removes the cap. Plus and Pro start
   with a cap equal to their monthly credits; Free has no overage.
-- **AI charging.** Before a request, Critiqs refuses it only when no credits
-  are left. After it, Critiqs counts the credits the request really cost.
-  That count never refuses work already done, so one request can end slightly
-  past the cap.
+- **AI charging.** Before a request, Critiqs holds the most it could cost
+  and refuses it when that doesn't fit in what the payer may still spend.
+  After it, Critiqs releases the hold and counts the credits the request
+  really cost. That count never refuses work already done.
 - **Alerts.** Crossing the plan's monthly credits, or the cap, sends one email
   per organization per month to its admins.
 - **Storage add-on.** A Pro organization's `extraStorageUnits` adds 100 GB of
@@ -1221,7 +1223,8 @@ limits against abuse, such as the sign-in email limits, still apply.
 
 ### Billing with Autumn
 
-**Agreed (2026-11-23), not built.** Autumn, on Stripe, holds the plans,
+**Agreed (2026-11-23), built.** Tested against a stand-in for Autumn's API;
+live payments need Stripe connected in Autumn. Autumn, on Stripe, holds the plans,
 their prices, checkout, the billing portal, and the `ai_credits` meter. Critiqs
 keeps enforcing every limit itself, in the same transaction as the change, as
 it does today. Each number has one owner: limits live in Critiqs's plan
@@ -1235,8 +1238,8 @@ configuration, and prices live in Autumn.
 - Autumn's webhook (checked with `AUTUMN_WEBHOOK_SECRET`) tells Critiqs which
   plan an organization has paid for. Critiqs also reconciles plans with Autumn
   on a schedule.
-- Paid plans renew at the start of each month in Autumn, as Critiqs's
-  monthly periods do.
+- Critiqs's monthly periods are calendar months in UTC. A paid plan renews
+  on its own subscription date in Autumn; nothing aligns the two.
 
 ## Threads and identity
 
@@ -1578,7 +1581,7 @@ and the project's owners pick whose connection people's requests use; see
   page copy's elements (tags, classes, text, and some computed styles) with
   masked regions left out. Never email addresses, keys, captures, or other projects.
 
-**Agreed (2026-11-23), not built:** credits per token instead of per request.
+**Agreed (2026-11-23), built:** credits per token instead of per request.
 One credit is one cent of what the customer pays, and a request costs
 `ceil(api_cost_usd × 200)` credits, at least 1: twice the provider's price for
 the tokens it used, rounded up. Critiqs uses the cost the gateway reports when the
@@ -1593,12 +1596,12 @@ Credits count under `aiCredits` against the paying organization
 | Setting (Convex deployment) | Purpose |
 | --- | --- |
 | `CRITIQS_MANAGED_AI=enabled`, `CRITIQS_MANAGED_AI_PROVIDER`, `CRITIQS_MANAGED_AI_API_KEY`, optional `CRITIQS_MANAGED_AI_BASE_URL` | Critiqs-managed AI, for Critiqs Cloud |
-| `CRITIQS_MANAGED_AI_MODELS` | Critiqs-managed AI's models, a JSON list of `{ "id", "label", "model", "credits" }` (1 to 20; credits a whole number from 1 to 1000), first is the default; sharing the provider, key, and address above |
+| `CRITIQS_MANAGED_AI_MODELS` | Critiqs-managed AI's models, a JSON list of `{ "id", "label", "model" }`, each with `"credits"` (a whole number from 1 to 1000) or `"price": { "input", "output" }` in US dollars per million tokens (1 to 20 models), first is the default; sharing the provider, key, and address above |
 | `CRITIQS_MANAGED_AI_MODEL` | Without `CRITIQS_MANAGED_AI_MODELS`: one model, `default`, labelled "Critiqs AI", costing 1 credit |
 | `CRITIQS_UPGRADE_URL` | With plans: the https page where people upgrade, linked as **Upgrade** |
-| `CRITIQS_BILLING=autumn` | Agreed, not built: turns on Critiqs Cloud billing through Autumn ([Billing with Autumn](#billing-with-autumn)). Without it, billing code does nothing |
-| `AUTUMN_SECRET_KEY` | Agreed, not built: Autumn's secret key, needed with `CRITIQS_BILLING=autumn` |
-| `AUTUMN_WEBHOOK_SECRET` | Agreed, not built: checks that webhook calls come from Autumn |
+| `CRITIQS_BILLING=autumn` | Turns on Critiqs Cloud billing through Autumn ([Billing with Autumn](#billing-with-autumn)). Without it, billing code does nothing |
+| `AUTUMN_SECRET_KEY` | Autumn's secret key, needed with `CRITIQS_BILLING=autumn` |
+| `AUTUMN_WEBHOOK_SECRET` | Checks that webhook calls come from Autumn |
 | `CRITIQS_AI_PROVIDER`, `CRITIQS_AI_MODEL`, optional `CRITIQS_AI_API_KEY`, `CRITIQS_AI_BASE_URL` | A provider for every project that saves none (team-owned deployments) |
 | `CRITIQS_AI_ENCRYPTION_KEY` | At least 32 random characters (`openssl rand -base64 32`); lets owners save their own keys |
 | `CRITIQS_AI_ALLOWED_ENDPOINTS` | Comma-separated endpoint addresses owners may enter |
@@ -2064,7 +2067,7 @@ The pilot's data is test data and is not migrated.
 4. **Thread window, mentions, and notifications.** Built.
 5. **Critiqs Cloud.** Built: plans and limits, and Critiqs Cloud
    (`https://brazen-snail-591.convex.cloud`) as the component's default
-   (`HOSTED_BACKEND_URL`). Agreed, not built: organizations, the Free,
+   (`HOSTED_BACKEND_URL`); organizations, the Free,
    Plus, and Pro plans, per-token Critiqs AI credits, and billing through
    Autumn ([Plans and limits](#plans-and-limits)). Live billing also needs
    Stripe connected in Autumn, with the live Autumn keys set on the

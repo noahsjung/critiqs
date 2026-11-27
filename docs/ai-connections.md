@@ -17,10 +17,8 @@ asked for it; **built** means it is in this repository with local tests.
   - **Their own key**: OpenAI, Anthropic, Google Gemini, OpenRouter, Vercel AI
     Gateway, or an OpenAI-compatible endpoint, with models picked from the
     provider's list.
-- The project's creator picks the project's **AI usage rule**. There are no
-  project admins yet. Agreed 2026-11-23, not built: once organizations exist,
-  the project's owners pick it (its organization's admins, or its creator while
-  still a member).
+- The project's owners pick the project's **AI usage rule**: its
+  organization's admins, or its creator while still a member.
 
   | Rule | Requests a person starts use |
   | --- | --- |
@@ -41,7 +39,7 @@ asked for it; **built** means it is in this repository with local tests.
   never receive keys. Using a person's Claude or ChatGPT subscription from the
   server is not allowed by those providers' terms and is not offered.
 - Critiqs AI for self-hosted servers comes later.
-- **Agreed 2026-11-23, not built:** payment through Autumn on Stripe, the Free,
+- **Built:** payment through Autumn on Stripe, the Free,
   Plus, and Pro plans, and per-token credits
   ([Per-token credits](#per-token-credits-agreed-2026-11-23)). Credits count
   against organizations, not people
@@ -68,10 +66,10 @@ asked for it; **built** means it is in this repository with local tests.
   `{ "id", "label", "model", "credits" }`, sharing
   `CRITIQS_MANAGED_AI_PROVIDER`, `_API_KEY`, and `_BASE_URL`. Without it, the
   existing `CRITIQS_MANAGED_AI_MODEL` is one model, `default`, labelled
-  "Critiqs AI", costing 1 credit. **Agreed 2026-11-23, not built:** each model
-  carries its prices in US dollars per million input tokens and per million
-  output tokens, and a request is charged for the tokens it used. A model's
-  cost in credits, as shown, becomes an estimate.
+  "Critiqs AI", costing 1 credit. **Built:** a model may carry a `price`,
+  `{ "input", "output" }` in US dollars per million input and output tokens,
+  instead of `credits`; a request on it is charged for the tokens it used, and
+  its cost in credits, as shown, is an estimate.
 - **Providers** gain `openrouter`: the OpenAI-compatible connection with
   OpenRouter's address (`https://openrouter.ai/api/v1`) filled in. Settings
   views list the providers a backend accepts in `deployment.providers`.
@@ -102,7 +100,7 @@ against the person's plan under a new metric, `personalAiRequests`, per
 person. The built-in Free plan allows 50 personal credits a day and Team 500
 (placeholders). Own keys count nothing against plans.
 
-**Agreed 2026-11-23, not built:** credits count per organization under one
+**Built:** credits count per organization under one
 metric, `aiCredits`, per month: 200 on Free, 2,000 on Plus, and 10,000 on Pro.
 When the project pays, they count against the project's organization. When a
 person pays, they count against the person's home organization. `aiCredits`
@@ -280,7 +278,7 @@ These fill gaps in the decisions above; each can change.
 - **No new configuration flag:** the call ships with `personalAi`, and a
   backend without it (an error answer) shows no usage, so Your AI still works
   there.
-- **Agreed 2026-11-23, not built:** with credits counted per organization
+- **Built:** with credits counted per organization
   (`aiCredits`), these lines show the paying organization's credits for the
   month. The names `aiRequests` and `personalAiRequests` stay in the protocol
   for older clients.
@@ -337,7 +335,7 @@ own key as a separate choice.
 
 ## Per-token credits (agreed 2026-11-23)
 
-Not built. A fixed price per request charges a short search and a long mockup
+Built. A fixed price per request charged a short search and a long mockup
 turn the same. Credits now follow the tokens each request used.
 
 - **One credit is one cent** of what the customer pays.
@@ -348,9 +346,11 @@ turn the same. Credits now follow the tokens each request used.
   dollars per million input tokens and per million output tokens. The
   reference list prices are Claude Opus 5.5 at $4 and $20, Claude Haiku 5.5 at
   $0.10 and $0.50, Gemini 4 Neon at $3 and $15, and GPT-6.2 Sol at $2 and $10.
-- **Charging happens in two steps.** Before a request, Critiqs refuses it only
-  when the payer has no credits left. After it, Critiqs counts what the
-  request cost, and that count never refuses work already done.
+- **Charging happens in two steps.** Before a request, Critiqs holds the
+  most it could cost and refuses it when that doesn't fit in what the payer
+  may still spend. After it, Critiqs releases the hold and counts what the
+  request really cost, and that count never refuses work already done. A
+  failed request costs nothing, and holds expire after 10 minutes.
 - **The cost beside a model is an estimate**, since the answer's length isn't
   known until it arrives.
 
@@ -369,6 +369,6 @@ turn the same. Credits now follow the tokens each request used.
    for its owner and in Your AI for each person.
 5. **Simpler setup** (built): Critiqs AI by default on the free tier, models
    by name, Upgrade, and the layout above, on the design system.
-6. **Per-token credits** (agreed, not built): usage from each model call,
+6. **Per-token credits** (built): usage from each model call,
    prices in configuration, and credits counted after the call, against the
    paying organization.

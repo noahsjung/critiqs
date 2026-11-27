@@ -45,7 +45,7 @@ In scope:
   the self-hosted server and SQLite store (`packages/backend`,
   `packages/server`, `packages/core`).
 - **The CLI:** the `critiqs` command (`critiqs init`, sign-in, setup).
-- **MCP:** the stdio MCP server started with `npx critiqs-react mcp`.
+- **MCP:** the stdio MCP server started with `npx critiqs mcp` (`npx critiqs-react mcp` runs the same one).
 - **Critiqs Cloud:** the hosted backend and sign-in service at critiqs.app.
 
 Out of scope:
