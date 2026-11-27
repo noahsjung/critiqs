@@ -108,6 +108,8 @@ test("reports itself as a server in the host app, current with the component", a
     presetTags: true,
     connections: true,
     developerResends: true,
+    threadMadeWith: true,
+    threadMentions: true,
   });
   expect((await handler.fetch(new Request(`${SITE}/elsewhere`))).status).toBe(404);
 });

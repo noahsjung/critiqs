@@ -88,9 +88,9 @@ export const setReviewAccess = mutation({
   handler: async (ctx, args) => run(async () => operations.setReviewAccess(convexStore(ctx), await identityOf(ctx), args)),
 });
 
-/** Mention suggestions: people who have commented in the project, by name. */
+/** Mention suggestions, by name: whom the reviewer may mention in this thread, or without one in a new thread. */
 export const participants = query({
-  args: { projectId: v.id("projects"), query: v.string() },
+  args: { projectId: v.id("projects"), query: v.string(), threadId: v.optional(v.id("threads")) },
   handler: async (ctx, args) => run(async () => operations.listParticipants(convexStore(ctx), await identityOf(ctx), args)),
 });
 

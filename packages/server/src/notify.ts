@@ -1,7 +1,7 @@
 import { isPrivateReviewAddress, MAX_REVIEW_URL_LENGTH, reviewLink, threadPageLink, type NotificationSettings, type ParticipantInfo } from "@critiqs/core";
 import { fail } from "./errors.ts";
 import { useQuota } from "./limits.ts";
-import { canOpenThreadPage, canReview, projectQuota } from "./organizations.ts";
+import { canOpenThreadPage, canReview, projectQuota, projectTeam } from "./organizations.ts";
 import { type EmailEntry, type EmailHeader, type EmailImage, emailImage, MentionEmail } from "./mention-email.ts";
 import { MailError, type MailMessage } from "./signin.ts";
 import type { NotificationRecord, ProjectRecord, Store, StoredMention, ThreadRecord } from "./store.ts";
@@ -68,6 +68,58 @@ export async function validateMentions(store: Store, projectId: string, mentions
     if (valid.length > MAX_MENTIONS) fail("invalid", `Mention up to ${MAX_MENTIONS} people in one comment.`);
   }
   return valid;
+}
+
+/**
+ * Whom someone may mention, from their standing in the project rather than
+ * from where they write. The project's team (its organization; for a project
+ * from before organizations, its creator) mentions anyone in the project who
+ * can still review it. Someone outside the team mentions the team and the
+ * people in the thread they write in: whoever started it, replied, or was
+ * mentioned in it. In a new thread nobody else is in it yet. A thread from
+ * before people in threads were recorded can't say who is in it, so the
+ * project-wide rule stands there. The `@` list (`listParticipants`) and the
+ * check on a sent message (`checkMentionReach`) both ask this, so they agree.
+ */
+export async function mentionRule(
+  store: Store,
+  project: ProjectRecord,
+  thread: ThreadRecord | null,
+  authorId: string | null,
+): Promise<{ projectWide: boolean; allows(personId: string): Promise<boolean> }> {
+  const inTeam = await projectTeam(store, project);
+  const projectWide = authorId !== null && ((await inTeam(authorId)) || (thread !== null && thread.followersReady !== true));
+  return {
+    projectWide,
+    allows: async (personId) => {
+      if ((await store.participants.find(project._id, personId)) === null || !(await canReview(store, project, personId))) return false;
+      if (projectWide || (await inTeam(personId))) return true;
+      return thread !== null && (thread.createdBy === personId || (await store.followers.find(thread._id, personId)) !== null);
+    },
+  };
+}
+
+/** Refuses a message that mentions someone `mentionRule` doesn't allow its author to. */
+export async function checkMentionReach(
+  store: Store,
+  project: ProjectRecord,
+  thread: ThreadRecord | null,
+  authorId: string,
+  mentions: readonly StoredMention[],
+): Promise<void> {
+  if (mentions.length === 0) return;
+  const rule = await mentionRule(store, project, thread, authorId);
+  for (const { userId } of mentions) {
+    if (userId === authorId || (await rule.allows(userId))) continue;
+    fail(
+      "invalid",
+      rule.projectWide
+        ? "You can only mention people who can still review this project."
+        : thread === null
+          ? "You can only mention people in the project's team."
+          : "You can only mention people in this thread, or in the project's team.",
+    );
+  }
 }
 
 /** What a notification reports: a message that mentions the recipient, or a reply in a thread they are in. */
@@ -291,22 +343,33 @@ async function wantsEmail(store: Store, userId: string, projectId: string, kind:
 // What reviewers see and choose
 
 /**
- * Mention suggestions: participants whose name contains the query, who can
- * still review the project. Names and pictures only, never email addresses.
+ * Mention suggestions: the people `mentionRule` lets this person mention in
+ * this thread (null: a new one), whose name contains the query. The project's
+ * most recently active participants come first, then the thread's own people
+ * the pool missed. Names and pictures only, never email addresses.
  */
 export async function listParticipants(
   store: Store,
   user: { _id: string } | null,
   project: ProjectRecord,
+  thread: ThreadRecord | null,
   query: string,
 ): Promise<ParticipantInfo[]> {
   const needle = query.trim().toLowerCase().slice(0, 60);
+  const rule = await mentionRule(store, project, thread, user?._id ?? null);
   const found: ParticipantInfo[] = [];
-  for (const participant of await store.participants.recent(project._id, SUGGESTION_POOL)) {
-    if (participant.userId === user?._id) continue;
-    const person = await store.users.get(participant.userId);
-    if (person === null || !person.name.toLowerCase().includes(needle)) continue;
-    if (!(await canReview(store, project, person._id))) continue;
+  const seen = new Set<string>(user === null ? [] : [user._id]);
+  const candidates = async function* () {
+    for (const participant of await store.participants.recent(project._id, SUGGESTION_POOL)) yield participant.userId;
+    if (thread === null) return;
+    yield thread.createdBy;
+    for (const follower of (await store.followers.list(thread._id, { numItems: SUGGESTION_POOL, cursor: null })).page) yield follower.userId;
+  };
+  for await (const personId of candidates()) {
+    if (seen.has(personId)) continue;
+    seen.add(personId);
+    const person = await store.users.get(personId);
+    if (person === null || !person.name.toLowerCase().includes(needle) || !(await rule.allows(person._id))) continue;
     found.push({ _id: person._id, name: person.name, imageUrl: person.imageUrl });
     if (found.length === MAX_SUGGESTIONS) break;
   }

@@ -630,3 +630,30 @@ test("SQLite: upgrading a version 18 database marks projects that already have t
     { id: unreadable, connected_at: 7_000, connected_origin: null },
   ]);
 });
+
+test("SQLite: upgrading a version 20 database keeps its threads, which say nothing about how they were left; new ones do", async () => {
+  const driver = bunDriver(new Database(":memory:"));
+  for (const migration of MIGRATIONS.slice(0, 20)) {
+    if (typeof migration === "string") driver.exec(migration);
+    else migration(driver);
+  }
+  driver.exec("PRAGMA user_version = 20");
+  const dana = `u_${"1".repeat(32)}`;
+  const project = `p_${"2".repeat(32)}`;
+  const old = `t_${"3".repeat(32)}`;
+  driver.run("INSERT INTO users (id, token, name, email) VALUES (?, 'https://auth.example|dana', 'Dana', 'dana@example.com')", [dana]);
+  driver.run("INSERT INTO projects (id, name, tags, created_by, created_at) VALUES (?, 'Pilot', '[]', ?, 1)", [project, dana]);
+  driver.run(
+    "INSERT INTO threads (id, project_id, status, anchor, tags, capture, created_by, created_at, last_message_at, message_count) VALUES (?, ?, 'open', ?, '[]', '{\"status\":\"failed\",\"failureReason\":\"x\"}', ?, 5, 5, 1)",
+    [old, project, JSON.stringify(anchor), dana],
+  );
+  const store = new SqliteStore(driver);
+  expect(driver.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(SCHEMA_VERSION);
+  const kept = await store.transaction((s) => s.threads.get(old));
+  expect([kept?._id, kept?.createdAt, kept !== null && "madeWith" in kept]).toEqual([old, 5, false]);
+  const made = await store.transaction(async (s) => {
+    const id = await s.threads.insert({ projectId: project, status: "open", anchor, tags: [], capture: { status: "failed", failureReason: "x" }, createdBy: dana, createdAt: 6, lastMessageAt: 6, messageCount: 1, madeWith: "extension" });
+    return await s.threads.get(id);
+  });
+  expect(made?.madeWith).toBe("extension");
+});

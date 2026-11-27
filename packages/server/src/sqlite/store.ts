@@ -33,6 +33,7 @@ import type {
   TagRecord,
   TextTag,
   ThreadRecord,
+  ThreadMadeWith,
   ThreadTagRecord,
   UserRecord,
 } from "../store.ts";
@@ -46,7 +47,7 @@ import type { SqlDriver, SqlValue } from "./driver.ts";
 // transaction, and operations on one database run one at a time.
 
 /** Schema version this code writes. Each migration below moves one version forward. */
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 /** A migration: SQL, or a step that needs code, such as reading hashtags from existing messages. */
 type Migration = string | ((sql: SqlDriver) => void);
@@ -555,6 +556,10 @@ export const MIGRATIONS: Migration[] = [
   `
   ALTER TABLE developer_sends ADD COLUMN resends INTEGER NOT NULL DEFAULT 0;
   `,
+  // How each thread was left: with an install or with the browser extension; null on threads from before.
+  `
+  ALTER TABLE threads ADD COLUMN made_with TEXT;
+  `,
 ];
 
 /**
@@ -1008,6 +1013,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
     ...(row.text_tags === null ? {} : { textTags: JSON.parse(row.text_tags) as TextTag[] }),
     ...(row.followers_ready === null ? {} : { followersReady: row.followers_ready === 1 }),
     ...(row.page_key === null ? {} : { pageKey: row.page_key }),
+    ...(row.made_with === null ? {} : { madeWith: row.made_with as ThreadMadeWith }),
   });
   const message = (row: MessageRow): MessageRecord => ({
     _id: row.id,
@@ -1483,8 +1489,8 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
         const id = newId("threads");
         sql.run(
           `INSERT INTO threads (id, project_id, status, anchor, tags, capture, capture_file, created_by, created_at,
-             last_message_at, message_count, status_changed_by, status_changed_at, reattachment, text_tags, followers_ready, page_key)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             last_message_at, message_count, status_changed_by, status_changed_at, reattachment, text_tags, followers_ready, page_key, made_with)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             record.projectId,
@@ -1503,6 +1509,7 @@ function sqliteStore(sql: SqlDriver, options: SqliteOptions): Store {
             record.textTags === undefined ? null : json(record.textTags),
             record.followersReady === undefined ? null : record.followersReady ? 1 : 0,
             record.pageKey ?? null,
+            record.madeWith ?? null,
           ],
         );
         return id;
@@ -2292,6 +2299,7 @@ interface ThreadRow {
   text_tags: string | null;
   followers_ready: number | null;
   page_key: string | null;
+  made_with: string | null;
 }
 interface TagRow {
   seq: number;

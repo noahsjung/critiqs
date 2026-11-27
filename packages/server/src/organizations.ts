@@ -113,8 +113,13 @@ export async function canReview(store: Store, project: ProjectRecord, userId: st
 
 /** Whether a person belongs to the project's organization; for a project from before organizations, whether they created it. */
 export async function inProjectOrganization(store: Store, project: ProjectRecord, userId: string): Promise<boolean> {
+  return await (await projectTeam(store, project))(userId);
+}
+
+/** `inProjectOrganization` for many people: the project's organization is read once. */
+export async function projectTeam(store: Store, project: ProjectRecord): Promise<(userId: string) => Promise<boolean>> {
   const { organization } = await projectOrganization(store, project);
-  return (await roleIn(store, project, organization, userId)) !== null;
+  return async (userId) => (await roleIn(store, project, organization, userId)) !== null;
 }
 
 /** The plan covering something, and where its organization-wide usage counts. */

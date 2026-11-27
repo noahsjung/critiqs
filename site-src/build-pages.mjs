@@ -354,14 +354,14 @@ ${structured.map(jsonLd).join("\n")}
       <div class="nav-links body-5">
       ${links()}
       </div>
-      <a class="btn btn-primary button-sm nav-cta" href="/#install">Get started</a>
+      <a class="btn btn-primary button-sm nav-cta" href="/start">Get started</a>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu">
         <span class="bar"></span><span class="bar"></span>
       </button>
     </nav>
     <div class="mobile-menu heading-5" id="mobile-menu" hidden>
       ${links()}
-      <a href="/#install">Get started</a>
+      <a href="/start">Get started</a>
     </div>
   </header>
 
@@ -587,7 +587,7 @@ ${post.html}      </article>
       <aside class="post-cta" aria-labelledby="cta-title">
         <h2 class="heading-5" id="cta-title">Add Critiqs to your next staging build</h2>
         <p class="body-3">Free to start on Critiqs Cloud, or host it yourself under the MIT license.</p>
-        <a class="btn btn-primary button-md" href="/#install">Get started</a>
+        <a class="btn btn-primary button-md" href="/start">Get started</a>
       </aside>
     </div>
   </main>`,

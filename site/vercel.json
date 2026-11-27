@@ -1,12 +1,26 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "",
+  "buildCommand": "cd .. && bun install --frozen-lockfile && bun run --cwd apps/web build:site",
   "installCommand": "",
   "outputDirectory": ".",
-  "ignoreCommand": "if [ -n \"$VERCEL_GIT_PREVIOUS_SHA\" ] && [ \"$VERCEL_GIT_PREVIOUS_SHA\" != \"$VERCEL_GIT_COMMIT_SHA\" ] && git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA^{commit}\" 2>/dev/null; then git diff --quiet \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD -- .; else exit 1; fi",
+  "ignoreCommand": "cd ..;p=$VERCEL_GIT_PREVIOUS_SHA;[ -n \"$p\" ]&&[ \"$p\" != \"$VERCEL_GIT_COMMIT_SHA\" ]&&git cat-file -e \"$p^{commit}\" 2>/dev/null&&git diff --quiet \"$p\" HEAD -- site apps/web packages/core packages/react/src packages/backend/convex bun.lock||exit 1",
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/start",
+      "destination": "/app/index.html"
+    },
+    {
+      "source": "/setup/:id",
+      "destination": "/app/index.html"
+    },
+    {
+      "source": "/t/:key",
+      "destination": "/app/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -49,6 +63,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=86400, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/app/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
         }
       ]
     }

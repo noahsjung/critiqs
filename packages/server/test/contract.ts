@@ -7,6 +7,7 @@ import { MAX_EMAIL_BYTES } from "../src/mention-email.ts";
 import * as notify from "../src/notify.ts";
 import * as ops from "../src/operations.ts";
 import * as organizations from "../src/organizations.ts";
+import { reportConnected } from "../src/onboarding.ts";
 import { claimPlanAlerts, completePlanAlerts, planAlertEmails, sendPlanAlert } from "../src/plan-alerts.ts";
 import { MailError, type Mailer, type MailMessage, preparedMessage, resendMailer } from "../src/signin.ts";
 import type { Identity, Store } from "../src/store.ts";
@@ -3018,9 +3019,12 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     await backend.run((store) =>
       notify.completeDeliveries(store, [...sent.skipped.map(({ deliveryId, reason }) => ({ deliveryId, claimToken: "worker", result: "skipped" as const, reason })), ...sent.sends.map(({ deliveryId }) => ({ deliveryId, claimToken: "worker", result: "sent" as const }))], now),
     );
-    // Later replies and mentions owe Lee nothing.
+    // Later replies owe Lee nothing, and Lee can't be mentioned: the suggestions above and the check agree.
     const leeId = await idOf(backend, lee);
-    await backend.run((store) => ops.reply(store, dana, { threadId, body: "@Lee more", revision: null, mentions: [mention(leeId, "Lee")] }));
+    expect(await outcome(backend.run((store) => ops.reply(store, dana, { threadId, body: "@Lee more", revision: null, mentions: [mention(leeId, "Lee")] })))).toBe(
+      "invalid: You can only mention people who can still review this project.",
+    );
+    await backend.run((store) => ops.reply(store, dana, { threadId, body: "More", revision: null }));
     expect((await owed(backend)).filter((delivery) => delivery.recipientId === leeId)).toEqual([]);
   });
 
@@ -3262,6 +3266,160 @@ export function defineContract(name: string, fresh: () => ContractBackend) {
     expect(await outcome(backend.run((store) => ops.reply(store, sam, { threadId, body: "From the prototype", revision: null })))).toBe("allowed");
     // Once Sam replied, Sam is in the thread, and the page opens.
     expect(await outcome(fromPage(sam, "Now from the page"))).toBe("allowed");
+  });
+
+  test(`${name}: whom someone may mention follows their standing in the project, not where they reply from`, async () => {
+    const backend = fresh();
+    const { projectId, threadId, key, riley, mo, sam } = await pagedThread(backend);
+    // Sam, outside the organization, commented elsewhere in the project, so the installed panel used to offer Sam to anyone.
+    await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Another page", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, riley, { threadId, body: "On it", revision: null }));
+    const [leeId, moId, samId, rileyId] = [await idOf(backend, lee), await idOf(backend, mo), await idOf(backend, sam), await idOf(backend, riley)];
+    const reply = (who: Identity, mentions: { userId: string; label: string }[], threadPage: boolean) =>
+      backend.run((store) =>
+        ops.reply(store, who, { threadId, body: mentions.map((each) => `@${each.label}`).join(" "), revision: null, mentions, ...(threadPage ? { threadPage: true } : {}) }),
+      );
+    // Lee replied in the thread but isn't in the organization: leaving the thread page's flag off changes nothing.
+    for (const threadPage of [true, false]) {
+      expect(await outcome(reply(lee, [mention(samId, "Sam")], threadPage))).toBe("invalid: You can only mention people in this thread, or in the project's team.");
+      expect(await outcome(reply(lee, [mention(moId, "Mo")], threadPage))).toBe("allowed");
+      expect(await outcome(reply(lee, [mention(rileyId, "Riley")], threadPage))).toBe("allowed");
+    }
+    // Nor does editing a reply to add the mention.
+    const lees = (await allMessages(backend, dana, threadId)).filter((message) => message.body === "@Mo");
+    const leeReply = lees.at(-1)!._id;
+    expect(await outcome(backend.run((store) => ops.editMessage(store, lee, { messageId: leeReply, body: "@Mo @Sam", mentions: [mention(moId, "Mo"), mention(samId, "Sam")] })))).toBe(
+      "invalid: You can only mention people in this thread, or in the project's team.",
+    );
+    // In a new thread nobody else is in it yet: someone outside the team mentions the team only.
+    const newThread = (mentions: { userId: string; label: string }[]) =>
+      backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "New", tags: [], capture: failed, mentions }));
+    expect(await outcome(newThread([mention(leeId, "Lee")]))).toBe("invalid: You can only mention people in the project's team.");
+    expect(await outcome(newThread([mention(rileyId, "Riley")]))).toBe("allowed");
+    // The project's team mentions anyone in the project, from either place.
+    for (const threadPage of [true, false]) expect(await outcome(reply(dana, [mention(samId, "Sam")], threadPage))).toBe("allowed");
+    // Suggestions agree: someone outside the team is offered the team, the team everyone.
+    const suggested = async (who: Identity) => (await backend.run((store) => ops.listParticipants(store, who, { projectId, query: "" }))).map((person) => person.name).sort();
+    expect(await suggested(lee)).toEqual(["Dana", "Riley"]);
+    expect(await suggested(riley)).toEqual(["Dana", "Lee", "Mo", "Sam"]);
+    // The page says whether the project is installed: not until Critiqs loads at its address.
+    expect((await openPage(backend, dana, key)).project.connectedAt).toBeNull();
+    await backend.run((store) => reportConnected(store, { projectId, origin: "https://proto.example" }, 5_000));
+    expect((await openPage(backend, dana, key)).project.connectedAt).toBe(5_000);
+  });
+
+  /** A write that is undone: whether the backend accepted it, without keeping it. */
+  async function accepts(backend: ContractBackend, work: (store: Store) => Promise<unknown>): Promise<boolean> {
+    const undo = "undo: accepted, not kept";
+    try {
+      await backend.run(async (store) => {
+        await work(store);
+        throw new Error(undo);
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === "invalid") return false;
+      if ((error as Error).message.includes(undo)) return true;
+      throw error;
+    }
+    throw new Error("A write meant to be undone was kept.");
+  }
+
+  /**
+   * For each person and each place they write (the given threads, or a new
+   * thread), the `@` list offers exactly the people a mention is accepted for.
+   */
+  async function expectListMatchesAcceptance(backend: ContractBackend, projectId: string, people: Identity[], threads: string[]) {
+    const ids = new Map<string, string>();
+    for (const person of people) ids.set(person.name!, await idOf(backend, person));
+    for (const author of people) {
+      for (const threadId of [...threads, null]) {
+        const offered = await backend.run((store) => ops.listParticipants(store, author, { projectId, query: "", ...(threadId === null ? {} : { threadId }) }));
+        for (const target of people) {
+          if (target === author) continue;
+          const mentions = [mention(ids.get(target.name!)!, target.name!)];
+          const body = `@${target.name}`;
+          const accepted = await accepts(backend, (store) =>
+            threadId === null
+              ? ops.createThread(store, author, { projectId, anchor, body, tags: [], capture: failed, mentions })
+              : ops.reply(store, author, { threadId, body, revision: null, mentions }),
+          );
+          const where = threadId === null ? "a new thread" : `thread ${threads.indexOf(threadId)}`;
+          expect(`${author.name} → ${target.name} in ${where}: ${accepted ? "accepted" : "refused"}`).toBe(
+            `${author.name} → ${target.name} in ${where}: ${offered.some((person) => person.name === target.name) ? "accepted" : "refused"}`,
+          );
+        }
+      }
+    }
+  }
+
+  test(`${name}: two people outside the team in one thread are offered each other, and the @ list offers exactly whom a mention is accepted for`, async () => {
+    const backend = fresh();
+    const [riley, mo, sam] = [reviewer("Riley"), reviewer("Mo"), reviewer("Sam")];
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Open prototype", reviewUrl: "https://proto.example" }));
+    const organizationId = (await backend.run((store) => ops.getProject(store, dana, { projectId }))).organization!.id;
+    await backend.run((store) => organizations.inviteMember(store, dana, { organizationId, email: "riley@example.com", role: "member" }, Date.now()));
+    await backend.run((store) => ops.syncReviewer(store, riley));
+    // Lee and Mo are outside the team, in Lee's thread; Sam, also outside, commented elsewhere; Riley is on the team.
+    const leesThread = await backend.run((store) => ops.createThread(store, lee, { projectId, anchor, body: "Lee's thread", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, mo, { threadId: leesThread, body: "Mo here", revision: null }));
+    const samsThread = await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Elsewhere", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, riley, { threadId: leesThread, body: "Riley here", revision: null }));
+    await backend.run((store) => ops.reply(store, dana, { threadId: samsThread, body: "Dana here", revision: null }));
+    const offered = async (who: Identity, threadId?: string) =>
+      (await backend.run((store) => ops.listParticipants(store, who, { projectId, query: "", ...(threadId === undefined ? {} : { threadId }) }))).map((person) => person.name).sort();
+    expect(await offered(lee, leesThread)).toEqual(["Dana", "Mo", "Riley"]);
+    expect(await offered(mo, leesThread)).toEqual(["Dana", "Lee", "Riley"]);
+    // Sam is in another thread: not offered to Lee or Mo here, and not mentionable by them.
+    const moId = await idOf(backend, mo);
+    const samId = await idOf(backend, sam);
+    const leeId = await idOf(backend, lee);
+    expect(await outcome(backend.run((store) => ops.reply(store, mo, { threadId: leesThread, body: "@Lee", revision: null, mentions: [mention(leeId, "Lee")] })))).toBe("allowed");
+    expect(await outcome(backend.run((store) => ops.reply(store, lee, { threadId: leesThread, body: "@Mo", revision: null, mentions: [mention(moId, "Mo")] })))).toBe("allowed");
+    expect(await outcome(backend.run((store) => ops.reply(store, lee, { threadId: leesThread, body: "@Sam", revision: null, mentions: [mention(samId, "Sam")] })))).toBe(
+      "invalid: You can only mention people in this thread, or in the project's team.",
+    );
+    // A new thread has no one else in it yet: the team only. The team is offered everyone.
+    expect(await offered(lee)).toEqual(["Dana", "Riley"]);
+    expect(await offered(riley, leesThread)).toEqual(["Dana", "Lee", "Mo", "Sam"]);
+    // A thread from another project is refused.
+    const otherProject = await backend.run((store) => ops.createProject(store, dana, { name: "Other" }));
+    const otherThread = await backend.run((store) => ops.createThread(store, dana, { projectId: otherProject, anchor, body: "Other", tags: [], capture: failed }));
+    expect(await outcome(offered(lee, otherThread))).toBe("not-found: This thread does not exist.");
+    await expectListMatchesAcceptance(backend, projectId, [dana, riley, lee, mo, sam], [leesThread, samsThread]);
+  });
+
+  test(`${name}: in a project from before organizations its creator is the team; others are offered the creator and their thread's people`, async () => {
+    const backend = fresh();
+    const [mo, sam] = [reviewer("Mo"), reviewer("Sam")];
+    const { projectId } = await storedBeforeOrganizations(backend, dana);
+    const leesThread = await backend.run((store) => ops.createThread(store, lee, { projectId, anchor, body: "Lee's thread", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, mo, { threadId: leesThread, body: "Mo here", revision: null }));
+    const samsThread = await backend.run((store) => ops.createThread(store, sam, { projectId, anchor, body: "Elsewhere", tags: [], capture: failed }));
+    await backend.run((store) => ops.reply(store, dana, { threadId: samsThread, body: "Dana here", revision: null }));
+    const offered = async (who: Identity, threadId?: string) =>
+      (await backend.run((store) => ops.listParticipants(store, who, { projectId, query: "", ...(threadId === undefined ? {} : { threadId }) }))).map((person) => person.name).sort();
+    expect(await offered(dana, leesThread)).toEqual(["Lee", "Mo", "Sam"]);
+    expect(await offered(lee, leesThread)).toEqual(["Dana", "Mo"]);
+    expect(await offered(mo, leesThread)).toEqual(["Dana", "Lee"]);
+    expect(await offered(sam)).toEqual(["Dana"]);
+    await expectListMatchesAcceptance(backend, projectId, [dana, lee, mo, sam], [leesThread, samsThread]);
+  });
+
+  test(`${name}: a thread records whether it was left with the extension, and its page says so; older threads say nothing`, async () => {
+    const backend = fresh();
+    const projectId = await backend.run((store) => ops.createProject(store, dana, { name: "Installed", reviewUrl: "https://proto.example" }));
+    const made = (madeWith?: "extension") =>
+      backend.run((store) => ops.createThread(store, dana, { projectId, anchor, body: "Here", tags: [], capture: failed, ...(madeWith === undefined ? {} : { madeWith }) }));
+    const pageOf = async (threadId: string) => (await openPage(backend, dana, await backend.run((store) => ops.threadPageKey(store, dana, { threadId })))).prototype;
+    expect(await pageOf(await made("extension"))).toMatchObject({ madeWith: "extension" });
+    // Anything else, including every older component, is an install.
+    expect(await pageOf(await made())).toMatchObject({ madeWith: "install" });
+    // A thread from before it was recorded says nothing, so the page treats it as left with an install.
+    const danaId = await idOf(backend, dana);
+    const old = await backend.run((store) =>
+      store.threads.insert({ projectId, status: "open", anchor, tags: [], capture: failed, createdBy: danaId, createdAt: 1, lastMessageAt: 1, messageCount: 0, followersReady: true }),
+    );
+    expect("madeWith" in (await pageOf(old))).toBe(false);
   });
 
   test(`${name}: a thread from before people in threads were recorded opens for those its discussion names`, async () => {

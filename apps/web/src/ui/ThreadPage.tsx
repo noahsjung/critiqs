@@ -1,9 +1,10 @@
-import { buildLink, isThreadPageKey, removeLink, reviewLink } from "@critiqs/core";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { buildLink, isThreadPageKey, type MentionView, removeLink, reviewLink } from "@critiqs/core";
+import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type Backend, failureCode, failureMessage, type ThreadPageData, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
-import { Avatar, fullTime, MessageBody, type QueryState, relativeTime, tagDisplay } from "../shared.ts";
+import { activeMention, Avatar, fullTime, MessageBody, mentionsInText, type QueryState, relativeTime, tagDisplay } from "../shared.ts";
 import { CheckIcon, CopyButton, CopyIcon, Heading, SignInButton } from "./parts.tsx";
+import { EXTENSION_GUIDE } from "./Ways.tsx";
 
 /**
  * A thread page at /t/<key>: one thread's capture, discussion, and reply box,
@@ -95,6 +96,19 @@ export function prototypeLink(reviewUrl: string | null, pageUrl: string, threadI
   }
 }
 
+/**
+ * Whether Open in prototype also offers the browser extension, from the
+ * thread's own record of how it was left: only a thread left with the
+ * extension gets it, saying whether the project is installed now. A thread
+ * left with an install, or from before that was recorded (when every thread
+ * was), opens where it was left, whenever the project last loaded. Never on an
+ * older backend, which doesn't say.
+ */
+export function extensionWay(connectedAt: number | null | undefined, madeWith: "install" | "extension" | undefined): "not-installed" | "made-with-extension" | null {
+  if (madeWith !== "extension" || connectedAt === undefined) return null;
+  return connectedAt === null ? "not-installed" : "made-with-extension";
+}
+
 /** An address as people read it: no scheme, no trailing slash. */
 function shownAddress(href: string): string {
   try {
@@ -115,6 +129,7 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
   }, []);
   const target = prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
   const ownLink = `${window.location.origin}${window.location.pathname}`;
+  const extension = extensionWay(thread.project.connectedAt, thread.prototype.madeWith);
 
   return (
     <article className="thread-page">
@@ -142,6 +157,17 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
         <p className="note">
           {target === null ? copy.threadPage.noAddress(shownAddress(thread.prototype.pageUrl)) : copy.threadPage.opensAt(shownAddress(removeLink(target)))}
         </p>
+        {extension !== null && (
+          <div className="extension-way">
+            <strong>{extension === "not-installed" ? copy.threadPage.extensionTitle : copy.threadPage.extensionMadeWith}</strong>
+            <span className="note">
+              {copy.threadPage.extension}{" "}
+              <a href={EXTENSION_GUIDE} target="_blank" rel="noreferrer noopener">
+                {copy.threadPage.getExtension}
+              </a>
+            </span>
+          </div>
+        )}
       </div>
       {resolved && (
         <p className="resolved" role="status">
@@ -183,7 +209,7 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
             </li>
           ))}
         </ol>
-        <ReplyBox threadId={thread._id} />
+        <ReplyBox threadId={thread._id} people={threadPeople(thread.messages)} />
       </section>
     </article>
   );
@@ -264,31 +290,106 @@ function useCapture(backend: Backend, key: string, status: string): CaptureImage
   return image;
 }
 
+/** Someone in the thread, as a mention names them. */
+export interface ThreadPerson {
+  _id: string;
+  name: string;
+  imageUrl: string | null;
+}
+
+/**
+ * The people in the thread, for `@` suggestions: those who wrote in it and
+ * those it mentions, each once, without the signed-in person. Only people
+ * the page already shows, so suggesting them reveals no one else in the
+ * project to someone outside its organization.
+ */
+export function threadPeople(messages: ThreadPageData["messages"]): ThreadPerson[] {
+  const people = new Map<string, ThreadPerson>();
+  const mine = new Set(messages.flatMap((message) => (message.isMine && message.authorId !== undefined ? [message.authorId] : [])));
+  for (const message of messages) {
+    if (message.authorId !== undefined && !people.has(message.authorId)) {
+      people.set(message.authorId, { _id: message.authorId, name: message.author.name, imageUrl: message.author.imageUrl ?? null });
+    }
+    for (const mention of message.mentions) if (!people.has(mention._id)) people.set(mention._id, { _id: mention._id, name: mention.name, imageUrl: null });
+  }
+  return [...people.values()].filter((person) => !mine.has(person._id));
+}
+
 /**
  * The reply box, as in the installed thread window: Reply sends, as does
- * Ctrl or Cmd with Enter. Hashtags tag the thread. The new reply shows when
- * the live page does; a refused one keeps its text.
+ * Ctrl or Cmd with Enter. Hashtags tag the thread. Typing `@` suggests the
+ * people in the thread, and choosing one mentions them. The new reply shows
+ * when the live page does; a refused one keeps its text.
  */
-function ReplyBox({ threadId }: { threadId: string }) {
+function ReplyBox({ threadId, people }: { threadId: string; people: ThreadPerson[] }) {
   const backend = useBackend();
+  const listId = useId();
+  const field = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
+  const latest = useRef(draft);
+  latest.current = draft;
+  const [mentions, setMentions] = useState<MentionView[]>([]);
+  const [caret, setCaret] = useState(0);
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const [highlighted, setHighlighted] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const empty = draft.trim() === "";
+  const typing = activeMention(draft, caret);
+  // A mention already chosen isn't being typed.
+  const finished = typing !== null && mentions.some((mention) => draft.startsWith(`@${mention.label}`, typing.start) && typing.query.trimEnd() === mention.label);
+  const open = typing !== null && !finished && dismissed !== typing.start;
+  const options = open ? people.filter((person) => person.name.toLowerCase().includes(typing.query.trim().toLowerCase())).slice(0, 8) : [];
+  const shown = options.length > 0;
+  const choice = Math.min(highlighted, Math.max(options.length - 1, 0));
+
+  const choose = (person: ThreadPerson) => {
+    if (typing === null) return;
+    const label = person.name;
+    const text = `${draft.slice(0, typing.start)}@${label} ${draft.slice(caret)}`;
+    const at = typing.start + label.length + 2;
+    setDraft(text);
+    setMentions((current) => [...current.filter((mention) => mention._id !== person._id), { _id: person._id, name: person.name, label }]);
+    setCaret(at);
+    setHighlighted(0);
+    requestAnimationFrame(() => field.current?.setSelectionRange(at, at));
+  };
   const send = async () => {
     if (empty || sending) return;
     setSending(true);
     setError(null);
     try {
       const sent = draft;
-      await backend.replyOnThreadPage(threadId, sent);
-      // Text typed while it was sending stays.
+      await backend.replyOnThreadPage(threadId, sent, mentionsInText({ text: sent, mentions }));
+      // Text typed while it was sending stays, with its mentions.
+      if (latest.current === sent) setMentions([]);
       setDraft((current) => (current === sent ? "" : current));
     } catch (failure) {
       const code = failureCode(failure);
       setError(code === "not-found" || code === "forbidden" ? copy.threadPage.replyRefused : failureMessage(failure, copy.threadPage.replyFailed));
     } finally {
       setSending(false);
+    }
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (shown && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      setHighlighted((choice + (event.key === "ArrowDown" ? 1 : options.length - 1)) % options.length);
+      return;
+    }
+    if (shown && (event.key === "Enter" || event.key === "Tab") && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      choose(options[choice]!);
+      return;
+    }
+    if (shown && event.key === "Escape") {
+      event.preventDefault();
+      setDismissed(typing!.start);
+      return;
+    }
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void send();
     }
   };
   return (
@@ -299,20 +400,47 @@ function ReplyBox({ threadId }: { threadId: string }) {
         void send();
       }}
     >
-      <textarea
-        className="field"
-        aria-label={copy.threadPage.replyLabel}
-        placeholder={copy.threadPage.replyPlaceholder}
-        rows={3}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void send();
-          }
-        }}
-      />
+      <div className="mention-field">
+        <textarea
+          ref={field}
+          className="field"
+          aria-label={copy.threadPage.replyLabel}
+          placeholder={copy.threadPage.replyPlaceholder}
+          rows={3}
+          value={draft}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={shown}
+          aria-controls={shown ? listId : undefined}
+          aria-activedescendant={shown ? `${listId}-${choice}` : undefined}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setCaret(event.target.selectionStart ?? event.target.value.length);
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+          onKeyDown={onKeyDown}
+        />
+        {shown && (
+          <ul className="mention-list" id={listId} role="listbox" aria-label={copy.threadPage.mentionList}>
+            {options.map((person, index) => (
+              <li
+                key={person._id}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === choice}
+                onMouseDown={(event) => {
+                  // Keeps focus in the field.
+                  event.preventDefault();
+                  choose(person);
+                }}
+              >
+                <Avatar name={person.name} imageUrl={person.imageUrl} />
+                {person.name}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       {error !== null && (
         <p className="error" role="alert">
           {error}

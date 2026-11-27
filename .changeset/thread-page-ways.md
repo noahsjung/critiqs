@@ -1,0 +1,6 @@
+---
+"critiqs-react": minor
+"critiqs": minor
+---
+
+Thread pages return `connectedAt` with their project, and how each thread was left (`prototype.madeWith`: `install`, or `extension` when the panel ran in the browser extension; absent on threads from before). Components send `madeWith` on new threads to backends that report `threadMadeWith`. On the Critiqs website, a thread page offers the Critiqs extension beside **Open in prototype** only for a thread left with the extension, saying whether the project is installed now; threads left with an install, including every thread from before, open where they were left. `@` in its reply box suggests the people in the thread. Whom someone may mention now follows their standing in the project, wherever they write from: the project's team mentions anyone in it who can still review it, and someone outside the team mentions the team and the people in the thread they write in (in a new thread, the team). Mention suggestions (`participants`) take the `threadId` being replied in or edited and offer exactly the people a mention is accepted for there; components send it to backends that report `threadMentions`, so in the panel and the extension two people outside the team in one thread are offered each other. The self-hosted database gains a column for how each thread was left (migration 21); existing threads keep it empty.

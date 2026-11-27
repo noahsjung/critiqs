@@ -296,6 +296,7 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
                 message={message}
                 onTag={props.onTag}
                 projectId={props.projectId}
+                threadId={threadId}
                 focused={message._id === props.focusMessageId}
                 selectionId={props.selectionId}
                 showRevision={message.revision !== firstRevision}
@@ -315,6 +316,7 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
       >
         <MentionInput
           projectId={props.projectId}
+          threadId={threadId}
           className="field"
           placeholder="Reply. Type @ to mention someone, # to tag."
           aria-label="Reply"
@@ -606,6 +608,7 @@ function Message({
   message,
   onTag,
   projectId,
+  threadId,
   focused,
   selectionId,
   showRevision,
@@ -615,6 +618,7 @@ function Message({
   message: ThreadDetail["messages"][number];
   onTag: (tag: string) => void;
   projectId: string;
+  threadId: string;
   focused: boolean;
   selectionId: number;
   showRevision: boolean;
@@ -696,6 +700,7 @@ function Message({
           >
             <MentionInput
               projectId={projectId}
+              threadId={threadId}
               className="field"
               aria-label="Edit message"
               value={editing}

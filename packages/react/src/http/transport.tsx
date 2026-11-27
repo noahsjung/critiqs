@@ -1,6 +1,6 @@
 import type { ExportPage, PageRequest } from "@critiqs/core";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { creditsArg, type Deployment } from "../deployment.ts";
+import { creditsArg, type Deployment, madeWithArg, mentionThreadArg } from "../deployment.ts";
 import { loadExport } from "../export-pages.ts";
 import { useUtcDay } from "../hooks.ts";
 import { CritiqsRequestError, type CritiqsTransport, describeError, type QueryState } from "../transport.ts";
@@ -129,7 +129,8 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
     removeMember: (args) => change("removeMember", args),
     useThreads: (projectId) => useQuery("threads", projectId === null ? "skip" : { projectId }),
     useThread: (threadId) => useQuery("thread", { threadId }),
-    useParticipants: (projectId, query) => useQuery("participants", projectId === null ? "skip" : { projectId, query }),
+    useParticipants: (projectId, query, threadId = null) =>
+      useQuery("participants", projectId === null ? "skip" : { projectId, query, ...mentionThreadArg(deployment, threadId) }),
     useNotificationSettings: (projectId) => useQuery("notificationSettings", projectId === null ? "skip" : { projectId }),
     useUsage: (projectId) => {
       const day = useUtcDay();
@@ -162,7 +163,7 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
       }
       return body.fileId;
     },
-    createThread: (thread) => change("createThread", { ...thread }),
+    createThread: (thread) => change("createThread", { ...thread, ...madeWithArg(deployment) }),
     reply: (args) => change("reply", args),
     editMessage: (args) => change("editMessage", args),
     toggleReaction: (args) => change("toggleReaction", args),

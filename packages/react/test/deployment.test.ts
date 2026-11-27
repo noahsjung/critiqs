@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { HOSTED_BACKEND_URL, resolveDeployment, siteUrlOf } from "../src/deployment.ts";
+import { type Deployment, HOSTED_BACKEND_URL, madeWithArg, resolveDeployment, siteUrlOf } from "../src/deployment.ts";
 
 test("pairs a deployment URL with its HTTP address", () => {
   expect(siteUrlOf("https://happy-otter-123.convex.cloud")).toBe("https://happy-otter-123.convex.site");
@@ -32,6 +32,8 @@ test("reads the sign-in service the deployment trusts, checking it is current to
     createKeys: false,
     presetTags: false,
     connections: false,
+    threadMadeWith: false,
+    threadMentions: false,
   });
   expect(asked).toEqual(["https://team.convex.site/critiqs/config", "https://critiqs-hosted.convex.site/critiqs/config"]);
 });
@@ -94,6 +96,8 @@ test("a server in the host app answers at its path, with its own sign-in", async
     createKeys: false,
     presetTags: false,
     connections: false,
+    threadMadeWith: false,
+    threadMentions: false,
   });
   expect(asked).toEqual(["https://app.example/critiqs/critiqs/config"]);
 });
@@ -145,12 +149,24 @@ test("records opened projects only where the backend reports address lists", asy
   expect((await resolveDeployment("https://team.convex.cloud", config("yes"))).addressLists).toBe(false);
 });
 
-test("reads single-address edits, keyed creates, preset tag edits, and connections only where the backend reports them", async () => {
+test("reads single-address edits, keyed creates, preset tag edits, connections, and how threads were left, and thread mentions only where the backend reports them", async () => {
   const config = (value: unknown) =>
-    (async () => Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, addressNotes: value, createKeys: value, presetTags: value, connections: value })) as unknown as typeof fetch;
-  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, addressNotes: true, createKeys: true, presetTags: true, connections: true });
-  expect(await resolveDeployment("https://team.convex.cloud", config(undefined))).toMatchObject({ addressEdits: false, addressNotes: false, createKeys: false, presetTags: false, connections: false });
-  expect(await resolveDeployment("https://team.convex.cloud", config("yes"))).toMatchObject({ addressEdits: false, addressNotes: false, createKeys: false, presetTags: false, connections: false });
+    (async () =>
+      Response.json({ signInUrl: "https://team.convex.site", protocol: 5, addressEdits: value, addressNotes: value, createKeys: value, presetTags: value, connections: value, threadMadeWith: value, threadMentions: value })) as unknown as typeof fetch;
+  expect(await resolveDeployment("https://team.convex.cloud", config(true))).toMatchObject({ addressEdits: true, addressNotes: true, createKeys: true, presetTags: true, connections: true, threadMadeWith: true, threadMentions: true });
+  const off = { addressEdits: false, addressNotes: false, createKeys: false, presetTags: false, connections: false, threadMadeWith: false, threadMentions: false };
+  expect(await resolveDeployment("https://team.convex.cloud", config(undefined))).toMatchObject(off);
+  expect(await resolveDeployment("https://team.convex.cloud", config("yes"))).toMatchObject(off);
+});
+
+test("a new thread says it was left with the extension only from the extension's own page, and only to backends that record it", async () => {
+  const records = { threadMadeWith: true } as Deployment;
+  expect(madeWithArg(records, { protocol: "chrome-extension:" })).toEqual({ madeWith: "extension" });
+  expect(madeWithArg(records, { protocol: "https:" })).toEqual({});
+  expect(madeWithArg(records, { protocol: "http:" })).toEqual({});
+  // An older backend would refuse an argument it doesn't know.
+  expect(madeWithArg({ threadMadeWith: false } as Deployment, { protocol: "chrome-extension:" })).toEqual({});
+  expect(madeWithArg(records, undefined)).toEqual({});
 });
 
 test("offers the cap on extra Critiqs AI credits only where the backend reports it", async () => {

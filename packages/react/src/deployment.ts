@@ -62,6 +62,10 @@ export interface Deployment {
   presetTags?: boolean;
   /** The backend records when Critiqs first loads with a project's ID (`POST /critiqs/connected`), for onboarding's Connected. */
   connections?: boolean;
+  /** The backend records whether a thread was left with the browser extension (`madeWith` on a new thread); absent from backends before it. */
+  threadMadeWith?: boolean;
+  /** Mention suggestions take the thread being replied in (`threadId` on `participants`); absent from backends before it. */
+  threadMentions?: boolean;
 }
 
 /** What `/critiqs/config` reports; only `signInUrl` is always there. */
@@ -85,6 +89,8 @@ interface ServiceConfig {
   createKeys?: boolean;
   presetTags?: boolean;
   connections?: boolean;
+  threadMadeWith?: boolean;
+  threadMentions?: boolean;
 }
 
 /** The website a backend reports for its thread pages, when it reports them and the address is a web address. */
@@ -140,6 +146,8 @@ async function readConfig(siteUrl: string, fetchFn: typeof fetch, unreachable: s
     createKeys: config.createKeys === true,
     presetTags: config.presetTags === true,
     connections: config.connections === true,
+    threadMadeWith: config.threadMadeWith === true,
+    threadMentions: config.threadMentions === true,
   };
 }
 
@@ -170,12 +178,27 @@ export async function resolveDeployment(given: string, fetchFn: typeof fetch = f
     );
     if (!signIn.current) throw new Error(`Critiqs's sign-in service at ${backend.signInUrl} isn't ready for this version of Critiqs yet.`);
   }
-  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, addressNotes: backend.addressNotes, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, ...(backend.website === undefined ? {} : { website: backend.website }) };
+  return { backendUrl, siteUrl, signInUrl: backend.signInUrl, transport: backend.transport, signIn: backend.signIn, mockups: backend.mockups, personalAi: backend.personalAi, modelLists: backend.modelLists, organizations: backend.organizations, organizationMembers: backend.organizationMembers, overageCap: backend.overageCap, billing: backend.billing, addressLists: backend.addressLists, addressEdits: backend.addressEdits, addressNotes: backend.addressNotes, createKeys: backend.createKeys, presetTags: backend.presetTags, connections: backend.connections, threadMadeWith: backend.threadMadeWith, threadMentions: backend.threadMentions, ...(backend.website === undefined ? {} : { website: backend.website }) };
+}
+
+/** The thread mention suggestions are for, only for backends that take it (`threadMentions`); older ones offer the project's. */
+export function mentionThreadArg(deployment: Deployment, threadId: string | null): { threadId?: string } {
+  return deployment.threadMentions === true && threadId !== null ? { threadId } : {};
 }
 
 /** The usage query's `aiCredits` argument, only for backends that accept it: those that report `overageCap` came with it. */
 export function creditsArg(deployment: Deployment): { aiCredits?: true } {
   return deployment.overageCap === true ? { aiCredits: true } : {};
+}
+
+/**
+ * A new thread's `madeWith` argument: `extension` when this panel runs in the
+ * browser extension's own page (a `chrome-extension:` document, the test
+ * Connected's report uses too), only for backends that report
+ * `threadMadeWith`. Every other panel is an install's, which backends assume.
+ */
+export function madeWithArg(deployment: Deployment, location: Pick<Location, "protocol"> | undefined = globalThis.location): { madeWith?: "extension" } {
+  return deployment.threadMadeWith === true && location?.protocol === "chrome-extension:" ? { madeWith: "extension" } : {};
 }
 
 /**

@@ -278,6 +278,8 @@ export default defineSchema({
     mockup: v.optional(threadMockupValidator),
     /** The key in the thread page's link (`/t/<key>`); absent on older threads until someone shares them. */
     pageKey: v.optional(v.string()),
+    /** How it was left: with an install or with the browser extension; absent on threads from before it was recorded. */
+    madeWith: v.optional(v.union(v.literal("install"), v.literal("extension"))),
   })
     .index("by_project_status", ["projectId", "status"])
     .index("by_project", ["projectId"])

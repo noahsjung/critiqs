@@ -104,8 +104,11 @@ export interface CritiqsTransport {
   useThreads(projectId: string | null): QueryState<ThreadSummary[]>;
   /** A thread's whole discussion, with reactions combined per message. */
   useThread(threadId: string): QueryState<ThreadDetail>;
-  /** People who have commented in the project whose name contains the query, for mention suggestions. */
-  useParticipants(projectId: string | null, query: string): QueryState<ParticipantInfo[]>;
+  /**
+   * Mention suggestions whose name contains the query: whom the reviewer may
+   * mention in the thread they reply in, or with `threadId` null in a new thread.
+   */
+  useParticipants(projectId: string | null, query: string, threadId?: string | null): QueryState<ParticipantInfo[]>;
   /** The signed-in reviewer's email notification choices for a project. */
   useNotificationSettings(projectId: string | null): QueryState<NotificationSettings>;
   /** The project's usage against its Critiqs Cloud plan, for its owner; null when the backend has no plans. */

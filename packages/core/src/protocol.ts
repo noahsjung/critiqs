@@ -389,10 +389,20 @@ export type ExportPage = { projectName: string; thread: Omit<ExportedThread, "me
  * open the thread page.
  */
 export type ThreadPageDetail = ThreadDetailPage & {
-  /** The thread's project: its name, and its review address, where **Open in prototype** goes when it is installed there. */
-  project: { name: string; reviewUrl: string | null };
-  /** Where the thread was left: the saved page and its logical screen, for **Open in prototype**. */
-  prototype: { pageUrl: string; screen: string };
+  /**
+   * The thread's project: its name, its review address, where **Open in
+   * prototype** goes when it is installed there, and when Critiqs last
+   * loaded at the project's own address (null: not since it was recorded or
+   * cleared; absent from older backends).
+   */
+  project: { name: string; reviewUrl: string | null; connectedAt?: number | null };
+  /**
+   * Where the thread was left: the saved page and its logical screen, for
+   * **Open in prototype**, and whether it was left with Critiqs installed or
+   * with the browser extension (absent on threads from before that was
+   * recorded, which were left with an install, and from older backends).
+   */
+  prototype: { pageUrl: string; screen: string; madeWith?: "install" | "extension" };
 };
 
 /** A whole thread page, as the self-hosted server returns it: every page of its discussion, with reactions. */

@@ -27,6 +27,8 @@ export const create = mutation({
     capture: captureValidator,
     mentions: v.optional(v.array(mentionValidator)),
     mockup: v.optional(threadMockupValidator),
+    /** Sent only by the panel in the browser extension, to deployments that report `threadMadeWith`. */
+    madeWith: v.optional(v.literal("extension")),
   },
   handler: async (ctx, { capture, ...args }) =>
     run(async () => {

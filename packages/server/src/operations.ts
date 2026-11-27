@@ -45,6 +45,7 @@ import {
   participantsNamed,
   touchParticipant,
   validateMentions,
+  checkMentionReach,
 } from "./notify.ts";
 import type { Identity, ProjectOnboarding, ProjectRecord, StoredCapture, StoredMention, Store, ThreadRecord, UserRecord } from "./store.ts";
 import {
@@ -370,14 +371,21 @@ function creditsAsAiRequests(usage: ProjectUsage): ProjectUsage {
   return { ...usage, rows };
 }
 
-/** Mention suggestions: people who have commented in the project, by name. */
+/**
+ * Mention suggestions, by name: whom the person may mention in the thread
+ * they reply in (`threadId`), or, without one, in a new thread of the project.
+ */
 export async function listParticipants(
   store: Store,
   identity: Identity | null,
-  args: { projectId: string; query: string },
+  args: { projectId: string; query: string; threadId?: string },
 ): Promise<ParticipantInfo[]> {
   const { user } = await currentReviewer(store, identity);
-  return await participantsMatching(store, user, await requireProject(store, user, args.projectId), args.query);
+  const project = await requireProject(store, user, args.projectId);
+  if (args.threadId === undefined) return await participantsMatching(store, user, project, null, args.query);
+  const { thread } = await requireThread(store, user, args.threadId);
+  if (thread.projectId !== project._id) fail("not-found", "This thread does not exist.");
+  return await participantsMatching(store, user, project, thread, args.query);
 }
 
 /** Everyone else in the project with exactly this name, and whether every participant was searched. Never yourself, as in suggestions. */
@@ -442,11 +450,12 @@ function threadHashtags(body: string, inMockup: boolean): string[] {
 export async function createThread(
   store: Store,
   identity: Identity | null,
-  args: { projectId: string; anchor: Anchor; body: string; tags: string[]; capture: CaptureInput; mentions?: MentionInput[]; mockup?: ThreadMockup },
+  args: { projectId: string; anchor: Anchor; body: string; tags: string[]; capture: CaptureInput; mentions?: MentionInput[]; mockup?: ThreadMockup; madeWith?: "extension" },
 ): Promise<string> {
   const user = await requireUser(store, identity);
   const project = await requireProject(store, user, args.projectId);
   const mentions = await validateMentions(store, project._id, args.mentions ?? []);
+  await checkMentionReach(store, project, null, user._id, mentions);
   validateLocation(args.anchor);
   if (args.mockup !== undefined) checkThreadMockup(args.mockup);
   let imageBytes = 0;
@@ -483,6 +492,8 @@ export async function createThread(
     // Who is in the thread is recorded from its first message on.
     followersReady: true,
     pageKey: newThreadPageKey(),
+    // The panel says when it runs in the browser extension; anything else is an install, including older components.
+    madeWith: args.madeWith === "extension" ? "extension" : "install",
     ...(args.mockup === undefined ? {} : { mockup: args.mockup }),
   });
   const messageId = await store.messages.insert({
@@ -833,8 +844,8 @@ export async function getThreadPage(
   const { user, thread, project } = await requireThreadPage(store, identity, args.key);
   return {
     ...(await threadDetail(store, user, project, thread, request)),
-    project: { name: project.name, reviewUrl: project.reviewUrl ?? null },
-    prototype: { pageUrl: thread.anchor.evidence.url, screen: thread.anchor.screen },
+    project: { name: project.name, reviewUrl: project.reviewUrl ?? null, connectedAt: project.connectedAt ?? null },
+    prototype: { pageUrl: thread.anchor.evidence.url, screen: thread.anchor.screen, ...(thread.madeWith === undefined ? {} : { madeWith: thread.madeWith }) },
   };
 }
 
@@ -877,6 +888,8 @@ export async function reply(
   const user = await requireUser(store, identity);
   const { thread, project } = args.threadPage === true ? await openThreadPage(store, user, await threadById(store, args.threadId)) : await requireThread(store, user, args.threadId);
   const mentions = await validateMentions(store, project._id, args.mentions ?? []);
+  // Whom the person may mention depends on their standing in the project, wherever they reply from.
+  await checkMentionReach(store, project, thread, user._id, mentions);
   if (thread.messageCount >= MAX_MESSAGES) fail("invalid", "This thread has reached its reply limit; start a new thread.");
   const body = validateBody(args.body);
   const hashtags = threadHashtags(body, thread.mockup !== undefined);
@@ -967,6 +980,7 @@ export async function editMessage(
   if (message.via === "ai") fail("forbidden", "Critiqs AI's messages can't be edited.");
   const before = message.mentions ?? [];
   const mentions = args.mentions === undefined ? before : await validateMentions(store, project._id, args.mentions);
+  await checkMentionReach(store, project, thread, user._id, mentions.filter((mention) => !before.some((earlier) => earlier.userId === mention.userId)));
   const now = Date.now();
   const body = validateBody(args.body);
   const hashtags = threadHashtags(body, thread.mockup !== undefined);

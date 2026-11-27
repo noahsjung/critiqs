@@ -442,6 +442,7 @@ code.inline { font-size: 13px; padding: 1px var(--s-50); border-radius: var(--r-
 .final .inner { display: flex; flex-direction: column; align-items: center; gap: var(--s-300); padding: var(--s-800) var(--s-300); border-radius: var(--r-3xl); background: var(--text); color: var(--surface); }
 .final h2 { max-width: 680px; }
 .final p { max-width: 560px; color: #b4b4b4; }
+.final .actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--s-200); }
 .final .install { background: #181818; border-color: #313131; }
 .final .install code .prompt { color: #8a8a8a; }
 .final .btn-primary { background: var(--surface); color: var(--text); }
@@ -484,7 +485,7 @@ footer a:hover { color: var(--text); }
   .heading-2 { font-size: 30px; line-height: 36px; }
   .heading-3 { font-size: 30px; line-height: 36px; }
   .hero { padding: 128px 0 var(--s-700); }
-  .hero .actions { flex-direction: column; width: 100%; gap: var(--s-100); }
+  .hero .actions, .final .actions { flex-direction: column; width: 100%; gap: var(--s-100); }
   .install { flex-direction: column; align-items: stretch; width: 100%; padding: var(--s-50); }
   .install code { padding: var(--s-75) 0; text-align: center; }
   .install .btn { padding: var(--s-100); }

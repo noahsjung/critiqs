@@ -6,6 +6,7 @@ import type {
   DeveloperSendSummary,
   DeveloperSetup,
   MessageView,
+  NewMention,
   OnboardingAnswers,
   OrganizationSummary,
   ProjectInfo,
@@ -100,7 +101,7 @@ export interface Backend {
    */
   syncReviewer(): Promise<void>;
   /** Replies from a thread page, which the backend allows only to those who may open it. */
-  replyOnThreadPage(threadId: string, body: string): Promise<void>;
+  replyOnThreadPage(threadId: string, body: string, mentions?: NewMention[]): Promise<void>;
   /**
    * A thread page's image, through the same check as the page: null when the
    * backend has none to give (404); throws when the download fails, so the
@@ -249,8 +250,8 @@ export function convexBackend(client: ConvexReactClient, componentBackend: strin
     syncReviewer: async () => {
       await client.mutation(api.users.sync, {});
     },
-    replyOnThreadPage: async (threadId, body) => {
-      await client.mutation(api.threads.reply, { threadId: threadId as Id<"threads">, body, revision: null, threadPage: true });
+    replyOnThreadPage: async (threadId, body, mentions = []) => {
+      await client.mutation(api.threads.reply, { threadId: threadId as Id<"threads">, body, revision: null, threadPage: true, ...(mentions.length === 0 ? {} : { mentions: mentions.map(({ userId, label }) => ({ userId: userId as Id<"users">, label })) }) });
     },
     // Convex file URLs alone would bypass the page's check, so the image comes through Critiqs's route, as in the panel.
     loadThreadPageCapture: async (key) => {

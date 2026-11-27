@@ -1196,6 +1196,9 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
       // owners clear it (`clearConnected`).
       // `developerResends`: `resend` on `sendDeveloperSetup` sends the steps again 24 hours after an email went out, at most
       // twice, and `developerSends` says when (`resendAt`).
+      // `threadMadeWith`: `createThread` takes `madeWith: "extension"` from the extension's panel, and thread pages say
+      // how a thread was left (`prototype.madeWith` on `threadPage`).
+      // `threadMentions`: `participants` takes the `threadId` being replied in and offers whom a mention is accepted for there.
       return json({
         protocol: PROTOCOL,
         transport: "http",
@@ -1219,6 +1222,8 @@ export async function createCritiqsHandler(options: CritiqsHandlerOptions): Prom
         presetTags: true,
         connections: true,
         developerResends: true,
+        threadMadeWith: true,
+        threadMentions: true,
       });
     }
     if (path === "/critiqs/connected" && request.method === "POST") return await connected(request);

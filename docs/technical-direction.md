@@ -473,11 +473,22 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   draws them (its `MessageBody`, `Avatar`, and time format, imported from
   `packages/react/src` as the rest of `apps/web` is), the thread's tags, its
   resolved state, a reply box (`threadPage: true`), and **Copy link**, which
-  copies the page's own address. The reply box is a plain text box: hashtags
-  tag the thread as usual, but `@` doesn't suggest people, since the panel's
-  suggestions list everyone in the project, and the page shows only the
-  thread. The browser tab's title names no project, since browsers keep
-  titles in history.
+  copies the page's own address. In the reply box hashtags tag the thread as
+  usual, and `@` suggests only the people in the thread (who wrote in it or
+  were mentioned in it), whom the page already shows, never everyone in the
+  project. Whom someone may mention follows their standing in the project,
+  not where they write from: the project's team (its organization; for a
+  project from before organizations, its creator) mentions anyone in the
+  project who can still review it; someone outside it mentions only the team
+  and people already in the thread, from the thread page, the panel, or an
+  agent alike. In a new thread they mention the team only. Threads from
+  before people in threads were recorded keep the project-wide rule. One
+  rule (`mentionRule`) decides both what a sent message may mention and what
+  the panel's `@` suggests: the panel asks `participants` for the thread
+  being replied in or edited (`threadId`, to backends reporting
+  `threadMentions`), so two people outside the team in one thread are offered
+  each other. The browser tab's title names
+  no project, since browsers keep titles in history.
 - **Open in prototype.** It opens the page the thread was left on at the
   project's review address (`buildLink`: the review address's origin, the
   saved page's path), with `?critiqs=<threadId>` so installed Critiqs opens
@@ -488,7 +499,17 @@ the website (`apps/web`) shows it at `/t/<key>` for Convex.
   organization, `requireThread` refuses outsiders. A saved page address that
   can't be read opens the review address itself, as email links do. Without
   a review address it isn't offered, and the page says the comment was left on its saved
-  address.
+  address. Each thread records how it was left (`madeWith`): the panel says
+  `extension` when it runs in the browser extension's own page, and anything
+  else, including every older component, is an install. The page offers the
+  browser extension only for a thread left with it, saying whether the
+  project is installed now (`connectedAt`). A thread left with an install,
+  or from before this was recorded (when the extension wasn't published, so
+  every thread came from an install), opens where it was left, however long
+  ago the project last loaded. Backends report `threadMadeWith`, and
+  components send `madeWith` only to those. The extension
+  doesn't read `?critiqs=`, so the page says to click Critiqs on the opened
+  page. Review links, once built, add their own way here.
 - **Where pages are served.** A page link names no deployment, so the website
   at the configured address must reach the backend that holds the thread.
   Critiqs Cloud's website serves Critiqs Cloud's threads. Not decided yet:

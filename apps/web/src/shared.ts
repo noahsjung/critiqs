@@ -15,4 +15,4 @@ export { describeError, type QueryState } from "../../../packages/react/src/tran
 // and message text with its mentions and hashtags drawn as the panel draws them.
 export { Avatar } from "../../../packages/react/src/ui/common.tsx";
 export { fullTime, relativeTime } from "../../../packages/react/src/ui/format.ts";
-export { MessageBody, tagDisplay } from "../../../packages/react/src/ui/MentionInput.tsx";
+export { activeMention, MessageBody, mentionsInText, tagDisplay } from "../../../packages/react/src/ui/MentionInput.tsx";

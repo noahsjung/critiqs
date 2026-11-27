@@ -4,7 +4,7 @@ import type { ThreadPageData } from "../src/backend.ts";
 import { routeOf } from "../src/route.ts";
 import type { QueryState } from "../src/shared.ts";
 import { convexBackend } from "../src/backend.ts";
-import { prototypeLink, ThreadPage } from "../src/ui/ThreadPage.tsx";
+import { extensionWay, prototypeLink, ThreadPage, threadPeople } from "../src/ui/ThreadPage.tsx";
 import { button, click, fakeAuth, fakeBackend, fakeClipboard, refusingClipboard, render, rerender, settle, text } from "./render.tsx";
 
 // The thread page at /t/<key> in each state its link can open in.
@@ -213,7 +213,7 @@ describe("the thread page", () => {
     expect(reply.disabled).toBe(true);
     await typeInto(page.querySelector("textarea"), "Same with free shipping. #checkout");
     await click(button(page, "Reply"));
-    expect(backend.calls.filter((call) => call.name === "replyOnThreadPage").map((call) => call.args)).toEqual([[THREAD_ID, "Same with free shipping. #checkout"]]);
+    expect(backend.calls.filter((call) => call.name === "replyOnThreadPage").map((call) => call.args)).toEqual([[THREAD_ID, "Same with free shipping. #checkout", []]]);
     expect(page.querySelector("textarea")?.value).toBe("");
     const live = { ...THREAD, messages: [...THREAD.messages, message("m4", lee, "Same with free shipping. #checkout", 0)] };
     await rerender(<ThreadPage pageKey={KEY} />, { backend: { ...backend, useThreadPage: () => ready(live) } });
@@ -232,7 +232,7 @@ describe("the thread page", () => {
     const field = page.querySelector("textarea")!;
     await typeInto(field, "Looks fixed.");
     await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true })));
-    expect(backend.calls.filter((call) => call.name === "replyOnThreadPage").map((call) => call.args)).toEqual([[THREAD_ID, "Looks fixed."]]);
+    expect(backend.calls.filter((call) => call.name === "replyOnThreadPage").map((call) => call.args)).toEqual([[THREAD_ID, "Looks fixed.", []]]);
   });
 
   test("a refused reply says so in words and keeps the text", async () => {
@@ -414,4 +414,120 @@ test("the website sends only its origin as the referrer, so a page key never lea
   // requests, such as its scripts, would still name the page in their Referer under the browser's default policy.
   const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
   expect(html).toContain('<meta name="referrer" content="strict-origin" />');
+});
+
+describe("Open in prototype and the extension", () => {
+  test("only a thread left with the extension offers it, saying whether the project is installed; never on an older backend", () => {
+    expect(extensionWay(null, "extension")).toBe("not-installed");
+    expect(extensionWay(2_000, "extension")).toBe("made-with-extension");
+    expect(extensionWay(null, "install")).toBeNull();
+    expect(extensionWay(2_000, "install")).toBeNull();
+    // From before threads recorded it: every thread was left with an install.
+    expect(extensionWay(null, undefined)).toBeNull();
+    expect(extensionWay(2_000, undefined)).toBeNull();
+    expect(extensionWay(undefined, "extension")).toBeNull();
+  });
+
+  // Each check reads text, never an element: a failing match on a rendered element prints its whole React tree.
+  const cardOf = async (project: Partial<ThreadPageData["project"]>, madeWith?: "install" | "extension") => {
+    const prototype = { ...THREAD.prototype, ...(madeWith === undefined ? {} : { madeWith }) };
+    const page = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready({ ...THREAD, project: { ...THREAD.project, ...project }, prototype }) }) });
+    await settle();
+    return page;
+  };
+  const heading = (page: Element) => page.querySelector(".extension-way strong")?.textContent ?? null;
+
+  test("left with the extension on a project not installed: Open in prototype, and how to see the comment there with the extension", async () => {
+    const page = await cardOf({ connectedAt: null }, "extension");
+    const way = page.querySelector(".extension-way");
+    expect(way?.textContent).toBe("Not installed on the prototype yetOpen the prototype in Chrome and click Critiqs in the toolbar to see this comment there. Get the extension");
+    expect(way?.querySelector("a")?.getAttribute("href")).toBe("https://github.com/noahsjung/critiqs/tree/main/packages/extension#build-and-load-it-unpacked");
+    // The installed link stays: it opens the page the comment was left on.
+    expect(page.querySelector("a.btn")?.textContent).toBe("Open in prototype");
+  });
+
+  test("left with the extension on a project installed since: both ways", async () => {
+    expect(heading(await cardOf({ connectedAt: now - 10 * HOUR }, "extension"))).toBe("Left with the Critiqs extension");
+    expect(heading(await cardOf({ connectedAt: now + HOUR }, "extension"))).toBe("Left with the Critiqs extension");
+  });
+
+  test("left with an install, or from before threads recorded it: only the installed link, whenever the project last loaded", async () => {
+    // A project installed before Connected shipped first reports after every older thread, or not yet.
+    for (const madeWith of [undefined, "install"] as const) {
+      for (const connectedAt of [null, now - 10 * HOUR, now]) {
+        const page = await cardOf({ connectedAt }, madeWith);
+        expect([madeWith, connectedAt, heading(page), page.querySelector("a.btn")?.textContent ?? null]).toEqual([madeWith, connectedAt, null, "Open in prototype"]);
+      }
+    }
+  });
+});
+
+describe("@ suggestions on the thread page", () => {
+  const PEOPLE_THREAD: ThreadPageData = {
+    ...THREAD,
+    messages: [
+      message("m1", dana, "The total doesn't drop. #bug", 3 * HOUR, { authorId: "u_dana", isMine: true }),
+      message("m2", lee, "Seeing it on mobile too.", 2 * HOUR, { authorId: "u_lee" }),
+      message("m3", dana, "@Kim Ray can you check?", HOUR, { authorId: "u_dana", isMine: true, mentions: [{ _id: "u_kim", label: "Kim Ray", name: "Kim Ray" }] }),
+    ],
+  };
+
+  test("the people in the thread: who wrote and who was mentioned, once each, never the signed-in person", () => {
+    expect(threadPeople(PEOPLE_THREAD.messages).map((person) => [person._id, person.name])).toEqual([
+      ["u_lee", "Lee Ortiz"],
+      ["u_kim", "Kim Ray"],
+    ]);
+  });
+
+  test("two people outside the team in one thread are each offered the other", () => {
+    const mo = { name: "Mo Diaz", imageUrl: null };
+    const asSeenBy = (me: string) => [
+      message("m1", lee, "Lee's thread", 3 * HOUR, { authorId: "u_lee", isMine: me === "u_lee" }),
+      message("m2", mo, "Mo here", 2 * HOUR, { authorId: "u_mo", isMine: me === "u_mo" }),
+    ];
+    expect(threadPeople(asSeenBy("u_lee")).map((person) => person.name)).toEqual(["Mo Diaz"]);
+    expect(threadPeople(asSeenBy("u_mo")).map((person) => person.name)).toEqual(["Lee Ortiz"]);
+  });
+
+  test("typing @ suggests only people in the thread; choosing one mentions them in the reply", async () => {
+    const backend = fakeBackend({ threadPageState: ready(PEOPLE_THREAD) });
+    const page = await render(<ThreadPage pageKey={KEY} />, { backend });
+    await settle();
+    const box = page.querySelector("textarea")!;
+    await typeInto(box, "Thanks @");
+    expect([...page.querySelectorAll("[role='option']")].map((option) => option.textContent)).toEqual(["LOLee Ortiz", "KRKim Ray"]);
+    expect(box.getAttribute("aria-expanded")).toBe("true");
+    await typeInto(box, "Thanks @le");
+    expect([...page.querySelectorAll("[role='option']")].map((option) => option.textContent)).toEqual(["LOLee Ortiz"]);
+    await act(async () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(box.value).toBe("Thanks @Lee Ortiz ");
+    expect(page.querySelector("[role='listbox']")).toBeNull();
+    await typeInto(box, "Thanks @Lee Ortiz, fixed now.");
+    await click(button(page, "Reply"));
+    await settle();
+    expect(backend.calls.filter((call) => call.name === "replyOnThreadPage").map((call) => call.args)).toEqual([
+      [THREAD_ID, "Thanks @Lee Ortiz, fixed now.", [{ userId: "u_lee", label: "Lee Ortiz" }]],
+    ]);
+  });
+
+  test("no one matches, or Escape: no list; a mention whose text was deleted isn't sent", async () => {
+    const backend = fakeBackend({ threadPageState: ready(PEOPLE_THREAD) });
+    const page = await render(<ThreadPage pageKey={KEY} />, { backend });
+    await settle();
+    const box = page.querySelector("textarea")!;
+    await typeInto(box, "@zz");
+    expect(page.querySelector("[role='listbox']")).toBeNull();
+    await typeInto(box, "@k");
+    await act(async () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(page.querySelector("[role='listbox']")).toBeNull();
+    // A new @ elsewhere suggests again; the arrow keys move through the list.
+    await typeInto(box, "ok @");
+    await act(async () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    await act(async () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
+    expect(box.value).toBe("ok @Kim Ray ");
+    await typeInto(box, "Never mind.");
+    await click(button(page, "Reply"));
+    await settle();
+    expect(backend.calls.filter((call) => call.name === "replyOnThreadPage").map((call) => call.args)).toEqual([[THREAD_ID, "Never mind.", []]]);
+  });
 });

@@ -22,6 +22,9 @@ venv/
 __pycache__/
 *.py[cod]
 
+# The website app, built into the landing page's folder when the host deploys it
+site/app/
+
 # Convex local deployment state
 .convex/
 
