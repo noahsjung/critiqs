@@ -38,7 +38,12 @@ bun run check            # build, typecheck, and test every package, the release
 
 `bun run check` is `bun run typecheck` followed by `bun run test`. The test
 step includes `check:package`, which packs `critiqs` and `critiqs-react` and
-installs them in scratch React 18 and 19 apps under your system's temporary directory. If that
+installs them in scratch React 18 and 19 apps, and `check:bundled`, which packs
+every released package (the gem and Python packages too) and fails when one
+bundles a dependency that `scripts/bundled-dependencies.json` leaves out; after
+changing a package's build or what it bundles, run
+`bun scripts/bundled-dependencies.ts write` and commit that file. Both work
+under your system's temporary directory. If that
 directory is small or held in memory, point `TMPDIR` at a directory on disk
 outside the repository:
 
@@ -107,21 +112,30 @@ Don't edit other notes, `version` fields, or `CHANGELOG.md`; the generated
 release pull request does that. CI's `release-notes` job checks the note's
 form.
 
-### Dependabot pull requests
+### Dependency updates
 
-Dependabot opens weekly dependency updates without a release note, so their
-`release-notes` check fails until a maintainer pushes one to the pull
-request's branch:
+A pull request that only changes dependency versions needs no release note
+when none of the updates ships in a Critiqs package: type packages, test tools,
+the apps, examples, and site outside `packages/`, and new commits of the same
+actions in the CI workflow. Most of Dependabot's weekly pull requests pass as
+they are. An action update in the Publish or Release workflow, which build and
+publish what users get, needs a person to check it and add a no-release note,
+such as `bun run changeset add --empty -m "Publish workflow: actions/checkout 4.4.0 to 4.5.0, checked."`.
 
-- a `patch` note naming the packages the updated dependency ships in, such
-  as `bun run changeset add --patch critiqs-react -m "Update convex to 1.47.0."`;
-- otherwise a short no-release note, such as
-  `bun run changeset add --empty -m "Dependency update for development tools only: nothing ships."`
+When an update does ship (a range users install, or code a package's build
+bundles or runs, at any depth, as `scripts/bundled-dependencies.json` lists
+it), `release-notes` fails, lists the updates, and suggests a
+`patch` note naming the packages. Push that note to the pull request's branch,
+for example:
 
-The check treats any file under `packages/` other than tests and check
-scripts (`scripts/check-*.ts`) as shipped, so
-an update that changes a `package.json` there needs a `patch` note even when
-only a development dependency moved.
+```sh
+gh pr checkout <number>
+bun run changeset add --patch critiqs,critiqs-react -m "Update the AI SDK to 7.0.177 and React to 19.3.1."
+git add .changeset && git commit -m "Add a release note" && git push
+```
+
+[Releasing](docs/releasing.md#dependency-updates) says exactly which updates
+ship.
 
 ## Pull requests
 
