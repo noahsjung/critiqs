@@ -3,6 +3,7 @@ import {
   canReview,
   countWithinAll,
   fail,
+  inProjectOrganization,
   operations,
   projectAccess,
   recordProjectOpened,
@@ -39,8 +40,9 @@ import {
   type ReviewRenewal,
   type ReviewResolution,
   webRiskVerdict,
+  allowToken,
 } from "@critiqs/server";
-import { canonicalHost, hostOf } from "@critiqs/core";
+import { canonicalHost, hostOf, shownPathOf } from "@critiqs/core";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -83,7 +85,7 @@ export function reviewSetup(): ReviewSetup | null {
   return { proxy, website: website.replace(/\/$/, "") };
 }
 
-function backendAddresses(): string[] {
+export function backendAddresses(): string[] {
   return [process.env.CONVEX_SITE_URL, process.env.CONVEX_CLOUD_URL].filter((value): value is string => !!value);
 }
 
@@ -107,8 +109,9 @@ function reputationSource(setup: ReviewSetup | null): "web-risk" | "fixture" | n
 export function reviewLinksCapability(): ReviewLinksCapability | null {
   const setup = reviewSetup();
   if (setup === null) return null;
-  // A shared build has no address to check, so it needs only the proxy.
-  return { version: 1, live: reputationSource(setup) !== null, builds: true, allowCritiqs: false };
+  // A shared build has no address to check, so it needs only the proxy. Allow Critiqs helps only live links.
+  const live = reputationSource(setup) !== null;
+  return { version: 1, live, builds: true, allowCritiqs: live };
 }
 
 /** The shortest gap between two reputation checks of one link that opening it starts. */
@@ -167,7 +170,7 @@ async function denied(ctx: QueryCtx, subject: string): Promise<boolean> {
 }
 
 /** Whether an exact origin is still in the project's address list (`listsOrigin`); a pattern that matches it doesn't count. */
-async function listed(ctx: QueryCtx, projectId: Id<"projects">, origin: string): Promise<boolean> {
+export async function listed(ctx: QueryCtx, projectId: Id<"projects">, origin: string): Promise<boolean> {
   const project = await ctx.db.get(projectId);
   if (project === null) return false;
   const rows = await ctx.db
@@ -271,7 +274,7 @@ async function managedLink(ctx: QueryCtx, store: Store, linkId: string) {
   return { ...(await managed(ctx, store, link.projectId)), link };
 }
 
-function bareOrigin(input: string, refused: string[]): string {
+export function bareOrigin(input: string, refused: string[]): string {
   const address = parseLiveAddress(input, refused);
   if (address.path !== "/" || /[?#]/.test(input.trim().replace(/\/$/, "").slice(address.origin.length))) {
     fail("invalid", "List other origins without a path, such as https://api.acme.com.");
@@ -637,6 +640,51 @@ export const recordOpened = mutation({
     }),
 });
 
+/**
+ * The review link that opens a thread's page in the frame, for anyone who may
+ * open the thread page: the project's link for the exact origin the comment
+ * was left on (a live link, or the shared build it was left on), still
+ * served to this person, at the comment's path after `#`. Null when the
+ * project has none.
+ */
+export const forThreadPage = query({
+  args: { key: v.string() },
+  handler: async (ctx, args): Promise<string | null> =>
+    run(async () => {
+      const setup = reviewSetup();
+      if (setup === null) return null;
+      const store = convexStore(ctx);
+      const { user, thread, project } = await operations.threadPageSubject(store, await identityOf(ctx), args.key);
+      // Only to people who could already have the link: the project's owners and its organization's members.
+      // Anyone else who may open the thread page (in a project open to anyone, someone who only commented)
+      // would get a key the owners never gave them, and with it the site's Allow Critiqs allowance.
+      if (user === null) return null;
+      const record = project as unknown as Parameters<typeof projectAccess>[1];
+      if ((await projectAccess(store, record, user._id)) !== "manage" && !(await inProjectOrganization(store, record, user._id))) return null;
+      let page: URL;
+      try {
+        page = new URL(thread.anchor.evidence.url);
+      } catch {
+        return null;
+      }
+      const now = Date.now();
+      const links = await ctx.db
+        .query("reviewLinks")
+        .withIndex("by_project_status", (q) => q.eq("projectId", project._id as Id<"projects">).eq("status", "active"))
+        .take(REVIEW_LINK_LIMITS.activePerProject * 2);
+      for (const link of links.sort((a, b) => b.createdAt - a.createdAt)) {
+        if (link.origin !== page.origin) continue;
+        if ((await serving(ctx, store, link, project as unknown as Doc<"projects">, user?._id ?? null, now)) !== "ok") continue;
+        const key = await linkKey(ctx, link);
+        if (key === null) continue;
+        // The path the review page opens at, as the review page shows it (`shownPathOf`); otherwise the link's own start.
+        const path = shownPathOf(page.pathname);
+        return `${setup.website}/r/${key}${path !== null && path !== "/" ? `#${path}` : ""}`;
+      }
+      return null;
+    }),
+});
+
 // ---------------------------------------------------------------------------
 // The proxy: `/internal/review/v1/*` (reviewHttp.ts)
 
@@ -679,12 +727,40 @@ export async function hostResolution(ctx: QueryCtx, hostHash: string, now: numbe
     leaseId: lease._id,
     origin: link.origin,
     assetOrigins,
-    // Allow Critiqs tokens come with Allow Critiqs; until then the proxy sends none.
-    allow: [],
+    // Each origin's own Allow Critiqs token, once its site proved it chose this project; a shared build has none.
+    allow: link.kind === "site" ? await allowTokens(ctx, link.projectId, [link.origin, ...assetOrigins.map((entry) => entry.origin)]) : [],
     expiresAt,
     cacheUntil: Math.min(now + RESOLUTION_CACHE_MS, expiresAt),
   };
   return { resolution, link };
+}
+
+/** The verified Allow Critiqs tokens of a project's origins, for a lease's resolution. */
+async function allowTokens(ctx: QueryCtx, projectId: Id<"projects">, origins: string[]): Promise<ReviewResolution["allow"]> {
+  const allow: ReviewResolution["allow"] = [];
+  const secret = await allowKey(ctx);
+  if (secret === null) return allow;
+  for (const origin of origins) {
+    const row = await ctx.db
+      .query("reviewAllow")
+      .withIndex("by_project_origin", (q) => q.eq("projectId", projectId).eq("origin", origin))
+      .unique();
+    if (row?.verifiedAt !== undefined) allow.push({ origin, token: await allowToken(secret, projectId, origin, row.version) });
+  }
+  return allow;
+}
+
+/** The deployment's Allow Critiqs key, made on first use in a mutation. Never leaves the backend. */
+export async function allowKey(ctx: QueryCtx | MutationCtx): Promise<string | null> {
+  const row = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", "review-allow-key:v1"))
+    .unique();
+  if (row !== null) return row.value;
+  if (!("insert" in ctx.db)) return null;
+  const value = newSecret();
+  await (ctx as MutationCtx).db.insert("settings", { key: "review-allow-key:v1", value });
+  return value;
 }
 
 /** Adds the proxy's traffic reports to each link's day; returns the links now past the day's ceiling. */

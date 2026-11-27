@@ -164,6 +164,46 @@ describe("the thread page", () => {
     expect(text(page)).toContain("This project has no review address, so there's no prototype to open. The comment was left on localhost:5173/checkout?step=2.");
   });
 
+  test("with a review link for the comment's address, it's offered beside the installed prototype, or alone in its place", async () => {
+    const REVIEW = "https://critiqs.example/r/e3wpz767dgupur6kns2ox725mg#/checkout";
+    const asked: string[] = [];
+    const useThreadReviewLink = (key: string) => {
+      asked.push(key);
+      return { status: "ready", data: REVIEW } as const;
+    };
+    const both = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(THREAD), useThreadReviewLink }) });
+    const review = [...both.querySelectorAll("a")].find((anchor) => anchor.textContent === "Open in review link");
+    expect([review?.getAttribute("href"), review?.getAttribute("rel")]).toEqual([REVIEW, "noopener noreferrer"]);
+    expect(asked).toContain(KEY);
+    const thread = { ...THREAD, project: { name: "Acme build", reviewUrl: null } };
+    const alone = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(thread), useThreadReviewLink }) });
+    expect([...alone.querySelectorAll("a")].find((anchor) => anchor.textContent === "Open in prototype")?.getAttribute("href")).toBe(REVIEW);
+    expect(text(alone)).toContain("Opens the prototype in a review link, with nothing installed.");
+    // Once the build stops being shared, the page says so rather than naming its .build.invalid address.
+    const ended = { ...thread, prototype: { pageUrl: "https://bkkkkkkkkkkkkkkkkkkkk.build.invalid/pricing", screen: "/pricing" } };
+    const gone = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(ended) }) });
+    expect(text(gone)).toContain("The comment was left on a shared build, which only its review link opens.");
+    expect(text(gone)).not.toContain("build.invalid");
+    // However its host is spelled (case, the root's trailing dot), it is the same host to the one canonical-host rule.
+    const spelled = { ...thread, prototype: { pageUrl: "https://BKKKKKKKKKKKKKKKKKKKK.Build.Invalid./pricing", screen: "/pricing" } };
+    const same = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(spelled) }) });
+    expect(text(same)).toContain("The comment was left on a shared build, which only its review link opens.");
+  });
+
+  test("a comment on a shared build in a project that also has a live address opens the build, never the live site", async () => {
+    const BUILD_REVIEW = "https://critiqs.example/r/bbbbbbbbbbbbbbbbbbbbbbbbbb#/pricing";
+    const onBuild = { ...THREAD, prototype: { pageUrl: "https://bkkkkkkkkkkkkkkkkkkkk.build.invalid/pricing", screen: "/pricing" } };
+    const shared = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(onBuild), useThreadReviewLink: () => ({ status: "ready", data: BUILD_REVIEW }) }) });
+    const opens = [...shared.querySelectorAll("a")].filter((anchor) => anchor.textContent === "Open in prototype" || anchor.textContent === "Open in review link").map((anchor) => [anchor.textContent, anchor.getAttribute("href")]);
+    expect(opens).toEqual([["Open in prototype", BUILD_REVIEW]]);
+    expect(text(shared)).toContain("Opens the prototype in a review link, with nothing installed.");
+    // Someone the build's link isn't for, or a build no longer shared: nothing opens, and the page says why, not the live address.
+    const closed = await render(<ThreadPage pageKey={KEY} />, { backend: fakeBackend({ threadPageState: ready(onBuild) }) });
+    expect([...closed.querySelectorAll("a")].some((anchor) => anchor.textContent === "Open in prototype")).toBe(false);
+    expect(text(closed)).toContain("The comment was left on a shared build, which only its review link opens.");
+    expect(text(closed)).not.toContain("Opens ");
+  });
+
   test("Open in prototype goes only to a web address", () => {
     expect(prototypeLink("https://acme.example/app/", "http://localhost:5173/a?b=1#c", "t1")).toBe("https://acme.example/a?b=1&critiqs=t1#c");
     expect(prototypeLink("javascript:alert(1)", "http://localhost/", "t1")).toBeNull();

@@ -99,7 +99,7 @@ const NOT_FOUND = { status: 404, body: "Not found", cache: "no-store" };
 test("review links are off, and /critiqs/config says nothing of them, until the proxy, its secret, and the website are set up", async () => {
   const f = await fixture();
   const config = async () => (await (await f.t.fetch("/critiqs/config")).json()) as { reviewLinks?: unknown };
-  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: true, allowCritiqs: false });
+  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: true, allowCritiqs: true });
   const { key } = await f.link();
 
   for (const [name, value] of [
@@ -130,7 +130,7 @@ test("review links are off, and /critiqs/config says nothing of them, until the 
   expect((await config()).reviewLinks).toEqual({ version: 1, live: false, builds: true, allowCritiqs: false });
   expect(await f.dana.mutation(api.reviewLinks.open, { key })).toEqual({ kind: "pending" });
   process.env.CRITIQS_WEB_RISK_API_KEY = "test-key";
-  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: true, allowCritiqs: false });
+  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: true, allowCritiqs: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ test("F-H3-1: a proxy on a sibling of the website's own site turns review links 
   process.env.CRITIQS_REVIEW_PROXY_URL = "https://app.critiqs.example.";
   expect((await config()).reviewLinks).toBeUndefined();
   process.env.CRITIQS_REVIEW_PROXY_URL = "https://critiqs-review.example";
-  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: true, allowCritiqs: false });
+  expect((await config()).reviewLinks).toEqual({ version: 1, live: true, builds: true, allowCritiqs: true });
 });
 
 test("F-H3-2: an address written with extra dots is refused, and a trailing dot is checked as its host", async () => {

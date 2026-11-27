@@ -31,6 +31,29 @@ export function inReviewFrame(scope: object = globalThis): boolean {
 export const REVIEW_REFUSED_TIMING = "critiqs-refused";
 
 /**
+ * The prototype path a review link's address names after `#`, such as
+ * `/r/<key>#/products/42`: a path on the prototype's own origin, without a
+ * query, kept out of the address the server sees. Null for anything else.
+ */
+export function reviewPathOf(hash: string): string | null {
+  const path = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (path === "" || path.length > 2048 || !path.startsWith("/") || path.startsWith("//") || path.startsWith("/__critiqs/")) return null;
+  if (!/^\/[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$/.test(path)) return null;
+  return path;
+}
+
+/**
+ * The path a review link's address shows for a path on the prototype (the
+ * review page's bar and Share, a thread page's link): a path starting with
+ * `//` gets `/.` in front, as the proxy writes it, so it never reads as
+ * another site's address; null for the proxy's own paths and anything else
+ * a review address can't hold (`reviewPathOf`).
+ */
+export function shownPathOf(pathname: string): string | null {
+  return reviewPathOf(pathname.startsWith("//") ? `/.${pathname}` : pathname);
+}
+
+/**
  * Put beside `REVIEW_REFUSED_TIMING` when a file was refused only because
  * the viewer's request budget ran out for now: waiting and reloading loads
  * it, so the review page says that instead of pointing elsewhere.

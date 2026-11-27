@@ -122,9 +122,10 @@ and spaces turned into hyphens.
 
 The landing page's **Get started** goes to `/start`, the website app's
 onboarding (`apps/web`), on the same origin as the landing page. Setup links
-(`/setup/<id>`), thread pages (`/t/<key>`), review links (`/r/<key>`) and a
-project's review links (`/review-links/<id>`) are served there too, because a
-backend with `CRITIQS_WEB_URL=https://critiqs.app` links to them.
+(`/setup/<id>`), thread pages (`/t/<key>`), review links (`/r/<key>`), a
+project's review links (`/review-links/<id>`) and Allow Critiqs
+(`/allow-critiqs`) are served there too, because a backend with
+`CRITIQS_WEB_URL=https://critiqs.app` links to them.
 
 `site/vercel.json` does it: its build command builds the app into `site/app/`
 (`bun run --cwd apps/web build:site`, with `--base=/app/`), and its rewrites

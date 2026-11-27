@@ -86,3 +86,11 @@ test("the third-party asset egress never sends a token, even when handed one", a
   expect(outcome.kind).toBe("response");
   expect(cdn.requests.at(-1)!.headers["critiqs-allow"]).toBeUndefined();
 });
+
+test("a request's token goes only to the origin it is for, even when the request's address is on another", async () => {
+  const web = testWeb({ "cdn.example.net": [v4(PUBLIC_B)] }, { [PUBLIC_B]: ports.cdn });
+  const egress = createEgress({ web, policy: proxyPolicy(config), reputation: cachedReputation(fixtureReputation()), userAgent: config.userAgent, limits: config.limits, sendsAllowTokens: true });
+  const outcome = await egress.fetch({ url: new URL("http://cdn.example.net/x.png"), method: "GET", class: "image", origin: "http://proto.example.com", allowToken: PRIMARY_TOKEN, signal: AbortSignal.timeout(5_000) });
+  expect(outcome.kind).toBe("response");
+  expect(cdn.requests.at(-1)!.headers["critiqs-allow"]).toBeUndefined();
+});

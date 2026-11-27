@@ -55,10 +55,12 @@ build on the shared `critiqs` package:
 | `packages/core` | Framework-independent logic: anchors, target location, read state, sidebar grouping, links, export, and the backend contract. |
 | `packages/server` | Critiqs's server rules over a storage interface, with a SQLite store and contract tests every backend passes. |
 | `packages/backend` | Convex schema, server functions, and Critiqs's sign-in service, shared by Critiqs Cloud and team-owned deployments. |
-| `packages/critiqs` | The shared `critiqs` package: `mountCritiqs`, the `<critiqs-app>` element, and the `critiqs` command (`init`, `doctor`, `sign-in`, `sign-out`, `mcp`) with the setup for each framework. |
+| `packages/critiqs` | The shared `critiqs` package: `mountCritiqs`, the `<critiqs-app>` element, and the `critiqs` command (`init`, `doctor`, `sign-in`, `sign-out`, `mcp`, `share`) with the setup for each framework. |
 | `packages/react` | The `<Critiqs />` component (toolbar, sidebar, pins, commenting, setup); its `critiqs` command runs the shared package's. |
 | `packages/vue`, `nuxt`, `svelte`, `angular`, `astro`, `solid`, `rails`, `django`, `flask` | The framework packages in the table above. |
 | `packages/extension` | The Chrome extension: reviewers comment on a page from a side panel, with nothing installed in the app. Not published. |
+| `apps/web` | The Critiqs website: onboarding, setup and thread pages, review links (`/r/<key>`), and Allow Critiqs. |
+| `apps/review-proxy` | The review proxy that serves a prototype, or a build shared with `critiqs share`, in a review link's frame. Deployed, never published. |
 | `examples/pilot` | Small React host app for the [pilot scenarios](docs/first-release.md#pilot-scenarios). |
 | `site` | The [critiqs.app](https://critiqs.app) landing page: static HTML, CSS, and JavaScript with no build step, deployed by Vercel from `main` (pull requests get preview links). |
 | `site-src` | The sample app and script that record the landing page's clips from the real Critiqs UI ([how to run it](site-src/README.md)). |

@@ -1,4 +1,4 @@
-import { type AddressCheck, isLocalAddress, type OrganizationSummary, type StackId } from "@critiqs/core";
+import { type AddressCheck, availableWays, isLocalAddress, type OrganizationSummary, type StackId, type Way } from "@critiqs/core";
 import { type Dispatch, useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
 import { type Backend, failureCode, failureMessage, type NewProject, useAcceptInvites, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
@@ -12,7 +12,6 @@ import {
   type FlowReviewer,
   type FlowState,
   newCreateKey,
-  otherWays,
   pendingCreate,
   restoreFlow,
   reviewUrlOf,
@@ -21,14 +20,16 @@ import {
   sessionStore,
   shownHost,
   STEPS,
+  waysBelow,
   type Who,
+  whoOf,
 } from "../flow.ts";
 import { Select } from "../shared.ts";
 import { AboutYou, SuggestedPlan } from "./AboutYou.tsx";
 import { InviteTeam } from "./Invite.tsx";
 import { ConnectionStatus, Heading, Progress } from "./parts.tsx";
 import { Preview } from "./Preview.tsx";
-import { ExtensionPanel, InstallPanel, SendPanel } from "./Ways.tsx";
+import { ExtensionPanel, InstallPanel, SendPanel, ShareBuildPanel } from "./Ways.tsx";
 
 /**
  * Onboarding at /start, in three screens: the prototype's link, who adds
@@ -107,16 +108,20 @@ export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispat
   const url = state.address.url;
   // What the check found, for the address it was about: the choices' order follows it.
   const [found, setFound] = useState<{ url: string; check: AddressCheck | null } | null>(null);
-  // The check starts as soon as someone signed in has given a link, so it's usually done before they choose.
+  // The check starts as soon as someone signed in has given a link, so it's usually done before they choose. Its answer
+  // is kept when it arrives after choosing: the setup screen's ways follow it too, and asking again reuses the same check.
   useEffect(() => {
-    if (state.reviewer === null || typeof url !== "string" || state.project !== null) return;
+    if (state.reviewer === null || typeof url !== "string") return;
     let current = true;
     void checkOf(state.reviewer.id, url).then((check) => {
       if (current) setFound({ url, check });
     });
     return () => void (current = false);
-  }, [state.reviewer?.id, url, state.project === null]);
-  const check = checkFor(url, found !== null && found.url === url ? found.check : null);
+  }, [state.reviewer?.id, url]);
+  const answered = found !== null && found.url === url;
+  const check = checkFor(url, answered ? found.check : null);
+  // Whether the check has nothing left to say: no address, one on this computer or network, or its answer is in.
+  const checked = typeof url !== "string" || check.kind === "local" || answered;
 
   const host = state.project?.reviewUrl != null ? shownHost(state.project.reviewUrl) : state.address.text.trim() === "" ? null : shownHost(state.address.text);
   return (
@@ -125,7 +130,7 @@ export function OnboardingScreen({ state, dispatch }: { state: FlowState; dispat
         <Progress step={STEPS.indexOf(state.step) + 1} count={STEPS.length} />
         {state.step === "address" && <AddressScreen state={state} dispatch={dispatch} />}
         {state.step === "who" && <WhoScreen state={state} dispatch={dispatch} stackOf={stackOf} check={check} />}
-        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} check={check} />}
+        {state.step === "setup" && <SetupScreen state={state} dispatch={dispatch} check={check} checked={checked} />}
       </section>
       <Preview host={host} live={state.step === "setup"} />
     </div>
@@ -348,7 +353,7 @@ function WhoScreen({
   const failure = state.create.status === "failed" ? state.create.message : null;
   // An address Critiqs can't save, such as HTTP on a private network, is said before choosing, not dropped quietly.
   const unsaved = typeof state.address.url === "string" && reviewUrlOf(state.address) === null ? shownHost(state.address.url) : null;
-  const ways = choicesFor(check);
+  const ways = choicesFor(check, availableWays(backend.reviewLinks));
   const option = (who: Who, recommended: boolean) => {
     const { label, detail } = copy.who[who];
     const busy = creating && state.who === who;
@@ -452,7 +457,7 @@ function WhoScreen({
  * other ways below it, best first, then the "while you're here" questions
  * once the person has done it.
  */
-function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: Dispatch<FlowAction>; check: AddressCheck }) {
+function SetupScreen({ state, dispatch, check, checked }: { state: FlowState; dispatch: Dispatch<FlowAction>; check: AddressCheck; checked: boolean }) {
   // Once shown, the email panel stays mounted while another way shows, so a send in flight, its answer, an error, or a field being added
   // are all still there when the person switches back.
   const [sendOpened, setSendOpened] = useState(state.who === "developer");
@@ -470,7 +475,6 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
   if (project === null || state.who === null) return null;
   const flow = state.flow;
   const done = () => dispatch({ type: "setup-done", flow });
-  const others = otherWays(state.who, check);
   const host = project.reviewUrl === null ? null : shownHost(project.reviewUrl);
   return (
     <>
@@ -492,15 +496,14 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
           </div>
         )}
       </div>
-      {others.length > 0 && (
-        <div className="other-ways">
-          {others.map((other) => (
-            <button key={other} type="button" className="quiet" onClick={() => dispatch({ type: "switch-who", who: other })}>
-              {copy.ways.switchTo[other]}
-            </button>
-          ))}
-        </div>
-      )}
+      <OtherWays
+        projectId={project.id}
+        who={state.who}
+        url={typeof state.address.url === "string" ? state.address.url : null}
+        check={check}
+        checked={checked}
+        onSwitch={(who) => dispatch({ type: "switch-who", who })}
+      />
       {/* The first question arrives while focus stays on what the person just used, so it's announced. */}
       <div aria-live="polite">
         {state.about.shown && (
@@ -523,6 +526,111 @@ function SetupScreen({ state, dispatch, check }: { state: FlowState; dispatch: D
 /** Whether Critiqs has loaded with the new project yet, live. */
 function ProjectConnection({ projectId, host }: { projectId: string; host: string | null }) {
   return <ConnectionStatus setup={useBackend().useProjectSetup(projectId)} host={host} />;
+}
+
+/** The ways in that need nothing installed and show in place, under the chosen way. */
+const IN_PLACE: readonly Way[] = ["review-link", "share-build", "allow-critiqs"];
+
+/**
+ * Every way in under the chosen one, best first, in one list: `waysBelow`,
+ * which is `recommend()` for what the choice says about the code and what the
+ * address check found, among the ways this deployment offers (`availableWays`
+ * from its `/critiqs/config`). A way with a screen of its own is a button that
+ * switches to it; a review link, sharing a build, and Allow Critiqs show in
+ * place as cards, once the check has answered (`checked`), so they don't come
+ * and go while it runs. A deployment without review links offers none of them.
+ */
+export function OtherWays({
+  projectId,
+  who,
+  url,
+  check,
+  checked,
+  onSwitch,
+}: {
+  projectId: string;
+  who: Who;
+  url: string | null;
+  check: AddressCheck;
+  checked: boolean;
+  onSwitch: (who: Who) => void;
+}) {
+  const backend = useBackend();
+  // Once Check again finds the site allowed, the ways are those of a public prototype: the review link takes Allow Critiqs' place.
+  const [allowed, setAllowed] = useState<string | null>(null);
+  const shown: AddressCheck = url !== null && allowed === url ? { kind: "public", stack: null } : check;
+  const ways = waysBelow(who, shown, availableWays(backend.reviewLinks)).filter(
+    (way) => whoOf(way) !== null || (checked && IN_PLACE.includes(way) && (way !== "allow-critiqs" || url !== null)),
+  );
+  if (ways.length === 0) return null;
+  return (
+    <div className="other-ways">
+      {ways.map((way) => {
+        const other = whoOf(way);
+        if (other !== null) {
+          return (
+            <button key={way} type="button" className="quiet" onClick={() => onSwitch(other)}>
+              {copy.ways.switchTo[other]}
+            </button>
+          );
+        }
+        return (
+          <div key={way} className="way-card" data-way={way}>
+            {way === "review-link" && (
+              <>
+                <h2>{copy.ways.reviewLink.title}</h2>
+                <p>{copy.ways.reviewLink.text}</p>
+                <div>
+                  <a className="btn" href={`/review-links/${encodeURIComponent(projectId)}`}>
+                    {copy.ways.reviewLink.action}
+                  </a>
+                </div>
+              </>
+            )}
+            {way === "share-build" && <ShareBuildPanel projectId={projectId} />}
+            {way === "allow-critiqs" && url !== null && <AllowCritiqsWay projectId={projectId} url={url} onAllowed={() => setAllowed(url)} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A prototype that refuses Critiqs's server: set up Allow Critiqs, then Check again from here. Allowed, the review link takes its place. */
+function AllowCritiqsWay({ projectId, url, onAllowed }: { projectId: string; url: string; onAllowed: () => void }) {
+  const backend = useBackend();
+  const origin = new URL(url).origin;
+  const [state, setState] = useState<{ status: "idle" | "checking" } | { status: "said"; text: string }>({ status: "idle" });
+  const check = async () => {
+    setState({ status: "checking" });
+    try {
+      await backend.issueAllowCritiqs(projectId, origin);
+      const found = await backend.checkAllowCritiqs(projectId, origin);
+      if (found.verified) onAllowed();
+      else setState({ status: "said", text: copy.allowCritiqs.results[found.result] ?? copy.allowCritiqs.failed });
+    } catch (failure) {
+      setState({ status: "said", text: failureMessage(failure, copy.allowCritiqs.failed) });
+    }
+  };
+  return (
+    <>
+      <h2>{copy.ways.allowCritiqs.title}</h2>
+      <p>{copy.ways.allowCritiqs.text(shownHost(url))}</p>
+      <div className="actions">
+        <a className="btn" href={`/allow-critiqs?project=${encodeURIComponent(projectId)}&origin=${encodeURIComponent(origin)}`}>
+          {copy.ways.allowCritiqs.action}
+        </a>
+        <button type="button" className="btn quiet" disabled={state.status === "checking"} onClick={() => void check()}>
+          {state.status === "checking" ? copy.allowCritiqs.checking : copy.allowCritiqs.check}
+        </button>
+      </div>
+      {state.status === "said" && (
+        <p className="note" role="status">
+          {state.text}
+        </p>
+      )}
+    </>
+  );
 }
 
 function BackGlyph() {

@@ -822,6 +822,11 @@ async function openThreadPage(store: Store, user: UserRecord | null, thread: Thr
 }
 
 /** The thread page a key opens, for the signed-in person; signed out, they get the same answer as for a key that opens nothing. */
+/** A thread page's thread, project and viewer, for someone who may open it; refused with the page's own answer otherwise. */
+export async function threadPageSubject(store: Store, identity: Identity | null, key: string) {
+  return await requireThreadPage(store, identity, key);
+}
+
 async function requireThreadPage(store: Store, identity: Identity | null, key: string) {
   const user = identity === null || !identity.emailVerified || !identity.email ? null : await store.users.byToken(identity.tokenIdentifier);
   const thread = user === null || !isThreadPageKey(key) ? null : await store.threads.byPageKey(key);

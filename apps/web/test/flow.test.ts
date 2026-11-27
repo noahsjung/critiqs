@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { availableWays } from "@critiqs/core";
 import {
   addressToCheck,
   canGoBack,
@@ -18,6 +19,7 @@ import {
   reviewUrlOf,
   saveFlow,
   savePendingCreate,
+  waysBelow,
 } from "../src/flow.ts";
 import { Session } from "../src/shared.ts";
 
@@ -321,5 +323,18 @@ describe("the ways in, best first", () => {
     const none = checkFor(null, null);
     expect(otherWays("me", none)).toEqual(["developer"]);
     expect(otherWays("developer", none)).toEqual(["me"]);
+  });
+
+  test("a deployment's review links join the same list where recommend places them, and change nothing on the choice screen", () => {
+    const all = availableWays({ live: true, builds: true, allowCritiqs: true });
+    const online = checkFor("https://acme-proto.vercel.app/", { kind: "public", stack: null });
+    expect(waysBelow("me", online, all)).toEqual(["review-link", "extension", "send-to-developer"]);
+    expect(otherWays("me", online, all)).toEqual(otherWays("me", online));
+    expect(waysBelow("developer", checkFor(null, null), all)).toEqual(["share-build", "install"]);
+    expect(waysBelow("developer", checkFor(null, null), availableWays(null))).toEqual(["install"]);
+    for (const found of [null, { kind: "public", stack: null } as const, { kind: "blocked" } as const]) {
+      const check = checkFor("https://acme-proto.vercel.app/", found);
+      expect(choicesFor(check, all)).toEqual(choicesFor(check));
+    }
   });
 });

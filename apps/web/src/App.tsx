@@ -5,6 +5,7 @@ import { copy } from "./copy.ts";
 import { clearFlowOnSignOut, sessionStore } from "./flow.ts";
 import { routeOf } from "./route.ts";
 import { convexClient, type Deployment, HOSTED_BACKEND_URL, loadPanel, Session } from "./shared.ts";
+import { AllowCritiqsPage } from "./ui/AllowCritiqs.tsx";
 import { Onboarding } from "./ui/Onboarding.tsx";
 import { Account } from "./ui/parts.tsx";
 import { Logo } from "./ui/Preview.tsx";
@@ -23,7 +24,7 @@ const EXTENSION_URL = extensionLink(import.meta.env.VITE_CRITIQS_EXTENSION_URL a
 
 export function App() {
   const route = useMemo(() => {
-    const found = routeOf(window.location.pathname);
+    const found = routeOf(window.location.pathname, window.location.search);
     if (found.page === "start" && window.location.pathname !== "/start") window.history.replaceState(null, "", "/start");
     return found;
   }, []);
@@ -81,6 +82,8 @@ export function App() {
             <ThreadPage pageKey={route.key} />
           ) : route.page === "review-links" ? (
             <ReviewLinksPage projectId={route.projectId} />
+          ) : route.page === "allow-critiqs" ? (
+            <AllowCritiqsPage projectId={route.projectId} origin={route.origin} />
           ) : (
             <Onboarding />
           )}

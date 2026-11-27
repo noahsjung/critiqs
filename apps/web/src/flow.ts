@@ -48,8 +48,8 @@ export const CODE_ACCESS_OF: Record<Who, CodeAccess | undefined> = { me: "self",
 /** The way in each choice is. */
 const WAY_OF: Record<Who, Way> = { me: "install", developer: "send-to-developer", extension: "extension" };
 
-/** The choice for a way the website offers, or null for one it has no screen for yet. */
-function whoOf(way: Way): Who | null {
+/** The choice for a way with a screen of its own, or null for one shown in place, such as a review link's card. */
+export function whoOf(way: Way): Who | null {
   return (Object.keys(WAY_OF) as Who[]).find((who) => WAY_OF[who] === way) ?? null;
 }
 
@@ -73,24 +73,32 @@ export interface Choices {
 }
 
 /**
- * The choices for the second screen, from `recommend` with the ways Critiqs
- * offers today. Nothing has been answered yet there: role and team size come
- * after setup, and this screen is the code question itself.
+ * The choices for the second screen, from `recommend` with the ways this
+ * deployment offers (`available`: `availableWays` of its `/critiqs/config`).
+ * Nothing has been answered yet there: role and team size come after setup,
+ * and this screen is the code question itself.
  */
-export function choicesFor(check: AddressCheck): Choices {
-  const { primary, others, reason } = recommend({}, check, AVAILABLE_WAYS);
+export function choicesFor(check: AddressCheck, available: ReadonlySet<Way> = AVAILABLE_WAYS): Choices {
+  const { primary, others, reason } = recommend({}, check, available);
   return { order: [primary, ...others].flatMap((way) => whoOf(way) ?? []), reason };
 }
 
 /**
- * The other ways in, best first, under the one chosen: `recommend` with what
- * the choice says about the code. Choosing the extension says nothing, so its
- * others follow the default order.
+ * Every way in under the one chosen, best first: `recommend` with what the
+ * choice says about the code, among the ways this deployment offers. Choosing
+ * the extension says nothing, so its others follow the default order. Ways
+ * with a screen of their own are choices to switch to (`whoOf`); the others,
+ * such as a review link, show in place.
  */
-export function otherWays(who: Who, check: AddressCheck): Who[] {
+export function waysBelow(who: Who, check: AddressCheck, available: ReadonlySet<Way> = AVAILABLE_WAYS): Way[] {
   const codeAccess = CODE_ACCESS_OF[who];
-  const { primary, others } = recommend(codeAccess === undefined ? {} : { codeAccess }, check, AVAILABLE_WAYS);
-  return [primary, ...others].flatMap((way) => whoOf(way) ?? []).filter((other) => other !== who);
+  const { primary, others } = recommend(codeAccess === undefined ? {} : { codeAccess }, check, available);
+  return [primary, ...others].filter((way) => way !== WAY_OF[who]);
+}
+
+/** The choices under the one chosen, best first (`waysBelow`). */
+export function otherWays(who: Who, check: AddressCheck, available: ReadonlySet<Way> = AVAILABLE_WAYS): Who[] {
+  return waysBelow(who, check, available).flatMap((way) => whoOf(way) ?? []);
 }
 
 /**

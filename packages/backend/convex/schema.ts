@@ -285,6 +285,28 @@ export default defineSchema({
     .index("by_build_path", ["buildId", "path"])
     .index("by_build_hash", ["buildId", "sha256"]),
 
+  /**
+   * Allow Critiqs for one of a project's origins: the version of its token
+   * (derived, never stored), and when a check through the proxy last found
+   * the site letting the proxy in with it and publishing the project's proof.
+   * Leases send the token to that origin only once `verifiedAt` is set.
+   */
+  reviewAllow: defineTable({
+    projectId: v.id("projects"),
+    origin: v.string(),
+    version: v.number(),
+    verifiedAt: v.optional(v.number()),
+    lastResult: v.optional(v.union(v.literal("public"), v.literal("blocked"), v.literal("sign-in"), v.literal("unreachable"), v.literal("unsafe"), v.literal("busy"))),
+    lastProof: v.optional(v.boolean()),
+    checkedAt: v.optional(v.number()),
+    /** When an allowed origin is checked again on its own (`reviewAllow.recheck`); unset while it isn't allowed. */
+    recheckAt: v.optional(v.number()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_project_origin", ["projectId", "origin"])
+    .index("by_recheck", ["recheckAt"]),
+
   /** A lease's frame host on the proxy domain, stored only as the hash of its random label. */
   reviewFrameHosts: defineTable({
     hostHash: v.string(),

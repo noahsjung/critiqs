@@ -1,4 +1,4 @@
-import { buildLink, isThreadPageKey, type MentionView, removeLink, reviewLink } from "@critiqs/core";
+import { buildLink, hostOf, isHostWithin, isThreadPageKey, type MentionView, removeLink, reviewLink } from "@critiqs/core";
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type Backend, failureCode, failureMessage, type ThreadPageData, useAuth, useBackend } from "../backend.ts";
 import { copy } from "../copy.ts";
@@ -109,6 +109,16 @@ export function extensionWay(connectedAt: number | null | undefined, madeWith: "
   return connectedAt === null ? "not-installed" : "made-with-extension";
 }
 
+/** Whether a comment was left on a shared build (`https://<id>.build.invalid/…`), whose address opens nothing. */
+function isSharedBuild(href: string): boolean {
+  try {
+    const host = hostOf(new URL(href));
+    return host !== null && isHostWithin(host, "build.invalid");
+  } catch {
+    return false;
+  }
+}
+
 /** An address as people read it: no scheme, no trailing slash. */
 function shownAddress(href: string): string {
   try {
@@ -127,9 +137,14 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
     document.title = `${copy.threadPage.tabTitle} · ${copy.appName}`;
     return () => void (document.title = copy.appName);
   }, []);
-  const target = prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
+  // A comment on a shared build opens that build, through its review link, never the project's live address.
+  const onBuild = isSharedBuild(thread.prototype.pageUrl);
+  const target = onBuild ? null : prototypeLink(thread.project.reviewUrl, thread.prototype.pageUrl, thread._id);
   const ownLink = `${window.location.origin}${window.location.pathname}`;
   const extension = extensionWay(thread.project.connectedAt, thread.prototype.madeWith);
+  // The project's review link for the address the comment was left on: the prototype in a frame, with nothing installed.
+  const reviewLink = useBackend().useThreadReviewLink(pageKey);
+  const reviewUrl = reviewLink.status === "ready" ? reviewLink.data : null;
 
   return (
     <article className="thread-page">
@@ -149,13 +164,25 @@ function Thread({ thread, pageKey }: { thread: ThreadPageData; pageKey: string }
               {copy.threadPage.openInPrototype}
             </a>
           )}
+          {reviewUrl !== null && (
+            <a className="btn" href={reviewUrl} target="_blank" rel="noopener noreferrer">
+              <OpenIcon />
+              {target === null ? copy.threadPage.openInPrototype : copy.threadPage.openInReviewLink}
+            </a>
+          )}
           <CopyButton text={ownLink} label={copy.threadPage.copyLink} copiedLabel={copy.threadPage.linkCopied} className="btn">
             <CopyIcon />
             <CheckIcon />
           </CopyButton>
         </div>
         <p className="note">
-          {target === null ? copy.threadPage.noAddress(shownAddress(thread.prototype.pageUrl)) : copy.threadPage.opensAt(shownAddress(removeLink(target)))}
+          {target !== null
+            ? copy.threadPage.opensAt(shownAddress(removeLink(target)))
+            : reviewUrl !== null
+              ? copy.threadPage.opensInReviewLink
+              : onBuild
+                ? copy.threadPage.sharedBuildEnded
+                : copy.threadPage.noAddress(shownAddress(thread.prototype.pageUrl))}
         </p>
         {extension !== null && (
           <div className="extension-way">

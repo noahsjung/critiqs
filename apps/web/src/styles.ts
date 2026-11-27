@@ -354,6 +354,18 @@ export const APP_STYLES = `
 .review-link-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .review-link-actions { display: flex; gap: 8px; flex: none; }
 .review-links-create { display: flex; gap: 8px; }
+.share-build, .allow-explainer { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.share-build h2, .allow-setup h2, .allow-explainer h2 { font-size: 18px; line-height: 26px; font-weight: 600; margin: 8px 0 0; }
+.allow-explainer ol, .allow-rule-notes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.allow-rules { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.allow-rules dt { font-size: 13px; color: var(--muted); }
+.allow-rules dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.allow-token code, .allow-proof code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.success { color: var(--success); }
+.way-card { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.way-card h2 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+/* A way shown in place among the other ways: as wide as the screen's column. */
+.other-ways .way-card { align-self: stretch; margin: 8px 0; }
 .review-break { display: none; }
 /* Narrow screens (NARROW_QUERY in ReviewPage.tsx): the panel is a sheet the bar opens; the frame takes the width. */
 .review.narrow .review-bar { gap: 8px; padding: 0 8px; }

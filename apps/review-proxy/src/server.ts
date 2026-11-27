@@ -11,6 +11,8 @@ import { decodeHtml, injectPageLayer, rewriteHtml } from "./html.ts";
 import { budget, type Claim, keyedSlots, slotLine, slots, windowCounter } from "./limits.ts";
 import { failurePage, frameCsp, inertCsp, leavePage, topLevelPage } from "./pages.ts";
 import { framePath } from "./paths.ts";
+import type { ProbeReads } from "./probe.ts";
+import { wellKnown } from "./wellKnown.ts";
 import { type AssetClass, type ProxyRoute, routeRequest, type UrlContext } from "./urls.ts";
 
 // The proxy's HTTP handler. It answers only its own domain: each frame host
@@ -47,6 +49,8 @@ export interface ProxyDeps {
   assets: ProxyAssets;
   /** Where a shared build's files come from; by default the directory's backend. */
   builds?: BuildSource;
+  /** Allow Critiqs' check (`POST /__critiqs/probe`, probe.ts), given the proxy's read slots; without it, that path is a 404 like any other. */
+  probe?: (request: Request, reads: ProbeReads) => Promise<Response>;
   now?: () => number;
 }
 
@@ -65,6 +69,8 @@ function slotMime(type: string): boolean {
 }
 
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+/** The slot line's key for Allow Critiqs checks: never a lease ID, which has no space. */
+const PROBE_LINE = " allow-critiqs-check";
 
 
 /**
@@ -462,6 +468,13 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   };
 
   /**
+   * The read slots an Allow Critiqs check holds while it fetches a site: the
+   * process's and that site's host's, waited for in the same line as a
+   * frame's reads, so checks never add load beside those shares.
+   */
+  const probeReads: ProbeReads = (upstreamHost, signal) => line.take([() => processSlots.take(), () => hostSlots.take(upstreamHost)], PROBE_LINE, limits.queueTimeoutMs, signal);
+
+  /**
    * Frame hosts that resolved to a live lease, with the directory's last
    * answer, until that lease's end: their lookups never count against a
    * client's misses, so a viewer whose address someone else uses up (a
@@ -532,6 +545,19 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
   };
 
   async function handle(request: Request, info: RequestInfo = { client: "" }): Promise<Response> {
+    // The one write: the backend's Allow Critiqs check, authenticated inside the probe. Any POST is a URL to parse here, nothing else.
+    if (request.method === "POST") {
+      let path: string | null = null;
+      try {
+        path = new URL(request.url).pathname;
+      } catch {
+        // Refused below.
+      }
+      if (path === "/__critiqs/probe" && deps.probe !== undefined) {
+        const answer = await deps.probe(request, probeReads);
+        return new Response(answer.body, { status: answer.status, headers: common(new Headers(answer.headers)) });
+      }
+    }
     // Read-only and credential-free: no method that changes anything, checked before the request's target is even parsed.
     if (request.method !== "GET" && request.method !== "HEAD") return plain(405, "Review links are read-only", { allow: "GET, HEAD" });
     let url: URL;
@@ -541,8 +567,8 @@ export function createReviewProxy(config: ProxyConfig, deps: ProxyDeps) {
       return plain(400, "Bad request");
     }
     const host = (request.headers.get("host") ?? url.host).toLowerCase();
-    // Only the proxy's own domain is answered: another Host is a misdirected request.
-    if (host === apex) return notFound();
+    // Only the proxy's own domain is answered: another Host is a misdirected request. The domain itself serves only its well-known file.
+    if (host === apex) return url.pathname === "/.well-known/critiqs-review.json" ? wellKnown(config) : notFound();
     if (!host.endsWith(`.${apex}`)) return plain(421, "Misdirected request");
     const label = host.slice(0, -(apex.length + 1));
     if (!FRAME_LABEL.test(label)) return notFound();

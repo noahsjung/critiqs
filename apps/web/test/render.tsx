@@ -134,6 +134,11 @@ export function fakeBackend(
     createReviewLink: record("createReviewLink", overrides.createReviewLink ?? (async () => { throw new Error("Not offered"); })),
     copyReviewLink: record("copyReviewLink", overrides.copyReviewLink ?? (async () => "http://localhost/r/key")),
     revokeReviewLink: record("revokeReviewLink", overrides.revokeReviewLink ?? (async () => {})),
+    issueAllowCritiqs: record("issueAllowCritiqs", overrides.issueAllowCritiqs ?? (async () => { throw new Error("Not offered"); })),
+    useAllowCritiqs: (projectId, origin) => overrides.useAllowCritiqs?.(projectId, origin) ?? { status: "ready", data: null },
+    rotateAllowCritiqs: record("rotateAllowCritiqs", overrides.rotateAllowCritiqs ?? (async () => { throw new Error("Not offered"); })),
+    checkAllowCritiqs: record("checkAllowCritiqs", overrides.checkAllowCritiqs ?? (async () => ({ result: "unreachable", verified: false }) as const)),
+    useThreadReviewLink: (key) => (key === null ? loading : (overrides.useThreadReviewLink?.(key) ?? { status: "ready", data: null })),
   };
 }
 
