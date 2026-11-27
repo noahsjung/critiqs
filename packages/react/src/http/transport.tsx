@@ -144,6 +144,10 @@ export function httpTransport(deployment: Deployment, session: CookieSession, fe
     setReviewAccess: (args) => change("setReviewAccess", args),
     // Changes nothing the interface shows, so other queries aren't reloaded.
     recordProjectOpened: async (projectId) => void (await call("recordProjectOpened", { projectId })),
+    useProjectAddresses: (projectId) => useQuery("projectAddresses", projectId === null ? "skip" : { projectId }),
+    useProjectAddressNotes: (projectId) => useQuery("projectAddressNotes", projectId === null ? "skip" : { projectId }),
+    addProjectAddress: (args) => change("addProjectAddress", args),
+    removeProjectAddress: (args) => change("removeProjectAddress", args),
     setOverageCap: (args) => change("setOverageCap", args),
     uploadImage: async (projectId, image) => {
       const response = await fetchFn(`${base}/upload?projectId=${encodeURIComponent(projectId)}`, {

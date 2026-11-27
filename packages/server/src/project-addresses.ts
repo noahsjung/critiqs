@@ -1,4 +1,5 @@
 import {
+  type AddressNote,
   type ManageableProjects,
   MAX_MANAGEABLE_PROJECTS,
   MAX_PROJECT_ADDRESSES,
@@ -8,6 +9,7 @@ import {
   type ProjectLookup,
 } from "@critiqs/core";
 import { fail } from "./errors.ts";
+import { isPublicSuffix } from "./public-suffix.ts";
 import { currentReviewer, projectInfo, requireProject, requireUser } from "./operations.ts";
 import { adoptProject, canReview, projectAccess } from "./organizations.ts";
 import type { Identity, ProjectAddressRecord, ProjectRecord, Store } from "./store.ts";
@@ -94,7 +96,7 @@ export async function removeProjectAddress(
   args: { projectId: string; address: string },
 ): Promise<string[]> {
   const project = await managedProject(store, identity, args.projectId);
-  const removed = listedAddress(args.address);
+  const removed = parsedAddress(args.address);
   const current = await listed(store, project._id);
   if (!current.some((row) => row.address === removed.address)) return current.map((row) => row.address);
   return await saveList(store, project, current.filter((row) => row.address !== removed.address));
@@ -108,10 +110,74 @@ interface ListedAddress {
 
 const TOO_MANY = `A project can list up to ${MAX_PROJECT_ADDRESSES} addresses.`;
 
+/** An address a project may list now: well formed, and not too broad (`addressRefusal`). */
 function listedAddress(value: string): ListedAddress {
+  const parsed = parsedAddress(value);
+  const refusal = addressRefusal(parsed.address);
+  if (refusal !== null) fail("invalid", refusal);
+  return parsed;
+}
+
+/** An address as typed, normalized, without the shared-domain rule: removing one listed before that rule must still work. */
+function parsedAddress(value: string): ListedAddress {
   const parsed = parseProjectAddress(value);
   if ("error" in parsed) fail("invalid", parsed.error);
   return { address: parsed.address, key: parsed.key };
+}
+
+/**
+ * Letters and digits a pattern needs beside its `*` when the rest of its host
+ * is a shared domain: with fewer, as in `https://*a.vercel.app` or
+ * `https://*-app.vercel.app`, it matches many unrelated people's sites.
+ */
+export const MIN_NAME_BESIDE_WILDCARD = 4;
+
+/**
+ * Whether a normalized address is too broad to list, and over which shared
+ * domain: a pattern whose leftmost label sits on a shared domain, such as
+ * `vercel.app`, `github.io`, or `co.uk` (`isPublicSuffix`: the Public Suffix
+ * List with its private section, and a supplement), with its `*` alone or
+ * beside fewer than `MIN_NAME_BESIDE_WILDCARD` letters and digits. A `*`
+ * beside a site's own name, as in `https://*-acme.vercel.app`, and a pattern
+ * under a site's own domain, as in `https://*.acme.com`, are fine. The one
+ * place that decides it: adding refuses these (`addressRefusal`), patterns
+ * listed before the rule match nothing (`listedMatch`), and owners are told
+ * why (`getProjectAddressNotes`).
+ */
+function tooBroad(address: string): { shared: string; whole: boolean } | null {
+  const host = address.slice(address.indexOf("//") + 2).replace(/:\d+$/, "");
+  const [first, ...rest] = host.split(".");
+  const shared = rest.join(".");
+  if (!first!.includes("*") || !isPublicSuffix(shared)) return null;
+  if (first === "*") return { shared, whole: true };
+  return first!.replace(/[^a-z0-9]/g, "").length < MIN_NAME_BESIDE_WILDCARD ? { shared, whole: false } : null;
+}
+
+const covers = ({ shared, whole }: { shared: string; whole: boolean }) =>
+  `${whole ? "every site" : "too many sites"} on ${shared}, a domain shared by many sites, so it could match someone else's`;
+const better = ({ shared, whole }: { shared: string; whole: boolean }) =>
+  whole
+    ? `Put * beside your site's own name, such as https://*-acme.${shared}, or use your own domain, such as https://*.acme.com.`
+    : `Put at least ${MIN_NAME_BESIDE_WILDCARD} letters or digits of your site's own name beside the *, such as https://*-acme.${shared}.`;
+
+/** Why an address can't be listed (`tooBroad`), or null when it can. */
+export function addressRefusal(address: string): string | null {
+  const broad = tooBroad(address);
+  return broad === null ? null : `${JSON.stringify(address)} matches ${covers(broad)}. ${better(broad)}`;
+}
+
+/**
+ * The addresses in a project's list that match no site now, for its owners:
+ * patterns listed before the rule that refuses them, each saying why and what
+ * to do. Empty for a list with none.
+ */
+export async function getProjectAddressNotes(store: Store, identity: Identity | null, args: { projectId: string }): Promise<AddressNote[]> {
+  const notes: AddressNote[] = [];
+  for (const address of await getProjectAddresses(store, identity, args)) {
+    const broad = tooBroad(address);
+    if (broad !== null) notes.push({ address, note: `This matches no site now: it would match ${covers(broad)}. Remove it. ${better(broad)}` });
+  }
+  return notes;
 }
 
 async function listed(store: Store, projectId: string): Promise<ListedAddress[]> {
@@ -253,18 +319,24 @@ export async function findProjectsForOrigin(store: Store, identity: Identity | n
   // An exact origin wins over a pattern, except on an ambiguous origin, where every match is a choice.
   const tiers = keys.ambiguous ? [new Map([...patterns, ...exact])] : [exact, patterns];
   const found: ProjectRecord[] = [];
+  // Whether a match came only from a pattern of a project the person merely opened: its owners chose the pattern, not
+  // the person, so it is offered as a choice, never shown at once.
+  let openedPattern = false;
   for (const rows of tiers) {
     if (rows.size > MAX_CANDIDATES) partial = true;
     for (const row of [...rows.values()].slice(0, MAX_CANDIDATES)) {
       const project = await store.projects.get(row.projectId);
-      if (project !== null && (await mayFind(store, project, row, user._id))) found.push(project);
+      const how = project === null ? null : await mayFind(store, project, row, user._id);
+      if (how === null) continue;
+      found.push(project!);
+      if (how === "opened" && !exact.has(row.projectId)) openedPattern = true;
     }
     if (found.length > 0) break;
   }
   if (found.length === 0) return { status: "none" };
   found.sort((a, b) => a.name.localeCompare(b.name) || (a._id < b._id ? -1 : 1));
   const projects = await Promise.all(found.slice(0, MAX_LOOKUP_CHOICES).map((project) => projectInfo(store, project, user._id)));
-  return projects.length === 1 && !keys.ambiguous && !partial ? { status: "found", project: projects[0]! } : { status: "choose", projects };
+  return projects.length === 1 && !keys.ambiguous && !partial && !openedPattern ? { status: "found", project: projects[0]! } : { status: "choose", projects };
 }
 
 /** What the lookup searches for a page's origin (`originLookupKeys`). */
@@ -277,7 +349,8 @@ type OriginKeys = NonNullable<ReturnType<typeof originLookupKeys>>;
  */
 export function listedMatch(row: Pick<ProjectAddressRecord, "address" | "key">, keys: OriginKeys): "exact" | "pattern" | null {
   if (row.key === keys.origin) return "exact";
-  return patternMatches(row.address, keys.origin) ? "pattern" : null;
+  // A pattern too broad to list now (`tooBroad`), listed before it was refused, hands out nothing.
+  return patternMatches(row.address, keys.origin) && tooBroad(row.address) === null ? "pattern" : null;
 }
 
 /**
@@ -313,15 +386,16 @@ function reviewOrigin(reviewUrl: string): string | null {
 }
 
 /**
- * Whether the lookup may return a project whose address matched: the person
- * belongs to the organization that owns it, or opened it through an install.
+ * How the lookup may return a project whose address matched: the person
+ * belongs to the organization that owns it, or opened it through an install;
+ * null when it may not.
  * A project limited to its organization is found only by someone who may
  * still review it, so one the person may no longer review isn't found.
  */
-async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<boolean> {
-  if (!isCurrent(project, row)) return false;
+async function mayFind(store: Store, project: ProjectRecord, row: ProjectAddressRecord, userId: string): Promise<"member" | "opened" | null> {
+  if (!isCurrent(project, row)) return null;
   // A project limited to its organization isn't found by someone who opened it before the limit.
-  if (!(await canReview(store, project, userId))) return false;
-  if ((await store.memberships.find(row.organizationId, userId)) !== null) return true;
-  return (await store.openedProjects.find(userId, project._id)) !== null;
+  if (!(await canReview(store, project, userId))) return null;
+  if ((await store.memberships.find(row.organizationId, userId)) !== null) return "member";
+  return (await store.openedProjects.find(userId, project._id)) !== null ? "opened" : null;
 }

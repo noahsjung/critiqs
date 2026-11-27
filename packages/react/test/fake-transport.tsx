@@ -60,6 +60,14 @@ export interface FakeBackend {
   /** A thread's page key, for Share on a backend with thread pages; without it, the call is refused as on an older backend. */
   threadPageKey?: (threadId: string) => Promise<string>;
   participants?: ParticipantInfo[];
+  /** The project's address list, for its owners. */
+  addresses?: string[];
+  /** The list's addresses that match no site now, with what to do. */
+  addressNotes?: { address: string; note: string }[];
+  /** The backend's refusal to show the list. */
+  addressesError?: { code: string; message: string };
+  /** Answers adding or removing an address in place of the default, which changes `addresses`. */
+  changeAddresses?: (change: "add" | "remove", address: string) => Promise<string[]>;
   /** Plan usage shown to the project's owner; none by default, as on a backend without plans. */
   usage?: ProjectUsage | null;
   /** The project's tags and groups; none by default. */
@@ -139,6 +147,20 @@ export function fakeTransport(backend: FakeBackend): CritiqsTransport {
       if (backend.setReviewAccess !== undefined) await backend.setReviewAccess(args);
     },
     recordProjectOpened: async (projectId) => void backend.calls?.push({ name: "recordProjectOpened", args: { projectId } }),
+    useProjectAddresses: (projectId) => (projectId === null ? { status: "loading" } : backend.addressesError !== undefined ? { status: "error", ...backend.addressesError } : ready(backend.addresses ?? [])),
+    useProjectAddressNotes: (projectId) => (projectId === null ? { status: "loading" } : ready(backend.addressNotes ?? [])),
+    addProjectAddress: async (args) => {
+      backend.calls?.push({ name: "addProjectAddress", args });
+      if (backend.changeAddresses !== undefined) return await backend.changeAddresses("add", args.address);
+      backend.addresses = [...(backend.addresses ?? []), args.address];
+      return backend.addresses;
+    },
+    removeProjectAddress: async (args) => {
+      backend.calls?.push({ name: "removeProjectAddress", args });
+      if (backend.changeAddresses !== undefined) return await backend.changeAddresses("remove", args.address);
+      backend.addresses = (backend.addresses ?? []).filter((address) => address !== args.address);
+      return backend.addresses;
+    },
     setOverageCap: async (args) => void backend.calls?.push({ name: "setOverageCap", args }),
     syncReviewer: async () => "Dana",
     createProject: async (name, reviewUrl, organizationId) => {

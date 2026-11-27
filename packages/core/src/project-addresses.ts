@@ -30,6 +30,9 @@ export interface ProjectAddress {
 /** Longest page origin the lookup reads: a pattern can match an origin longer than any listed address. */
 const MAX_ORIGIN_LENGTH = 300;
 
+/** What a pattern's `*` stands in as while its address is parsed: letters any host label may hold. */
+const WILDCARD = "critiqswildcard";
+
 /** The address as a project lists it, or why it can't be listed. */
 export function parseProjectAddress(value: string): ProjectAddress | { error: string } {
   return parseAddress(value, MAX_PROJECT_ADDRESS_LENGTH);
@@ -50,15 +53,19 @@ function parseAddress(value: string, maxLength: number): ProjectAddress | { erro
   if (protocol !== "https" && protocol !== "http") return refuse("must start with https://.");
   const wildcards = given.split("*").length - 1;
   if (wildcards > 1) return refuse("can have only one *.");
+  // Browsers differ on a `*` in a host: Chrome writes it as `%2A`, Node and Bun keep it. The wildcard is parsed
+  // as a run of letters and put back, so every runtime reads a pattern the same way.
+  if (wildcards === 1 && given.toLowerCase().includes(WILDCARD)) return refuse("isn't a valid address.");
   let url: URL;
   try {
-    url = new URL(given);
+    url = new URL(wildcards === 1 ? given.replace("*", WILDCARD) : given);
   } catch {
     return refuse("isn't a valid address.");
   }
   // A host written with its final dot, such as `preview.acme.com.`, is the same site.
   if (url.hostname.endsWith(".") && url.hostname.length > 1) url.hostname = url.hostname.slice(0, -1);
-  const host = url.hostname;
+  const host = url.hostname.replace(WILDCARD, "*");
+  const origin = url.origin.replace(WILDCARD, "*");
   if (host === "") return refuse("isn't a valid address.");
   if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return refuse("isn't an address such as https://acme-proto.vercel.app, without a path, ? or #.");
   // A pattern's literal stands in for its wildcard while the host is checked as a name.
@@ -70,16 +77,15 @@ function parseAddress(value: string, maxLength: number): ProjectAddress | { erro
   if (!ip && !literal.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) {
     return refuse("has a host name that isn't valid.");
   }
-  if (url.origin.length > maxLength) return refuse(tooLong);
-  if (wildcards === 0) return { address: url.origin, exact: true, key: url.origin };
+  if (origin.length > maxLength) return refuse(tooLong);
+  if (wildcards === 0) return { address: origin, exact: true, key: origin };
   const [first, ...rest] = host.split(".");
   // Checked as typed: the browser would rewrite a label with other letters, such as `ü`, into an `xn--` name.
   const typed = scheme[2]!.split(".")[0]!.toLowerCase();
   if (ip || !first!.includes("*")) return refuse("can have * only in the leftmost part of the host, such as https://*-acme.vercel.app.");
   if (typed !== first || !/^[a-z0-9-]*\*[a-z0-9-]*$/.test(first)) return refuse("can use only letters a to z, digits, and hyphens around its *.");
   if (rest.length < 2) return refuse("matches too much: put * in front of a site's name, such as https://*.acme.com.");
-  const address = url.origin;
-  return { address, exact: false, key: address.replace(`//${first}.`, "//*.") };
+  return { address: origin, exact: false, key: origin.replace(`//${first}.`, "//*.") };
 }
 
 /**
@@ -145,6 +151,15 @@ export const MAX_MANAGEABLE_PROJECTS = 200;
  * created while still a member. At most `MAX_MANAGEABLE_PROJECTS`; `complete`
  * is false when there may be more.
  */
+/**
+ * An address in a project's list that matches no site now: a pattern listed
+ * before the rule that refuses it, with why and what to do, for its owners.
+ */
+export interface AddressNote {
+  address: string;
+  note: string;
+}
+
 export interface ManageableProjects {
   projects: ProjectInfo[];
   complete: boolean;
