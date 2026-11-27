@@ -116,7 +116,7 @@ test("/critiqs/config offers Linear and GitHub only with an encryption key: by A
   delete process.env.CRITIQS_AI_ENCRYPTION_KEY;
   expect(await config(t)).not.toHaveProperty("tickets");
   process.env.CRITIQS_AI_ENCRYPTION_KEY = KEY;
-  const others = [{ id: "github", signIn: "token" }, { id: "jira", signIn: "token" }];
+  const others = [{ id: "github", signIn: "token" }];
   expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }, ...others], threadTickets: true, drafting: true, ticketStatus: true, defaultDestinations: true });
   withSignIn();
   expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }, ...others], threadTickets: true, drafting: true, ticketStatus: true, defaultDestinations: true });

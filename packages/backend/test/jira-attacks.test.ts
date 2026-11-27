@@ -59,9 +59,19 @@ function links(document: unknown): string[] {
   return found;
 }
 
-/** Connects `who`'s Jira with a pasted API token on the stand-in's site. */
-const connect = (who: ReturnType<ReturnType<typeof setup>["withIdentity"]>, token: string, email: string) =>
-  who.action(api.trackers.connectWithToken, { tracker: "jira", token, email, site: "acme" });
+/** Signs `who` in to Jira through the backend's window and the stand-in's consent page. */
+async function connect(t: ReturnType<typeof setup>, who: ReturnType<ReturnType<typeof setup>["withIdentity"]>, account: string) {
+  const started = await who.action(api.trackers.startSignIn, { tracker: "jira", site: "acme" });
+  const start = await t.fetch("/trackers/jira/start", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ state: started.state, binding: started.binding }) });
+  const cookie = (start.headers.get("Set-Cookie") ?? "").split(";")[0]!;
+  const authorize = new URL(start.headers.get("Location")!);
+  const accepted = await jira.fetchFn(`http://127.0.0.1:${server.port}/authorize/allow`, {
+    method: "POST",
+    body: new URLSearchParams({ redirect_uri: authorize.searchParams.get("redirect_uri")!, state: authorize.searchParams.get("state")!, account }),
+  });
+  const back = new URL(accepted.headers.get("Location")!);
+  expect(await (await t.fetch(`${back.pathname}${back.search}`, { headers: { Cookie: cookie } })).text()).toContain("Jira is connected");
+}
 
 test("Jira attack: display names and thread text with Markdown and HTML reach the issue and its comments as text, with only the thread's link", async () => {
   const t = setup();
@@ -70,7 +80,7 @@ test("Jira attack: display names and thread text with Markdown and HTML reach th
   const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
   const body = "<script>alert(1)</script> [click](https://evil.example/a) ![px](https://evil.example/px.png) <b>bold</b>";
   const threadId = await lee.mutation(api.threads.create, { projectId, anchor, body, tags: [], capture: failedCapture });
-  await connect(lee, "ATATT-lee", "lee@example.com");
+  await connect(t, lee, "557058:lee");
   const draft = await lee.action(api.tickets.draft, { threadId, tracker: "jira" });
   await lee.action(api.tickets.create, { threadId, submissionId: crypto.randomUUID(), tracker: "jira", destinationId: "10001/10010", title: draft.title, body: draft.body, createdFromCritiqs: true });
   const existing = addJiraIssue(jira, { summary: "Existing" });
@@ -93,7 +103,7 @@ test("Jira attack: without a review address or website, a ticket never links to 
   const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype" });
   const page = "https://evil.example/critiqs-login?session=SECRET";
   const threadId = await lee.mutation(api.threads.create, { projectId, anchor: { ...anchor, evidence: { ...anchor.evidence, url: page } }, body: "Department is wrong", tags: [], capture: failedCapture });
-  await connect(lee, "ATATT-lee", "lee@example.com");
+  await connect(t, lee, "557058:lee");
   const draft = await lee.action(api.tickets.draft, { threadId, tracker: "jira" });
   await lee.action(api.tickets.create, { threadId, submissionId: crypto.randomUUID(), tracker: "jira", destinationId: "10001/10010", title: draft.title, body: draft.body, createdFromCritiqs: true });
   const existing = addJiraIssue(jira, { summary: "Existing" });
@@ -113,7 +123,7 @@ test("Jira attack: a status check never uses the token of someone removed from t
   await riley.mutation(api.users.sync, {});
   await dana.mutation(api.projects.setReviewAccess, { projectId, reviewAccess: "organization" });
   const threadId = await riley.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
-  await connect(riley, "ATATT-riley", "riley@example.com");
+  await connect(t, riley, "557058:riley");
   const existing = addJiraIssue(jira, { summary: "Existing", status: { name: "To Do", categoryKey: "new" } });
   const link = await riley.action(api.tickets.link, { threadId, tracker: "jira", externalId: `${jira.site.cloudId}/${existing.id}`, comment: false });
   const rileyId = (await t.run((ctx) => ctx.db.query("users").collect())).find((user) => user.name === "Riley")!._id;
@@ -133,7 +143,7 @@ test("Jira attack: a signed delivery from another site's webhook with the same I
   const lee = t.withIdentity(reviewer("Lee"));
   const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
   const threadId = await lee.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
-  await connect(lee, "ATATT-lee", "lee@example.com");
+  await connect(t, lee, "557058:lee");
   const existing = addJiraIssue(jira, { summary: "Existing", status: { name: "To Do", categoryKey: "new" } });
   const link = await lee.action(api.tickets.link, { threadId, tracker: "jira", externalId: `${jira.site.cloudId}/${existing.id}`, comment: false });
   // Critiqs registered webhook 1000 on this site for Lee (as a sign-in would).

@@ -36,8 +36,9 @@ export interface TicketsDeployment {
   githubApiUrl: string;
   githubAppUrl: string;
   /**
-   * The operator's Atlassian OAuth app; without it, people paste a Jira API
-   * token. Its client secret also checks the webhooks Jira sends it.
+   * The operator's Atlassian OAuth app; Jira connects through Atlassian
+   * sign-in only (never pasted API tokens), so Jira is offered only when set.
+   * Its client secret also checks the webhooks Jira sends it.
    */
   jira: JiraApp | null;
   /** Atlassian's API gateway and sign-in addresses, and where Jira sites are reached with a pasted token. Only tests change them, to reach a local stand-in. */
@@ -93,9 +94,11 @@ export const trackerHasSites = (tracker: TrackerId) => tracker === "jira";
 export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
   if (deployment.encryptionKey === null) return null;
   return {
-    trackers: OFFERED_TRACKERS.map((id) => {
+    trackers: OFFERED_TRACKERS.flatMap((id) => {
       const app = trackerSignIn(id, deployment);
-      return { id, signIn: app === null ? "token" : "oauth", ...(app?.installUrl === undefined ? {} : { installUrl: app.installUrl }) };
+      // Atlassian discourages apps from collecting personal API tokens, so Jira is offered only through OAuth sign-in.
+      if (id === "jira" && app === null) return [];
+      return [{ id, signIn: app === null ? "token" : "oauth", ...(app?.installUrl === undefined ? {} : { installUrl: app.installUrl }) }];
     }),
     threadTickets: true,
     drafting: true,
@@ -247,6 +250,7 @@ export async function requireTrackerPerson(store: Store, identity: Identity | nu
   ticketStore(store);
   requireKey(deployment);
   requireOffered(args.tracker);
+  if (args.tracker === "jira") fail("invalid", "Jira connects through Atlassian sign-in only.");
   const user = await requireUser(store, identity);
   await requireConnectRoom(store, "token", user._id, now);
   return { userId: user._id };
@@ -564,6 +568,7 @@ export async function connectTrackerWithToken(
   args: { tracker: TrackerId; token: string; email?: string | null; site?: string | null },
   fetchFn: typeof fetch = fetch,
 ): Promise<TrackerAccountView> {
+  if (args.tracker === "jira") fail("invalid", "Jira connects through Atlassian sign-in only.");
   const credential = pastedCredential(args);
   const { value } = credential;
   const { userId } = await steps.requirePerson();
@@ -609,7 +614,14 @@ export async function startTrackerSignIn(
   const tickets = ticketStore(store);
   requireKey(deployment);
   requireOffered(args.tracker);
-  if (trackerSignIn(args.tracker, deployment) === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
+  if (trackerSignIn(args.tracker, deployment) === null) {
+    fail(
+      "invalid",
+      args.tracker === "jira"
+        ? "Jira sign-in isn't set up on this deployment."
+        : `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`,
+    );
+  }
   // The site the person chose: the sign-in connects them to it, and only to it.
   const site = trackerHasSites(args.tracker) ? parseJiraSite(args.site ?? "") : null;
   const user = await requireUser(store, identity);

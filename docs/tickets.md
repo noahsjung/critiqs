@@ -24,7 +24,7 @@ fine-grained token, creating and linking issues, repository templates and
 issue forms, labels from tags, status from GitHub's webhooks and the check
 when a thread opens, and **Resolve when done** (see
 [GitHub Issues](#github-issues)); and the same for Jira Cloud, through
-Atlassian sign-in or a pasted API token (see [Jira Cloud](#jira-cloud)). Also
+Atlassian sign-in (see [Jira Cloud](#jira-cloud)). Also
 built, for all three: a project's default destination in each tracker.
 
 ## Outcomes
@@ -626,7 +626,7 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
    deployment, with `CRITIQS_AI_ENCRYPTION_KEY`. Webhooks arrive at
    `<deployment site>/trackers/jira/webhook`; nothing else is needed for them.
 
-Without the app, people connect Jira with an API token.
+Without the app, Jira is not offered on the deployment (pasted Jira API tokens are disabled).
 
 ## Attribution
 
@@ -647,9 +647,9 @@ Self-hosted deployments get the same features:
 
 - **Sign-in to trackers:** when the operator registers their own Linear,
   Atlassian, and GitHub apps and sets their keys, people connect through the
-  trackers' sign-in. Without them, each person pastes a personal token: a
-  Linear API key, a GitHub fine-grained token, or a Jira API token with their
-  email and the Jira site's address.
+  trackers' sign-in. Without them, people can paste a Linear API key or a
+  GitHub fine-grained token; Jira requires an Atlassian OAuth app and is
+  omitted when unconfigured.
 - **Storage:** team-owned Convex, and Postgres once it replaces SQLite (agreed
   2026-11-23, not built; see
   [technical direction](technical-direction.md#stack)). SQLite doesn't get

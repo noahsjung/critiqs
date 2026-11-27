@@ -92,31 +92,19 @@ async function signIn(t: ReturnType<typeof setup>, as: ReturnType<ReturnType<typ
   return { authorize, done: await t.fetch(`${back.pathname}${back.search}`, { headers: { Cookie: cookie } }) };
 }
 
-test("/critiqs/config offers Jira by API token, or by sign-in with the operator's Atlassian app", async () => {
+test("/critiqs/config offers Jira only when the operator's Atlassian OAuth app is set", async () => {
   const { t } = await project();
   process.env.CRITIQS_AUTH_ISSUER = "https://auth.example";
-  const config = async () => ((await (await t.fetch("/critiqs/config")).json()) as { tickets: { trackers: unknown[] } }).tickets.trackers;
-  expect(await config()).toContainEqual({ id: "jira", signIn: "token" });
+  const config = async () => ((await (await t.fetch("/critiqs/config")).json()) as { tickets: { trackers: { id: string; signIn: string }[] } }).tickets.trackers;
+  expect((await config()).some((tracker) => tracker.id === "jira")).toBe(false);
   withSignIn();
   expect(await config()).toContainEqual({ id: "jira", signIn: "oauth" });
 });
 
-test("a pasted Atlassian API token connects its person to their Jira site, stored encrypted; a wrong one, or a site that isn't Atlassian's, is refused", async () => {
-  const { t, lee, sam } = await project();
-  await expect(lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "http://127.0.0.1:1" })).rejects.toThrow("That isn't a Jira Cloud site");
-  await expect(lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", site: "acme" })).rejects.toThrow("Enter the email address of your Atlassian account.");
-  await expect(lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "wrong", email: "lee@example.com", site: "acme" })).rejects.toThrow("Jira didn't accept this email and API token");
-  expect(jira.requests.filter((request) => !request.includes("acme.atlassian.net"))).toEqual([]);
-  const view = await lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "https://acme.atlassian.net/jira" });
-  expect(view).toMatchObject({ tracker: "jira", method: "token", accountName: "Lee Park", site: "acme.atlassian.net" });
-  expect(await sam.query(api.trackers.mine, {})).toEqual([]);
-  const [row] = await t.run((ctx) => ctx.db.query("trackerAccounts").collect());
-  expect(row!.accountId).toBe(`${jira.site.cloudId}/557058:lee`);
-  expect(row!.site).toEqual({ id: jira.site.cloudId, name: "acme.atlassian.net" });
-  expect(JSON.stringify(row)).not.toContain("ATATT-lee");
-  expect(await decryptToken(KEY, trackerTokenBinding("jira", await userId(t, "Lee")), row!.access)).toBe("lee@example.com:ATATT-lee");
-  await lee.action(api.trackers.disconnect, { tracker: "jira" });
-  expect(await lee.query(api.trackers.mine, {})).toEqual([]);
+test("pasted Jira API tokens are refused; Jira connects through Atlassian sign-in only", async () => {
+  const { lee } = await project();
+  await expect(lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "acme" })).rejects.toThrow("Jira connects through Atlassian sign-in only.");
+  expect(jira.requests).toEqual([]);
 });
 
 test("Jira sign-in: the site is chosen first, Atlassian's window comes back with a code, and only a sign-in reaching that site with the Critiqs email connects", async () => {
@@ -144,10 +132,11 @@ test("Jira sign-in: the site is chosen first, Atlassian's window comes back with
 });
 
 test("a reviewer creates a Jira issue: project and issue type, ADF text, labels from tags, the capture attached, the thread as a remote link; everyone sees it", async () => {
+  withSignIn();
   const { t, lee, sam, projectId, threadId } = await project();
   const storageId = await upload(lee, projectId, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]));
   await lee.mutation(api.threads.attachScreenshot, { threadId, storageId });
-  await lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "acme" });
+  await signIn(t, lee, "acme");
   expect((await lee.action(api.tickets.destinations, { tracker: "jira" })).map((destination) => destination.name)).toEqual([
     "Website · Bug",
     "Website · Task",
@@ -171,14 +160,14 @@ test("a reviewer creates a Jira issue: project and issue type, ADF text, labels 
   expect((await lee.action(api.tickets.create, create))._id).toBe(view._id);
   expect(jira.issues).toHaveLength(1);
   expect((await list(sam, { projectId }))[0]!.tickets).toEqual([{ tracker: "jira", key: "WEB-1", status: { label: "To Do", category: "open" }, lastKnown: false }]);
-  // A pasted token registers no webhook.
   await t.finishAllScheduledFunctions(() => undefined);
-  expect(jira.webhooks).toEqual([]);
+  expect(jira.webhooks).toEqual([expect.objectContaining({ url: `${SITE}/trackers/jira/webhook`, jqlFilter: "project IN (10001)", ownerId: "557058:lee" })]);
 });
 
 test("an issue type's required fields are asked for and sent; one Critiqs can't fill is named", async () => {
-  const { lee, threadId } = await project();
-  await lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "acme" });
+  withSignIn();
+  const { t, lee, threadId } = await project();
+  await signIn(t, lee, "acme");
   const options = await lee.action(api.tickets.options, { threadId, tracker: "jira", destinationId: "10002/10020" });
   expect(options.fields?.map((field) => [field.name, field.kind])).toEqual([
     ["Priority", "choice"],
@@ -194,8 +183,9 @@ test("an issue type's required fields are asked for and sent; one Critiqs can't 
 });
 
 test("a project's owner pastes a Jira template; the draft fills it", async () => {
-  const { dana, lee, projectId, threadId } = await project();
-  await lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "acme" });
+  withSignIn();
+  const { t, dana, lee, projectId, threadId } = await project();
+  await signIn(t, lee, "acme");
   const template = { tracker: "jira" as const, destinationId: "10001/10010", templateId: "pasted-1", name: "Bug report", body: "## What happened\n\n## Expected\n" };
   await expect(dana.mutation(api.tickets.saveTemplateSettings, { projectId, on: true, templates: [{ ...template, body: " " }] })).rejects.toThrow("Paste the template's text.");
   await dana.mutation(api.tickets.saveTemplateSettings, { projectId, on: true, templates: [template] });
@@ -276,8 +266,9 @@ test("a webhook due to expire is renewed with its person's sign-in; one whose pe
 });
 
 test("once a project is limited to its organization, someone outside it can't draft, create, link, or search on its threads in Jira; nothing reaches Jira", async () => {
+  withSignIn();
   const { t, dana, lee, threadId, projectId } = await project();
-  await lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "acme" });
+  await signIn(t, lee, "acme");
   const existing = addJiraIssue(jira, { summary: "Existing" });
   const [organization] = await dana.query(api.organizations.mine, {});
   await dana.mutation(api.organizations.invite, { organizationId: organization!.id, email: "riley@example.com", role: "member" });
