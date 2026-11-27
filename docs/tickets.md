@@ -18,8 +18,13 @@ showing linked tickets on pins, the thread list, the thread window, and
 comments added to a mockup; and, on Convex for Linear, drafting with Critiqs
 AI, the team's Linear templates turned on per project by its owners, labels
 suggested from tags, status updates from Linear's webhooks and from the check
-when a thread opens, and **Resolve when done**. Not built yet: a project's
-default destination, GitHub Issues, and Jira.
+when a thread opens, and **Resolve when done**. Also built, on Convex for
+GitHub Issues: Your trackers through the operator's GitHub App or a pasted
+fine-grained token, creating and linking issues, repository templates and
+issue forms, labels from tags, status from GitHub's webhooks and the check
+when a thread opens, and **Resolve when done**; see
+[GitHub Issues](#github-issues). Not built yet: a project's default
+destination, and Jira.
 
 ## Outcomes
 
@@ -49,7 +54,7 @@ each one asks of Critiqs.
 | Link back to the thread | Link attachment on the issue | Line in the issue's text | Remote link on the issue |
 | Team templates | The team's issue templates | The repository's `.github/ISSUE_TEMPLATE` files, including issue forms | No built-in templates; an issue type's fields, and a description the team pastes in |
 | Fields Critiqs must ask for | Team; optionally labels, priority, assignee | Repository; optionally labels, assignee | Project, issue type, and any field that issue type requires |
-| Status updates | Webhook to the Critiqs app | Webhook, through the Critiqs GitHub App | Webhook registered through Jira sign-in and renewed before it expires |
+| Status updates | Webhook to the Critiqs app | Webhook, through the Critiqs GitHub App, or, on a deployment one team runs, its organization's or repository's webhook with the same secret | Webhook registered through Jira sign-in and renewed before it expires |
 | One-time setup by the team | None, unless the workspace requires an admin to approve apps | A GitHub organization admin installs the Critiqs GitHub App | None, unless the site's admin restricts apps |
 
 To confirm while building, against each tracker's current API: how a Linear
@@ -61,7 +66,13 @@ someone in it first authorizes the app, and covers that workspace's issues
 brings no webhook in any tracker, so issues in a Linear workspace where
 everyone pasted an API key get none. Where a webhook can't be had, status
 comes from the check when a thread opens (see
-[Status from the tracker](#status-from-the-tracker)).
+[Status from the tracker](#status-from-the-tracker)). Confirmed for GitHub,
+from GitHub's documentation: a GitHub App's webhook covers the repositories it
+is installed on, whoever connected; deliveries are signed with
+`X-Hub-Signature-256` and carry no time of sending. Not confirmed: how GitHub
+writes issue-form answers into an issue's text. Its documentation says only
+that they are converted to Markdown; Critiqs writes each field's label as a
+`###` heading, as issues made from forms show it.
 
 ## Your trackers
 
@@ -106,6 +117,20 @@ happened there:
   when Linear revoked it or no longer accepts it: an access token Linear's
   API refuses, a refresh token Linear won't refresh with (one that still
   works is spent, and its new tokens revoked).
+- **GitHub sign-in:** the app's grant for the person is deleted
+  (`DELETE /applications/{client_id}/grant`), which ends every token the app
+  holds for them. GitHub needs a valid access token for it, and they last
+  eight hours, so one GitHub turns down (422) is refreshed first with the
+  refresh token, then used. GitHub keeps one grant per GitHub account, not per
+  Critiqs account, so right before each deletion Critiqs checks that no other
+  Critiqs account is connected to the same GitHub account and that the person
+  isn't signing in to GitHub again; if either holds, the grant stays, and Your
+  trackers says that it is shared and how to end it. A disconnect's retries
+  check the same way. Your trackers says, before a GitHub sign-in is
+  disconnected, what that does at GitHub. A sign-in that finishes in the
+  moment between that check and GitHub's deletion can still be ended by it;
+  its first use then asks to connect GitHub again. The app stays installed on
+  the organization's repositories; only the organization can remove it.
 - **When the tracker can't be told** (unreachable, or it refused), Your
   trackers says that Critiqs can still reach the account and how to end it in
   the tracker; Critiqs tries again a minute, ten minutes, and an hour later.
@@ -120,10 +145,13 @@ most 15 seconds for an answer, and reads at most 2 MB of one. It keeps no ID,
 key, or address longer than it can show, and cuts long names, titles, and
 status labels. An answer about a ticket must be about the ticket Critiqs asked
 for, and a ticket's address must be the tracker's page for its key: Linear's
-must be on Linear and name the issue's key. Critiqs adds a link back or a
+must be on Linear and name the issue's key; GitHub's must be GitHub's page for
+the issue's repository and number. Critiqs adds a link back or a
 comment only to a ticket it holds whose address still agrees with its key and
-site, and goes to it by what Critiqs holds, never by an address a tracker
-named.
+site, and goes to it by the ticket's permanent ID, never by an address a
+tracker named: on GitHub that is the issue's node ID, so a renamed
+repository, or another repository that later takes its old name, never
+sends a write to another issue.
 
 What this settles:
 
@@ -447,6 +475,93 @@ Self-hosted deployments get the same features:
 - **Status:** webhooks where the server is reachable and has a webhook
   subscription for the ticket; otherwise the check when a thread opens.
 
+## GitHub Issues
+
+**Built, on Convex.** What differs from Linear:
+
+- **Connecting.** On Critiqs Cloud, the operator's GitHub App. Connecting
+  signs in through the app (OAuth with PKCE); its user access tokens last 8
+  hours and are refreshed one at a time, since each refresh ends the refresh
+  token used. Critiqs then reaches only repositories where an organization or
+  person installed the app and the person has access. **Choose repositories
+  in GitHub**, in Your trackers, opens the app's install page. A sign-in is
+  saved when any of the GitHub account's verified email addresses is the
+  Critiqs account's, since GitHub accounts often have a personal and a work
+  address. Without the app, people paste a fine-grained personal access token
+  with read and write access to Issues and read access to Contents (for
+  templates) on the repositories they choose.
+- **Where a ticket goes.** A repository that takes issues: archived
+  repositories and ones with issues turned off aren't offered.
+- **Ticket text and capture.** Markdown, as for Linear. GitHub has no API to
+  upload images, so the text says the capture is saved with the thread and
+  links to it. Each new issue starts with an HTML comment naming its
+  creation (its UUID, nothing else), which GitHub doesn't show: when an attempt's answer is lost,
+  the next one finds the issue by it among the person's issues in the
+  repository it was first submitted to, changed since, instead of creating
+  another.
+- **Link back.** A created issue has the thread's link in its text. Linking
+  an existing issue adds one comment, the thread's first line quoted and the
+  link, unless the issue's text or a comment has the link already, so linking
+  again adds nothing.
+- **Search.** By an issue's address, by `owner/repo#12` or `repo#12`, or by
+  words. Words are each quoted, so nothing typed becomes a search qualifier
+  or operator, and searched only in the person's own repositories; a
+  repository named for a search must be an `owner/name`.
+- **Templates.** A repository's `.github/ISSUE_TEMPLATE` files, read for each
+  draft: Markdown templates, by the `name` in their front matter, and issue
+  forms, as the Markdown an issue from the form has (each field's label as a
+  heading, with its preset value, and a checkbox per option of a checkbox or
+  dropdown field, for the person to tick). Critiqs AI writes only under a
+  form's free-text fields: a heading whose only content is such a task list
+  keeps its list in the draft, and the model is never asked to fill it. A
+  form's literal text stays literal: labels and one-line answers show exactly as
+  written, and a field GitHub renders as code (`render`) is a code block. A
+  textarea's preset text and a checkbox's label stay Markdown, as GitHub's
+  forms read them. The form's checks, such as a required field, aren't
+  carried into the draft: the Create dialog doesn't enforce them, so the
+  person fills what the team asks for. `config.yml` isn't a template. Creating from a template adds the template's own labels
+  that the repository has; GitHub drops labels from people who can't push to
+  the repository.
+- **Labels.** The repository's labels, by name; GitHub has no single-select
+  label groups.
+- **Status.** Open, Closed (done), Closed as not planned or as duplicate
+  (canceled), and Deleted (canceled). `issues` webhooks are signed with the
+  webhook's secret and carry the issue's `updated_at`, which orders them as
+  Linear's are ordered, so a late or repeated delivery changes nothing.
+  GitHub's deliveries carry no time of sending, so that time also bounds
+  them: an update more than a day old, or one without the time, is ignored,
+  and so is a deletion without it. A deletion with it counts however long
+  ago the issue last changed, since GitHub never brings a deleted issue's ID
+  back. Each repository's deliveries may change linked tickets 300 times a
+  minute; past that the route answers 429.
+  The ticket's permanent ID is the issue's node ID, which is unique across
+  GitHub and stays with the issue when its repository is renamed; its site
+  is its repository (`owner/name`). A delivery reaches links to that node in
+  any repository: one naming a new repository means the issue is there now,
+  and its links take the new repository, number, and page (worked out from
+  the signed repository and number, never an address the delivery names),
+  unless what the link holds is newer. Another issue that only shares the
+  old name and number is another node and reaches no link. A transferred
+  issue is followed only when it is still the same node in the repository it
+  moved to (`changes.new_issue`); GitHub doesn't document whether a transfer
+  keeps the node ID, and a new node is another issue, so its link keeps its
+  last known status. The check when a thread opens reads the issue by its
+  node ID too, and its link follows it to where it is now.
+- **The webhook secret.** Anyone who holds `CRITIQS_GITHUB_WEBHOOK_SECRET`
+  can sign a delivery about any repository and issue, and so change, or
+  close and resolve through, any GitHub ticket on the deployment. Set it
+  only in the operator's GitHub App, or in a webhook of an organization or
+  repository the operator runs. On a deployment several teams share, such
+  as Critiqs Cloud, never give the secret to a team for its own webhooks:
+  their tickets' status comes through the operator's app, or from the check
+  when a thread opens.
+- **Safety.** As for Linear: every call goes through Critiqs's tracker
+  endpoint (GitHub's own address only, no redirects, 15 seconds, 2 MB), and
+  every answer is checked (IDs and addresses, names and titles cut, lists
+  capped, a template's text at most 50,000 characters).
+- **Not built:** organization-wide default templates from an organization's
+  `.github` repository, assignees, and Projects fields.
+
 ## Order of work
 
 Each step is its own pull request.
@@ -461,7 +576,7 @@ Each step is its own pull request.
 6. AI drafting and templates.
 7. Status updates: webhooks, the check when a thread opens, and **Resolve when
    done** (built for Linear).
-8. GitHub Issues, with repository templates and issue forms.
+8. GitHub Issues, with repository templates and issue forms (built on Convex).
 9. Jira Cloud, with Atlassian Document Format and required fields.
 10. The onboarding step, and whichever proposals above are agreed, such as bulk
     creation, the export, and coding agents' tools.

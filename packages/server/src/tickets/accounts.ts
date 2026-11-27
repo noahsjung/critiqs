@@ -6,7 +6,8 @@ import { currentReviewer, requireUser } from "../operations.ts";
 import { canReview } from "../organizations.ts";
 import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../store.ts";
 import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerToken } from "./trackers/index.ts";
-import { LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
+import { deleteGithubGrant, exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
+import { exchangeLinearCode, LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, linearAuthorizeUrl, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
 // tracker. Only that person sees or changes them. Tokens are verified with the
@@ -25,27 +26,41 @@ export interface TicketsDeployment {
   /** Linear's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
   linearApiUrl: string;
   linearAppUrl: string;
+  /** The operator's GitHub App; without it, people paste a fine-grained personal access token instead of signing in. */
+  github: GithubApp | null;
+  /** The secret of the GitHub App's webhook, or of an organization's or repository's webhook (`CRITIQS_GITHUB_WEBHOOK_SECRET`); without it, the webhook route refuses every call. */
+  githubWebhookSecret: string | null;
+  /** GitHub's API and sign-in addresses. Only tests change them, to reach a local stand-in. */
+  githubApiUrl: string;
+  githubAppUrl: string;
 }
 
 /**
  * Reads the operator's settings: `CRITIQS_AI_ENCRYPTION_KEY`,
  * `CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` (both, or
- * neither), `CRITIQS_LINEAR_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`.
+ * neither), `CRITIQS_LINEAR_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_LINEAR_API_URL` and `CRITIQS_LINEAR_APP_URL`;
+ * `CRITIQS_GITHUB_CLIENT_ID`, `CRITIQS_GITHUB_CLIENT_SECRET`, and `CRITIQS_GITHUB_APP_SLUG` (all three, or none),
+ * `CRITIQS_GITHUB_WEBHOOK_SECRET`, and, for tests only, `CRITIQS_GITHUB_API_URL` and `CRITIQS_GITHUB_APP_URL`.
  */
 export function ticketsDeploymentFromEnv(env: Record<string, string | undefined>): TicketsDeployment {
   const clientId = env.CRITIQS_LINEAR_CLIENT_ID?.trim();
   const clientSecret = env.CRITIQS_LINEAR_CLIENT_SECRET?.trim();
+  const github = { clientId: env.CRITIQS_GITHUB_CLIENT_ID?.trim(), clientSecret: env.CRITIQS_GITHUB_CLIENT_SECRET?.trim(), slug: env.CRITIQS_GITHUB_APP_SLUG?.trim() };
   return {
     encryptionKey: validEncryptionKey(env.CRITIQS_AI_ENCRYPTION_KEY) ? env.CRITIQS_AI_ENCRYPTION_KEY! : null,
     linear: clientId && clientSecret ? { clientId, clientSecret } : null,
     linearWebhookSecret: env.CRITIQS_LINEAR_WEBHOOK_SECRET?.trim() || null,
     linearApiUrl: env.CRITIQS_LINEAR_API_URL?.trim() || LINEAR_API_URL,
     linearAppUrl: env.CRITIQS_LINEAR_APP_URL?.trim() || LINEAR_APP_URL,
+    github: github.clientId && github.clientSecret && github.slug ? { clientId: github.clientId, clientSecret: github.clientSecret, slug: github.slug } : null,
+    githubWebhookSecret: env.CRITIQS_GITHUB_WEBHOOK_SECRET?.trim() || null,
+    githubApiUrl: env.CRITIQS_GITHUB_API_URL?.trim() || GITHUB_API_URL,
+    githubAppUrl: env.CRITIQS_GITHUB_APP_URL?.trim() || GITHUB_APP_URL,
   };
 }
 
 /** The trackers people can connect so far. */
-export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
+export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear", "github"];
 
 /**
  * What `/critiqs/config` reports: the trackers offered and how each connects,
@@ -55,14 +70,95 @@ export const OFFERED_TRACKERS: readonly TrackerId[] = ["linear"];
  */
 export function ticketsConfig(deployment: TicketsDeployment): TicketsConfig | null {
   if (deployment.encryptionKey === null) return null;
-  return { trackers: OFFERED_TRACKERS.map((id) => ({ id, signIn: id === "linear" && deployment.linear !== null ? "oauth" : "token" })), threadTickets: true, drafting: true, ticketStatus: true };
+  return {
+    trackers: OFFERED_TRACKERS.map((id) => {
+      const app = trackerSignIn(id, deployment);
+      return { id, signIn: app === null ? "token" : "oauth", ...(app?.installUrl === undefined ? {} : { installUrl: app.installUrl }) };
+    }),
+    threadTickets: true,
+    drafting: true,
+    ticketStatus: true,
+  };
+}
+
+/** A tracker's API address on this deployment. */
+function apiUrlOf(tracker: TrackerId, deployment: TicketsDeployment): string {
+  return tracker === "github" ? deployment.githubApiUrl : deployment.linearApiUrl;
 }
 
 /** The adapter that talks to a tracker, at the deployment's addresses. */
 export function trackerAdapter(tracker: TrackerId, deployment: TicketsDeployment, fetchFn: typeof fetch = fetch): TrackerAdapter {
   const adapter = TRACKER_ADAPTERS[tracker];
   if (adapter === undefined || !OFFERED_TRACKERS.includes(tracker)) fail("invalid", `Critiqs can't connect ${trackerLabel(tracker)} yet.`);
-  return adapter({ fetch: fetchFn, baseUrl: deployment.linearApiUrl });
+  return adapter({ fetch: fetchFn, baseUrl: apiUrlOf(tracker, deployment) });
+}
+
+/** A tracker's sign-in on this deployment, through the operator's app: its pages and token requests. */
+export interface TrackerSignIn {
+  /** The tracker's page where the person allows Critiqs, sending them back to `redirectUri`. */
+  authorizeUrl(input: { redirectUri: string; state: string; challenge: string }): string;
+  exchange(input: { code: string; redirectUri: string; verifier: string }, now: number, fetchFn?: typeof fetch): Promise<SignInTokens>;
+  /** Trades a refresh token for new tokens; the tracker ends the one used. */
+  refresh(refreshToken: string, now: number, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<SignInTokens>;
+  /** Where an organization installs the app to reach its repositories (GitHub). */
+  installUrl?: string;
+  /**
+   * Whether ending one sign-in ends every token the app holds for the person
+   * (GitHub's grant), so a sign-in they made since would end with it.
+   */
+  endsEveryToken?: boolean;
+  /**
+   * Ends a sign-in at the tracker, where it offers a call that does: true
+   * when the tracker no longer accepts its tokens. Where ending it ends every
+   * token (`endsEveryToken`), `mayEnd` is asked right before each call that
+   * would, and `"shared"` returned when it says no.
+   */
+  end?(tokens: { access: string | null; refresh: string | null }, fetchFn?: typeof fetch, now?: number, mayEnd?: () => Promise<boolean>): Promise<boolean | "shared">;
+}
+
+/** The tracker's sign-in on this deployment; null where its operator registered no app, so people paste a token. */
+export function trackerSignIn(tracker: TrackerId, deployment: TicketsDeployment): TrackerSignIn | null {
+  if (tracker === "linear" && deployment.linear !== null) {
+    const app = deployment.linear;
+    const endpoint = (fetchFn?: typeof fetch) => ({ baseUrl: deployment.linearApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) });
+    return {
+      authorizeUrl: (input) => linearAuthorizeUrl(deployment.linearAppUrl, { clientId: app.clientId, ...input }),
+      exchange: (input, now, fetchFn) => exchangeLinearCode(endpoint(fetchFn), app, input, now),
+      refresh: (refreshToken, now, signal, fetchFn) => refreshLinearToken(endpoint(fetchFn), app, refreshToken, now, signal),
+      // Linear's revocation, refresh token first, then the access token, each checked: Linear's 400 alone proves nothing.
+      end: async (tokens, fetchFn, now = Date.now()) => await endLinearSignIn(endpoint(fetchFn), app, tokens, now),
+    };
+  }
+  if (tracker === "github" && deployment.github !== null) {
+    const app = deployment.github;
+    const endpoint = (fetchFn?: typeof fetch) => ({ baseUrl: deployment.githubAppUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) });
+    return {
+      authorizeUrl: (input) => githubAuthorizeUrl(deployment.githubAppUrl, { clientId: app.clientId, ...input }),
+      exchange: (input, now, fetchFn) => exchangeGithubCode(endpoint(fetchFn), app, input, now),
+      refresh: (refreshToken, now, signal, fetchFn) => refreshGithubToken(endpoint(fetchFn), app, refreshToken, now, signal),
+      installUrl: githubInstallUrl(deployment.githubAppUrl, app.slug),
+      endsEveryToken: true,
+      // Deleting the app's grant for the person ends every token it holds for them. GitHub needs a valid access token for
+      // it, and they last eight hours: one GitHub turns down is refreshed first, when the refresh token still works.
+      // The grant is GitHub's per GitHub account, not per Critiqs account: `mayEnd` is asked right before each deletion, so
+      // one isn't deleted while another Critiqs account, or a sign-in, uses it.
+      end: async ({ access, refresh }, fetchFn, now = Date.now(), mayEnd = async () => true) => {
+        const api = { baseUrl: deployment.githubApiUrl, ...(fetchFn === undefined ? {} : { fetch: fetchFn }) };
+        if (access !== null && !(await mayEnd())) return "shared";
+        const first = access === null ? "refused" : await deleteGithubGrant(api, app, access);
+        if (first !== "refused" || refresh === null) return first === "deleted";
+        let fresh: SignInTokens;
+        try {
+          fresh = await refreshGithubToken(endpoint(fetchFn), app, refresh, now);
+        } catch {
+          return false;
+        }
+        if (!(await mayEnd())) return "shared";
+        return (await deleteGithubGrant(api, app, fresh.access)) === "deleted";
+      },
+    };
+  }
+  return null;
 }
 
 export function trackerLabel(tracker: TrackerId): string {
@@ -186,8 +282,8 @@ export async function saveSignedInAccount(store: Store, args: { userId: string; 
   await signIns.delete(signIn._id);
   const user = await store.users.get(args.userId);
   const critiqs = user?.email == null ? null : normalizeEmail(user.email);
-  const tracker = args.account.identity.email === null ? null : normalizeEmail(args.account.identity.email);
-  if (critiqs === null || tracker !== critiqs) return { status: "other-email" };
+  // Any of the tracker account's verified addresses: GitHub accounts often have several.
+  if (critiqs === null || !args.account.identity.emails.some((email) => normalizeEmail(email) === critiqs)) return { status: "other-email" };
   await saveTrackerAccount(store, args.userId, args.account, now);
   return { status: "saved" };
 }
@@ -206,6 +302,8 @@ export async function saveOwnTrackerAccount(store: Store, identity: Identity | n
 export interface DisconnectedAccount {
   userId: string;
   tracker: TrackerId;
+  /** The tracker's ID for the account; absent on retries scheduled before it was kept. */
+  accountId?: string;
   method: "oauth" | "token";
   access: StoredToken;
   refresh: StoredToken | null;
@@ -225,29 +323,39 @@ export async function disconnectTracker(store: Store, identity: Identity | null,
   const existing = await accounts.find(user._id, args.tracker);
   if (existing === null) return null;
   await accounts.delete(existing._id);
-  return { userId: user._id, tracker: args.tracker, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
+  return { userId: user._id, tracker: args.tracker, accountId: existing.accountId, method: existing.method, access: existing.access, refresh: existing.refresh ?? null };
 }
 
 /** What disconnecting did at the tracker: ended Critiqs's access there, left a pasted token for the person to remove, or couldn't end it. */
-export type TrackerEnd = "ended" | "kept" | "failed";
+export type TrackerEnd = "ended" | "kept" | "failed" | "shared";
 
 /**
  * Ends a disconnected account at its tracker, where an API call can: a
- * Linear sign-in is revoked, refresh token first. A pasted token can't be
- * ended by another caller in any tracker, so it is `kept`: valid until the
- * person removes it there. `failed` when the tracker couldn't be reached,
- * refused, or still accepts a token afterwards; the person is told, and the
- * sign-in ends when its tokens expire or they remove Critiqs at the tracker.
+ * Linear sign-in's tokens are revoked, and a GitHub sign-in's grant is
+ * deleted, which ends all its tokens. A pasted token can't be ended by
+ * another caller in any tracker, so it is `kept`: valid until the person
+ * removes it there. `failed` when the tracker couldn't be reached, refused,
+ * still accepts a token afterwards, or offers no such call; the person is
+ * told, and the sign-in ends when its tokens expire or they remove Critiqs at
+ * the tracker. `shared` when ending it would end every token and `mayEnd`
+ * (asked right before each such call) says another sign-in still uses it.
  */
-export async function endTrackerAccount(deployment: TicketsDeployment, account: DisconnectedAccount, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<TrackerEnd> {
+export async function endTrackerAccount(
+  deployment: TicketsDeployment,
+  account: DisconnectedAccount,
+  fetchFn: typeof fetch = fetch,
+  now: number = Date.now(),
+  mayEnd: () => Promise<boolean> = async () => true,
+): Promise<TrackerEnd> {
   if (account.method !== "oauth") return "kept";
   const key = deployment.encryptionKey;
-  if (key === null || account.tracker !== "linear" || deployment.linear === null) return "failed";
+  if (key === null || trackerSignIn(account.tracker, deployment)?.end === undefined) return "failed";
   const binding = trackerTokenBinding(account.tracker, account.userId);
   const refresh = account.refresh === null ? null : await decryptToken(key, binding, account.refresh);
   const access = await decryptToken(key, binding, account.access);
   if (refresh === null && access === null) return "failed";
-  return (await endTrackerSignIn(deployment, account.tracker, { access, refresh }, fetchFn, now)) ? "ended" : "failed";
+  const ended = await endTrackerSignIn(deployment, account.tracker, { access, refresh }, fetchFn, now, mayEnd);
+  return ended === "shared" ? "shared" : ended ? "ended" : "failed";
 }
 
 /**
@@ -255,9 +363,32 @@ export async function endTrackerAccount(deployment: TicketsDeployment, account: 
  * true when the tracker no longer accepts them. Also for tokens a sign-in
  * got after the person cancelled it by disconnecting.
  */
-export async function endTrackerSignIn(deployment: TicketsDeployment, tracker: TrackerId, tokens: { access: string | null; refresh: string | null }, fetchFn: typeof fetch = fetch, now: number = Date.now()): Promise<boolean> {
-  if (tracker !== "linear" || deployment.linear === null) return false;
-  return await endLinearSignIn({ fetch: fetchFn, baseUrl: deployment.linearApiUrl }, deployment.linear, tokens, now);
+export async function endTrackerSignIn(
+  deployment: TicketsDeployment,
+  tracker: TrackerId,
+  tokens: { access: string | null; refresh: string | null },
+  fetchFn: typeof fetch = fetch,
+  now: number = Date.now(),
+  mayEnd: () => Promise<boolean> = async () => true,
+): Promise<boolean | "shared"> {
+  const end = trackerSignIn(tracker, deployment)?.end;
+  return end !== undefined && (await end(tokens, fetchFn, now, mayEnd));
+}
+
+/**
+ * Whether a tracker sign-in that ends every token for its tracker account
+ * (GitHub's grant) is still in use, so it mustn't be ended: another Critiqs
+ * account is connected with a sign-in to the same tracker account
+ * (`accountId`), or the person is signing in to the tracker again, whose new
+ * tokens would share it. Read right before each call that would end it.
+ */
+export async function trackerGrantInUse(store: Store, args: { userId: string; tracker: TrackerId; accountId?: string }): Promise<boolean> {
+  const tickets = ticketStore(store);
+  if ((await tickets.signIns.listForUser(args.userId, args.tracker)).length > 0) return true;
+  // A retry scheduled before the account's ID was kept knows only its person.
+  if (args.accountId === undefined) return (await tickets.accounts.find(args.userId, args.tracker)) !== null;
+  // Only a sign-in holds the grant; any number of pasted tokens for the same account may come first.
+  return (await tickets.accounts.withAccountId(args.tracker, args.accountId, "oauth", 1)).length > 0;
 }
 
 /**
@@ -292,6 +423,11 @@ async function linearRefuses(endpoint: TrackerEndpointOptions, access: string): 
   } catch (error) {
     return error instanceof CritiqsError && error.code === "invalid";
   }
+}
+
+/** Whether a person has an account for a tracker now, as after connecting it again. One transaction. */
+export async function hasTrackerAccount(store: Store, args: { userId: string; tracker: TrackerId }): Promise<boolean> {
+  return (await ticketStore(store).accounts.find(args.userId, args.tracker)) !== null;
 }
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */
@@ -374,7 +510,7 @@ export async function startTrackerSignIn(
   const tickets = ticketStore(store);
   requireKey(deployment);
   requireOffered(args.tracker);
-  if (args.tracker !== "linear" || deployment.linear === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
+  if (trackerSignIn(args.tracker, deployment) === null) fail("invalid", `${trackerLabel(args.tracker)} sign-in isn't set up on this deployment. Paste an API key instead.`);
   const user = await requireUser(store, identity);
   await requireConnectRoom(store, "sign-in", user._id, now);
   await tickets.signIns.insert({
@@ -614,7 +750,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
         continue;
       case "claimed": {
         const refreshToken = await decryptToken(key, binding, claim.refresh);
-        const app = deployment.linear;
+        const app = trackerSignIn(args.tracker, deployment);
         if (refreshToken === null || app === null) {
           await steps.finish(leaseId, null);
           return unreadable();
@@ -631,7 +767,7 @@ export async function trackerAccessToken(steps: AccessSteps, deployment: Tickets
         const timer = setTimeout(() => call.abort(), cutoff - steps.now());
         let tokens: SignInTokens;
         try {
-          tokens = await refreshLinearToken({ fetch: steps.fetch ?? fetch, baseUrl: deployment.linearApiUrl }, app, refreshToken, steps.now(), call.signal);
+          tokens = await app.refresh(refreshToken, steps.now(), call.signal, steps.fetch ?? fetch);
         } catch (error) {
           await steps.finish(leaseId, null);
           if (call.signal.aborted) fail("unavailable", `${label} took too long to refresh your sign-in. Try again in a moment.`);

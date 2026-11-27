@@ -111,14 +111,15 @@ async function sha256(text: string): Promise<string> {
   return btoa(String.fromCharCode(...digest)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-test("/critiqs/config offers Linear only with an encryption key: by API key, or by sign-in with the operator's Linear app", async () => {
+test("/critiqs/config offers Linear and GitHub only with an encryption key: by API key, or by sign-in with the operator's Linear app", async () => {
   const { t } = people();
   delete process.env.CRITIQS_AI_ENCRYPTION_KEY;
   expect(await config(t)).not.toHaveProperty("tickets");
   process.env.CRITIQS_AI_ENCRYPTION_KEY = KEY;
-  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
+  const github = { id: "github", signIn: "token" };
+  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "token" }, github], threadTickets: true, drafting: true, ticketStatus: true });
   withSignIn();
-  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true, ticketStatus: true });
+  expect((await config(t)).tickets).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }, github], threadTickets: true, drafting: true, ticketStatus: true });
 });
 
 test("a pasted Linear API key is checked with Linear, stored encrypted, and shown only to its person, never as a token", async () => {
@@ -500,7 +501,7 @@ test("each person may start ten sign-ins and connect ten API keys a minute", asy
 test("a failed sign-in says only Critiqs's own message, whatever else went wrong", async () => {
   const { failureMessage } = await import("../convex/trackerHttp");
   const { ConvexError } = await import("convex/values");
-  expect(failureMessage(new ConvexError({ code: "invalid", message: "Linear said no." }))).toBe("Linear said no.");
-  expect(failureMessage(new ConvexError("a bare string"))).toContain("Something went wrong");
-  expect(failureMessage(new Error("token lin_oauth_secret leaked"))).toContain("Something went wrong");
+  expect(failureMessage(new ConvexError({ code: "invalid", message: "Linear said no." }), "Linear")).toBe("Linear said no.");
+  expect(failureMessage(new ConvexError("a bare string"), "Linear")).toContain("Something went wrong");
+  expect(failureMessage(new Error("token lin_oauth_secret leaked"), "Linear")).toContain("Something went wrong");
 });

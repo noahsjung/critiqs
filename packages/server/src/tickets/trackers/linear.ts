@@ -346,7 +346,7 @@ function parseIdentity(data: unknown): TrackerIdentity {
   const organization = isRecord(data) ? data.organization : null;
   if (!isRecord(viewer) || !text(viewer.id) || !text(viewer.name)) throw unexpected("no account");
   const site = isRecord(organization) && text(organization.id) && text(organization.name) ? { id: organization.id, name: organization.name } : null;
-  return { accountId: viewer.id, accountName: viewer.name, email: text(viewer.email) ? viewer.email : null, site };
+  return { accountId: viewer.id, accountName: viewer.name, emails: text(viewer.email) ? [viewer.email] : [], site };
 }
 
 function parseTeams(data: unknown): TicketDestination[] {

@@ -21,7 +21,8 @@ const statusReading = v.object({
   place: v.optional(v.object({ key: v.string(), url: v.string(), title: v.string(), site: v.optional(v.union(v.string(), v.null())) })),
 });
 const statusUpdate = v.object({
-  ...statusFields,
+  ...statusReading.fields,
+  idAcrossSites: v.optional(v.literal(true)),
   tracker: trackerValidator,
   externalId: v.string(),
   site: v.union(v.string(), v.null()),

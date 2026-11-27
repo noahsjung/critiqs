@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ExportThread } from "../src/export.ts";
-import { aiTicketText, draftedSections, type SectionAnswer, STANDARD_OUTLINE, TRACKERS, templateTicketText, ticketBody, ticketLinkComment, ticketOutline, ticketText } from "../src/tickets.ts";
+import { aiTicketText, draftedMarkdown, draftedSections, type SectionAnswer, STANDARD_OUTLINE, TRACKERS, templateTicketText, ticketBody, ticketLinkComment, ticketOutline, ticketText } from "../src/tickets.ts";
 import { type WebAddress, webAddress } from "../src/web-address.ts";
 
 const thread: ExportThread = {
@@ -368,4 +368,20 @@ test("a draft left inside a code fence gets a closing fence of its kind, and Cri
     expect(outsideCode(full)).toContain(`Created from Critiqs by Dana: <a href="${review}">open the thread</a>`);
     expect(outsideCode(full)).not.toContain("Not a heading");
   }
+});
+
+test("a template section that is only a task list (a GitHub form's checkboxes or dropdown) is choices the person ticks: Critiqs AI never writes under it, and its draft keeps them", () => {
+  const outline = ticketOutline("### What happened?\n\n### Which browsers?\n\n- [ ] Firefox\n- [ ] Chrome\n\n### Code of Conduct\n\n- [ ] I agree to the <b>Code</b>\n");
+  expect(outline.sections.map((section): [string, string[] | null] => [section.name, section.choices ?? null])).toEqual([
+    ["What happened?", null],
+    ["Which browsers?", ["Firefox", "Chrome"]],
+    ["Code of Conduct", ["I agree to the <b>Code</b>"]],
+  ]);
+  const sections = draftedSections(outline, [
+    { heading: "What happened?", text: "The button is grey.", items: [], numbered: false },
+    { heading: "Code of Conduct", text: "Notes for Code of Conduct from the thread.", items: [], numbered: false },
+  ]);
+  expect(draftedMarkdown(sections, outline)).toBe(
+    "### What happened?\n\nThe button is grey.\n\n### Which browsers?\n\n- [ ] Firefox\n- [ ] Chrome\n\n### Code of Conduct\n\n- [ ] I agree to the \\<b>Code\\</b>",
+  );
 });

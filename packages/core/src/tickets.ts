@@ -266,14 +266,21 @@ export interface TrackerAccountView {
  * sign-in's tokens no longer work); `kept` a pasted token, which only the
  * person can delete in the tracker; `failed` to end a sign-in, because the
  * tracker couldn't be reached or refused, so it still works until the person
- * removes Critiqs in the tracker (Critiqs tries again for a while); `none`
- * when nothing was connected.
+ * removes Critiqs in the tracker (Critiqs tries again for a while); `shared`
+ * when the sign-in's access at the tracker is shared with another Critiqs
+ * account connected to the same tracker account (GitHub's grant is per GitHub
+ * account), so it stays until that one disconnects too; `none` when nothing
+ * was connected.
  */
-export type TrackerDisconnected = "ended" | "kept" | "failed" | "none";
+export type TrackerDisconnected = "ended" | "kept" | "failed" | "shared" | "none";
 
 /** The trackers a backend offers, and how each one connects; from `/critiqs/config`. */
 export interface TicketsConfig {
-  trackers: { id: TrackerId; signIn: "oauth" | "token" }[];
+  /**
+   * Each tracker offered, how it connects, and, for GitHub with sign-in, where
+   * an organization installs the deployment's GitHub App to reach its repositories.
+   */
+  trackers: { id: TrackerId; signIn: "oauth" | "token"; installUrl?: string }[];
   /**
    * Whether threads can create and link tickets. A backend that offers only
    * Your trackers, from before creating and linking were built, leaves it out.
@@ -403,6 +410,12 @@ export interface TicketSection {
   name: string;
   /** The heading line Critiqs writes, such as `## Expected`. */
   heading: string;
+  /**
+   * Choices the template offers under the heading, as a task list and
+   * nothing else (a GitHub issue form's checkboxes or dropdown): the person
+   * ticks them, so the model never writes there, and a draft keeps them.
+   */
+  choices?: PlainText[];
 }
 
 /** The sections a draft by Critiqs AI fills, in order. */
@@ -425,12 +438,28 @@ export const STANDARD_OUTLINE: TicketOutline = {
  */
 export function ticketOutline(template: string | null): TicketOutline {
   const headings = template === null ? [] : markdownBlocks(template).headings;
-  const sections = headings.flatMap(({ level, text }) => {
+  const lines = template === null ? [] : template.split(/\r\n|\r|\n/);
+  const sections = headings.flatMap(({ level, text, end }, index) => {
     const name = text.replace(/\s+/g, " ").trim();
+    if (name === "") return [];
     // The heading is the tracker's text, so it renders as written, as everything Critiqs AI writes does.
-    return name === "" ? [] : [{ name, heading: `${"#".repeat(level)} ${markdownText(name)}` }];
+    const section: TicketSection = { name, heading: `${"#".repeat(level)} ${markdownText(name)}` };
+    const choices = taskList(lines.slice(end + 1, headings[index + 1]?.start ?? lines.length));
+    return [choices === null ? section : { ...section, choices }];
   });
   return sections.length === 0 ? STANDARD_OUTLINE : { sections, keepEmpty: true };
+}
+
+/** A section's lines when they are an unticked task list and nothing else: each item's text, as plain text; null otherwise. */
+function taskList(lines: string[]): PlainText[] | null {
+  const filled = lines.filter((line) => line.trim() !== "");
+  const items = filled.map((line) => /^ {0,3}[-*+] \[ \] (.*)$/.exec(line)?.[1]).map((item) => (item === undefined ? null : plainText(item)));
+  return items.length > 0 && items.every((item) => item !== null) ? (items as PlainText[]) : null;
+}
+
+/** The sections the model may write: all but those that offer choices for the person to tick. */
+export function fillableSections(outline: TicketOutline): TicketSection[] {
+  return outline.sections.filter((section) => section.choices === undefined);
 }
 
 declare const plain: unique symbol;
@@ -472,7 +501,8 @@ const paragraphsOf = (text: string) => text.split(/(?:\r\n|\r|\n)\s*(?:\r\n|\r|\
 export function draftedSections(outline: TicketOutline, answers: SectionAnswer[]): DraftedSection[] {
   const drafted = outline.sections.map((section) => ({ section, paragraphs: [] as PlainText[], items: [] as PlainText[], numbered: false, filled: false }));
   for (const answer of answers) {
-    const named = drafted.filter((entry) => entry.section.name === answer.heading.replace(/\s+/g, " ").trim());
+    // Choices are the person's to tick: the model never writes there.
+    const named = drafted.filter((entry) => entry.section.choices === undefined && entry.section.name === answer.heading.replace(/\s+/g, " ").trim());
     const entry = named.find((each) => !each.filled) ?? named.at(-1);
     if (entry === undefined) continue;
     const items = answer.items.flatMap((item) => plainText(item) ?? []);
@@ -491,6 +521,10 @@ const escaped = (text: PlainText) => markdownText(text);
 export function draftedMarkdown(sections: DraftedSection[], outline: Pick<TicketOutline, "keepEmpty">): string {
   const blocks: string[] = [];
   for (const { section, paragraphs, items, numbered } of sections) {
+    if (section.choices !== undefined) {
+      blocks.push(section.heading, section.choices.map((choice) => `- [ ] ${escaped(choice)}`).join("\n"));
+      continue;
+    }
     if (paragraphs.length === 0 && items.length === 0 && !outline.keepEmpty) continue;
     blocks.push(section.heading, ...paragraphs.map(escaped));
     if (items.length > 0) blocks.push(items.map((item, index) => `${numbered ? `${index + 1}.` : "-"} ${escaped(item)}`).join("\n"));

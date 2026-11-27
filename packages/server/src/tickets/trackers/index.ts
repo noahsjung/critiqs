@@ -13,6 +13,7 @@ import {
   webAddress,
 } from "@critiqs/core";
 import { CritiqsError } from "../../errors.ts";
+import { githubAdapter } from "./github.ts";
 import { linearAdapter } from "./linear.ts";
 
 // What Critiqs asks of each tracker. Each adapter calls one tracker's API with
@@ -29,8 +30,11 @@ export interface TrackerToken {
 export interface TrackerIdentity {
   accountId: string;
   accountName: string;
-  /** The account's email address, as the tracker reports it; null when it doesn't share one. Only checked, never stored. */
-  email: string | null;
+  /**
+   * The account's verified email addresses, as the tracker reports them, its
+   * primary one first; empty when it shares none. Only checked, never stored.
+   */
+  emails: string[];
   /** The workspace, organization, or Jira site the account is in, where the tracker has one. */
   site: { id: string; name: string } | null;
 }
@@ -170,6 +174,10 @@ export function isCheckedAdapter(adapter: object): boolean {
   return checkedAdapters.has(adapter);
 }
 
+/** The longest email address Critiqs compares, and the most of one account's addresses it compares. */
+const MAX_EMAIL_LENGTH = 320;
+const MAX_IDENTITY_EMAILS = 20;
+
 const refused = (what: string) => new CritiqsError("unavailable", `The tracker's answer wasn't what Critiqs expected (${what}). Try again in a moment.`);
 
 function checkedIdentity(identity: TrackerIdentity): TrackerIdentity {
@@ -179,7 +187,8 @@ function checkedIdentity(identity: TrackerIdentity): TrackerIdentity {
   return {
     accountId,
     accountName: trackerText(identity.accountName, TRACKER_LIMITS.name),
-    email: identity.email !== null && identity.email.length <= 320 ? identity.email : null,
+    // Only checked against the person's Critiqs email, never stored: the first few a tracker lists, each of an email's length.
+    emails: identity.emails.filter((email) => typeof email === "string" && email.length <= MAX_EMAIL_LENGTH).slice(0, MAX_IDENTITY_EMAILS),
     site: identity.site === null || siteId === null ? null : { id: siteId, name: trackerText(identity.site.name, TRACKER_LIMITS.name) },
   };
 }
@@ -412,6 +421,13 @@ export interface TicketStatusUpdate extends TicketStatusReading {
   site: string | null;
   /** The tracker deleted the ticket: at the same `asOf`, this wins over any other status. */
   deleted: boolean;
+  /**
+   * The ticket's ID stays the same wherever it moves and is unique across
+   * sites (a GitHub issue's node ID), so links to it held under another site
+   * are the same ticket, which moved: they take the update, and follow it to
+   * `site` and `place`.
+   */
+  idAcrossSites?: true;
 }
 
 /** An image to put in a ticket, such as a thread's capture. */
@@ -456,9 +472,11 @@ export interface TrackerAdapter {
   /**
    * The ticket a creation made, when an attempt's outcome is unknown: found by
    * `creationId` where the tracker took it as the ticket's ID, else by the
-   * thread's link. Null when the creation made no ticket.
+   * mark the creation left in the ticket, in the destination it was first
+   * submitted to, among tickets changed since it was submitted (`since`).
+   * Null when the creation made no ticket.
    */
-  findCreated(token: TrackerToken, created: { creationId: string; link: WebAddress | null }): Promise<CreatedTicket | null>;
+  findCreated(token: TrackerToken, created: FoundCreation): Promise<CreatedTicket | null>;
   /** Adds a link back to the thread: a Linear attachment, a Jira remote link, or a GitHub comment. Safe to repeat: the ticket keeps one link to the thread. */
   linkBack(token: TrackerToken, ticket: HeldTicket, link: { url: WebAddress; title: string }): Promise<void>;
   /** Adds a comment: text Critiqs made (`ticketLinkComment`), never a plain string. */
@@ -476,6 +494,15 @@ export interface TrackerAdapter {
   template?(token: TrackerToken, templateId: string): Promise<TrackerTemplate | null>;
   /** The labels a ticket in the destination can take; absent where the tracker has none. */
   labels?(token: TrackerToken, destinationId: string): Promise<TrackerLabel[]>;
+}
+
+/** What finding a creation's ticket knows: its ID, the thread's link, where it was first submitted, and when. */
+export interface FoundCreation {
+  creationId: string;
+  /** The thread's link as the creation recorded it; null when the thread had none. */
+  link: WebAddress | null;
+  destinationId: string;
+  since: number;
 }
 
 /** A label as a tracker lists it, with the group a ticket may take only one label from, if any. */
@@ -517,6 +544,7 @@ export interface SignInTokens {
 /** Each tracker's adapter, at the given address; trackers not built yet are missing. */
 export const TRACKER_ADAPTERS: Partial<Record<TrackerId, (endpoint: TrackerEndpointOptions) => TrackerAdapter>> = {
   linear: linearAdapter,
+  github: githubAdapter,
 };
 
 /**

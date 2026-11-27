@@ -112,10 +112,22 @@ export async function applyTicketStatus(store: Store, update: TicketStatusUpdate
   const site = update.site === null ? null : trackerId(update.site);
   // A site Critiqs can't keep is still a site: never "none", which would reach links without one.
   if (update.site !== null && site === null) return { updated: 0, resolved: [] };
-  const links = (await ticketStore(store).links.findByExternal(update.tracker, externalId, MAX_TICKET_LINK_ROWS)).filter((link) => (link.site ?? null) === site);
+  // A ticket whose ID is the same across sites is the same ticket in any of them: it moved, and its links follow it.
+  const links = (await ticketStore(store).links.findByExternal(update.tracker, externalId, MAX_TICKET_LINK_ROWS)).filter(
+    (link) => (link.site ?? null) === site || (update.idAcrossSites === true && site !== null && link.site != null),
+  );
   if (links.length === 0) return { updated: 0, resolved: [] };
   if (!(await webhookRoom(store, update.tracker, site, now))) return { updated: 0, resolved: [], limited: true };
-  return await saveStatus(store, links, { source: "webhook", asOf: update.asOf ?? now, status: checkedStatus(update.status), deleted: update.deleted }, now);
+  const reading: StatusReading = { source: "webhook", asOf: update.asOf ?? now, status: checkedStatus(update.status), deleted: update.deleted };
+  for (const link of links) {
+    // Where it is now, from a delivery newer than what the link holds, so a late one never moves it back.
+    const moved = update.place !== undefined && (update.place.key !== link.key || update.place.url !== link.url || site !== (link.site ?? null));
+    if (moved && decideReading(heldReading(link), reading) !== "keep") {
+      const { key, url, title } = update.place!;
+      await ticketStore(store).links.patch(link._id, { key, url, title, site });
+    }
+  }
+  return await saveStatus(store, links, reading, now);
 }
 
 /**

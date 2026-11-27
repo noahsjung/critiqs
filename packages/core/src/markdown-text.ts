@@ -179,6 +179,20 @@ export function markdownCode(value: unknown): string {
 }
 
 /**
+ * Text of any lines as a fenced code block that renders exactly as written:
+ * fenced by more backticks than any run inside it, and at least three, so no
+ * line in it ends it early; `language` is its info string only when it is a
+ * plain language name, such as `text` or `shell`.
+ */
+export function markdownCodeBlock(text: string, language: string | null = null): string {
+  const body = text.replace(/\r\n|\r/g, "\n");
+  const longest = Math.max(2, ...[...body.matchAll(/`+/g)].map((run) => run[0].length));
+  const fence = "`".repeat(longest + 1);
+  const info = language !== null && /^[A-Za-z0-9_+#.-]{1,40}$/.test(language) ? language : "";
+  return `${fence}${info}\n${body}\n${fence}`;
+}
+
+/**
  * A Markdown link: its text escaped as `markdownText`, and its destination
  * rendering exactly as given: in angle brackets, so ")" can't end it, with
  * "&" written as "&amp;" so no part of the address is read as a character

@@ -38,7 +38,7 @@ import { linkSecret } from "./lib/links";
 import { developerEmailSetup } from "./onboarding";
 import { threadPageWebsite } from "./notifications";
 import { CAPTURE_CORS, downloadCapture, downloadSnapshot, uploadCapture, uploadSnapshot } from "./captureHttp";
-import { linearCallback, linearStart, linearStartLink, linearWebhook } from "./trackerHttp";
+import { githubCallback, githubStart, githubStartLink, githubWebhook, linearCallback, linearStart, linearStartLink, linearWebhook } from "./trackerHttp";
 import { captureStorageHealth } from "./lib/r2";
 import { ATTEMPT_MINUTES } from "./signIn";
 import { hashSecret, issueAccessToken, randomSecret, signingKey } from "./lib/tokens";
@@ -74,12 +74,16 @@ http.route({ path: "/mockup/upload", method: "POST", handler: uploadSnapshot });
 for (const path of ["/capture", "/capture/upload", "/mockup/snapshot", "/mockup/upload"]) {
   http.route({ path, method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CAPTURE_CORS })) });
 }
-// Tracker sign-in's window: on to Linear, and back (see trackerHttp.ts).
+// Tracker sign-in's window: on to the tracker, and back (see trackerHttp.ts).
 http.route({ path: "/trackers/linear/start", method: "POST", handler: linearStart });
 http.route({ path: "/trackers/linear/start", method: "GET", handler: linearStartLink });
 http.route({ path: "/trackers/linear/callback", method: "GET", handler: linearCallback });
-// Linear's webhooks: issues' status, for every thread that links them.
+http.route({ path: "/trackers/github/start", method: "POST", handler: githubStart });
+http.route({ path: "/trackers/github/start", method: "GET", handler: githubStartLink });
+http.route({ path: "/trackers/github/callback", method: "GET", handler: githubCallback });
+// Trackers' webhooks: issues' status, for every thread that links them.
 http.route({ path: "/trackers/linear/webhook", method: "POST", handler: linearWebhook });
+http.route({ path: "/trackers/github/webhook", method: "POST", handler: githubWebhook });
 
 // Review links: routes only the review proxy calls, with its shared secret (reviewHttp.ts).
 http.route({ path: "/internal/review/v1/resolve", method: "POST", handler: resolveReviewHost });

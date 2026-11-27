@@ -385,6 +385,7 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
           drafting={ticketsOffer.offered.drafting === true}
           modelLists={ticketsOffer.modelLists === true}
           onSetUpAi={ticketsOffer.onSetUpAi ?? null}
+          installUrls={Object.fromEntries(ticketsOffer.offered.trackers.flatMap((entry) => (entry.installUrl === undefined ? [] : [[entry.id, entry.installUrl]])))}
           returnFocus={moreButton.current}
           onClose={() => setTicketDialog(null)}
           onCreated={(ticket) => {

@@ -15,15 +15,17 @@ import {
   saveSignedInAccount,
   setTrackerAttribution,
   startTrackerSignIn,
+  trackerGrantInUse,
+  trackerSignIn,
   type TrackerToken,
 } from "@critiqs/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action, internalAction, internalMutation, mutation, query } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { storedTokenValidator, tokenUseValidator, trackerValidator } from "./lib/validators";
 import { convexStore, identityOf, run } from "./lib/store";
-import { siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
+import { mayEnd, siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
 import { hashSecret, randomSecret } from "./lib/tokens";
 
 // Each person's own tracker accounts ("Your trackers"), for that person only.
@@ -35,7 +37,7 @@ import { hashSecret, randomSecret } from "./lib/tokens";
 const sealedAccount = v.object({
   tracker: trackerValidator,
   method: v.union(v.literal("oauth"), v.literal("token")),
-  identity: v.object({ accountId: v.string(), accountName: v.string(), email: v.union(v.string(), v.null()), site: v.union(v.object({ id: v.string(), name: v.string() }), v.null()) }),
+  identity: v.object({ accountId: v.string(), accountName: v.string(), emails: v.array(v.string()), site: v.union(v.object({ id: v.string(), name: v.string() }), v.null()) }),
   access: storedTokenValidator,
   refresh: v.union(storedTokenValidator, v.null()),
   expiresAt: v.union(v.number(), v.null()),
@@ -50,6 +52,7 @@ export const mine = query({
 const disconnectedAccount = v.object({
   userId: v.string(),
   tracker: trackerValidator,
+  accountId: v.optional(v.string()),
   method: v.union(v.literal("oauth"), v.literal("token")),
   access: storedTokenValidator,
   refresh: v.union(storedTokenValidator, v.null()),
@@ -74,8 +77,9 @@ export const disconnect = action({
     run(async () => {
       const removed = await ctx.runMutation(internal.trackers.removeAccount, args);
       if (removed === null) return "none";
-      // Still sealed until here: only an action decrypts them, to end them at the tracker.
-      const outcome = await endTrackerAccount(ticketsDeployment(), removed.account);
+      // Still sealed until here: only an action decrypts them, to end them at the tracker. A grant another Critiqs
+      // account shares (GitHub's, per GitHub account) is left, checked right before each call that would end it.
+      const outcome = await endTrackerAccount(ticketsDeployment(), removed.account, fetch, Date.now(), mayEnd(ctx, removed.account));
       if (outcome !== "failed") await ctx.scheduler.cancel(removed.retry);
       return outcome;
     }),
@@ -97,7 +101,12 @@ export const removeAccount = internalMutation({
 export const endAccount = internalAction({
   args: { account: disconnectedAccount, attempt: v.optional(v.number()) },
   handler: async (ctx, args): Promise<string> => {
-    const outcome = await endTrackerAccount(ticketsDeployment(), args.account);
+    // Where ending the old sign-in ends every token the app holds for that tracker account (GitHub), it is left while a
+    // sign-in to that account, the person's own again or another Critiqs account's, would end with it; the person was
+    // told how to end it. Asked right before each call that would end it.
+    const ended = await endTrackerAccount(ticketsDeployment(), args.account, fetch, Date.now(), mayEnd(ctx, args.account));
+    if (ended === "shared") return "kept";
+    const outcome = ended;
     // The try after `attempt` waits END_RETRY_MS[attempt]; past the last, it is left to the person.
     const attempt = args.attempt ?? 1;
     const next = END_RETRY_MS[attempt];
@@ -105,6 +114,13 @@ export const endAccount = internalAction({
     return outcome;
   },
 });
+
+/** Whether a sign-in's grant at its tracker is still used by a Critiqs account or a sign-in under way (`trackerGrantInUse`). */
+export const grantInUse = internalQuery({
+  args: { userId: v.string(), tracker: trackerValidator, accountId: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<boolean> => await trackerGrantInUse(convexStore(ctx), args),
+});
+
 
 /** Sets whether the person's new tickets in a tracker say they came from Critiqs, by default. */
 export const setAttribution = mutation({

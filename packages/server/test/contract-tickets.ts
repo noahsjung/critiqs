@@ -31,6 +31,7 @@ import {
 } from "../src/tickets/accounts.ts";
 import type { Identity, Store, TicketLinkRecord, TrackerAccountRecord } from "../src/store.ts";
 import { anchor, type ContractBackend, reviewer } from "./contract.ts";
+import { NO_GITHUB } from "./github-standin.ts";
 
 const page = { numItems: 40, cursor: null };
 const failed = { status: "failed" as const, failureReason: "Blocked" };
@@ -372,7 +373,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   // Your trackers: the rules over this storage.
 
   const KEY = "operator-encryption-key-".padEnd(48, "x");
-  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test" };
+  const withKey: TicketsDeployment = { encryptionKey: KEY, linear: null, linearWebhookSecret: null, linearApiUrl: "https://linear.test", linearAppUrl: "https://linear.test", ...NO_GITHUB };
   const withSignIn: TicketsDeployment = { ...withKey, linear: { clientId: "client", clientSecret: "secret" } };
 
   /** A stand-in for Linear's API: its viewer, from the token sent; and its token endpoint, answering `refreshes` in turn. */
@@ -475,7 +476,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const backend = fresh();
     const { danaId } = await setup(backend);
     const save = async (email: string | null) => {
-      const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email, site: null }, { access: "a", refresh: "r", expiresAt: 9_000_000 });
+      const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: email === null ? [] : [email], site: null }, { access: "a", refresh: "r", expiresAt: 9_000_000 });
       const state = await claimedSignIn(backend);
       return await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state }, 1_000));
     };
@@ -491,7 +492,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   test(`${name}: an account sealed for one person can't be saved as another's`, async () => {
     const backend = fresh();
     const { danaId, leeId } = await setup(backend);
-    const sealed = await sealSignIn(withKey, "linear", danaId, { accountId: "u", accountName: "Dana", email: null, site: null }, { access: "a", refresh: null, expiresAt: null });
+    const sealed = await sealSignIn(withKey, "linear", danaId, { accountId: "u", accountName: "Dana", emails: [], site: null }, { access: "a", refresh: null, expiresAt: null });
     expect((await refusal(backend.run((store) => saveOwnTrackerAccount(store, lee, { userId: danaId, account: sealed }, 1)))).code).toBe("forbidden");
     expect(await backend.run((store) => tickets(store).accounts.list(leeId))).toEqual([]);
   });
@@ -513,7 +514,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   test(`${name}: disconnecting a sign-in ends it at Linear too; a pasted key can't be ended by Critiqs and stays the person's to remove`, async () => {
     const backend = fresh();
     const { danaId } = await setup(backend);
-    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: ["dana@example.com"], site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
     const state = await claimedSignIn(backend);
     await backend.run((store) => saveSignedInAccount(store, { userId: danaId, account: sealed, state }, 1_000));
     const ended = await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" }));
@@ -581,7 +582,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const backend = fresh();
     const { danaId } = await setup(backend);
     const disconnected = async () => {
-      const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
+      const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: ["dana@example.com"], site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
       await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));
       return (await backend.run((store) => disconnectTracker(store, dana, { tracker: "linear" })))!;
     };
@@ -617,7 +618,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   test(`${name}: a sign-in under way when the person disconnects connects nothing, whether or not the tracker had sent them back yet`, async () => {
     const backend = fresh();
     const { danaId } = await setup(backend);
-    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: "dana@example.com", site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: ["dana@example.com"], site: null }, { access: "oauth-access", refresh: "oauth-refresh", expiresAt: 9_000_000 });
     const start = async (state: string) => {
       await backend.run((store) => startTrackerSignIn(store, dana, withSignIn, { tracker: "linear", state, verifier: "v", bindingHash: "h" }, 1_000));
       await backend.run((store) => openTrackerSignIn(store, { tracker: "linear", state, bindingHash: "h" }, 1_001));
@@ -642,8 +643,8 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
 
   test(`${name}: tickets are offered only with an encryption key, and Linear signs in only with the operator's app`, () => {
     expect(ticketsConfig({ ...withKey, encryptionKey: null })).toBeNull();
-    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
-    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }], threadTickets: true, drafting: true, ticketStatus: true });
+    expect(ticketsConfig(withKey)).toEqual({ trackers: [{ id: "linear", signIn: "token" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
+    expect(ticketsConfig(withSignIn)).toEqual({ trackers: [{ id: "linear", signIn: "oauth" }, { id: "github", signIn: "token" }], threadTickets: true, drafting: true, ticketStatus: true });
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id" }).linear).toBeNull();
     expect(ticketsDeploymentFromEnv({ CRITIQS_AI_ENCRYPTION_KEY: KEY, CRITIQS_LINEAR_CLIENT_ID: "id", CRITIQS_LINEAR_CLIENT_SECRET: "s" })).toEqual({
       encryptionKey: KEY,
@@ -651,6 +652,10 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
       linearWebhookSecret: null,
       linearApiUrl: "https://api.linear.app",
       linearAppUrl: "https://linear.app",
+      github: null,
+      githubWebhookSecret: null,
+      githubApiUrl: "https://api.github.com",
+      githubAppUrl: "https://github.com",
     });
   });
 
@@ -690,7 +695,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     const backend = fresh();
     const { danaId } = await setup(backend);
     const binding = trackerTokenBinding("linear", danaId);
-    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 10_000_000 });
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: [], site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 10_000_000 });
     await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));
     const accountId = "user-1";
     let clock = 1_000;
@@ -726,7 +731,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId: "other", use: LEASE_ONLY }, clock))).toMatchObject({ status: "claimed" });
     expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId, leaseId: "mine", use: LEASE_ONLY }, clock))).toEqual({ status: "busy" });
     // The other finishes; the waiting caller then gets its fresh token without refreshing.
-    const fresher = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: clock + 3_600_000 });
+    const fresher = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: [], site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: clock + 3_600_000 });
     expect(await backend.run((store) => finishTokenRefresh(store, { userId: danaId, tracker: "linear", leaseId: "other", tokens: fresher }, clock))).toEqual({ status: "saved" });
     expect(await token()).toEqual({ method: "oauth", value: "other-access" });
     expect(linear.sent).toHaveLength(1);
@@ -744,7 +749,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
    */
   async function dueAccount(backend: ContractBackend, options: { during?: () => Promise<unknown>; claim?: (claim: RefreshClaim) => RefreshClaim; fetch?: typeof fetch } = {}) {
     const { danaId } = await setup(backend);
-    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 1_000 });
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: [], site: null }, { access: "old-access", refresh: "old-refresh", expiresAt: 1_000 });
     await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1_000));
     const state = { clock: 2_000 };
     const accountId = "user-1";
@@ -780,7 +785,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     let replacedId = "";
     const again = await dueAccount(replaced, {
       during: async () => {
-        const fresher = await sealSignIn(withSignIn, "linear", replacedId, { accountId: "user-2", accountName: "Dana Other", email: null, site: null }, { access: "reconnected", refresh: "r", expiresAt: 99_000_000 });
+        const fresher = await sealSignIn(withSignIn, "linear", replacedId, { accountId: "user-2", accountName: "Dana Other", emails: [], site: null }, { access: "reconnected", refresh: "r", expiresAt: 99_000_000 });
         await replaced.run((store) => saveTrackerAccount(store, replacedId, fresher, 3_000));
       },
     });
@@ -801,7 +806,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
         taken.state.clock += REFRESH_LEASE_MS;
         const at = taken.state.clock;
         expect(await refreshed.run((store) => claimTokenRefresh(store, { userId: refreshedId, tracker: "linear", accountId: "user-1", leaseId: "other", use: LEASE_ONLY }, at))).toMatchObject({ status: "claimed" });
-        const tokens = await sealSignIn(withSignIn, "linear", refreshedId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: at + 3_600_000 });
+        const tokens = await sealSignIn(withSignIn, "linear", refreshedId, { accountId: "user-1", accountName: "Dana", emails: [], site: null }, { access: "other-access", refresh: "other-refresh", expiresAt: at + 3_600_000 });
         await refreshed.run((store) => finishTokenRefresh(store, { userId: refreshedId, tracker: "linear", leaseId: "other", tokens }, at));
       },
     });
@@ -878,7 +883,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
     };
     expect(await trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked })).toEqual({ method: "token", value: "lin_api_first" });
     // Dana connects another Linear account with the same Critiqs account.
-    const other = await sealSignIn(withSignIn, "linear", danaId, { accountId: "another-linear-account", accountName: "Dana Other", email: null, site: null }, { access: "other-access", refresh: null, expiresAt: null });
+    const other = await sealSignIn(withSignIn, "linear", danaId, { accountId: "another-linear-account", accountName: "Dana Other", emails: [], site: null }, { access: "other-access", refresh: null, expiresAt: null });
     await backend.run((store) => saveTrackerAccount(store, danaId, other, 2_000));
     expect(await backend.run((store) => claimTokenRefresh(store, { userId: danaId, tracker: "linear", accountId: checked, leaseId: "lease", use: LEASE_ONLY }, 10))).toEqual({ status: "changed" });
     const refused = await refusal(trackerAccessToken(steps, withKey, { userId: danaId, tracker: "linear", accountId: checked }));
@@ -888,7 +893,7 @@ export function defineTicketContract(name: string, fresh: () => ContractBackend)
   test(`${name}: a refused refresh releases the lease and says to connect again; a pasted token never expires`, async () => {
     const backend = fresh();
     const { danaId } = await setup(backend);
-    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", email: null, site: null }, { access: "old", refresh: "spent", expiresAt: 1 });
+    const sealed = await sealSignIn(withSignIn, "linear", danaId, { accountId: "user-1", accountName: "Dana", emails: [], site: null }, { access: "old", refresh: "spent", expiresAt: 1 });
     await backend.run((store) => saveTrackerAccount(store, danaId, sealed, 1));
     let accountId = "user-1";
     const steps = {

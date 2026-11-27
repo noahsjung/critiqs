@@ -55,7 +55,7 @@ test("verify asks Linear whose token it is, sending an API key as it is and a si
   requests.length = 0;
   replies.push({ body: VIEWER }, { body: VIEWER });
   const linear = linearAdapter({ baseUrl });
-  expect(await linear.verify({ method: "token", value: "lin_api_123" })).toEqual({ accountId: "user-1", accountName: "Dana Smith", email: "dana@example.com", site: { id: "org-1", name: "Acme" } });
+  expect(await linear.verify({ method: "token", value: "lin_api_123" })).toEqual({ accountId: "user-1", accountName: "Dana Smith", emails: ["dana@example.com"], site: { id: "org-1", name: "Acme" } });
   await linear.verify({ method: "oauth", value: "oauth-access" });
   expect(requests.map((request) => [request.path, request.authorization])).toEqual([
     ["/graphql", "lin_api_123"],
@@ -260,12 +260,12 @@ test("an unknown creation's issue is found by the creation's ID, and get refuses
   const creationId = "6f1c2b9a-3d4e-4f50-8a1b-2c3d4e5f6a7b";
   const linear = linearAdapter({ baseUrl });
   replies.push({ body: { data: { issues: { nodes: [issue(creationId, "ENG-7")] } } } });
-  expect((await linear.findCreated(key, { creationId, link: web("https://review.example/?critiqs=t1") }))?.key).toBe("ENG-7");
+  expect((await linear.findCreated(key, { creationId, link: web("https://review.example/?critiqs=t1"), destinationId: "team-eng", since: 0 }))?.key).toBe("ENG-7");
   expect(sentQuery(0).variables).toEqual({ id: creationId });
   // Archived issues too, which Linear's lists leave out unless asked.
   expect(sentQuery(0).query).toContain("includeArchived: true");
   replies.push({ body: { data: { issues: { nodes: [] } } } });
-  expect(await linear.findCreated(key, { creationId, link: web("https://review.example/?critiqs=t1") })).toBeNull();
+  expect(await linear.findCreated(key, { creationId, link: web("https://review.example/?critiqs=t1"), destinationId: "team-eng", since: 0 })).toBeNull();
   replies.push({ body: { data: { issues: { nodes: [] } } } });
   const missing = await refusal(linear.get(key, "i404"));
   expect(missing.code).toBe("not-found");
@@ -389,9 +389,9 @@ test("a creation is the issue whose ID Critiqs chose: Linear answering with anot
   expect((await linear.create(key, { destinationId: "t1", title: "T", body: md(""), labels: [], templateId: null, creationId: creationId.toUpperCase() })).status).toBe("created");
   // Looking for a lost answer by the creation's ID: another issue is not it.
   replies.push({ body: { data: { issues: { nodes: [issue("0d9c8b7a-6f5e-4d3c-8b2a-190807060504", "ENG-9")] } } } });
-  expect((await refusal(linear.findCreated(key, { creationId, link: null }))).code).toBe("unavailable");
+  expect((await refusal(linear.findCreated(key, { creationId, link: null, destinationId: "t1", since: 0 }))).code).toBe("unavailable");
   replies.push({ body: { data: { issues: { nodes: [issue(creationId, "ENG-7")] } } } });
-  expect((await linear.findCreated(key, { creationId, link: null }))?.externalId).toBe(creationId);
+  expect((await linear.findCreated(key, { creationId, link: null, destinationId: "t1", since: 0 }))?.externalId).toBe(creationId);
 });
 
 test("create applies a template and adds labels only when given them", async () => {

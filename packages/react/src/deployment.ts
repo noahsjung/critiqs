@@ -172,8 +172,11 @@ function ticketsOf(value: unknown): TicketsConfig | null {
   if (typeof value !== "object" || value === null || !Array.isArray((value as { trackers?: unknown }).trackers)) return null;
   const known = new Set<string>(TRACKERS.map((tracker) => tracker.id));
   const trackers = ((value as { trackers: unknown[] }).trackers).flatMap((entry) => {
-    const { id, signIn } = (typeof entry === "object" && entry !== null ? entry : {}) as { id?: unknown; signIn?: unknown };
-    return typeof id === "string" && known.has(id) && (signIn === "oauth" || signIn === "token") ? [{ id: id as TrackerId, signIn: signIn as "oauth" | "token" }] : [];
+    const { id, signIn, installUrl } = (typeof entry === "object" && entry !== null ? entry : {}) as { id?: unknown; signIn?: unknown; installUrl?: unknown };
+    if (typeof id !== "string" || !known.has(id) || (signIn !== "oauth" && signIn !== "token")) return [];
+    // Only a web address is kept as the install link: anything else could run in the page.
+    const install = typeof installUrl === "string" && /^https?:\/\//.test(installUrl) ? { installUrl } : {};
+    return [{ id: id as TrackerId, signIn: signIn as "oauth" | "token", ...install }];
   });
   if (trackers.length === 0) return null;
   const flags = value as { threadTickets?: unknown; drafting?: unknown; ticketStatus?: unknown };

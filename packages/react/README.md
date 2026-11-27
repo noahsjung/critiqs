@@ -285,7 +285,12 @@ account in **Your trackers…**, in the avatar menu, with a Linear API key; with
 `CRITIQS_LINEAR_CLIENT_ID` and `CRITIQS_LINEAR_CLIENT_SECRET` from your own
 Linear OAuth app, whose callback is
 `https://<deployment>.convex.site/trackers/linear/callback`, they sign in to
-Linear instead. After upgrading an existing deployment, run
+Linear instead. GitHub Issues works the same way: people paste a fine-grained
+personal access token, or, with `CRITIQS_GITHUB_CLIENT_ID`,
+`CRITIQS_GITHUB_CLIENT_SECRET`, and `CRITIQS_GITHUB_APP_SLUG` from your own
+GitHub App (callback
+`https://<deployment>.convex.site/trackers/github/callback`), sign in through
+it. After upgrading an existing deployment, run
 `npx convex run tags:backfill` once so earlier comments gain their hashtags,
 and `npx convex run projects:shortenLongNames` once so project names from
 before the 200-character limit are shortened to fit it.
