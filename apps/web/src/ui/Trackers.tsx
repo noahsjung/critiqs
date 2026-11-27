@@ -135,9 +135,11 @@ function TrackerRow({ trackers, tracker, signIn, account }: { trackers: Trackers
                 {copy.trackers.connect}
               </button>
             )}
-            <button type="button" className={signIn === "oauth" ? "quiet" : "btn"} disabled={busy} onClick={() => setForm("token")}>
-              {signIn === "oauth" ? copy.trackers.useKey : copy.trackers.connect}
-            </button>
+            {!jira && (
+              <button type="button" className={signIn === "oauth" ? "quiet" : "btn"} disabled={busy} onClick={() => setForm("token")}>
+                {signIn === "oauth" ? copy.trackers.useKey : copy.trackers.connect}
+              </button>
+            )}
           </span>
         ) : null}
       </div>

@@ -70,7 +70,7 @@ async function linked(options: { otherSites?: number } = {}) {
   const lee = t.withIdentity(reviewer("Lee"));
   const projectId = await dana.mutation(api.projects.create, { name: "Admin prototype", reviewUrl: "https://review.example/app" });
   const threadId = await lee.mutation(api.threads.create, { projectId, anchor, body: "Department is wrong", tags: [], capture: failedCapture });
-  await lee.action(api.trackers.connectWithToken, { tracker: "jira", token: "ATATT-lee", email: "lee@example.com", site: "acme" });
+  await signIn(t, lee, "557058:lee");
   const issue = addJiraIssue(jira, { summary: "Existing", status: { name: "To Do", categoryKey: "new" } });
   await lee.action(api.tickets.link, { threadId, tracker: "jira", externalId: `${jira.site.cloudId}/${issue.id}`, comment: false });
   const users = await t.run((ctx) => ctx.db.query("users").collect());

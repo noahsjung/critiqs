@@ -4,15 +4,17 @@ import { errorMessage, type TicketTransport, useTransport } from "../transport.t
 import { Dialog } from "./common.tsx";
 import { DialogHeader, NavRow, SettingRow, Switch, usePageFocus } from "./ds.tsx";
 
-/** Where people create a personal token, for trackers Critiqs connects so far. */
+/** Where people create a personal token, for trackers that accept pasted tokens. */
 const TOKEN_PAGES: Partial<Record<TrackerId, string>> = {
   linear: "https://linear.app/settings/account/security",
   github: "https://github.com/settings/personal-access-tokens/new",
-  jira: "https://id.atlassian.com/manage-profile/security/api-tokens",
 };
 
-/** Trackers whose accounts are on one of several sites, chosen when connecting (Jira Cloud): the site, and for a pasted token the account's email, go with it. */
+/** Trackers whose accounts are on one of several sites, chosen when connecting (Jira Cloud). */
 const hasSites = (tracker: TrackerId) => tracker === "jira";
+
+/** Trackers that connect through OAuth sign-in only, never a pasted API token. */
+const oauthOnly = (tracker: TrackerId) => tracker === "jira";
 
 /** What each tracker calls the personal token people paste, and how to make one; an API key where a tracker isn't listed. */
 const TOKEN_KINDS: Partial<Record<TrackerId, { field: string; instead: string; help: string; settings: string }>> = {
@@ -211,7 +213,11 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
       stop();
       popup.close();
       setWaiting(null);
-      setError(`This page doesn't allow the ${label(tracker)} sign-in window. ${tokenKind(tracker).instead}.`);
+      setError(
+        oauthOnly(tracker)
+          ? `This page doesn't allow the ${label(tracker)} sign-in window. Connect ${label(tracker)} from Your trackers on Critiqs's website instead.`
+          : `This page doesn't allow the ${label(tracker)} sign-in window. ${tokenKind(tracker).instead}.`,
+      );
     };
     const timer = setTimeout(() => stop(), BLOCKED_WATCH_MS);
     const stop = () => {
@@ -236,7 +242,6 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
           tracker={page.tracker}
           busy={busy}
           onBack={() => go({ kind: "main" })}
-          onToken={() => go({ kind: "token", tracker: page.tracker })}
           error={error}
           onSignIn={(site) => {
             // A site Critiqs refuses keeps this page, with what was typed, to correct it.
@@ -297,7 +302,7 @@ export function YourTrackersDialog({ offered, onClose, notify }: { offered: Tick
                       disabled={busy}
                       onClick={() => (method !== "oauth" ? go({ kind: "token", tracker: id }) : hasSites(id) ? go({ kind: "site", tracker: id }) : void signIn(id))}
                     />
-                    {method === "oauth" && (
+                    {method === "oauth" && !oauthOnly(id) && (
                       <div className="row">
                         <button type="button" className="link-btn" disabled={busy} onClick={() => go({ kind: "token", tracker: id })}>
                           {tokenKind(id).instead}
@@ -484,7 +489,6 @@ function SitePage({
   busy,
   error,
   onBack,
-  onToken,
   onSignIn,
 }: {
   tracker: TrackerId;
@@ -492,7 +496,6 @@ function SitePage({
   /** Why the last sign-in couldn't start, such as a site Critiqs refused; null for none. */
   error: string | null;
   onBack: () => void;
-  onToken: () => void;
   onSignIn: (site: string) => void;
 }) {
   const [site, setSite] = useState("");
@@ -518,10 +521,7 @@ function SitePage({
             {error}
           </p>
         )}
-        <div className="ds-actions between">
-          <button type="button" className="link-btn" disabled={busy} onClick={onToken}>
-            {tokenKind(tracker).instead}
-          </button>
+        <div className="ds-actions end">
           <button type="submit" className="btn primary" disabled={busy || site.trim() === ""}>
             Sign in with Atlassian
           </button>

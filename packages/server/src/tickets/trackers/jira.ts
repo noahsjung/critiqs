@@ -733,7 +733,7 @@ export async function jiraSignInSite(endpoint: TrackerEndpointOptions, accessTok
   if (site === undefined) {
     fail(
       "forbidden",
-      `Your Atlassian sign-in doesn't give Critiqs access to ${chosen || "that site"}. Connect again and choose ${chosen || "your site"} when Atlassian asks which site to use, or connect with an Atlassian API token instead.`,
+      `Your Atlassian sign-in doesn't give Critiqs access to ${chosen || "that site"}. Connect again and choose ${chosen || "your site"} when Atlassian asks which site to use.`,
     );
   }
   return site;
