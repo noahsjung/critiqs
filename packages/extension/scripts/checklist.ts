@@ -617,8 +617,11 @@ await run.case("A5.2", "The sidebar lists the comment; choosing it opens its thr
   if ((await overlay.seen()).sidebar === null) await overlay.click({ button: { pattern: "^(Project|Comments)" } });
   await overlay.page.keyboard.press("c");
   await overlay.click({ css: ".sidebar button", text: TYPED.slice(0, 20) });
-  const seen = await overlay.waitFor("no thread window after choosing the comment in the sidebar", (now) => now.threadWindow !== null, 5000);
-  const near = seen.pins.map((pin) => gap(pin, seen.threadWindow!)).sort((a, b) => a - b)[0];
+  const nearest = (now: Seen) => now.pins.map((pin) => gap(pin, now.threadWindow!)).sort((a, b) => a - b)[0];
+  await overlay.waitFor("no thread window after choosing the comment in the sidebar", (now) => now.threadWindow !== null, 5000);
+  // It may dock for a moment before its pin is placed; give it a second to move beside the pin.
+  const seen = await overlay.waitFor("", (now) => now.threadWindow !== null && (nearest(now) ?? Infinity) <= 24, 1500).catch(() => overlay.seen());
+  const near = seen.threadWindow === null ? undefined : nearest(seen);
   if (near === undefined || near > 24) throw new Error(`The thread window at ${box(seen.threadWindow)} isn't beside a pin (nearest ${near === undefined ? "none" : `${Math.round(near)} px`}).`);
   await overlay.page.keyboard.press("Escape");
   return `Chose the comment in the sidebar; its thread window at ${box(seen.threadWindow)} is ${Math.round(near)} px from its pin`;
@@ -839,7 +842,7 @@ await run.case("A6.4", "In a 600 px wide window: the sidebar fills the window, t
   try {
     const seen = await overlay.toolbar();
     if (seen.toolbar!.x < 0 || seen.toolbar!.x + seen.toolbar!.width > 600) throw new Error(`The toolbar at ${box(seen.toolbar)} doesn't fit 600 px.`);
-    await overlay.click({ button: { pattern: "^(Project|Comments)" } });
+    if (seen.sidebar === null) await overlay.click({ button: { pattern: "^(Project|Comments)" } });
     const open = await overlay.waitFor("no sidebar", (now) => now.sidebar !== null, 5000);
     if (open.sidebar!.width < 598) throw new Error(`The sidebar is ${Math.round(open.sidebar!.width)} px wide in a 600 px window.`);
     await overlay.click({ button: "Close sidebar" });
@@ -998,6 +1001,8 @@ await run.case("A9.1", "Threads made from the extension have madeWith: extension
 });
 
 await run.case("A9.2", "Through the whole run, no request reaches /critiqs/connected from a page Critiqs is open on, and the project's connectedAt stays empty", async () => {
+  // Only meaningful once Critiqs ran on pages: with nothing shown, nothing could report.
+  if (saved === null) throw new NotRun("Critiqs made no comment on a page in this run (A4.3), so there was nothing that could report Connected");
   const reports = browser.requests.filter((request) => request.url.includes("/critiqs/connected") && !request.from.includes("installed.critiqs.test"));
   const dana = await asDana();
   const any = (await threads(dana, acme))[0];
@@ -1009,9 +1014,10 @@ await run.case("A9.2", "Through the whole run, no request reaches /critiqs/conne
 
 await run.case("A9.3", "No regression: the installed Critiqs still reports Connected once and saves threads without madeWith", async () => {
   if (elementScript === "") throw new NotRun("the critiqs package isn't built (bun run build in packages/critiqs), so the page with Critiqs installed can't load");
-  const page = await browser.context.newPage();
+  // A fresh profile for the installed page (its Connected report is kept in the page's storage for an hour).
+  const fresh = await browser.browser.newContext({ ignoreHTTPSErrors: true });
+  const page = await fresh.newPage();
   run.page = page;
-  const since = Date.now();
   // The installed Critiqs runs in the page's own world: count the reports it sends there, across loads.
   await page.addInitScript(() => {
     const sent = Number(sessionStorage.getItem("acceptance:connected") ?? 0);
@@ -1031,9 +1037,8 @@ await run.case("A9.3", "No regression: the installed Critiqs still reports Conne
   await widget.locator('[role="toolbar"]').first().waitFor({ timeout: 30_000 });
   await Bun.sleep(1500);
   const reported = Number(await page.evaluate(() => sessionStorage.getItem("acceptance:connected")));
-  const reports = browser.requests.filter((request) => request.at >= since && request.url.includes("/critiqs/connected") && request.from.includes("installed.critiqs.test"));
   // Sign in to the installed Critiqs through its own sign-in window, then comment with the real mouse and keyboard.
-  const popup = browser.context.waitForEvent("page", { timeout: 15_000 });
+  const popup = fresh.waitForEvent("page", { timeout: 15_000 });
   await widget.getByRole("button", { name: "Sign in" }).first().click();
   const window = await popup;
   for (let attempt = 0; attempt < 60 && !window.isClosed(); attempt++) {
@@ -1064,10 +1069,10 @@ await run.case("A9.3", "No regression: the installed Critiqs still reports Conne
   await page.keyboard.press("Control+Enter");
   const made = await savedThread(await asDana(), installed, "Left on the installed page", 15_000);
   const recorded = await threadPage(await asDana(), made._id);
-  await page.close();
+  await fresh.close();
   const problems: string[] = [];
   // "Once": the first load reports (the package may send again within that load when an answer fails), the next load doesn't.
-  if (firstLoad < 1 || reported !== firstLoad) problems.push(`the installed Critiqs sent ${firstLoad} Connected reports on the first load and ${reported - firstLoad} on the second (the network log shows ${reports.length})`);
+  if (firstLoad < 1 || reported !== firstLoad) problems.push(`the installed Critiqs sent ${firstLoad} Connected reports on the first load and ${reported - firstLoad} on the second`);
   if (recorded.madeWith === "extension") problems.push("the installed Critiqs's thread says madeWith extension");
   if (recorded.connectedAt === null) problems.push("the project's connectedAt is empty");
   if (problems.length > 0) throw new Error(problems.join("; "));
