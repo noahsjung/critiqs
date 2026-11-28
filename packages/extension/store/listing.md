@@ -6,9 +6,10 @@ with the manifest: a new permission needs a justification here before it ships.
 
 ## Before the first upload
 
-- **A privacy policy URL.** The store requires one for an extension that
-  handles personal data. Critiqs's website has no privacy page yet; one has to
-  be published first.
+- **A privacy policy URL:** `https://critiqs.app/privacy`. The store requires
+  one for an extension that handles personal data. The page is built from
+  `site-src/content/pages/privacy.md`; fill in its marked decisions and remove
+  its draft note before entering the URL.
 - **Screenshots.** At least one, 1280×800 or 640×400: the page with pins and
   the side panel beside it, and the Mockup tab. `bun run check:checklist`
   saves both as it runs.

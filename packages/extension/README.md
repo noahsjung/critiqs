@@ -92,7 +92,7 @@ Publishing is by hand, by the account that owns the listing: upload the zip
 in the Chrome Web Store's developer dashboard and fill in the listing, the
 permission justifications, and the data use from
 [store/listing.md](store/listing.md). That file also lists what the first
-upload needs that doesn't exist yet, such as a privacy policy page.
+upload needs, such as the privacy policy's address.
 
 The store assigns the published extension its own ID, a fixed 32-letter ID
 shown in the dashboard once the item is created. Until Critiqs Cloud lists it,
