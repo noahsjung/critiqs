@@ -48,4 +48,5 @@ export * from "./tickets/trackers/github.ts";
 export * from "./tickets/trackers/jira.ts";
 export * from "./tickets/trackers/adf.ts";
 export * from "./tickets/webhooks.ts";
+export * from "./tickets/privacy.ts";
 export * from "./tickets/status.ts";

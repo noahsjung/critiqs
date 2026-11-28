@@ -1,5 +1,5 @@
 import type { ExportPageLoader, TrackerId } from "@critiqs/core";
-import { type AccessSteps, type TicketsDeployment, type TokenRead, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken, trackerAdapter, trackerRemovalAccess, trackerSignIn, type WebhookRemoval } from "@critiqs/server";
+import { type AccessSteps, type JiraPrivacyAccess, type TicketsDeployment, type TokenRead, type TokenUse, type TrackerToken, ticketsDeploymentFromEnv, trackerAccessToken, trackerAdapter, trackerPrivacyAccess, trackerRemovalAccess, trackerSignIn, type WebhookRemoval } from "@critiqs/server";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -29,7 +29,9 @@ export function siteUrl(): string {
  */
 export async function trackerToken(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId, use: TokenRead = { by: "person" }): Promise<TrackerToken> {
   // Checked here too, for callers the types don't reach.
-  if ((use as TokenUse).by === "cleanup") throw new Error("A token read only to remove what Critiqs registered is held by trackerRemoval, never returned.");
+  const by = (use as TokenUse).by;
+  if (by === "cleanup") throw new Error("A token read only to remove what Critiqs registered is held by trackerRemoval, never returned.");
+  if (by === "privacy") throw new Error("A token read only for personal data reporting is held by jiraPrivacy, never returned.");
   return await trackerAccessToken(accessSteps(ctx, person, tracker), ticketsDeployment(), { ...person, tracker, use });
 }
 
@@ -44,11 +46,28 @@ export async function trackerRemoval(ctx: ActionCtx, person: { userId: string; a
   return await trackerRemovalAccess(accessSteps(ctx, person, tracker), ticketsDeployment(), { ...person, tracker }, webhooks);
 }
 
+/**
+ * A person's Jira OAuth token, read only for Atlassian's Personal Data
+ * Reporting API (`privacy`), as a `JiraPrivacyAccess` that never reveals the
+ * token.
+ */
+export async function jiraPrivacy(ctx: ActionCtx, person: { userId: string; accountId: string }, forceRefresh = false): Promise<JiraPrivacyAccess> {
+  return await trackerPrivacyAccess(accessSteps(ctx, person, "jira"), ticketsDeployment(), { ...person, forceRefresh });
+}
+
 /** The store steps of reading a person's token: the reader passes its use, which `claimRefresh` checks as it reads the account. */
 function accessSteps(ctx: ActionCtx, person: { userId: string; accountId: string }, tracker: TrackerId): AccessSteps {
   const { userId, accountId } = person;
   return {
-    claim: (leaseId, use) => ctx.runMutation(internal.trackers.claimRefresh, { userId, tracker, accountId, leaseId, use }),
+    claim: (leaseId, use, forceRefresh) =>
+      ctx.runMutation(internal.trackers.claimRefresh, {
+        userId,
+        tracker,
+        accountId,
+        leaseId,
+        use,
+        ...(forceRefresh === undefined ? {} : { forceRefresh }),
+      }),
     finish: (leaseId, tokens) => ctx.runMutation(internal.trackers.finishRefresh, { userId, tracker, leaseId, tokens }),
     sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
     now: () => Date.now(),

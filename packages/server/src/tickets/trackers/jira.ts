@@ -134,6 +134,19 @@ const browseUrl = (site: TrackerSite, key: string) => webAddress(`https://${site
 /** Critiqs's ID for a Jira issue or account: the site's cloud ID, then Jira's ID. */
 export const jiraId = (site: { id: string }, id: string) => `${site.id}/${id}`;
 
+/**
+ * The raw Atlassian account ID from Critiqs's `<cloudId>/<accountId>`; null
+ * when it is malformed or Atlassian's sentinel `unknown` (which Atlassian's
+ * personal data reporting API forbids reporting).
+ */
+export function jiraAccountId(accountId: string): string | null {
+  const slash = accountId.indexOf("/");
+  if (slash <= 0) return null;
+  const raw = accountId.slice(slash + 1);
+  if (raw === "" || raw.length > 128 || raw.toLowerCase() === "unknown" || !/^[A-Za-z0-9:._-]+$/.test(raw)) return null;
+  return raw;
+}
+
 /** Jira's own ID from Critiqs's, refused when it is on another site than the token's. */
 function localId(token: TrackerToken, externalId: string): string {
   const site = siteOf(token);
@@ -635,10 +648,11 @@ async function linkGlobalId(url: string): Promise<string> {
 
 /**
  * What Critiqs asks Atlassian for: to read and write Jira issues, to know who
- * signed in and their email (`read:me`), to register its status webhooks,
- * and a refresh token (`offline_access`).
+ * signed in and their email (`read:me`), to register its status webhooks, to
+ * report stored personal data (`report:personal-data`), and a refresh token
+ * (`offline_access`).
  */
-export const JIRA_SCOPES = ["read:jira-work", "write:jira-work", "read:jira-user", "manage:jira-webhook", "read:me", "offline_access"];
+export const JIRA_SCOPES = ["read:jira-work", "write:jira-work", "read:jira-user", "manage:jira-webhook", "read:me", "report:personal-data", "offline_access"];
 
 export function jiraAuthorizeUrl(authUrl: string, input: { clientId: string; redirectUri: string; state: string }): string {
   const url = new URL("/authorize", authUrl);
@@ -695,7 +709,7 @@ async function jiraTokenRequest(endpoint: TrackerEndpointOptions, body: Record<s
     if (response.status === 401 || (isRecord(answer) && (answer.error === "invalid_client" || answer.error === "unauthorized_client"))) {
       fail("unavailable", "Atlassian doesn't recognize this deployment's Jira app. Its operator must check CRITIQS_JIRA_CLIENT_ID and CRITIQS_JIRA_CLIENT_SECRET.");
     }
-    fail("invalid", refused);
+    throw new TrackerRefusal("invalid", refused);
   }
   if (!response.ok || !isRecord(answer) || !text(answer.access_token)) throw unexpected(`status ${response.status}`);
   const expiresIn = typeof answer.expires_in === "number" && answer.expires_in > 0 ? answer.expires_in : null;
@@ -870,4 +884,156 @@ export async function readJiraWebhook(secret: string, rawBody: Uint8Array<ArrayB
     default:
       return { status: "ignored" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Personal data reporting (GDPR): Atlassian requires OAuth 2.0 (3LO) apps that
+// store user personal data (such as display names tied to an accountId) to
+// periodically poll `POST https://api.atlassian.com/app/report-accounts/`
+// (https://developer.atlassian.com/cloud/jira/platform/user-privacy-developer-guide/).
+
+/** The most Atlassian accounts one call to `POST /app/report-accounts/` accepts. */
+export const JIRA_PRIVACY_MAX_ACCOUNTS = 90;
+/** Default interval between reports for the same account, in days, when Atlassian sends no `Cycle-Period` header. */
+export const JIRA_PRIVACY_DEFAULT_CYCLE_DAYS = 7;
+/** Upper bound on a `Cycle-Period` header value, in days, so a bad header can't disable reporting indefinitely. */
+export const JIRA_PRIVACY_MAX_CYCLE_DAYS = 365;
+/** Bounds on a `Retry-After` header (in ms) when Atlassian answers 429. */
+const JIRA_PRIVACY_MIN_RETRY_MS = 60_000;
+const JIRA_PRIVACY_DEFAULT_RETRY_MS = 60 * 60_000;
+const JIRA_PRIVACY_MAX_RETRY_MS = 24 * 60 * 60_000;
+
+/** One account reported to Atlassian: its raw Atlassian `accountId` and when its personal data was retrieved (ms). */
+export interface JiraReportedAccount {
+  accountId: string;
+  updatedAt: number;
+}
+
+/** What Atlassian tells an app to do for a reported account: erase it (`closed`) or refresh/erase it (`updated`). */
+export type JiraAccountPrivacyStatus = "closed" | "updated";
+
+/** The result of one `POST /app/report-accounts/` call. */
+export type JiraAccountReport =
+  | { status: "ok"; accounts: { accountId: string; status: JiraAccountPrivacyStatus }[]; cyclePeriodDays: number }
+  | { status: "rate-limited"; retryAfterMs: number };
+
+/** Parses Atlassian's `Cycle-Period` header (days); defaults to 7 days when absent or unreadable, and clamps large values. */
+export function parseCyclePeriodDays(header: string | null): number {
+  if (header === null) return JIRA_PRIVACY_DEFAULT_CYCLE_DAYS;
+  const trimmed = header.trim();
+  if (!/^\d+$/.test(trimmed)) return JIRA_PRIVACY_DEFAULT_CYCLE_DAYS;
+  const days = Number(trimmed);
+  if (!Number.isFinite(days) || days < 1) return JIRA_PRIVACY_DEFAULT_CYCLE_DAYS;
+  return Math.min(Math.floor(days), JIRA_PRIVACY_MAX_CYCLE_DAYS);
+}
+
+/** Parses a `Retry-After` header (seconds or RFC 9110 HTTP-date) for 429 responses. */
+export function parseRetryAfterMs(header: string | null, now: number = Date.now()): number {
+  if (header === null) return JIRA_PRIVACY_DEFAULT_RETRY_MS;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (!Number.isFinite(seconds)) return JIRA_PRIVACY_MAX_RETRY_MS;
+    return Math.max(JIRA_PRIVACY_MIN_RETRY_MS, Math.min(seconds * 1000, JIRA_PRIVACY_MAX_RETRY_MS));
+  }
+  const at = Date.parse(trimmed);
+  if (Number.isFinite(at)) {
+    return Math.max(JIRA_PRIVACY_MIN_RETRY_MS, Math.min(at - now, JIRA_PRIVACY_MAX_RETRY_MS));
+  }
+  return JIRA_PRIVACY_DEFAULT_RETRY_MS;
+}
+
+/**
+ * Reports up to 90 Atlassian accounts whose personal data Critiqs stores
+ * (`POST https://api.atlassian.com/app/report-accounts/`). Uses a 3LO OAuth
+ * bearer token with the `report:personal-data` scope.
+ */
+export async function reportJiraAccounts(
+  endpoint: TrackerEndpointOptions,
+  accessToken: string,
+  accounts: readonly JiraReportedAccount[],
+  now: number = Date.now(),
+): Promise<JiraAccountReport> {
+  if (accounts.length === 0 || accounts.length > JIRA_PRIVACY_MAX_ACCOUNTS) {
+    fail("invalid", `Atlassian accepts between 1 and ${JIRA_PRIVACY_MAX_ACCOUNTS} accounts per personal data report.`);
+  }
+  const api = trackerEndpoint(endpoint, JIRA_API_URL);
+  const body = JSON.stringify({
+    accounts: accounts.map((account) => {
+      const clamped = Number.isFinite(account.updatedAt) ? Math.max(0, Math.min(account.updatedAt, now)) : now;
+      return {
+        accountId: account.accountId,
+        updatedAt: new Date(clamped).toISOString(),
+      };
+    }),
+  });
+  let response: Response;
+  try {
+    response = await api.fetch(`${api.baseUrl}/app/report-accounts/`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body,
+    });
+  } catch {
+    throw unreachable();
+  }
+  if (response.status === 429) return { status: "rate-limited", retryAfterMs: parseRetryAfterMs(response.headers.get("Retry-After"), now) };
+  const cyclePeriodDays = parseCyclePeriodDays(response.headers.get("Cycle-Period"));
+  if (response.status === 204) return { status: "ok", accounts: [], cyclePeriodDays };
+  const raw = await response.text().catch(() => null);
+  let parsed: unknown = null;
+  try {
+    parsed = raw === null || raw === "" ? null : JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+  if (response.status === 401) throw new TrackerRefusal("invalid", "Atlassian didn't accept this bearer token for personal data reporting.");
+  if (response.status === 403) throw new TrackerRefusal("forbidden", "Atlassian turned down personal data reporting: token lacks permission or scope.");
+  if (response.status !== 200 || !isRecord(parsed) || !Array.isArray(parsed.accounts) || parsed.accounts.length > JIRA_PRIVACY_MAX_ACCOUNTS) {
+    throw unexpected(`status ${response.status}`);
+  }
+  const actions: { accountId: string; status: JiraAccountPrivacyStatus }[] = [];
+  for (const entry of parsed.accounts) {
+    if (!isRecord(entry) || !text(entry.accountId) || (entry.status !== "closed" && entry.status !== "updated")) {
+      throw unexpected("malformed accounts");
+    }
+    actions.push({ accountId: entry.accountId, status: entry.status });
+  }
+  return { status: "ok", accounts: actions, cyclePeriodDays };
+}
+
+/** Reads the signed-in Atlassian user's current profile (`/me`) to refresh stale personal data (`status: "updated"`). */
+export async function readJiraProfile(
+  endpoint: TrackerEndpointOptions,
+  accessToken: string,
+): Promise<{ accountId: string; accountName: string; closed: boolean }> {
+  const api = trackerEndpoint(endpoint, JIRA_API_URL);
+  let response: Response;
+  try {
+    response = await api.fetch(`${api.baseUrl}/me`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw unreachable();
+  }
+  const raw = await response.text().catch(() => null);
+  let parsed: unknown = null;
+  try {
+    parsed = raw === null || raw === "" ? null : JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+  if (response.status === 401) throw new TrackerRefusal("invalid", "Atlassian no longer accepts this Jira sign-in.");
+  if (response.status === 429) throw new TrackerRefusal("limit", "Atlassian is limiting requests right now.");
+  if (response.status === 403) throw new TrackerRefusal("forbidden", "Atlassian turned down reading this profile.");
+  if (response.status >= 400 && response.status < 500 && response.status !== 408) {
+    throw new TrackerRefusal("invalid", `Atlassian turned down reading this profile (status ${response.status}).`);
+  }
+  if (!response.ok || !isRecord(parsed) || !text(parsed.account_id)) throw unexpected("no account");
+  const closed = parsed.account_status === "closed";
+  if (closed) return { accountId: parsed.account_id, accountName: "", closed: true };
+  if (!text(parsed.name)) throw unexpected("no account");
+  const accountName = trackerText(parsed.name, TRACKER_LIMITS.name);
+  if (accountName === "") throw unexpected("no account");
+  return { accountId: parsed.account_id, accountName, closed: false };
 }

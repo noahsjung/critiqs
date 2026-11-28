@@ -88,6 +88,16 @@ export interface JiraStandIn {
   webhooks: { id: number; url: string; jqlFilter: string; events: string[]; expiresAt: number; ownerId: string }[];
   /** Codes and tokens of sign-ins: each code once, each refresh token once (they rotate). */
   oauth: { codes: Map<string, string>; access: Map<string, { accountId: string; expiresAt: number }>; refresh: Map<string, string> };
+  /** State for Atlassian's Personal Data Reporting API (`POST /app/report-accounts/`). */
+  privacy: {
+    cyclePeriodDays: number;
+    /** Raw Atlassian account IDs reported as closed (includes Atlassian's documented closed test ID). */
+    closed: Set<string>;
+    /** Raw Atlassian account IDs whose profile changed at timestamp (ms): reports with older `updatedAt` get `status: "updated"`. */
+    updated: Map<string, number>;
+    /** Each accepted batch reported to `POST /app/report-accounts/`. */
+    reports: { accountId: string; updatedAt: string }[][];
+  };
   /** Every request's method and path, in order. */
   requests: string[];
   /** Runs before a request is answered; return a Response to answer with it instead, or "after" to answer 504 after doing the work. */
@@ -264,6 +274,12 @@ export function jiraStandIn(options: { users?: JiraStandInUser[]; now?: () => nu
     attachments: [],
     webhooks: [],
     oauth: { codes: new Map(), access: new Map(), refresh: new Map() },
+    privacy: {
+      cyclePeriodDays: 7,
+      closed: new Set(["5be24ba3f91c106033269289"]),
+      updated: new Map(),
+      reports: [],
+    },
     requests: [],
     intercept: null,
     now: options.now ?? (() => Date.now()),
@@ -344,9 +360,45 @@ export function jiraStandIn(options: { users?: JiraStandInUser[]; now?: () => nu
       return Response.json([{ id: site.cloudId, url: `https://${site.host}`, name: site.name, scopes: ["read:jira-work", "write:jira-work", "manage:jira-webhook"], avatarUrl: "https://example.test/a.png" }]);
     }
     if (path === "/me") {
+      const intercepted = (await standIn.intercept?.(request.method, path, null)) ?? undefined;
+      if (intercepted instanceof Response) return intercepted;
       const user = caller(request, "me");
       if (user === null) return ERROR(401, ["Unauthorized"]);
       return Response.json({ account_type: "atlassian", account_id: user.accountId, email: user.email, name: user.name, account_status: "active" });
+    }
+    if (path === "/app/report-accounts/" && request.method === "POST") {
+      const body = (await request.json().catch(() => undefined)) as unknown;
+      const intercepted = (await standIn.intercept?.(request.method, path, body)) ?? undefined;
+      if (intercepted instanceof Response) return intercepted;
+      if (caller(request, "me") === null) return ERROR(401, ["Unauthorized"]);
+      const rec = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+      if (rec === null || !Array.isArray(rec.accounts) || rec.accounts.length === 0 || rec.accounts.length > 90) {
+        return Response.json({ errorType: "BAD_REQUEST", errorMessage: "accounts must have 1-90 items" }, { status: 400 });
+      }
+      const batch: { accountId: string; updatedAt: string }[] = [];
+      const actions: { accountId: string; status: "closed" | "updated" }[] = [];
+      for (const entry of rec.accounts) {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+          return Response.json({ errorType: "BAD_REQUEST", errorMessage: "malformed account entry" }, { status: 400 });
+        }
+        const item = entry as Record<string, unknown>;
+        if (typeof item.accountId !== "string" || item.accountId === "" || item.accountId.toLowerCase() === "unknown" || typeof item.updatedAt !== "string" || !Number.isFinite(Date.parse(item.updatedAt))) {
+          return Response.json({ errorType: "BAD_REQUEST", errorMessage: "invalid accountId or updatedAt" }, { status: 400 });
+        }
+        batch.push({ accountId: item.accountId, updatedAt: item.updatedAt });
+        if (standIn.privacy.closed.has(item.accountId)) {
+          actions.push({ accountId: item.accountId, status: "closed" });
+        } else {
+          const changedAt = standIn.privacy.updated.get(item.accountId);
+          if (changedAt !== undefined && Date.parse(item.updatedAt) < changedAt) {
+            actions.push({ accountId: item.accountId, status: "updated" });
+          }
+        }
+      }
+      standIn.privacy.reports.push(batch);
+      const headers = { "Cycle-Period": String(standIn.privacy.cyclePeriodDays) };
+      if (actions.length === 0) return new Response(null, { status: 204, headers });
+      return Response.json({ accounts: actions }, { status: 200, headers });
     }
     const gateway = /^\/ex\/jira\/([^/]+)(\/rest\/api\/3\/.*)$/.exec(path);
     const direct = /^\/([a-z0-9-]+\.atlassian\.net)(\/.*)$/.exec(path);
@@ -413,7 +465,7 @@ export function jiraStandIn(options: { users?: JiraStandInUser[]; now?: () => nu
     const refresh = `jira-refresh-${crypto.randomUUID()}`;
     standIn.oauth.access.set(access, { accountId, expiresAt: standIn.now() + 3600_000 });
     standIn.oauth.refresh.set(refresh, accountId);
-    return Response.json({ access_token: access, refresh_token: refresh, expires_in: 3600, scope: "read:jira-work write:jira-work read:me offline_access", token_type: "Bearer" });
+    return Response.json({ access_token: access, refresh_token: refresh, expires_in: 3600, scope: "read:jira-work write:jira-work read:me report:personal-data offline_access", token_type: "Bearer" });
   }
 
   function createFields(projectId: string, typeId: string): JiraStandInField[] | null {
