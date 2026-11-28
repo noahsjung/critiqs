@@ -1,6 +1,6 @@
 {
   "name": "critiqs-vue",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Critiqs's Vue component: add <Critiqs /> to a prototype to comment on it, discuss feedback, and find its context.",
   "license": "MIT",
   "keywords": [
@@ -35,7 +35,7 @@
     "check:consumer": "bun scripts/check-consumer.ts"
   },
   "dependencies": {
-    "critiqs": "0.4.0"
+    "critiqs": "0.5.0"
   },
   "peerDependencies": {
     "vue": "^3.3.0"

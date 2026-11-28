@@ -1,6 +1,6 @@
 {
   "name": "critiqs-nuxt",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Critiqs's Nuxt module: add critiqs-nuxt to modules to comment on a prototype, discuss feedback, and find its context.",
   "license": "MIT",
   "keywords": [
@@ -35,8 +35,8 @@
   },
   "dependencies": {
     "@nuxt/kit": "^4.0.0",
-    "critiqs": "0.4.0",
-    "critiqs-vue": "0.4.0"
+    "critiqs": "0.5.0",
+    "critiqs-vue": "0.5.0"
   },
   "peerDependencies": {
     "nuxt": "^4.0.0"

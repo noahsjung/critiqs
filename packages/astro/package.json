@@ -1,6 +1,6 @@
 {
   "name": "critiqs-astro",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Critiqs for Astro: an integration that adds Critiqs to every page, to comment on a prototype, discuss feedback, and find its context.",
   "license": "MIT",
   "keywords": [
@@ -36,7 +36,7 @@
     "check:consumer": "bun scripts/check-consumer.ts"
   },
   "dependencies": {
-    "critiqs": "0.4.0"
+    "critiqs": "0.5.0"
   },
   "peerDependencies": {
     "astro": "^5.0.0 || ^6.0.0 || ^7.0.0"
