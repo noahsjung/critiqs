@@ -8,7 +8,7 @@ import type { Identity, Store, StoredToken, TrackerAccountRecord } from "../stor
 import { type SignInTokens, TRACKER_ADAPTERS, type TrackerAdapter, type TrackerEndpointOptions, type TrackerIdentity, type TrackerSite, type TrackerToken, type TrackerWebhooks } from "./trackers/index.ts";
 import { type WebhookRemoval, webhookRemoval } from "./webhooks.ts";
 import { deleteGithubGrant, exchangeGithubCode, GITHUB_API_URL, GITHUB_APP_URL, type GithubApp, githubAuthorizeUrl, githubInstallUrl, refreshGithubToken } from "./trackers/github.ts";
-import { exchangeJiraCode, JIRA_API_URL, JIRA_AUTH_URL, type JiraApp, jiraAuthorizeUrl, jiraSignInSite, parseJiraSite, refreshJiraToken } from "./trackers/jira.ts";
+import { exchangeJiraCode, JIRA_API_URL, JIRA_AUTH_URL, type JiraAccountReport, type JiraApp, type JiraReportedAccount, jiraAccountId, jiraAuthorizeUrl, jiraSignInSite, parseJiraSite, readJiraProfile, refreshJiraToken, reportJiraAccounts } from "./trackers/jira.ts";
 import { exchangeLinearCode, LINEAR_API_URL, LINEAR_APP_URL, type LinearApp, linearAdapter, linearAuthorizeUrl, refreshLinearToken, revokeLinearToken } from "./trackers/linear.ts";
 
 // Each person's own tracker accounts ("Your trackers"), one per person and
@@ -281,6 +281,18 @@ export interface SealedAccount {
  */
 export async function saveTrackerAccount(store: Store, userId: string, account: SealedAccount, now: number): Promise<TrackerAccountView> {
   const accounts = ticketStore(store).accounts;
+  const privacyAccountKey = account.tracker === "jira" && account.method === "oauth" ? jiraAccountId(account.identity.accountId) : null;
+  // Coordinate with any existing row sharing the same raw Atlassian accountId so reconnecting or connecting a second
+  // Critiqs account for the same Atlassian user never triggers a duplicate report inside Cycle-Period.
+  const siblings = privacyAccountKey === null ? [] : await accounts.withPrivacyKey("jira", privacyAccountKey, 10);
+  const existing = await accounts.find(userId, account.tracker);
+  const sameExisting =
+    existing !== null &&
+    privacyAccountKey !== null &&
+    jiraAccountId(existing.accountId) === privacyAccountKey;
+  const activeSchedule = [...(sameExisting ? [existing] : []), ...siblings]
+    .filter((row) => row.privacyNextReportAt !== undefined && row.privacyNextReportAt > now)
+    .sort((a, b) => (b.privacyNextReportAt ?? 0) - (a.privacyNextReportAt ?? 0))[0];
   const fields = {
     method: account.method,
     accountId: account.identity.accountId,
@@ -288,10 +300,21 @@ export async function saveTrackerAccount(store: Store, userId: string, account: 
     access: account.access,
     connectedAt: now,
     updatedAt: now,
+    profileUpdatedAt: now,
   };
-  const existing = await accounts.find(userId, account.tracker);
   if (existing !== null) {
-    await accounts.patch(existing._id, { ...fields, site: account.identity.site, refresh: account.refresh, expiresAt: account.expiresAt, refreshLease: null });
+    await accounts.patch(existing._id, {
+      ...fields,
+      site: account.identity.site,
+      refresh: account.refresh,
+      expiresAt: account.expiresAt,
+      refreshLease: null,
+      privacyAccountKey,
+      privacyReportedAt: activeSchedule?.privacyReportedAt ?? null,
+      privacyNextReportAt: activeSchedule?.privacyNextReportAt ?? null,
+      privacyRefreshNeeded: null,
+      privacyLease: null,
+    });
     return trackerAccountView((await accounts.find(userId, account.tracker))!);
   }
   const record = {
@@ -299,6 +322,9 @@ export async function saveTrackerAccount(store: Store, userId: string, account: 
     tracker: account.tracker,
     ...fields,
     attribution: true,
+    ...(privacyAccountKey === null ? {} : { privacyAccountKey }),
+    ...(activeSchedule?.privacyReportedAt === undefined ? {} : { privacyReportedAt: activeSchedule.privacyReportedAt }),
+    ...(activeSchedule?.privacyNextReportAt === undefined ? {} : { privacyNextReportAt: activeSchedule.privacyNextReportAt }),
     ...(account.identity.site === null ? {} : { site: account.identity.site }),
     ...(account.refresh === null ? {} : { refresh: account.refresh }),
     ...(account.expiresAt === null ? {} : { expiresAt: account.expiresAt }),
@@ -730,14 +756,18 @@ export type RefreshClaim =
  *   still be allowed to review every one, and there must be at least one.
  * - `cleanup`: removing at the tracker only what Critiqs registered there
  *   with the token, such as a webhook, which reads nothing of any project.
+ * - `privacy`: reporting stored Jira accounts to Atlassian's Personal Data
+ *   Reporting API and refreshing the account's own display name (`/me`),
+ *   which reads nothing of any project.
  */
-export type TokenUse = { by: "person" } | { by: "job"; projects: string[] } | { by: "cleanup" };
-/** A use a token may be returned for (`trackerAccessToken`): a token read for `cleanup` is only ever held as a `WebhookRemoval` (`trackerRemovalAccess`). */
-export type TokenRead = Exclude<TokenUse, { by: "cleanup" }>;
+export type TokenUse = { by: "person" } | { by: "job"; projects: string[] } | { by: "cleanup" } | { by: "privacy" };
+/** A use a token may be returned for (`trackerAccessToken`): `cleanup` and `privacy` tokens are held only by narrow capabilities and never returned. */
+export type TokenRead = Exclude<TokenUse, { by: "cleanup" | "privacy" }>;
 
-/** Whether a token may be used as `use` says, for the person `userId`. */
-async function mayUseToken(store: Store, userId: string, use: TokenUse, identity: Identity | null): Promise<boolean> {
+/** Whether a token may be used as `use` says, for the person `userId` and tracker. */
+async function mayUseToken(store: Store, userId: string, tracker: TrackerId, use: TokenUse, identity: Identity | null): Promise<boolean> {
   if (use.by === "cleanup") return true;
+  if (use.by === "privacy") return tracker === "jira";
   if (use.by === "person") return identity !== null && (await store.users.byToken(identity.tokenIdentifier))?._id === userId;
   if (use.projects.length === 0) return false;
   for (const projectId of new Set(use.projects)) {
@@ -751,22 +781,25 @@ async function mayUseToken(store: Store, userId: string, use: TokenUse, identity
  * Reads a person's account for a tracker, only when it is still the tracker
  * account `accountId` (the tracker's ID for it) that the caller checked and
  * the token may be used as `use` says (`identity` is who is asking, for a
- * person's own request), and, when its access token is due, takes the
- * refresh lease under `leaseId`. One transaction.
+ * person's own request), and, when its access token is due (or `forceRefresh`
+ * is requested), takes the refresh lease under `leaseId`. One transaction.
  */
 export async function claimTokenRefresh(
   store: Store,
-  args: { userId: string; tracker: TrackerId; accountId: string; leaseId: string; use: TokenUse },
+  args: { userId: string; tracker: TrackerId; accountId: string; leaseId: string; use: TokenUse; forceRefresh?: boolean },
   now: number,
   identity: Identity | null = null,
 ): Promise<RefreshClaim> {
-  if (!(await mayUseToken(store, args.userId, args.use, identity))) return { status: "forbidden" };
+  if (!(await mayUseToken(store, args.userId, args.tracker, args.use, identity))) return { status: "forbidden" };
   const accounts = ticketStore(store).accounts;
   const account = await accounts.find(args.userId, args.tracker);
   if (account === null) return { status: "missing" };
+  if (args.use.by === "privacy" && account.method !== "oauth") return { status: "forbidden" };
   if (account.accountId !== args.accountId) return { status: "changed" };
   const site = account.site ?? null;
-  if (account.expiresAt === undefined || account.expiresAt > now + REFRESH_MARGIN_MS) return { status: "ready", method: account.method, access: account.access, site };
+  if (!args.forceRefresh && (account.expiresAt === undefined || account.expiresAt > now + REFRESH_MARGIN_MS)) {
+    return { status: "ready", method: account.method, access: account.access, site };
+  }
   if (account.refreshLease !== undefined && account.refreshLease.until > now && account.refreshLease.id !== args.leaseId) return { status: "busy" };
   if (account.refresh === undefined) return { status: "ended" };
   const until = now + REFRESH_LEASE_MS;
@@ -824,7 +857,7 @@ export async function finishTokenRefresh(
 /** The steps of reading an access token; each store step is its own transaction. */
 export interface AccessSteps {
   /** Reads the account, checking `use` in the same step (`claimTokenRefresh`): the reader passes its own use. */
-  claim(leaseId: string, use: TokenUse): Promise<RefreshClaim>;
+  claim(leaseId: string, use: TokenUse, forceRefresh?: boolean): Promise<RefreshClaim>;
   finish(leaseId: string, tokens: { access: StoredToken; refresh: StoredToken | null; expiresAt: number | null } | null): Promise<RefreshFinish>;
   sleep(ms: number): Promise<void>;
   now(): number;
@@ -846,7 +879,8 @@ const BUSY_WAIT_MS = 500;
  */
 export async function trackerAccessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string; use: TokenRead }): Promise<TrackerToken> {
   // Checked here too, for callers the types don't reach.
-  if ((args.use as TokenUse).by === "cleanup") throw new Error("A token read only to remove what Critiqs registered is never returned: trackerRemovalAccess holds it.");
+  const by = (args.use as TokenUse).by;
+  if (by === "cleanup" || by === "privacy") throw new Error("A token read only for cleanup or privacy reporting is never returned.");
   return await accessToken(steps, deployment, args, args.use);
 }
 
@@ -859,7 +893,44 @@ export async function trackerRemovalAccess(steps: AccessSteps, deployment: Ticke
   return webhookRemoval(webhooks, await accessToken(steps, deployment, args, { by: "cleanup" }));
 }
 
-async function accessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string }, use: TokenUse): Promise<TrackerToken> {
+/**
+ * A person's Jira OAuth token read only for Atlassian's Personal Data
+ * Reporting API (`{ by: "privacy" }`): it can report stored accounts and
+ * refresh the person's own display name (`/me`), and nothing else — the
+ * token never leaves it.
+ */
+export interface JiraPrivacyAccess {
+  reportAccounts(accounts: readonly JiraReportedAccount[], now?: number): Promise<JiraAccountReport>;
+  refreshProfile(): Promise<{ accountId: string; accountName: string; closed: boolean }>;
+}
+
+/** Holds a Jira OAuth token read for personal data reporting as a frozen `JiraPrivacyAccess`. */
+export function jiraPrivacyCapability(deployment: TicketsDeployment, token: TrackerToken, fetchFn: typeof fetch = fetch): JiraPrivacyAccess {
+  if (token.method !== "oauth") fail("invalid", "Personal data reporting requires a Jira OAuth sign-in.");
+  const endpoint: TrackerEndpointOptions = { baseUrl: deployment.jiraApiUrl, fetch: fetchFn };
+  const capability: JiraPrivacyAccess = {
+    reportAccounts: async (accounts, now) => await reportJiraAccounts(endpoint, token.value, accounts, now),
+    refreshProfile: async () => await readJiraProfile(endpoint, token.value),
+  };
+  return Object.freeze(capability);
+}
+
+/**
+ * A person's Jira OAuth token, read only for Atlassian's Personal Data
+ * Reporting API (`privacy`), as a `JiraPrivacyAccess` that never reveals the
+ * token.
+ */
+export async function trackerPrivacyAccess(
+  steps: AccessSteps,
+  deployment: TicketsDeployment,
+  args: { userId: string; accountId: string; forceRefresh?: boolean },
+  fetchFn: typeof fetch = fetch,
+): Promise<JiraPrivacyAccess> {
+  const token = await accessToken(steps, deployment, { ...args, tracker: "jira" }, { by: "privacy" }, args.forceRefresh === true);
+  return jiraPrivacyCapability(deployment, token, fetchFn);
+}
+
+async function accessToken(steps: AccessSteps, deployment: TicketsDeployment, args: { userId: string; tracker: TrackerId; accountId: string }, use: TokenUse, forceRefresh = false): Promise<TrackerToken> {
   const key = requireKey(deployment);
   const binding = trackerTokenBinding(args.tracker, args.userId);
   const label = trackerLabel(args.tracker);
@@ -869,7 +940,7 @@ async function accessToken(steps: AccessSteps, deployment: TicketsDeployment, ar
   const siteFor = (site: TrackerSite | null) => (trackerHasSites(args.tracker) ? { site } : {});
   // Waits at most a lease's length for another refresh, then takes over.
   for (let waited = 0; ; waited += BUSY_WAIT_MS) {
-    const claim = await steps.claim(leaseId, use);
+    const claim = forceRefresh ? await steps.claim(leaseId, use, true) : await steps.claim(leaseId, use);
     switch (claim.status) {
       case "forbidden":
         fail("forbidden", `Critiqs doesn't use your ${label} connection for this: you may no longer review its project.`);

@@ -206,11 +206,12 @@ export const trackerTypesMatch: [StoredTracker, TrackerId] extends [TrackerId, S
 type StoredTicketStatus = Infer<typeof ticketStatusValidator>;
 export const ticketStatusTypesMatch: [StoredTicketStatus, TicketStatus] extends [TicketStatus, StoredTicketStatus] ? true : never = true;
 
-/** What a person's stored tracker token is read for (`TokenUse`): their own request, a job in projects they may review, or removing what Critiqs registered. */
+/** What a person's stored tracker token is read for (`TokenUse`): their own request, a job in projects they may review, removing what Critiqs registered, or Atlassian personal data reporting. */
 export const tokenUseValidator = v.union(
   v.object({ by: v.literal("person") }),
   v.object({ by: v.literal("job"), projects: v.array(v.string()) }),
   v.object({ by: v.literal("cleanup") }),
+  v.object({ by: v.literal("privacy") }),
 );
-/** A use a token may be returned for (`TokenRead`): never `cleanup`, whose token only removes what Critiqs registered. */
+/** A use a token may be returned for (`TokenRead`): never `cleanup` or `privacy`, whose tokens stay inside narrow capabilities. */
 export const tokenReadValidator = v.union(v.object({ by: v.literal("person") }), v.object({ by: v.literal("job"), projects: v.array(v.string()) }));

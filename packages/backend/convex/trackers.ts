@@ -1,5 +1,6 @@
 import type { TrackerAccountView, TrackerDisconnected, TrackerSignInStart } from "@critiqs/core";
 import {
+  claimJiraPrivacyBatch,
   claimTokenRefresh,
   claimTrackerSignIn,
   dropTrackerSignIn,
@@ -8,8 +9,12 @@ import {
   type DisconnectedAccount,
   disconnectTracker,
   endTrackerAccount,
+  finishJiraPrivacyAccount,
   finishTokenRefresh,
+  type JiraPrivacyClaim,
+  type JiraPrivacyRunResult,
   listTrackerAccounts,
+  reportJiraPersonalData,
   requireTrackerPerson,
   saveOwnTrackerAccount,
   saveSignedInAccount,
@@ -25,7 +30,7 @@ import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { storedTokenValidator, tokenReadValidator, tokenUseValidator, trackerValidator } from "./lib/validators";
 import { convexStore, identityOf, run } from "./lib/store";
-import { mayEnd, siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
+import { jiraPrivacy, mayEnd, siteUrl, ticketsDeployment, trackerToken } from "./lib/tickets";
 import { hashSecret, randomSecret } from "./lib/tokens";
 
 // Each person's own tracker accounts ("Your trackers"), for that person only.
@@ -213,7 +218,7 @@ export const saveSignedIn = internalMutation({
 
 /** Reads a person's token for a tracker, only as `use` allows, checked here before it is read (`claimTokenRefresh`). */
 export const claimRefresh = internalMutation({
-  args: { userId: v.string(), tracker: trackerValidator, accountId: v.string(), leaseId: v.string(), use: tokenUseValidator },
+  args: { userId: v.string(), tracker: trackerValidator, accountId: v.string(), leaseId: v.string(), use: tokenUseValidator, forceRefresh: v.optional(v.boolean()) },
   handler: async (ctx, args) => await claimTokenRefresh(convexStore(ctx), args, Date.now(), await identityOf(ctx)),
 });
 
@@ -234,4 +239,56 @@ export const finishRefresh = internalMutation({
 export const accessToken = internalAction({
   args: { userId: v.string(), accountId: v.string(), tracker: trackerValidator, use: tokenReadValidator },
   handler: async (ctx, args): Promise<TrackerToken> => run(() => trackerToken(ctx, args, args.tracker, args.use)),
+});
+
+const jiraPrivacyOutcomeValidator = v.union(
+  v.object({ status: v.literal("unchanged"), nextReportAt: v.number() }),
+  v.object({ status: v.literal("skip-unreportable"), nextReportAt: v.number() }),
+  v.object({ status: v.literal("updated"), accountName: v.string(), nextReportAt: v.number() }),
+  v.object({ status: v.literal("refresh-pending"), nextReportAt: v.number() }),
+  v.object({ status: v.literal("refreshed"), accountName: v.string() }),
+  v.object({ status: v.literal("erase") }),
+  v.object({ status: v.literal("retry"), nextReportAt: v.optional(v.number()) }),
+);
+
+/** Claims a batch of up to 90 Jira OAuth accounts due for Atlassian's Personal Data Reporting API. */
+export const claimJiraPrivacy = internalMutation({
+  args: { leaseId: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<JiraPrivacyClaim> => await claimJiraPrivacyBatch(convexStore(ctx), args, Date.now()),
+});
+
+/** Saves one Jira account's personal data reporting outcome (unchanged, refreshed name, erased, or retry). */
+export const finishJiraPrivacy = internalMutation({
+  args: { recordId: v.string(), leaseId: v.string(), connectedAt: v.number(), outcome: jiraPrivacyOutcomeValidator },
+  handler: async (ctx, args): Promise<boolean> => await finishJiraPrivacyAccount(convexStore(ctx), args, Date.now()),
+});
+
+const MAX_JIRA_PRIVACY_BATCHES = 20;
+
+/**
+ * Reports due Jira OAuth accounts to Atlassian's Personal Data Reporting API
+ * (`POST /app/report-accounts/`), refreshing updated display names via `/me`
+ * and erasing closed accounts. Schedules another run immediately when more
+ * than one batch of 90 accounts is due (bounded per cron tick).
+ */
+export const reportJiraPrivacy = internalAction({
+  args: { batch: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<JiraPrivacyRunResult> => {
+    const batch = args.batch ?? 0;
+    const result = await reportJiraPersonalData(
+      {
+        claim: (leaseId) => ctx.runMutation(internal.trackers.claimJiraPrivacy, { leaseId }),
+        privacy: (person, forceRefresh) => jiraPrivacy(ctx, person, forceRefresh),
+        finish: (recordId, leaseId, connectedAt, outcome) =>
+          ctx.runMutation(internal.trackers.finishJiraPrivacy, { recordId, leaseId, connectedAt, outcome }),
+        leaseId: () => randomSecret(16),
+        now: () => Date.now(),
+      },
+      ticketsDeployment(),
+    );
+    if (result.status === "ok" && result.hasMore && result.advanced > 0 && batch + 1 < MAX_JIRA_PRIVACY_BATCHES) {
+      await ctx.scheduler.runAfter(0, internal.trackers.reportJiraPrivacy, { batch: batch + 1 });
+    }
+    return result;
+  },
 });

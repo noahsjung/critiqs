@@ -608,12 +608,30 @@ export default defineSchema({
     attribution: v.boolean(),
     connectedAt: v.number(),
     updatedAt: v.number(),
+    /** When `accountName` was last retrieved from the tracker; absent on older rows (falls back to `connectedAt`). */
+    profileUpdatedAt: v.optional(v.number()),
+    /** Raw provider account ID (e.g. Atlassian `accountId` without `<cloudId>/`) to coordinate GDPR reporting across rows. */
+    privacyAccountKey: v.optional(v.string()),
+    /** When Atlassian's Personal Data Reporting API last accepted a report for this account. */
+    privacyReportedAt: v.optional(v.number()),
+    /** Earliest time this account may next be reported to Atlassian's Personal Data Reporting API (respecting `Cycle-Period`). */
+    privacyNextReportAt: v.optional(v.number()),
+    /** True when Atlassian answered `updated` and a transient `/me` failure left the profile refresh pending without re-reporting. */
+    privacyRefreshNeeded: v.optional(v.boolean()),
+    /** A personal data reporting run holding this account, so two runs never report it concurrently. */
+    privacyLease: v.optional(v.object({ id: v.string(), until: v.number() })),
     /** A token refresh in progress, so only one runs at a time. */
     refreshLease: v.optional(v.object({ id: v.string(), until: v.number() })),
   })
     .index("by_user_tracker", ["userId", "tracker"])
     // Critiqs accounts connected to one tracker account, whoever's: a GitHub sign-in's grant is per GitHub account.
-    .index("by_tracker_account", ["tracker", "accountId"]),
+    .index("by_tracker_account", ["tracker", "accountId"])
+    // Jira OAuth accounts due for Atlassian's Personal Data Reporting API (absent `privacyNextReportAt` sorts first).
+    .index("by_tracker_privacy", ["tracker", "method", "privacyNextReportAt"])
+    // Jira accounts waiting on a `/me`-only profile refresh after an `updated` response.
+    .index("by_tracker_privacy_refresh", ["tracker", "privacyRefreshNeeded"])
+    // Rows sharing one raw Atlassian account ID, across any Critiqs users or Jira sites.
+    .index("by_tracker_privacy_key", ["tracker", "privacyAccountKey"]),
 
   /** A ticket linked to a thread. A pending link, saved before the tracker is called, has empty `externalId`, `key`, and `url`. */
   ticketLinks: defineTable({

@@ -602,6 +602,20 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
   (refreshed first if it had expired). Atlassian documents no call that
   revokes a sign-in, so its tokens stay valid until they expire or the person
   removes Critiqs from their Atlassian account's connected apps.
+- **Personal data reporting.** Because Critiqs stores each connected Jira
+  user's Atlassian account ID and display name, a scheduled job reports due
+  Jira OAuth accounts to Atlassian's Personal Data Reporting API
+  (`POST https://api.atlassian.com/app/report-accounts/`, up to 90 accounts
+  per request), honoring the `Cycle-Period` header (default 7 days) and
+  `429 Retry-After` so no account is reported more often than allowed, and
+  never reporting Atlassian's `unknown` sentinel. When Atlassian answers
+  `updated`, Critiqs refreshes the person's display name from `/me` (or
+  erases the stored Jira account if consent was revoked so stale data is
+  never kept). When Atlassian answers `closed`, Critiqs deletes the stored
+  Jira account and its status webhooks and clears its Atlassian account ID
+  from linked tickets (leaving linked ticket keys and last known status
+  intact). Tokens read for personal data reporting stay inside a narrow
+  capability that can only call `/app/report-accounts/` and `/me`.
 - **Safety.** As for Linear and GitHub: every call goes through Critiqs's
   tracker endpoint (Atlassian's gateway, or the person's own site, which must
   be an Atlassian cloud host each time it is used; no redirects, 15 seconds,
@@ -616,8 +630,9 @@ API v3 and Atlassian's OAuth 2.0 (3LO); not yet run against a real site.
 
 1. In Atlassian's developer console, create an OAuth 2.0 integration.
 2. Under Permissions, add the Jira API with the scopes `read:jira-work`,
-   `write:jira-work`, `read:jira-user`, and `manage:jira-webhook`, and the User
-   Identity API (`read:me`).
+   `write:jira-work`, `read:jira-user`, and `manage:jira-webhook`, the User
+   Identity API (`read:me`), and the Personal data reporting API
+   (`report:personal-data`).
 3. Under Authorization, set the callback URL to
    `<deployment site>/trackers/jira/callback`.
 4. Under Distribution, share the app, so its webhooks reach Critiqs for people

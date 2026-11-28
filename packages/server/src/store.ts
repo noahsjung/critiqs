@@ -572,6 +572,18 @@ export interface TrackerAccountRecord {
   attribution: boolean;
   connectedAt: number;
   updatedAt: number;
+  /** When the account's personal data (`accountName`) was last retrieved from the tracker; absent on older rows (falls back to `connectedAt`). */
+  profileUpdatedAt?: number;
+  /** Raw provider account ID used to coordinate GDPR personal data reporting across rows sharing one Atlassian account. */
+  privacyAccountKey?: string;
+  /** When Atlassian's Personal Data Reporting API last accepted a report for this account. */
+  privacyReportedAt?: number;
+  /** Earliest time this account may next be reported to Atlassian's Personal Data Reporting API (respecting `Cycle-Period`). */
+  privacyNextReportAt?: number;
+  /** True when Atlassian answered `updated` and a transient `/me` failure left the profile refresh pending without re-reporting. */
+  privacyRefreshNeeded?: boolean;
+  /** A personal data reporting run holding this account, so two runs never report it concurrently. */
+  privacyLease?: { id: string; until: number };
   /** A token refresh in progress, so only one runs at a time: trackers that rotate refresh tokens accept each only once. */
   refreshLease?: { id: string; until: number };
 }
@@ -783,7 +795,7 @@ export type PreferenceChanges = Partial<Pick<PreferenceRecord, "mentionEmails" |
 export type ReadStateChanges = Partial<Pick<ReadStateRecord, "lastReadAt" | "manualUnread">>;
 /** Changes to a tracker account; `null` clears an optional field. */
 export type TrackerAccountChanges = Partial<Pick<TrackerAccountRecord, "method" | "accountId" | "accountName" | "access" | "attribution" | "connectedAt" | "updatedAt">> & {
-  [K in "site" | "refresh" | "expiresAt" | "refreshLease"]?: TrackerAccountRecord[K] | null;
+  [K in "site" | "refresh" | "expiresAt" | "refreshLease" | "profileUpdatedAt" | "privacyAccountKey" | "privacyReportedAt" | "privacyNextReportAt" | "privacyRefreshNeeded" | "privacyLease"]?: TrackerAccountRecord[K] | null;
 };
 /** Changes to a ticket link; `null` clears an optional field. */
 export type TicketLinkChanges = Partial<Pick<TicketLinkRecord, "externalId" | "key" | "url" | "title" | "state" | "linkedAt">> & {
@@ -1065,11 +1077,21 @@ export interface Store {
    */
   tickets?: {
     accounts: {
+      /** The account record, or null when `id` isn't one of this backend's. */
+      get(id: string): Promise<TrackerAccountRecord | null>;
       find(userId: string, tracker: TrackerId): Promise<TrackerAccountRecord | null>;
       /** A person's tracker accounts, by tracker. */
       list(userId: string): Promise<TrackerAccountRecord[]>;
       /** Critiqs accounts connected to one tracker account (the tracker's ID for it) by `method`, whoever's; at most `limit`. */
       withAccountId(tracker: TrackerId, accountId: string, method: TrackerAccountRecord["method"], limit: number): Promise<TrackerAccountRecord[]>;
+      /** Accounts of `tracker` and `method` due for personal data reporting (`privacyNextReportAt` absent or `<= now`), oldest first; at most `limit`. */
+      duePrivacyReport(tracker: TrackerId, method: TrackerAccountRecord["method"], now: number, limit: number): Promise<TrackerAccountRecord[]>;
+      /** Accounts of `tracker` whose `/me` profile refresh is still pending after an `updated` response; at most `limit`. */
+      pendingPrivacyRefresh(tracker: TrackerId, limit: number): Promise<TrackerAccountRecord[]>;
+      /** Accounts of `tracker` sharing one raw provider account key (`privacyAccountKey`), across any Critiqs users or sites. */
+      withPrivacyKey(tracker: TrackerId, privacyAccountKey: string, limit: number): Promise<TrackerAccountRecord[]>;
+      /** Accounts of `tracker` and `method`, most recently reported first (for choosing a healthy reporter token); at most `limit`. */
+      recentByTracker(tracker: TrackerId, method: TrackerAccountRecord["method"], limit: number): Promise<TrackerAccountRecord[]>;
       insert(account: New<TrackerAccountRecord>): Promise<string>;
       patch(id: string, changes: TrackerAccountChanges): Promise<void>;
       delete(id: string): Promise<void>;
@@ -1085,6 +1107,8 @@ export interface Store {
       findByCreation(creationId: string): Promise<TicketLinkRecord | null>;
       /** Links one person made in a tracker's site, linked or pending: at most `limit`. */
       listForLinker(userId: string, tracker: TrackerId, site: string, limit: number): Promise<TicketLinkRecord[]>;
+      /** Clears `accountId` / `creatorAccountId` matching `accountId` across all links by `userId` in `tracker` (any site), marking stale only where `accountId` matched. */
+      clearLinkerAccount(userId: string, tracker: TrackerId, accountId: string): Promise<void>;
       insert(link: New<TicketLinkRecord>): Promise<string>;
       patch(id: string, changes: TicketLinkChanges): Promise<void>;
       delete(id: string): Promise<void>;

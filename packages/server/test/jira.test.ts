@@ -87,7 +87,7 @@ test("sign-in: Atlassian's authorize page, the code for tokens, the sites it rea
   expect(Object.fromEntries(authorize.searchParams)).toEqual({
     audience: "api.atlassian.com",
     client_id: app.clientId,
-    scope: "read:jira-work write:jira-work read:jira-user manage:jira-webhook read:me offline_access",
+    scope: "read:jira-work write:jira-work read:jira-user manage:jira-webhook read:me report:personal-data offline_access",
     redirect_uri: "https://critiqs.test/trackers/jira/callback",
     state: "state-1",
     response_type: "code",

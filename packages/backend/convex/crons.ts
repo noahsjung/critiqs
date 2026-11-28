@@ -21,5 +21,6 @@ crons.interval("check allowed sites' Allow Critiqs proof again", { minutes: 10 }
 crons.interval("end shared builds past their expiry and unpublished uploads", { minutes: 10 }, internal.reviewBuilds.expire, {});
 crons.interval("remove ended shared builds' files", { minutes: 10 }, internal.reviewBuilds.purge, {});
 crons.interval("renew Jira status webhooks a week before they expire", { hours: 24 }, internal.trackerWebhooks.renewDue, {});
+crons.interval("report Jira accounts to Atlassian personal data API", { hours: 6 }, internal.trackers.reportJiraPrivacy, {});
 
 export default crons;

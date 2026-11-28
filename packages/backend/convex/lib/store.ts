@@ -758,6 +758,11 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
       // Writes check the ID's table first: Convex writes to whatever table an
       // ID names, so another table's ID must never reach them.
       accounts: {
+        get: async (raw) => {
+          const id = db.normalizeId("trackerAccounts", raw);
+          const row = id === null ? null : await db.get(id);
+          return row === null ? null : withoutCreationTime(row);
+        },
         find: async (userId, tracker) => {
           const id = db.normalizeId("users", userId);
           if (id === null) return null;
@@ -783,6 +788,35 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
               .query("trackerAccounts")
               .withIndex("by_tracker_account", (q) => q.eq("tracker", tracker).eq("accountId", accountId))
               .filter((q) => q.eq(q.field("method"), method))
+              .take(limit)
+          ).map(withoutCreationTime),
+        duePrivacyReport: async (tracker, method, now, limit) =>
+          (
+            await db
+              .query("trackerAccounts")
+              .withIndex("by_tracker_privacy", (q) => q.eq("tracker", tracker).eq("method", method).lte("privacyNextReportAt", now))
+              .take(limit)
+          ).map(withoutCreationTime),
+        pendingPrivacyRefresh: async (tracker, limit) =>
+          (
+            await db
+              .query("trackerAccounts")
+              .withIndex("by_tracker_privacy_refresh", (q) => q.eq("tracker", tracker).eq("privacyRefreshNeeded", true))
+              .take(limit)
+          ).map(withoutCreationTime),
+        withPrivacyKey: async (tracker, privacyAccountKey, limit) =>
+          (
+            await db
+              .query("trackerAccounts")
+              .withIndex("by_tracker_privacy_key", (q) => q.eq("tracker", tracker).eq("privacyAccountKey", privacyAccountKey))
+              .take(limit)
+          ).map(withoutCreationTime),
+        recentByTracker: async (tracker, method, limit) =>
+          (
+            await db
+              .query("trackerAccounts")
+              .withIndex("by_tracker_privacy", (q) => q.eq("tracker", tracker).eq("method", method))
+              .order("desc")
               .take(limit)
           ).map(withoutCreationTime),
         insert: async (account) => await writer().insert("trackerAccounts", defined({ ...account, userId: account.userId as Id<"users"> })),
@@ -826,6 +860,22 @@ export function convexStore(ctx: QueryCtx | MutationCtx): Store {
             .withIndex("by_linker_tracker_site", (q) => q.eq("linkedBy", id).eq("tracker", tracker).eq("site", site))
             .take(limit);
           return rows.map(withoutCreationTime);
+        },
+        clearLinkerAccount: async (userId, tracker, accountId) => {
+          const id = db.normalizeId("users", userId);
+          if (id === null) return;
+          const query = db
+            .query("ticketLinks")
+            .withIndex("by_linker_tracker_site", (q) => q.eq("linkedBy", id).eq("tracker", tracker));
+          for await (const link of query) {
+            const matchAccount = link.accountId === accountId;
+            const matchCreator = link.creatorAccountId === accountId;
+            if (!matchAccount && !matchCreator) continue;
+            await writer().patch(link._id, {
+              ...(matchAccount ? { accountId: undefined, statusStale: true } : {}),
+              ...(matchCreator ? { creatorAccountId: undefined } : {}),
+            });
+          }
         },
         insert: async (link) =>
           await writer().insert(
