@@ -11,7 +11,10 @@
     "package": "bun scripts/package.ts",
     "check:chrome": "bun scripts/check-extension.ts",
     "check:checklist": "bun scripts/checklist.ts",
-    "check:storage-lock": "bun scripts/check-storage-lock.ts"
+    "check:storage-lock": "bun scripts/check-storage-lock.ts",
+    "check:overlay": "bun scripts/check-overlay.ts",
+    "check:documents": "bun test ./test/documents.acceptance.ts",
+    "check:acceptance": "bun scripts/acceptance.ts"
   },
   "devDependencies": {
     "@critiqs/backend": "workspace:*",
