@@ -188,11 +188,11 @@ const card = (shadow: ShadowRoot) => {
   return section;
 };
 
-/** Each person's line, without avatars' initials or buttons. */
+/** Each person's line, without avatars' initials, buttons, or a confirmation or message under it. */
 const rows = (scope: Element) =>
   [...scope.querySelectorAll("ul.people > li")].map((row) => {
     const copy = row.cloneNode(true) as Element;
-    for (const extra of copy.querySelectorAll(".avatar, button")) extra.remove();
+    for (const extra of copy.querySelectorAll(".avatar, button, [role]")) extra.remove();
     return copy.textContent!.trim();
   });
 
@@ -202,10 +202,17 @@ const sentence = (scope: Element) => scope.querySelector(":scope > .note")!.text
 const button = (scope: ParentNode, name: string) =>
   [...scope.querySelectorAll("button")].find((candidate) => candidate.getAttribute("aria-label") === name || (candidate.getAttribute("aria-label") === null && candidate.textContent?.trim() === name)) ?? null;
 
+/** The control a label names: the one it holds, or the one its `for` points at. */
+const labelled = (label: HTMLLabelElement) => label.querySelector("input") ?? (label.getRootNode() as ParentNode).querySelector<HTMLInputElement>(`[id="${label.htmlFor}"]`);
+
 const field = (scope: ParentNode) => {
-  const label = [...scope.querySelectorAll("label")].find((candidate) => candidate.textContent?.trim().startsWith("Add people"));
-  return label?.querySelector("input") ?? null;
+  const label = [...scope.querySelectorAll("label")].find((candidate) => candidate.textContent?.trim() === "Add people");
+  return label === undefined ? null : labelled(label);
 };
+
+/** A control's accessible name, as far as these controls need: its aria-label, its label, or its text. */
+const nameOf = (control: Element) =>
+  control.getAttribute("aria-label") ?? [...(control.getRootNode() as ParentNode).querySelectorAll("label")].find((label) => labelled(label) === control)?.textContent?.trim() ?? control.textContent!.trim();
 
 const controls = (scope: Element) => [...scope.querySelectorAll("button, input, select, textarea, [tabindex]")];
 
@@ -361,7 +368,8 @@ test("7. Who can comment saves the project's access rule and changes the sentenc
 test("8. a member who isn't an admin sees the people and whom to ask, and nothing they can't do", async () => {
   const { transport } = world(asMember, project({ isOwner: false, organization: { id: "acme", name: "Acme", role: "member" } }));
   const shadow = await mount(transport);
-  expect(rows(card(shadow))).toEqual(["Dana (you)", "Sam (admin)", "Kim · commented"]);
+  // Lee commented and isn't a member here.
+  expect(rows(card(shadow))).toEqual(["Dana (you)", "Sam (admin)", "Lee · commented", "Kim · commented"]);
   expect(card(shadow).textContent).toContain("Ask an admin of Acme to add or remove people.");
   expect(sentence(card(shadow))).toBe(ANYONE);
   expect(controls(card(shadow)).map((control) => control.outerHTML.slice(0, 60))).toEqual([]);
@@ -407,7 +415,7 @@ test("11. keyboard only: every control is reachable and named for its person, En
   const input = field(section)!;
   // Reached in this order with Tab: native controls, none taken out of the tab order.
   const reachable = controls(section).filter((control) => !(control as HTMLButtonElement).disabled && control.getAttribute("tabindex") !== "-1");
-  const named = reachable.map((control) => control.getAttribute("aria-label") ?? (control.closest("label")?.querySelector(".field-label")?.textContent ?? control.textContent!.trim()));
+  const named = reachable.map(nameOf);
   expect(named).toEqual(["Remove Lee", "Withdraw the invite to riley@example.com", "Add people", "Add", named[4]!]);
   expect(reachable[4]).toBe(select(section, "Who can comment")!);
 

@@ -321,7 +321,10 @@ export async function copyText(text: string | Promise<string>): Promise<boolean>
   }
 }
 
-/** Whether a Critiqs menu or dialog is open and shown; one in a hidden panel, such as the list behind an open thread, doesn't count. */
+/**
+ * Whether a Critiqs menu, dialog, or confirmation is open and shown; one in a
+ * hidden panel, such as the list behind an open thread, doesn't count.
+ */
 export function openLayer(root: ShadowRoot | null): boolean {
-  return [...(root?.querySelectorAll(".menu, [role='dialog']") ?? [])].some((layer) => layer.closest("[hidden]") === null);
+  return [...(root?.querySelectorAll(".menu, [role='dialog'], [role='alertdialog']") ?? [])].some((layer) => layer.closest("[hidden]") === null);
 }

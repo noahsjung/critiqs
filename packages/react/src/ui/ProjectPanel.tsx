@@ -1,12 +1,13 @@
 import type { ProjectInfo } from "@critiqs/core";
 import type { Reviewer } from "../session.ts";
-import { useTransport } from "../transport.ts";
-import { Avatar, copyText } from "./common.tsx";
+import { copyText } from "./common.tsx";
 import { PlanUsage } from "./Setup.tsx";
+import { WhoHasAccess } from "./WhoHasAccess.tsx";
 
 /**
  * The side panel in Browse mode: the project itself, rather than its comments,
- * which live in Comment mode. Shows who can reach it and its settings.
+ * which live in Comment mode. Shows who has access, which its organization's
+ * admins change here, and its settings.
  */
 export function ProjectPanel({
   project,
@@ -17,6 +18,7 @@ export function ProjectPanel({
   onNotifications,
   onSetup,
   onDocs,
+  organizationMembers,
   notify,
 }: {
   project: ProjectInfo;
@@ -27,10 +29,10 @@ export function ProjectPanel({
   onNotifications: () => void;
   onSetup: () => void;
   onDocs: () => void;
+  /** The backend's configuration reports `organizationMembers`, so admins manage who has access here. */
+  organizationMembers: boolean;
   notify: (message: string) => void;
 }) {
-  const people = useTransport().useParticipants(project._id, "");
-  const others = people.status === "ready" ? people.data : [];
   const copyId = async () => {
     await copyText(project._id);
     notify("Project ID copied");
@@ -51,29 +53,7 @@ export function ProjectPanel({
         </div>
       </section>
 
-      <section className="review-address" aria-label="Who has access">
-        <strong>Who has access</strong>
-        <span className="note">
-          {project.reviewAccess === "organization"
-            ? "Only members of the project's organization can see and add comments. Invite people to the organization to let them review."
-            : "Anyone who signs in while using this prototype can see and add comments. Control access by controlling who can reach the prototype."}
-        </span>
-        <ul className="people">
-          <li>
-            <Avatar name={reviewer.name} imageUrl={reviewer.pictureUrl} />
-            <span>
-              {reviewer.name} <span className="note">(you{project.isOwner ? ", project owner" : ""})</span>
-            </span>
-          </li>
-          {others.map((person) => (
-            <li key={person._id}>
-              <Avatar name={person.name} imageUrl={person.imageUrl} />
-              <span>{person.name}</span>
-            </li>
-          ))}
-        </ul>
-        {others.length > 0 && <span className="note">People who commented most recently.</span>}
-      </section>
+      <WhoHasAccess project={project} reviewer={reviewer} organizationMembers={organizationMembers} notify={notify} />
 
       <section className="review-address" aria-label="Your email notifications">
         <strong>Your email notifications</strong>

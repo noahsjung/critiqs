@@ -1,4 +1,4 @@
-import { type ReactNode, type RefObject, useEffect, useId, useRef } from "react";
+import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useId, useRef } from "react";
 import { Menu, MenuItem, useMenu } from "./common.tsx";
 import { BackIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "./icons.tsx";
 
@@ -192,6 +192,63 @@ export function Meter({ value, max, label, ceiling = max, valueText }: { value: 
       aria-valuetext={valueText}
     >
       {value > 0 && <span style={{ width: `${Math.round(share * 100)}%` }} />}
+    </div>
+  );
+}
+
+/**
+ * Asks before removing something, in place: the question, a button that keeps
+ * it (focused first), and a `danger solid` one that acts. Tab stays between
+ * the two until one is chosen, and Escape keeps. `actLabel` names the button
+ * for assistive technology when `act` alone doesn't say whom it acts on.
+ */
+export function Confirm({
+  question,
+  keep,
+  act,
+  actLabel,
+  busy,
+  onKeep,
+  onAct,
+}: {
+  question: string;
+  keep: string;
+  act: string;
+  actLabel?: string;
+  busy: boolean;
+  onKeep: () => void;
+  onAct: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const keepButton = useRef<HTMLButtonElement>(null);
+  const questionId = useId();
+  useEffect(() => keepButton.current?.focus(), []);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!busy) onKeep();
+    } else if (event.key === "Tab") {
+      event.preventDefault();
+      const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+      if (buttons.length === 0) return;
+      const root = event.currentTarget.getRootNode() as Document | ShadowRoot;
+      const at = buttons.indexOf(root.activeElement as HTMLButtonElement);
+      const next = event.shiftKey ? (at <= 0 ? buttons.length - 1 : at - 1) : at === buttons.length - 1 ? 0 : at + 1;
+      buttons[next]!.focus();
+    }
+  };
+  return (
+    <div ref={ref} className="warning stacked" role="alertdialog" aria-labelledby={questionId} onKeyDown={onKeyDown}>
+      <span id={questionId}>{question}</span>
+      <div className="row end">
+        <button ref={keepButton} type="button" className="btn small" disabled={busy} onClick={onKeep}>
+          {keep}
+        </button>
+        <button type="button" className="btn small danger solid" disabled={busy} aria-label={actLabel} onClick={onAct}>
+          {busy ? `${act}…` : act}
+        </button>
+      </div>
     </div>
   );
 }
