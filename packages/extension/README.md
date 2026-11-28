@@ -116,37 +116,40 @@ and lists that build's ID there: the development ID, with the caution above.
 ```sh
 bun run test             # unit tests, with a fake chrome API
 bun run typecheck
-bun run check:checklist  # the manual test, run in real Chrome
+bun run check:acceptance # every acceptance case a script can drive (below)
+bun run check:checklist  # A1 to A7, A9, A10 in real Chrome
+bun run check:overlay    # A8, A11, A12 in real Chrome
+bun run check:documents  # A13
 bun run check:chrome     # more lookup and screenshot cases, with a test build
 ```
 
-`check:checklist` runs [the manual test](MANUAL_TEST.md) step by step in
-Chrome for Testing with the real build: no test hooks and no site access at
-install. Chrome DevTools' `Extensions.triggerAction` runs the extension's
+`check:acceptance` runs every case of the acceptance contract for Critiqs on
+the page that a script can drive, each named by its number: `check:checklist`
+(A1 to A7, A9, A10), `check:overlay` (A8, A11, A12: the strict and hostile
+pages, the token hunt, storage closed to the content script, made-up events,
+the worker stopped while a second reviewer comments, bundle size and
+click-to-toolbar timing) and `check:documents` (A13). The Chrome checks load
+the real build (no test hooks, no site access at install) in Chrome for
+Testing. Chrome DevTools' `Extensions.triggerAction` runs the extension's
 action the way the toolbar icon does, so Chrome grants the page for that
-click (`activeTab`) and opens the real side panel, which the run drives over
-its own DevTools target. It writes `results.md`, with pass, fail, or "not
-automatable" and the reason for every step, and a screenshot of the page and
-the side panel for each, to `CRITIQS_EVIDENCE_DIR`. It needs
-`CRITIQS_BACKEND`, a local Convex deployment with development sign-in
-(`bun run setup:local` in `packages/backend`) and `CRITIQS_EXTENSION_IDS`
-set. `CHROME_PATH` defaults to the newest Chromium Playwright installed;
-branded Chrome no longer loads unpacked extensions from the command line.
-`CRITIQS_EXTENSION_DIR` runs it against an extension built elsewhere, such as
-from an older commit.
+click (`activeTab`). Critiqs draws into a closed shadow root, so the run reads
+it only through the content script's own world (DevTools `Runtime.evaluate`
+in the extension's isolated world, with `chrome.dom.openOrClosedShadowRoot`),
+and acts only with the real mouse and keyboard. Each writes `results.md`, with
+pass, fail, "not run" or "not automatable" and the reason for every case, and a
+screenshot per case, to `CRITIQS_EVIDENCE_DIR`. They need `CRITIQS_BACKEND`, a
+local Convex deployment with development sign-in (`bun run setup:local` in
+`packages/backend`) and `CRITIQS_EXTENSION_IDS` set, and the `critiqs`
+package built (`bun run build` in `packages/critiqs`) for the page with
+Critiqs installed. `CHROME_PATH` defaults to the newest Chromium Playwright
+installed; branded Chrome no longer loads unpacked extensions from the command
+line. `CRITIQS_EXTENSION_DIR` runs them against an extension built elsewhere;
+`CRITIQS_CASES` picks cases (`A4.3,A8`). Opt-in: `CRITIQS_LIVE_MINUTES=17`
+for the 10- and 17-minute idle runs (A11.2, A11.3), `CRITIQS_REAL_SITES=1`
+for github.com and accounts.google.com (A8.2).
 
-What it can't do: answer Chrome's own prompt for a site's access (it allows
-the site through **Details → Site access** instead), press Chrome's keyboard
-shortcut, or click the side panel's X. Those steps are still checked by hand.
-
-What it measured in Chrome 151:
-
-- A click inside the side panel doesn't grant the page: `executeScript` and
-  `captureVisibleTab` are refused until the icon is clicked.
-- The icon's grant lasts through reloads of the same site and ends when the
-  tab opens another site. So after a reload the screenshots are still real
-  pixels, though the panel still asks for a click to add the page layer again.
-- A click on a pin opens the side panel on its comment.
+What they can't do: answer Chrome's own prompt for a site's access, or press
+Chrome's keyboard shortcut. Those cases are in [the manual test](MANUAL_TEST.md).
 
 `check:chrome` loads a test build (`CRITIQS_TEST=1`), which grants its test
 sites at install and lets the run call the worker's click handler, with the
