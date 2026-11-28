@@ -213,7 +213,7 @@ test("a member sees the organization read-only, and may leave it", async () => {
   expect(group(page, "Invited")).toBeNull();
   expect(page.querySelector('input')).toBeNull();
   await click(navRow(page, "Leave organization"));
-  expect(page.querySelector('[role="alert"]')!.textContent).toContain("Leave Studio?");
+  expect(page.querySelector('[role="alertdialog"]')!.textContent).toContain("Leave Studio?");
   await click(button(page, "Leave"));
   expect(data.calls).toEqual([{ name: "removeMember", args: { organizationId: "studio", userId: "dana" } }]);
   expect(left).toEqual(["You left Studio"]);
@@ -293,7 +293,7 @@ test("an admin changes a member's role or removes them; the last admin's refusal
   await choose(page, "Role", "Admin");
   expect(toasts).toEqual(["Lee is now an admin"]);
   await click(navRow(page, "Remove from organization"));
-  expect(page.querySelector('[role="alert"]')!.textContent).toContain("Remove Lee from Acme?");
+  expect(page.querySelector('[role="alertdialog"]')!.textContent).toContain("Remove Lee from Acme?");
   await click(button(page, "Keep Lee"));
   await click(navRow(page, "Remove from organization"));
   await click(button(page, "Remove"));
@@ -601,5 +601,5 @@ test("setup offers no choice to someone in one organization, and a backend witho
 test("the project panel calls an admin who didn't create the project its owner", async () => {
   localStorage.setItem("critiqs:sidebar-open", "true");
   const shadow = await mount(backend({ project: { _id: "project", name: "Pilot", tags: [], createdAt: 1, reviewUrl: null, isOwner: true, organization: { id: "acme", name: "Acme", role: "admin" } } }));
-  expect(shadow.querySelector('section[aria-label="Who has access"]')!.textContent).toContain("Dana (you, project owner)");
+  expect(shadow.querySelector('section[aria-label="Who has access"]')!.textContent).toContain("Dana (you, project owner, admin)");
 });

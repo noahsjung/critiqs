@@ -46,7 +46,8 @@ export const DOCS: DocTopic[] = [
     summary: "In Browse mode, the side panel shows the project: its name, its comments at a glance, who has access, and its settings.",
     steps: [
       "Comments: how many threads are open and unread. Show comments switches to Comment mode.",
-      "Who has access: anyone who signs in while using this prototype can see and add comments, unless the project's owners limited it to members of its organization in Project setup. You and the people who commented most recently are listed.",
+      "Who has access: anyone who signs in while using this prototype can see and add comments, unless the project's owners limited it to members of its organization. It lists the organization's members and others who commented recently; the organization's admins also see people invited who haven't joined yet.",
+      "Admins of the project's organization add people by email (they join when they sign in with that address), remove members, withdraw invites, and choose who can comment: anyone who can reach the prototype, or only people added here. While anyone can comment, removing someone doesn't stop them. The organization's other members see whom to ask.",
       "Your email notifications: choose which emails you get about this project.",
       "Plan usage: the project's usage against its plan, such as comments this month and Critiqs AI credits today, shown to the project's owners: its organization's admins, and the person who created it.",
       "Project ID: copy it, or open Project setup.",

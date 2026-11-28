@@ -1,13 +1,13 @@
 // Browser walks for one verify-critiqs instance. Run through walk.sh, which sets Node 24 and the tools path.
-//   walk.sh --data DIR --feature onboarding|comment|all --out DIR
+//   walk.sh --data DIR --feature onboarding|comment|access|all --out DIR
 // Each step saves a screenshot to OUT and a line to OUT/results.json: { step, ok, file, shown }.
 // Exit code 1 when any step fails. Steps assert on visible text, never on rendered elements themselves.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const FEATURES = ["onboarding", "comment"];
-const usage = "usage: walk.sh --data DIR --feature onboarding|comment|all --out DIR";
+const FEATURES = ["onboarding", "comment", "access"];
+const usage = "usage: walk.sh --data DIR --feature onboarding|comment|access|all --out DIR";
 const argv = process.argv.slice(2);
 const args = {};
 for (let i = 0; i < argv.length; i += 2) {
@@ -198,10 +198,149 @@ async function comment(context) {
   });
 }
 
+/**
+ * Who has access in the project panel, with three people in their own browsers: the owner sets up a project on
+ * the sample app and adds a second person, who signs in there and becomes a member; the owner allows only
+ * people added there, so a third person is refused; the owner removes the second person, who is refused too.
+ * Each person opens the project as a browser that had it open before: the owner's remembered project.
+ */
+async function access(context) {
+  const browser = context.browser();
+  const owner = { email: `owner-${run}@walk.example`, name: "Olive Owner" };
+  const second = { email: `second-${run}@walk.example`, name: "Sasha Second" };
+  const third = { email: `third-${run}@walk.example`, name: "Theo Third" };
+  const page = await context.newPage();
+  const widgetOf = (tab) => tab.locator("critiq-root, critiqs-root");
+  const cardOf = (tab) => widgetOf(tab).locator('section[aria-label="Who has access"]');
+  const card = cardOf(page);
+  const lines = async (tab) =>
+    cardOf(tab).locator("ul.people > li .who").allInnerTexts().then((all) => all.map((line) => line.replace(/\s+/g, " ").trim()));
+  const openProjectPanel = async (tab) => {
+    const widget = widgetOf(tab);
+    await widget.getByRole("button", { name: "Browse mode" }).click();
+    if (!(await has(widget.locator('aside[aria-label="Critiqs project"]')))) await widget.getByRole("button", { name: /^Project/ }).click();
+    await cardOf(tab).waitFor({ timeout: 30_000 });
+  };
+  const until = async (what, check, ms = 30_000) => {
+    for (const started = Date.now(); Date.now() - started < ms; await sleep(300)) if (await check().catch(() => false)) return;
+    throw new Error(`timed out waiting for ${what}`);
+  };
+  let projectId = null;
+  let remembered = null;
+
+  await step("access-owner-card", page, async () => {
+    const widget = widgetOf(page);
+    await page.goto(PILOT);
+    await widget.locator("[role=toolbar]").first().waitFor({ timeout: 30_000 });
+    await signInThrough(context, () => widget.getByRole("button", { name: "Sign in" }).first().click(), owner.email, owner.name);
+    await widget.getByRole("button", { name: "Set up Critiqs" }).first().click();
+    await widget.getByLabel("Project name").fill(`Access ${run}`);
+    await widget.getByRole("button", { name: "Use this page" }).click().catch(() => {});
+    await widget.getByRole("button", { name: "Create project" }).click();
+    await widget.getByText("Project created").waitFor({ timeout: 30_000 });
+    await widget.getByRole("button", { name: "Start commenting" }).click().catch(() => {});
+    remembered = await page.evaluate(() => Object.entries(localStorage).find(([key]) => key.startsWith("critiqs:project:")) ?? null);
+    if (remembered === null) throw new Error("the sample app remembered no project after setup");
+    projectId = JSON.parse(remembered[1]);
+    await openProjectPanel(page);
+    // The card shows the people it knows at once and the organization's members once they load.
+    await card.getByLabel("Add people").waitFor({ timeout: 15_000 });
+    return { projectId, people: await lines(page) };
+  });
+
+  // Another person's browser that had this project open before.
+  const personPage = async (person) => {
+    const other = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+    await other.addInitScript(([key, value]) => localStorage.setItem(key, value), remembered);
+    const tab = await other.newPage();
+    const widget = widgetOf(tab);
+    await tab.goto(PILOT);
+    await widget.locator("[role=toolbar]").first().waitFor({ timeout: 30_000 });
+    await signInThrough(other, () => widget.getByRole("button", { name: "Sign in" }).first().click(), person.email, person.name);
+    await widget.getByRole("button", { name: /Signed in as/ }).waitFor({ timeout: 30_000 });
+    return tab;
+  };
+
+  await step("access-owner-adds-second", page, async () => {
+    const field = card.getByLabel("Add people");
+    await field.fill(second.email);
+    await field.press("Enter");
+    await until("the Invited row", async () => (await lines(page)).includes(`${second.email} · Invited`));
+    const invite = convexData("invites").find((row) => row.email === second.email);
+    if (!invite) throw new Error("no invite saved for the second person");
+    return { people: await lines(page), message: await card.locator('[role="status"], [role="alert"]').allInnerTexts(), field: await field.inputValue() };
+  });
+
+  const secondPage = await personPage(second);
+  await step("access-second-is-member", secondPage, async () => {
+    await openProjectPanel(secondPage);
+    const membership = convexData("memberships").filter((row) => convexData("users").find((user) => user._id === row.userId)?.email === second.email);
+    if (membership.length !== 1) throw new Error(`the second person has ${membership.length} memberships`);
+    await until("the owner's list to show the second person as a member", async () => (await lines(page)).includes(second.name));
+    return { secondSees: await lines(secondPage), secondText: (await cardOf(secondPage).innerText()).replace(/\s+/g, " "), ownerSees: await lines(page) };
+  });
+  await step("access-owner-sees-member", page, async () => ({ ownerSees: await lines(page) }));
+  // The narrowest sidebar, with a member to remove.
+  await step("access-narrowest-sidebar", page, async () => {
+    await page.evaluate(() => localStorage.setItem("critiqs:sidebar-width", "300"));
+    await page.reload();
+    await widgetOf(page).locator("[role=toolbar]").first().waitFor({ timeout: 30_000 });
+    await openProjectPanel(page);
+    await card.getByRole("button", { name: `Remove ${second.name}`, exact: true }).waitFor({ timeout: 15_000 });
+    const width = await widgetOf(page).locator('aside[aria-label="Critiqs project"]').evaluate((aside) => Math.round(aside.getBoundingClientRect().width));
+    const overflow = await card.evaluate((section) => section.scrollWidth - section.clientWidth);
+    if (overflow > 0) throw new Error(`the card overflows its width by ${overflow}px`);
+    return { sidebarWidth: width, overflow, people: await lines(page) };
+  });
+
+  await step("access-owner-only-people-added", page, async () => {
+    // Back to the sidebar's usual width.
+    await page.evaluate(() => localStorage.removeItem("critiqs:sidebar-width"));
+    await page.reload();
+    await widgetOf(page).locator("[role=toolbar]").first().waitFor({ timeout: 30_000 });
+    await openProjectPanel(page);
+    await card.getByRole("button", { name: /Who can comment/ }).waitFor({ timeout: 15_000 });
+    await card.getByRole("button", { name: /Who can comment/ }).click();
+    await widgetOf(page).getByRole("menuitemradio", { name: /Only people added here/ }).click();
+    await until("the saved access rule", async () => convexData("projects").find((row) => row._id === projectId)?.reviewAccess === "organization");
+    await until("the sentence to change", async () => (await card.innerText()).includes("Only people added here, the members of"));
+    return { sentence: await card.locator(":scope > .note").first().innerText() };
+  });
+
+  const thirdPage = await personPage(third);
+  await step("access-third-refused", thirdPage, async () => {
+    await openProjectPanel(thirdPage).catch(() => {});
+    const widget = widgetOf(thirdPage);
+    await until("the refusal", async () => (await textOf(thirdPage)).includes("No access to this project"));
+    return { shown: (await widget.locator(".empty").first().innerText()).replace(/\s+/g, " ") };
+  });
+
+  await step("access-owner-confirms-removal", page, async () => {
+    await card.getByRole("button", { name: `Remove ${second.name}`, exact: true }).click();
+    const confirm = card.getByRole("alertdialog");
+    await confirm.waitFor();
+    return { question: await confirm.innerText() };
+  });
+  await step("access-owner-removed-second", page, async () => {
+    await card.getByRole("button", { name: /^Remove .* from / }).click();
+    await until("the row to go", async () => !(await lines(page)).includes(second.name));
+    return { ownerSees: await lines(page) };
+  });
+
+  await step("access-second-refused", secondPage, async () => {
+    await secondPage.reload();
+    await widgetOf(secondPage).locator("[role=toolbar]").first().waitFor({ timeout: 30_000 });
+    await openProjectPanel(secondPage).catch(() => {});
+    await until("the refusal", async () => (await textOf(secondPage)).includes("No access to this project"));
+    return { shown: (await widgetOf(secondPage).locator(".empty").first().innerText()).replace(/\s+/g, " ") };
+  });
+
+}
+
 const browser = await chromium.launch({ executablePath: process.env.CRITIQS_CHROME, chromiumSandbox: false });
 let failed = false;
 try {
-  for (const [name, walk] of [["onboarding", onboarding], ["comment", comment]]) {
+  for (const [name, walk] of [["onboarding", onboarding], ["comment", comment], ["access", access]]) {
     if (FEATURE !== "all" && FEATURE !== name) continue;
     const context = await browser.newContext({ viewport: { width: 1280, height: 860 } });
     try {

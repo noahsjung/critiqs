@@ -3,7 +3,7 @@ import { Fragment, type ReactNode, type RefObject, useContext, useEffect, useRef
 import { errorMessage, type InviteAnswer, useTransport } from "../transport.ts";
 import { OpenBillingContext, UpgradeButton } from "./BillingDialog.tsx";
 import { Avatar, Dialog } from "./common.tsx";
-import { DialogHeader, NavRow, Select, SettingRow, usePageFocus } from "./ds.tsx";
+import { Confirm, DialogHeader, NavRow, Select, SettingRow, usePageFocus } from "./ds.tsx";
 
 type Page = { kind: "list" } | { kind: "organization" } | { kind: "name" } | { kind: "invite" } | { kind: "member"; userId: string };
 
@@ -17,11 +17,12 @@ const roleLabel = (role: OrganizationRole) => (role === "admin" ? "Admin" : "Mem
 type Action = "name" | "invite" | "role" | "remove" | "leave" | "withdraw";
 
 /**
- * The toast after an invite: sent only once the mail service accepted the
+ * What an invite did, as the toast here and the project panel's message say
+ * it: sent only once the mail service accepted the
  * email; joining by signing in when none went out; and just invited while
  * delivery is still to come or unknown.
  */
-function inviteToast(address: string, result: InviteAnswer): string {
+export function inviteToast(address: string, result: InviteAnswer): string {
   if (result.status === "member") return `${address} is already a member`;
   if (result.status === "pending") return `${address} is already invited`;
   if (result.email === "sent") return `Invite sent to ${address}`;
@@ -416,24 +417,6 @@ function Person({ member }: { member: OrganizationMember }) {
         {member.email !== null && <span className="note ellipsis">{member.email}</span>}
       </span>
     </span>
-  );
-}
-
-function Confirm({ question, keep, act, busy, onKeep, onAct }: { question: string; keep: string; act: string; busy: boolean; onKeep: () => void; onAct: () => void }) {
-  const keepButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => keepButton.current?.focus(), []);
-  return (
-    <div className="warning stacked" role="alert">
-      <span>{question}</span>
-      <div className="row end">
-        <button ref={keepButton} type="button" className="btn small" disabled={busy} onClick={onKeep}>
-          {keep}
-        </button>
-        <button type="button" className="btn small danger solid" disabled={busy} onClick={onAct}>
-          {busy ? `${act}…` : act}
-        </button>
-      </div>
-    </div>
   );
 }
 

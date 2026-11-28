@@ -1193,6 +1193,7 @@ function PanelApp({
               onNotifications={() => setNotificationsOpen(true)}
               onSetup={() => setPanel("setup")}
               onDocs={() => setPanel("docs")}
+              organizationMembers={organizationMembers}
               notify={notify}
             />
           )}
