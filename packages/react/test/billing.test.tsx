@@ -150,7 +150,7 @@ async function mount(data: FakeBackend, { billing = true, url = PAGE, organizati
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={fakeTransport(data)}>
-        <App props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }} deployment={deployment} session={session} host={host!} />
+        <App props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }} deployment={deployment} session={session} host={host!} shadow={host!.shadowRoot!} />
       </TransportContext.Provider>,
     ),
   );

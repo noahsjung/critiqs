@@ -9,6 +9,8 @@ export function hideClosedShadowTrees(): () => void {
   Event.prototype.composedPath = function (this: Event) {
     const path = original.call(this);
     const current = this.currentTarget;
+    // happy-dom reads the path itself, outside any listener, to find the target.
+    if (current === null) return path;
     // The shadow roots the listener's own node is inside, which it may see into.
     const seen = new Set<Node>();
     for (let node = current instanceof Node ? current : null; node !== null; ) {

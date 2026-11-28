@@ -81,6 +81,7 @@ async function start({
     transport: pageSide,
     channel: CHANNEL,
     host,
+    shadow: host.shadowRoot!,
     container,
     pageHost: { getContext, ...(restoreContext === undefined ? {} : { restoreContext }) },
   });

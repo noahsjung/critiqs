@@ -8,6 +8,7 @@ import { describeBrowser, describeViewState, fullTime, relativeTime } from "./fo
 import { useHidden } from "./hidden.ts";
 import { CloseIcon, EmojiIcon, MoreIcon, ResolveIcon } from "./icons.tsx";
 import { connectedTrackers, CreateTicketDialog, LinkTicketDialog, TicketChips, type TicketsOffer, trackerLabel } from "./Tickets.tsx";
+import { useCritiqsRoot } from "../root.ts";
 
 /** How revealing a thread's target in the prototype went. */
 export type RevealState =
@@ -241,12 +242,13 @@ function Thread(props: ThreadViewProps & { thread: ThreadDetail }) {
     if (draft.text.trim() !== "" && !sending) props.onSend();
   };
 
+  const { shadow } = useCritiqsRoot();
   const copyLink = async (messageId: string | null) => {
     // A message's link opens it in the prototype: a thread page shows the whole thread, not one message.
     const link = messageId === null ? props.shareLink(thread.anchor.evidence.url) : props.linkFor(thread.anchor.evidence.url, messageId);
     let copied: boolean;
     try {
-      copied = await copyText(link);
+      copied = await copyText(link, shadow);
     } catch (failure) {
       props.notify(errorMessage(failure));
       return;

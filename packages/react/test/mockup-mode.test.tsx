@@ -203,7 +203,7 @@ async function mount(data: FakeBackend, { mockups = true, personalAi = false, mo
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={transport}>
-        <App props={props} deployment={deployment} session={session} host={host!} mockups={place} />
+        <App props={props} deployment={deployment} session={session} host={host!} shadow={host!.shadowRoot!} mockups={place} />
       </TransportContext.Provider>,
     ),
   );

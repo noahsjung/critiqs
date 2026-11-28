@@ -58,7 +58,7 @@ async function render(data: FakeBackend, using: Deployment, { signedIn = true, p
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={fakeTransport(data)}>
-        <App props={{ projectId }} deployment={using} session={session} host={host!} />
+        <App props={{ projectId }} deployment={using} session={session} host={host!} shadow={host!.shadowRoot!} />
       </TransportContext.Provider>,
     ),
   );

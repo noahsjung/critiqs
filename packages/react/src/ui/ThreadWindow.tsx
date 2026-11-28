@@ -1,6 +1,7 @@
 import { type Rect, recordKeyOf } from "@critiqs/core";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useFrameValue } from "../hooks.ts";
+import { useCritiqsRoot } from "../root.ts";
 import { type Bounds, placeBeside } from "./Picker.tsx";
 import { useHidden } from "./hidden.ts";
 import { visibleRect } from "./Pins.tsx";
@@ -62,19 +63,20 @@ export function ThreadWindow({
 }) {
   const ref = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(0);
+  const { shadow } = useCritiqsRoot();
 
   const read = useCallback(
     (): Layout => ({
       // The target counts only where the open sidebar doesn't cover it.
       anchor: anchor === null ? null : visibleRect(anchor, sidebarOpen ? window.innerWidth - sidebarWidth() : window.innerWidth),
-      pin: shownRect(host.shadowRoot?.querySelector('.pin[aria-expanded="true"]') ?? null),
-      toolbar: host.shadowRoot?.querySelector(".toolbar")?.getBoundingClientRect() ?? null,
+      pin: shownRect(shadow?.querySelector('.pin[aria-expanded="true"]') ?? null),
+      toolbar: shadow?.querySelector(".toolbar")?.getBoundingClientRect() ?? null,
       width: window.innerWidth,
       height: window.innerHeight,
       keyboard: keyboardInset(),
       sidebar: sidebarWidth(),
     }),
-    [anchor, host, sidebarOpen],
+    [anchor, shadow, sidebarOpen],
   );
   const layout = useFrameValue(read, true, sameLayout);
 
@@ -115,12 +117,11 @@ export function ThreadWindow({
   useEffect(() => {
     const element = ref.current;
     return () => {
-      const root = host.shadowRoot;
-      const active = root?.activeElement ?? null;
+      const active = shadow?.activeElement ?? null;
       const focusLost = active === null || element?.contains(active) === true || !active.isConnected;
       if (focusLost && back.current?.isConnected) back.current.focus({ preventScroll: true });
     };
-  }, [host]);
+  }, [shadow]);
 
   const { mode, style } = windowLayout(layout, sidebarOpen, height);
 

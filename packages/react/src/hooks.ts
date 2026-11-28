@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { eventPath } from "./root.ts";
 
 /**
  * Increments whenever the prototype's page changes: elements added or
@@ -86,9 +87,13 @@ export function useStoredState<T>(key: string, initial: T): [T, (value: T) => vo
   return [value, store];
 }
 
-/** Whether keyboard input is going to a text field, so shortcuts stay out of the way. */
-export function isTyping(event: KeyboardEvent): boolean {
-  const target = event.composedPath()[0];
+/**
+ * Whether keyboard input is going to a text field, so shortcuts stay out of
+ * the way. `shadow` is Critiqs's own root, which a listener outside a closed
+ * root can't see into on its own.
+ */
+export function isTyping(event: KeyboardEvent, shadow: ShadowRoot | null = null): boolean {
+  const target = eventPath(event, shadow)[0];
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
 }

@@ -63,8 +63,9 @@ function backend() {
 }
 
 const reviewer: Reviewer = { id: "dana", name: "Dana", email: "dana@example.com", pictureUrl: null };
+const snapshot = { reviewer };
 const session: TokenSession = {
-  getSnapshot: () => ({ reviewer }),
+  getSnapshot: () => snapshot,
   subscribe: () => () => {},
   signIn: async () => {},
   signOut: async () => {},

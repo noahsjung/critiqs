@@ -44,7 +44,7 @@ async function start(): Promise<PagePanelEndpoint> {
   const container = document.createElement("div");
   host.attachShadow({ mode: "open" }).append(container);
   const [panelSide, pageSide] = directTransports();
-  const layer = createPageLayer({ transport: pageSide, channel: "capture", host, container });
+  const layer = createPageLayer({ transport: pageSide, channel: "capture", host, shadow: host.shadowRoot!, container });
   destroy = layer.destroy;
   return panelEndpoint(panelSide, { channel: "capture" });
 }

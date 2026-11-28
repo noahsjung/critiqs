@@ -22,6 +22,7 @@ import {
 import type { LiveThread } from "../../model.ts";
 import { errorMessage, type MockupTransport, useTransport } from "../../transport.ts";
 import { openLayer } from "../common.tsx";
+import { madeUp, useCritiqsRoot } from "../../root.ts";
 import { useSidebarWidth } from "../sidebar-width.tsx";
 import { Canvas, type CanvasContent, type CanvasHandle, type CanvasPin } from "./Canvas.tsx";
 import {
@@ -67,7 +68,6 @@ export type ShowPage = (request: { threadId: string; screen: string; viewState: 
 export const COMMENTS_ONLY = "Make the changes these comments ask for.";
 
 export function MockupMode(props: {
-  host: HTMLElement;
   projectId: string;
   context: ResolvedContext;
   /** Freezes the page as it is now, with the page's details (the page layer's page copy). */
@@ -99,7 +99,8 @@ export function MockupMode(props: {
   livePage?: boolean;
   notify: (message: string) => void;
 }) {
-  const { host, projectId, context, notify } = props;
+  const { projectId, context, notify } = props;
+  const { shadow, trustedEventsOnly } = useCritiqsRoot();
   const transport = useTransport();
   const mockups = transport.mockups as MockupTransport;
   const [state, dispatch] = useReducer(mockupReducer, props.request, (request) =>
@@ -274,7 +275,7 @@ export function MockupMode(props: {
         if (visible !== null) return describeShown(visible, top);
         const copy = latest.snapshots.find((snapshot) => snapshot._id === snapshotId);
         return await describeHidden(
-          host.shadowRoot ?? document.body,
+          shadow ?? document.body,
           { html: await mockups.loadSnapshot(snapshotId), edits: editsAt(latest, snapshotId, version), width: copy?.width ?? window.innerWidth },
           top ?? scrollOf.current.get(snapshotId) ?? 0,
         );
@@ -298,7 +299,7 @@ export function MockupMode(props: {
       retries.current.set(threadId, run);
       run();
     },
-    [mockups, host],
+    [mockups, shadow],
   );
 
   /** Every copy of the thread's mockup: the thread is the whole proposal. */
@@ -457,8 +458,8 @@ export function MockupMode(props: {
   useEffect(() => {
     const isO = (event: KeyboardEvent) => event.key === "o" || event.key === "O";
     const onDown = (event: KeyboardEvent) => {
-      if (!isO(event) || event.metaKey || event.ctrlKey || event.altKey || isTyping(event) || !canCompareRef.current) return;
-      if (openLayer(host.shadowRoot)) return;
+      if (!isO(event) || event.metaKey || event.ctrlKey || event.altKey || madeUp(event, trustedEventsOnly) || isTyping(event, shadow) || !canCompareRef.current) return;
+      if (openLayer(shadow)) return;
       event.preventDefault();
       setOriginal(true);
     };
@@ -474,7 +475,7 @@ export function MockupMode(props: {
       window.removeEventListener("keyup", onUp, true);
       window.removeEventListener("blur", release);
     };
-  }, [host]);
+  }, [shadow, trustedEventsOnly]);
 
   // ---------------------------------------------------------------------------
   // Rendering

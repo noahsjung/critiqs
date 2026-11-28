@@ -166,7 +166,7 @@ async function mount(
           props={{ projectId: "project", ...integration }}
           deployment={{ backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null }}
           session={session}
-          host={host!}
+          host={host!} shadow={host!.shadowRoot!}
           openThread={openThread}
         />
       </TransportContext.Provider>,

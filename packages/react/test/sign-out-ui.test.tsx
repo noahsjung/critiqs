@@ -57,7 +57,7 @@ async function mount() {
   await act(async () => root!.render(<TransportContext.Provider value={fakeTransport(backend)}>
     <App props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }}
       deployment={{ backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null }}
-      session={session} host={host!} />
+      session={session} host={host!} shadow={host!.shadowRoot!} />
   </TransportContext.Provider>));
   // Exporting starts from the comments list, Comment mode's side panel.
   await act(async () => shadow.querySelector<HTMLButtonElement>('[aria-label="Comment mode"]')!.click());

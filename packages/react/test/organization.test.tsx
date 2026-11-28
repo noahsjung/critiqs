@@ -88,7 +88,7 @@ async function mount(data: FakeBackend, { organizationMembers = true, projectId 
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={fakeTransport(data)}>
-        <App props={{ ...(projectId === undefined ? {} : { projectId }), getContext: () => ({ screen: "pilot" }) }} deployment={deployment} session={session} host={host!} />
+        <App props={{ ...(projectId === undefined ? {} : { projectId }), getContext: () => ({ screen: "pilot" }) }} deployment={deployment} session={session} host={host!} shadow={host!.shadowRoot!} />
       </TransportContext.Provider>,
     ),
   );

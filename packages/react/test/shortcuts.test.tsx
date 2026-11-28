@@ -109,7 +109,7 @@ async function mount({ sidebarOpen = false, data = backend } = {}) {
   const render = () =>
     root!.render(
       <TransportContext.Provider value={transport}>
-        <App props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }} deployment={deployment} session={session} host={host!} />
+        <App props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }} deployment={deployment} session={session} host={host!} shadow={host!.shadowRoot!} />
       </TransportContext.Provider>,
     );
   rerender = async () => {

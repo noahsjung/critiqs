@@ -18,8 +18,14 @@ const COPY = `<!DOCTYPE html><html><head>
 </head><body><p id="first">One</p><p id="second" style="color: rgb(7, 8, 9); margin-left: 12px">Two</p></body></html>`;
 
 const frames: HTMLIFrameElement[] = [];
+/** Prototypes given a refusing `sheet`, put back after each test: happy-dom may share them between windows. */
+const refusing: { prototype: object; sheet: PropertyDescriptor | undefined }[] = [];
 afterEach(() => {
   for (const frame of frames.splice(0)) frame.remove();
+  for (const { prototype, sheet } of refusing.splice(0)) {
+    if (sheet === undefined) delete (prototype as { sheet?: unknown }).sheet;
+    else Object.defineProperty(prototype, "sheet", sheet);
+  }
 });
 
 /** A frame that refuses the copy's <style> elements as a strict policy would, once it loads. */
@@ -28,8 +34,9 @@ function strictFrame() {
   frames.push(frame);
   document.body.append(frame);
   frame.addEventListener("load", () => {
-    const view = frame.contentWindow as unknown as typeof globalThis;
-    Object.defineProperty(view.HTMLStyleElement.prototype, "sheet", { configurable: true, get: () => null });
+    const { prototype } = (frame.contentWindow as unknown as typeof globalThis).HTMLStyleElement;
+    refusing.push({ prototype, sheet: Object.getOwnPropertyDescriptor(prototype, "sheet") });
+    Object.defineProperty(prototype, "sheet", { configurable: true, get: () => null });
   }, { once: true });
   return frame;
 }
@@ -85,6 +92,6 @@ test("without a policy, the copy keeps its <style> elements as they were and ado
   document.body.append(frame);
   await renderSnapshot(frame, COPY, []);
   const doc = frame.contentDocument!;
-  expect(doc.adoptedStyleSheets).toEqual([]);
+  expect(doc.adoptedStyleSheets.length).toBe(0);
   expect(Array.from(doc.querySelectorAll("style")).map((style) => style.getAttribute("media"))).toEqual([null, "print", null]);
 });

@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { avatarColor, initials } from "./format.ts";
 import { useHidden } from "./hidden.ts";
+import { eventPath, madeUp, useCritiqsRoot } from "../root.ts";
 
 export function Avatar({ name, imageUrl, large }: { name: string; imageUrl?: string | null; large?: boolean }) {
   return (
@@ -68,18 +69,19 @@ export function Menu({
   );
 
   const hidden = useHidden();
+  const { shadow, trustedEventsOnly } = useCritiqsRoot();
   useEffect(() => {
     // Hidden, the host page's clicks and keys are its own.
     if (hidden) return;
     const onPointer = (event: PointerEvent) => {
-      const path = event.composedPath();
+      const path = eventPath(event, shadow);
       if (!path.includes(ref.current!) && !path.includes(anchor)) {
         clickedAway.current = true;
         onClose();
       }
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !madeUp(event, trustedEventsOnly)) {
         event.stopImmediatePropagation();
         onClose();
       }
@@ -90,7 +92,7 @@ export function Menu({
       window.removeEventListener("pointerdown", onPointer, true);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [anchor, onClose, hidden]);
+  }, [anchor, onClose, hidden, shadow, trustedEventsOnly]);
 
   return (
     <div
@@ -194,18 +196,19 @@ export function Dialog({
   }, []);
   const hidden = useHidden();
   hiddenNow.current = hidden;
+  const { trustedEventsOnly } = useCritiqsRoot();
   useEffect(() => {
     if (hidden) return;
     const onKey = (event: KeyboardEvent) => {
       // A menu open inside the dialog closes first.
-      if (event.key === "Escape" && ref.current?.querySelector(".menu") == null) {
+      if (event.key === "Escape" && !madeUp(event, trustedEventsOnly) && ref.current?.querySelector(".menu") == null) {
         event.stopImmediatePropagation();
         onClose();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, hidden]);
+  }, [onClose, hidden, trustedEventsOnly]);
   return (
     <div className={`scrim${bare ? " lightbox" : ""}`} onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
       <div
@@ -282,9 +285,11 @@ export function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: num
 /**
  * Copies text, and says whether the browser let it: false when it refused.
  * Text still on its way, such as a link the backend makes, fails the copy
- * with its own error if it fails.
+ * with its own error if it fails. Where the clipboard refuses, such as under
+ * a page's `Permissions-Policy`, a hidden field copies it instead, inside
+ * Critiqs's own `shadow` root when given, out of the page's sight.
  */
-export async function copyText(text: string | Promise<string>): Promise<boolean> {
+export async function copyText(text: string | Promise<string>, shadow: ShadowRoot | null = null): Promise<boolean> {
   if (typeof text !== "string") {
     // Safari copies only while the click is being handled, so the clipboard is handed the text as a promise there.
     if (typeof ClipboardItem !== "undefined" && typeof navigator.clipboard?.write === "function") {
@@ -308,7 +313,7 @@ export async function copyText(text: string | Promise<string>): Promise<boolean>
     field.value = text;
     field.style.position = "fixed";
     field.style.opacity = "0";
-    document.body.appendChild(field);
+    (shadow ?? document.body).appendChild(field);
     field.select();
     let copied = false;
     try {

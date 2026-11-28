@@ -485,7 +485,12 @@ export function applyEdits(doc: Document, edits: readonly MockupEdit[]): { skipp
  */
 export function prioritizeMockupStyles(doc: Document): void {
   const sheet = doc.querySelector<HTMLStyleElement>(`style[${MOCKUP_STYLE_ATTRIBUTE}]`)?.sheet;
-  if (sheet) prioritize(sheet.cssRules);
+  if (sheet) prioritizeMockupSheet(sheet);
+}
+
+/** Makes every declaration in a mockup stylesheet `!important`, as `prioritizeMockupStyles` does for the copy's own. */
+export function prioritizeMockupSheet(sheet: CSSStyleSheet): void {
+  prioritize(sheet.cssRules);
 }
 
 function prioritize(rules: CSSRuleList): void {

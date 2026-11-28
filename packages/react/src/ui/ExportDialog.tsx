@@ -2,6 +2,7 @@ import { type ExportData, exportJson, exportMarkdown, exportThread, type Feedbac
 import { useEffect, useState } from "react";
 import { describeError, type QueryState, useTransport } from "../transport.ts";
 import { copyText, Dialog } from "./common.tsx";
+import { useCritiqsRoot } from "../root.ts";
 
 type Format = "markdown" | "json";
 
@@ -22,6 +23,7 @@ export function ExportDialog({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
+  const { shadow } = useCritiqsRoot();
   const [format, setFormat] = useState<Format>("markdown");
   const [title, setTitle] = useState(`Feedback handoff, ${new Date().toLocaleDateString()}`);
   const transport = useTransport();
@@ -91,7 +93,7 @@ export function ExportDialog({
           className="btn primary"
           disabled={text === null}
           onClick={async () => {
-            await copyText(text!);
+            await copyText(text!, shadow);
             notify("Export copied");
           }}
         >
