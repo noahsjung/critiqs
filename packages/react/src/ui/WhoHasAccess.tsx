@@ -294,7 +294,7 @@ function Members({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-            <button type="submit" className="btn small" disabled={busy !== null}>
+            <button type="submit" className="btn" disabled={busy !== null}>
               {busy === "invite" ? "Adding…" : "Add"}
             </button>
           </div>

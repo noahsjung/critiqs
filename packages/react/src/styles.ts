@@ -193,10 +193,10 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 .project-panel .people li > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Who has access, where admins manage it: a person's line, then Remove or Withdraw; a confirmation or message below it. */
 .project-panel .people.managed li { flex-wrap: wrap; }
-.project-panel .people.managed .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-panel .people.managed .who { flex: 1; min-width: 0; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 .project-panel .people.managed li > .warning, .project-panel .people.managed li > .error, .project-panel .people.managed li > .note { flex-basis: 100%; margin: 0; }
 .project-panel .add-people { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.project-panel .add-people .row { gap: 6px; }
+.project-panel .add-people .row { gap: 6px; align-items: stretch; }
 .project-panel .add-people .field { flex: 1; min-width: 0; }
 .project-panel .add-people .error, .project-panel .add-people .note, .project-panel .who-can-comment .error { margin: 0; }
 .project-panel .who-can-comment { margin-top: 6px; }
