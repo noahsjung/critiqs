@@ -10,9 +10,10 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scratchRoot } from "./acceptance/sites.ts";
 
 const here = fileURLToPath(new URL("../", import.meta.url));
-const evidence = process.env.CRITIQS_EVIDENCE_DIR ?? join(process.env.TMPDIR ?? "/tmp", `critiqs-acceptance-${Date.now()}`);
+const evidence = process.env.CRITIQS_EVIDENCE_DIR ?? join(scratchRoot(), `critiqs-acceptance-${Date.now()}`);
 await mkdir(evidence, { recursive: true });
 
 const summary: string[] = [];
