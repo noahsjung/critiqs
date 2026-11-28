@@ -176,6 +176,17 @@ test("case 3: a new page in the tab ends the grant; a refused click grants nothi
   expect(typeof (await ask(chrome, { type: "critiqs:token", force: false }, fromTab(chrome, tabOf(8)))).refused).toBe("string");
 });
 
+test("case 3: the script's first request, sent as Chrome starts it, already finds the tab open", async () => {
+  const { chrome } = setUp();
+  signIn(chrome);
+  let first: Promise<any> | null = null;
+  chrome.behavior.executeScript = async () => {
+    first = ask(chrome, { type: "critiqs:token", force: false }, fromTab(chrome, tabOf(7)));
+  };
+  await clickIcon(chrome, tabOf(7));
+  expect(await first!).toEqual({ token: storedSession().accessToken });
+});
+
 test("case 3: a tab on a site the person allowed gets a token with no click", async () => {
   const { chrome } = setUp();
   signIn(chrome);
