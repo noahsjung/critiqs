@@ -113,7 +113,9 @@ test("case 2: critiqs:session answers the reviewer and no token; signed out it a
   const json = JSON.stringify(answer);
   const stored = storedSession();
   for (const secret of [stored.accessToken, stored.refreshToken, pending]) expect(json).not.toContain(secret);
-  chrome.storage.local.items.delete(sessionKey(SIGN_IN));
+  // Signed out elsewhere: Chrome tells the worker the session left storage.
+  await chrome.storage.local.remove(sessionKey(SIGN_IN));
+  await settle(10);
   expect(await ask(chrome, { type: "critiqs:session" }, fromTab(chrome, tabOf(7)))).toEqual({ reviewer: null });
 });
 
@@ -364,9 +366,11 @@ test("case 7: signing in, renaming or out in the side panel reaches every tab to
   chrome.tabMessages.length = 0;
   await panel.signOut();
   await settle(10);
-  expect(chrome.tabMessages.map(([tabId]) => tabId).sort()).toEqual([7, 9]);
+  // Told at the sign-out mark, and again as the session leaves storage: each tab at least once.
+  expect([...new Set(chrome.tabMessages.map(([tabId]) => tabId))].sort()).toEqual([7, 9]);
+  // Signing in again in the side panel.
   chrome.tabMessages.length = 0;
-  await chrome.storage.local.set({ [sessionKey(SIGN_IN)]: storedSession() });
+  await panel.signedIn(storedSession());
   await settle(10);
   expect(chrome.tabMessages.map(([tabId]) => tabId).sort()).toEqual([7, 9]);
 });

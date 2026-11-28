@@ -14,7 +14,7 @@ export function accessToken(name: string, serial: number): string {
   return `eyJhbGciOiJSUzI1NiJ9.${payload}.signature-${serial}`;
 }
 
-export const project = (id: string, name = id): ProjectInfo => ({ _id: id, name, tags: [], createdAt: 1, reviewUrl: null }) as ProjectInfo;
+export const project = (id: string, name = id): ProjectInfo => ({ _id: id, name, tags: [], createdAt: 1, reviewUrl: null, isOwner: true });
 
 export interface FakeBackend {
   requests: { url: string; body: Record<string, unknown> }[];
@@ -93,7 +93,7 @@ export function fakeBackend(): FakeBackend {
         }
         case "/auth/panel/name":
           name = String(body.name);
-          return Response.json(signedIn(name));
+          return Response.json({ status: "signed-in", ...signedIn(name) });
         case "/auth/refresh": {
           const { accessToken: token, refreshToken, expiresAt } = signedIn(name);
           return Response.json({ accessToken: token, refreshToken: typeof body.nextRefreshToken === "string" ? body.nextRefreshToken : refreshToken, expiresAt });
