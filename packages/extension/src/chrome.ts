@@ -39,6 +39,9 @@ export interface StorageArea {
   remove(keys: string | string[]): Promise<void>;
 }
 
+/** Who may use a storage area: `TRUSTED_CONTEXTS` is the extension's own pages and worker, never content scripts. */
+export type StorageAccessLevel = "TRUSTED_CONTEXTS" | "TRUSTED_AND_UNTRUSTED_CONTEXTS";
+
 export interface StorageChange {
   oldValue?: unknown;
   newValue?: unknown;
@@ -70,6 +73,9 @@ export interface ChromeApi {
     update?(tabId: number, properties: { url?: string; active?: boolean }): Promise<Tab>;
     remove?(tabId: number): Promise<void>;
     captureVisibleTab(windowId: number, options: { format: "png" | "jpeg" }): Promise<string>;
+    query(filter: Record<string, never>): Promise<Tab[]>;
+    /** A message to the content scripts in a tab's pages. */
+    sendMessage(tabId: number, message: unknown): Promise<unknown>;
     connect(tabId: number, info: { name: string; frameId?: number }): Port;
     onRemoved: ChromeEvent<(tabId: number) => void>;
     onUpdated: ChromeEvent<(tabId: number, change: { status?: string; url?: string }, tab: Tab) => void>;
@@ -96,7 +102,7 @@ export interface ChromeApi {
     contains(permissions: { origins: string[] }): Promise<boolean>;
   };
   storage: {
-    local: StorageArea;
+    local: StorageArea & { setAccessLevel(access: { accessLevel: StorageAccessLevel }): Promise<void> };
     session: StorageArea;
     onChanged: ChromeEvent<(changes: Record<string, StorageChange>, areaName: string) => void>;
   };
