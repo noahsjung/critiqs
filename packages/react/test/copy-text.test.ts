@@ -44,3 +44,38 @@ test("a link still on its way goes to the clipboard as a promise, and a link tha
   }
   expect(unhandled).toEqual([]);
 });
+
+test("where the clipboard refuses, the hidden field copies from inside Critiqs's own root, out of the page's sight", async () => {
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => Promise.reject(new Error("Blocked by the page's policy")) } });
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = host.attachShadow({ mode: "closed" });
+  const seenByPage: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records) for (const node of Array.from(record.addedNodes)) seenByPage.push(node.nodeName);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  const copied: { text: string; inRoot: boolean }[] = [];
+  Object.defineProperty(document, "execCommand", {
+    configurable: true,
+    value: (command: string) => {
+      const field = root.querySelector("textarea");
+      copied.push({ text: command === "copy" ? (field?.value ?? "") : "", inRoot: field?.getRootNode() === root });
+      return true;
+    },
+  });
+  try {
+    expect(await copyText("https://critiqs.example/t/AbCdEfGhIjKlMnOpQrStUv", root)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(copied).toEqual([{ text: "https://critiqs.example/t/AbCdEfGhIjKlMnOpQrStUv", inRoot: true }]);
+    expect(seenByPage).toEqual([]);
+    expect(root.querySelector("textarea")).toBeNull();
+    // Both refused: reported as not copied.
+    Object.defineProperty(document, "execCommand", { configurable: true, value: () => false });
+    expect(await copyText("https://critiqs.example/t/AbCdEfGhIjKlMnOpQrStUv", root)).toBe(false);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    expect(await copyText("https://critiqs.example/t/AbCdEfGhIjKlMnOpQrStUv", root)).toBe(false);
+  } finally {
+    observer.disconnect();
+    host.remove();
+  }
+});
