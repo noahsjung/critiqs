@@ -71,6 +71,8 @@ const dana = await signInDirectly(where, DANA.email, DANA.name);
 await dana.convex.mutation(api.users.sync, {});
 await seedSession(browser, where, dana.signedIn);
 await Bun.sleep(1500);
+// A comment from the start, so cases that open a thread or count pins have one whichever case runs first.
+await postThread(erin, acme, `${site("proto")}/`, "A comment from before the run");
 
 async function reviewing(url = site("proto"), on = browser): Promise<Open> {
   const open = await showCritiqs(on, url);
