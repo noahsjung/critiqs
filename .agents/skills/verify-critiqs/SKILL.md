@@ -36,7 +36,7 @@ $K/stack.sh up --data ~/.cache/verify-critiqs/instances/<name> --ports 11000 --r
 ## Drive
 
 ```sh
-$K/walk.sh --data <data> --feature onboarding|comment|all --out .local/verify-out/<label>
+$K/walk.sh --data <data> --feature onboarding|comment|access|all --out .local/verify-out/<label>
 $K/before-after.sh --base origin/main --head HEAD --feature comment --ports 11010 \
   --data ~/.cache/verify-critiqs/instances/<name> --out .local/verify-out/pairs
 ```

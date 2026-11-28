@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# walk.sh --data DIR --feature onboarding|comment|all --out DIR
+# walk.sh --data DIR --feature onboarding|comment|access|all --out DIR
 # Runs the browser walks against a running instance (stack.sh up). Screenshots and results.json go to OUT,
 # which should be outside the instance's data folder so teardown never removes the proof.
 # Exit 0 only when at least one step ran and every step passed.

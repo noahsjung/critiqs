@@ -8,6 +8,7 @@ feature file as the recipe. Driven features have a journey in `../scripts/walk.m
 | Onboarding on the website | [onboarding.md](onboarding.md) | `--feature onboarding` |
 | Commenting with the installed widget | [widget-comment.md](widget-comment.md) | `--feature comment` |
 | Thread page on the website | [thread-page.md](thread-page.md) | `--feature comment` (last step) |
+| Who has access in the project panel | [access.md](access.md) | `--feature access` |
 | Setup page | [setup-page.md](setup-page.md) | not yet |
 | Chrome extension side panel | [extension.md](extension.md) | not yet |
 | Plan and billing | [plan-and-billing.md](plan-and-billing.md) | not yet |
