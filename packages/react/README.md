@@ -297,8 +297,9 @@ before the 200-character limit are shortened to fit it.
 
 The sidebar follows the mode. In Browse mode it shows the project: its open
 and unread threads, who has access, your email notifications, and the project
-ID. In Comment mode it shows the
-threads.
+ID. On a backend that keeps organizations' members, admins of the project's
+organization add people by email, remove members, withdraw invites, and choose
+who can comment from Who has access. In Comment mode it shows the threads.
 
 Keyboard shortcuts: **C** Comment mode, **V** Browse mode, **M** Mockup mode,
 **Escape** closes what is innermost, ending with the side panel, without

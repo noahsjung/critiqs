@@ -57,6 +57,7 @@ Defined on `:host` in `styles.ts`. Use the token, never the raw value.
 | `StepDots` | Where a multi-step flow is (inside `DialogHeader`). |
 | `SidebarResizer`, `useSidebarWidth` | The right-hand sidebar's left edge, dragged (or moved with arrow keys) to resize every panel between 300 and 720 px; the width is remembered in the browser, and pins, the thread window, and mockup copies stay clear of it. |
 | `usePageFocus` | Moves focus into a dialog page when the page changes, since the control that changed it is gone. Every multi-page dialog uses it. |
+| `Confirm` | Asks before removing something, in place, naming what goes: Keep (focused first) and a `danger solid` action. Tab stays between the two and Escape keeps. |
 | `Menu`, `MenuItem` | Menus; `MenuItem` takes `selected` for a select's options and `detail` for quiet trailing text. Arrow keys, Home, and End move between items. |
 | `.btn` (`primary`, `ghost`, `danger`, `danger solid`, `small`) | Buttons. One `primary` per page; `danger solid` only to confirm removing something. |
 | `.field` | Text inputs. |
