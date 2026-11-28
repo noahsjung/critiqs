@@ -126,26 +126,69 @@ test("on a site whose comments show automatically, pins come without a panel; th
   expect(sent(chrome).filter((type) => type === "critiqs:auto-pins")).toHaveLength(2);
 });
 
-test("pins shown on their own go away when the person signs out or stops showing comments on the site", async () => {
-  const changes: ({ remove: string } | { set: Record<string, unknown> })[] = [{ remove: "session:https://signin.example" }, { set: { "signed-out:https://signin.example": "mark" } }, { set: { "sites-changed": 1 } }];
-  for (const change of changes) {
-    const chrome = fakeChrome();
-    let allowed = true;
-    chrome.runtime.sendMessage = async (message) => {
-      if ((message as { type: string }).type !== "critiqs:auto-pins") return undefined;
-      return { display: allowed ? { hidden: false, exposedRight: null, watch: [], pins: [], selected: null, highlight: null, picking: null, picked: null } : null };
-    };
-    chrome.storage.local.items.set("session:https://signin.example", { any: true });
-    stop = startPage(chrome, document).stop;
-    await settle(10);
-    expect(hosts()).toBe(1);
-    allowed = false;
-    if ("remove" in change) await chrome.storage.local.remove(change.remove);
-    else await chrome.storage.local.set(change.set);
-    await settle(10);
-    expect(hosts()).toBe(0);
-    stop();
-    stop = null;
-  }
+const pinsAnswer = { display: { hidden: false, exposedRight: null, watch: [], pins: [], selected: null, highlight: null, picking: null, picked: null } };
+
+/** Chrome's storage as a content script sees it once the worker has locked it: every use refused. */
+function lockedStorage(chrome: ReturnType<typeof fakeChrome>) {
+  const refuse = () => {
+    chrome.storageCalls.push("refused");
+    throw new Error("Access to storage is not allowed from this context.");
+  };
+  const area = { get: refuse, set: refuse, remove: refuse, setAccessLevel: refuse };
+  Object.assign(chrome, { storage: { local: area, session: area, onChanged: { addListener: refuse, removeListener: refuse } } });
+}
+
+/** The worker telling this tab the reviewer or the site's automatic comments changed. */
+const sessionChanged = (chrome: ReturnType<typeof fakeChrome>, sender: { id?: string } = { id: chrome.runtime.id }) =>
+  chrome.runtime.onMessage.fire({ type: "critiqs:session-changed" }, sender, () => {});
+
+test("case 8: the content script never uses extension storage, and with it locked still shows pins and follows sign-in and sign-out", async () => {
+  const chrome = fakeChrome();
+  lockedStorage(chrome);
+  let signedIn = true;
+  chrome.runtime.sendMessage = async (message) => {
+    chrome.calls.push(`runtime.sendMessage ${JSON.stringify(message)}`);
+    if ((message as { type: string }).type !== "critiqs:auto-pins") return undefined;
+    return signedIn ? pinsAnswer : { display: null };
+  };
+  stop = startPage(chrome, document).stop;
+  await settle(10);
+  expect(hosts()).toBe(1);
+  // Signed out (here, in the side panel, or in another tab): the worker says so, and the pins go.
+  signedIn = false;
+  sessionChanged(chrome);
+  await settle(10);
+  expect(hosts()).toBe(0);
+  // Signed in again: the pins come back.
+  signedIn = true;
+  sessionChanged(chrome);
+  await settle(10);
+  expect(hosts()).toBe(1);
+  stop();
+  stop = null;
+  expect(chrome.storageCalls).toEqual([]);
 });
 
+test("pins shown on their own go away when the worker says the session or the site's automatic comments changed", async () => {
+  const chrome = fakeChrome();
+  let allowed = true;
+  chrome.runtime.sendMessage = async (message) => {
+    if ((message as { type: string }).type !== "critiqs:auto-pins") return undefined;
+    return allowed ? pinsAnswer : { display: null };
+  };
+  stop = startPage(chrome, document).stop;
+  await settle(10);
+  expect(hosts()).toBe(1);
+  allowed = false;
+  // Storage changes no longer reach the content script; only the worker's message counts.
+  await chrome.storage.local.set({ "sites-changed": 1 });
+  await settle(10);
+  expect(hosts()).toBe(1);
+  // A message that isn't from this extension changes nothing.
+  sessionChanged(chrome, { id: "another-extension" });
+  await settle(10);
+  expect(hosts()).toBe(1);
+  sessionChanged(chrome);
+  await settle(10);
+  expect(hosts()).toBe(0);
+});

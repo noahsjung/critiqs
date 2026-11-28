@@ -10,7 +10,8 @@
     "build": "bun scripts/build.ts",
     "package": "bun scripts/package.ts",
     "check:chrome": "bun scripts/check-extension.ts",
-    "check:checklist": "bun scripts/checklist.ts"
+    "check:checklist": "bun scripts/checklist.ts",
+    "check:storage-lock": "bun scripts/check-storage-lock.ts"
   },
   "devDependencies": {
     "@critiqs/backend": "workspace:*",

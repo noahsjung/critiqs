@@ -3,9 +3,9 @@ import { HOST_TAG } from "../../react/src/constants.ts";
 import { PageLink } from "../../react/src/page-layer/link.ts";
 import { type MountedPageLayer, mountPageLayer } from "../../react/src/page-layer/mount.tsx";
 import type { AutoPins } from "./auto-pins.ts";
-import { type ChromeApi, chromeApi, type Port } from "./chrome.ts";
+import { type ChromeApi, chromeApi, type MessageSender, type Port } from "./chrome.ts";
 import { CHANNEL, MOCKUP_PORT, PANEL_PORT, type PageMessage, REPLACED } from "./config.ts";
-import { SITES_CHANGED } from "./site-access.ts";
+import { isWorkerMessage } from "./overlay-protocol.ts";
 
 /**
  * The content script: Critiqs's page layer in the reviewer's own tab. The
@@ -13,6 +13,10 @@ import { SITES_CHANGED } from "./site-access.ts";
  * site whose comments show automatically it also runs with no side panel
  * open, drawing pins the worker reads from the backend. On a page that has
  * Critiqs installed it does nothing, and says so.
+ *
+ * It never uses extension storage, which the worker closes to content
+ * scripts: the worker tells it when the reviewer or the site's automatic
+ * comments change.
  */
 
 /** The `critiqs` package's element for pages without a build (`critiqs/element`). */
@@ -40,7 +44,7 @@ export interface RunningPage {
   stop(): void;
 }
 
-export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, document: Document): RunningPage {
+export function startPage(chrome: Pick<ChromeApi, "runtime">, document: Document): RunningPage {
   const send = (message: PageMessage) => chrome.runtime.sendMessage(message).catch(() => undefined);
   const own = new Set<Element>();
   let layer: MountedPageLayer | null = null;
@@ -90,10 +94,11 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
   };
 
   // Signing in or out, or turning a site's automatic comments on or off, changes what pins shown
-  // on their own may draw: they are read again, or removed.
-  const onStorage = (changes: Record<string, unknown>, area: string) => {
-    if (area !== "local" || panel !== null || builtIn) return;
-    if (!Object.keys(changes).some((key) => key === SITES_CHANGED || key.startsWith("session:") || key.startsWith("signed-out:"))) return;
+  // on their own may draw: the worker says so, and they are read again, or removed.
+  const onWorker = (message: unknown, sender: MessageSender) => {
+    // Only the worker's own messages: from this extension, and from no tab.
+    if (sender.id !== chrome.runtime.id || sender.tab !== undefined) return;
+    if (!isWorkerMessage(message) || message.type !== "critiqs:session-changed" || panel !== null || builtIn) return;
     unmount();
     void showPins();
   };
@@ -134,7 +139,7 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
   const standAside = () => {
     builtIn = true;
     observer?.disconnect();
-    chrome.storage.onChanged.removeListener(onStorage);
+    chrome.runtime.onMessage.removeListener(onWorker);
     chrome.runtime.onConnect.removeListener(onConnect);
     panel?.disconnect();
     panel = null;
@@ -148,7 +153,7 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
     standAside();
   } else {
     chrome.runtime.onConnect.addListener(onConnect);
-    chrome.storage.onChanged.addListener(onStorage);
+    chrome.runtime.onMessage.addListener(onWorker);
     // A site's own Critiqs may start after this script, such as once its app has loaded.
     observer = new MutationObserver((records) => {
       if (records.some((record) => bringsCritiqs(record.addedNodes, own))) standAside();
@@ -162,7 +167,7 @@ export function startPage(chrome: Pick<ChromeApi, "runtime" | "storage">, docume
     announce: () => void send(builtIn ? { type: "critiqs:built-in" } : { type: "critiqs:page-ready" }),
     stop() {
       observer?.disconnect();
-      chrome.storage.onChanged.removeListener(onStorage);
+      chrome.runtime.onMessage.removeListener(onWorker);
       chrome.runtime.onConnect.removeListener(onConnect);
       panel?.disconnect();
       unmount();

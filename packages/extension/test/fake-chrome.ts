@@ -14,16 +14,18 @@ export function fakeEvent<Listener extends (...args: never[]) => unknown>() {
   return event;
 }
 
-function fakeStorage(name: string, onChanged: ReturnType<typeof fakeEvent<(changes: Record<string, StorageChange>, area: string) => void>>) {
+function fakeStorage(name: string, onChanged: ReturnType<typeof fakeEvent<(changes: Record<string, StorageChange>, area: string) => void>>, used: string[]) {
   const items = new Map<string, unknown>();
   const copy = (value: unknown) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
   const area: StorageArea & { items: Map<string, unknown> } = {
     items,
     async get(keys) {
+      used.push(`${name}.get`);
       const wanted = keys === null ? [...items.keys()] : typeof keys === "string" ? [keys] : keys;
       return Object.fromEntries(wanted.filter((key) => items.has(key)).map((key) => [key, copy(items.get(key))]));
     },
     async set(values) {
+      used.push(`${name}.set`);
       const changes: Record<string, StorageChange> = {};
       for (const [key, value] of Object.entries(values)) {
         changes[key] = { oldValue: items.get(key), newValue: copy(value) };
@@ -32,6 +34,7 @@ function fakeStorage(name: string, onChanged: ReturnType<typeof fakeEvent<(chang
       onChanged.fire(changes, name);
     },
     async remove(keys) {
+      used.push(`${name}.remove`);
       const changes: Record<string, StorageChange> = {};
       for (const key of typeof keys === "string" ? [keys] : keys) {
         if (!items.has(key)) continue;
@@ -78,13 +81,17 @@ export function fakePorts(name: string, sender?: { tab?: Tab }): [Port & { disco
 
 export interface FakeChrome extends ChromeApi {
   calls: string[];
+  /** Every use of extension storage, in order: `local.get`, `session.set`, `local.setAccessLevel TRUSTED_CONTEXTS`, … */
+  storageCalls: string[];
+  /** Messages the worker sent to tabs: [tabId, message]. */
+  tabMessages: [number, unknown][];
   tabs: ChromeApi["tabs"] & { onRemoved: ReturnType<typeof fakeEvent<(tabId: number) => void>>; onUpdated: ReturnType<typeof fakeEvent<(tabId: number, change: { status?: string; url?: string }, tab: Tab) => void>> };
   action: ChromeApi["action"] & { onClicked: ReturnType<typeof fakeEvent<(tab: Tab) => void>> };
   runtime: ChromeApi["runtime"] & {
     onMessage: ReturnType<typeof fakeEvent<(message: unknown, sender: MessageSender, respond: (answer: unknown) => void) => boolean | void>>;
     onConnect: ReturnType<typeof fakeEvent<(port: Port) => void>>;
   };
-  storage: ChromeApi["storage"] & { local: StorageArea & { items: Map<string, unknown> }; session: StorageArea & { items: Map<string, unknown> } };
+  storage: ChromeApi["storage"] & { local: ChromeApi["storage"]["local"] & { items: Map<string, unknown> }; session: StorageArea & { items: Map<string, unknown> } };
   /** What the fake does when asked; tests change these. */
   behavior: {
     executeScript: (tabId: number) => Promise<void>;
@@ -93,6 +100,8 @@ export interface FakeChrome extends ChromeApi {
     tab: (tabId: number) => Tab;
     connect: (tabId: number, name: string) => Port;
     registerFails: boolean;
+    /** The tabs `tabs.query` lists. */
+    tabs: () => Tab[];
   };
   granted: Set<string>;
   registered: Map<string, RegisteredContentScript>;
@@ -100,6 +109,8 @@ export interface FakeChrome extends ChromeApi {
 
 export function fakeChrome(): FakeChrome {
   const calls: string[] = [];
+  const storageCalls: string[] = [];
+  const tabMessages: [number, unknown][] = [];
   const onChanged = fakeEvent<(changes: Record<string, StorageChange>, area: string) => void>();
   const granted = new Set<string>();
   const registered = new Map<string, RegisteredContentScript>();
@@ -114,9 +125,12 @@ export function fakeChrome(): FakeChrome {
       return panel;
     },
     registerFails: false,
+    tabs: () => [behavior.tab(7)],
   };
   const chrome: FakeChrome = {
     calls,
+    storageCalls,
+    tabMessages,
     behavior,
     granted,
     registered,
@@ -130,6 +144,8 @@ export function fakeChrome(): FakeChrome {
     tabs: {
       get: async (tabId) => behavior.tab(tabId),
       captureVisibleTab: async (windowId, options) => (calls.push(`tabs.captureVisibleTab ${windowId} ${options.format}`), await behavior.capture(windowId)),
+      query: async () => behavior.tabs(),
+      sendMessage: async (tabId, message) => void tabMessages.push([tabId, JSON.parse(JSON.stringify(message))]),
       connect: (tabId, info) => (calls.push(`tabs.connect ${tabId} ${info.name}`), behavior.connect(tabId, info.name)),
       onRemoved: fakeEvent(),
       onUpdated: fakeEvent(),
@@ -181,8 +197,10 @@ export function fakeChrome(): FakeChrome {
       contains: async ({ origins }) => origins.every((origin) => granted.has(origin)),
     },
     storage: {
-      local: fakeStorage("local", onChanged),
-      session: fakeStorage("session", onChanged),
+      local: Object.assign(fakeStorage("local", onChanged, storageCalls), {
+        setAccessLevel: async ({ accessLevel }: { accessLevel: string }) => void storageCalls.push(`local.setAccessLevel ${accessLevel}`),
+      }),
+      session: fakeStorage("session", onChanged, storageCalls),
       onChanged,
     },
   };
