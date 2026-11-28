@@ -75,7 +75,7 @@ async function comment(view: { tab: string }) {
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={transport}>
-        <App props={{ projectId: "project", getContext: () => ({ screen: "pilot", viewState: { ...view } }) }} deployment={deployment} session={session} host={host!} />
+        <App props={{ projectId: "project", getContext: () => ({ screen: "pilot", viewState: { ...view } }) }} deployment={deployment} session={session} host={host!} shadow={host!.shadowRoot!} />
       </TransportContext.Provider>,
     ),
   );

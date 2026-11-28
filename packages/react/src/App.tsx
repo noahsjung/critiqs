@@ -19,7 +19,8 @@ import {
 } from "@critiqs/core";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { reportConnected } from "./connected.ts";
-import type { Deployment } from "./deployment.ts";
+import type { Deployment, PanelSurface } from "./deployment.ts";
+import { CritiqsRootContext, madeUp } from "./root.ts";
 import type { CritiqsProps } from "./host.ts";
 import { errorMessage, useTransport } from "./transport.ts";
 import { isHideShortcut, isTyping, useStoredState } from "./hooks.ts";
@@ -126,12 +127,20 @@ export type ReviewPanel = { layout: "side" } | { layout: "sheet"; open: boolean;
 /** The review page's sidebar, in a review link's page; null when Critiqs is installed or in the extension. */
 const InReviewPage = createContext<ReviewPanel | null>(null);
 
+/** An item the panel's surface adds to the account menu, such as the browser extension's own settings. */
+export interface AccountItem {
+  label: string;
+  onSelect(): void;
+}
+
 interface AppProps {
   props: CritiqsProps;
   deployment: Deployment;
   session: ReviewerSession;
   /** The element holding the panel's shadow root. */
   host: HTMLElement;
+  /** The panel's shadow root, passed in: a closed one is hidden from `host.shadowRoot`. */
+  shadow: ShadowRoot;
   /**
    * The page layer, where it runs elsewhere, such as in a frame or a tab.
    * Without it, the page layer runs in this document, drawing into `host`,
@@ -145,6 +154,12 @@ interface AppProps {
   mockups?: MockupPlace;
   /** A review link's page around the panel (`ReviewSurface`). */
   review?: ReviewSurface;
+  /** The browser extension draws this panel in the reviewed page: no Connected report, and threads say so. */
+  surface?: PanelSurface;
+  /** Shortcuts ignore key events the page's own scripts make up. */
+  trustedEventsOnly?: boolean;
+  /** More items in the account menu, after Critiqs's own. */
+  accountItems?: AccountItem[];
 }
 
 /**
@@ -158,26 +173,26 @@ function pinTickets(tickets: ThreadSummary["tickets"]): TicketBadge[] {
 }
 
 export function App({ page, ...args }: AppProps) {
-  const own = useInDocumentPage(page === undefined ? args.host : null, args.props);
+  const own = useInDocumentPage(page === undefined ? args.host : null, args.shadow, args.props);
   const link = page ?? own;
   return link === null ? null : <PanelApp {...args} page={link} />;
 }
 
 /** Runs the page layer in this document for as long as the panel is shown. */
-function useInDocumentPage(host: HTMLElement | null, props: CritiqsProps): PageLink | null {
+function useInDocumentPage(host: HTMLElement | null, shadow: ShadowRoot, props: CritiqsProps): PageLink | null {
   const [made, setMade] = useState<ReturnType<typeof inDocumentPage> | null>(null);
   const { getContext, restoreContext } = props;
   const pageHost = useRef({ getContext, restoreContext });
   pageHost.current = { getContext, restoreContext };
   useLayoutEffect(() => {
     if (host === null) return;
-    const created = inDocumentPage(host, pageHost.current);
+    const created = inDocumentPage(host, shadow, pageHost.current);
     setMade(created);
     return () => {
       created.destroy();
       setMade((current) => (current === created ? null : current));
     };
-  }, [host]);
+  }, [host, shadow]);
   // The host's functions as of its latest render: a restore changes the app's
   // state, and the context Critiqs checks afterwards must be the new one.
   useLayoutEffect(() => {
@@ -191,12 +206,17 @@ function PanelApp({
   deployment,
   session,
   host,
+  shadow,
   page,
   supplyCapture,
   openThread,
   mockups,
   review,
+  surface,
+  trustedEventsOnly = false,
+  accountItems,
 }: Omit<AppProps, "page"> & { page: PageLink }) {
+  const root = useMemo(() => ({ shadow, trustedEventsOnly }), [shadow, trustedEventsOnly]);
   const reviewRef = useRef(review);
   reviewRef.current = review;
   const transport = useTransport();
@@ -498,7 +518,8 @@ function PanelApp({
 
   // Loading with a project tells the backend, so onboarding on the Critiqs website can say Connected, before anyone signs in.
   // A review link's page isn't the prototype's own page, and the prototype's frame there reports nothing either.
-  const reportsConnections = deployment.connections === true && review === undefined;
+  // Only an install reports: not a review link's page, nor the browser extension drawing the panel in the page.
+  const reportsConnections = deployment.connections === true && review === undefined && surface !== "extension";
   useEffect(() => {
     if (reportsConnections && projectId !== null) reportConnected(deployment.siteUrl, projectId);
   }, [reportsConnections, projectId, deployment.siteUrl]);
@@ -565,7 +586,7 @@ function PanelApp({
       revealController.current?.abort();
       setReveal({ status: "idle" });
       setHighlight(null);
-      const active = host.shadowRoot?.activeElement;
+      const active = shadow.activeElement;
       setSelected({
         id: ++selections.current,
         threadId,
@@ -576,7 +597,7 @@ function PanelApp({
       });
       setPanel("comments");
     },
-    [host],
+    [shadow],
   );
 
   const closeThread = useCallback(() => {
@@ -853,7 +874,7 @@ function PanelApp({
   keys.current = { mode, reattaching, picked, needsSetup, cancelComment, closeThread, hidden, unavailable: required && projectMissing, inMockup, mockupsOffered, chooseMode };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (keys.current.unavailable) return;
+      if (keys.current.unavailable || madeUp(event, trustedEventsOnly)) return;
       if (isHideShortcut(event)) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -869,13 +890,13 @@ function PanelApp({
         dismissScopeHelp.current();
         return;
       }
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTyping(event)) return;
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTyping(event, shadow)) return;
       const current = keys.current;
       const picking = current.mode === "comment" || current.reattaching !== null;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       // An open Critiqs menu or dialog handles its own Escape first; while
       // picking, C and V are still kept from the prototype but change nothing.
-      if (openLayer(host.shadowRoot)) {
+      if (openLayer(shadow)) {
         if (picking && (key === "c" || key === "v")) {
           event.preventDefault();
           event.stopImmediatePropagation();
@@ -916,7 +937,7 @@ function PanelApp({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [host]);
+  }, [shadow, trustedEventsOnly]);
 
   // Leaving Comment mode discards an empty new comment, but keeps one with
   // text: Comment mode (C) brings it back beside its element.
@@ -937,7 +958,7 @@ function PanelApp({
   const focusBeforeHide = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (hidden) {
-      const active = host.shadowRoot?.activeElement;
+      const active = shadow.activeElement;
       focusBeforeHide.current = active instanceof HTMLElement ? active : null;
       focusBeforeHide.current?.blur();
       host.style.setProperty("display", "none", "important");
@@ -1317,6 +1338,7 @@ function PanelApp({
   if (required && projectMissing) return null;
 
   return (
+    <CritiqsRootContext.Provider value={root}>
     <InReviewPage.Provider value={reviewPanel}>
     <HiddenContext.Provider value={hidden}>
     <OpenBillingContext.Provider value={openBilling}>
@@ -1324,7 +1346,6 @@ function PanelApp({
       {inMockup && projectId !== null && (
         <MockupMode
           key={mockupRequest?.id ?? 0}
-          host={host}
           projectId={projectId}
           context={context}
           copyPage={copyPage}
@@ -1434,6 +1455,7 @@ function PanelApp({
         }}
         avoid={pickedElement?.getBoundingClientRect() ?? null}
         sidebarLeft={(inMockup ? mockupPanelOpen : sidebarOpen) ? windowWidth - sideWidth : undefined}
+        accountItems={accountItems ?? NO_ACCOUNT_ITEMS}
       />}
       {signedIn && bulkTickets && projectId !== null && reviewerId !== null && bulkAccounts.length > 0 && (
         <BulkCreateTicketsDialog
@@ -1507,6 +1529,7 @@ function PanelApp({
     </OpenBillingContext.Provider>
     </HiddenContext.Provider>
     </InReviewPage.Provider>
+    </CritiqsRootContext.Provider>
   );
 }
 
@@ -1517,6 +1540,8 @@ function followOccurrence(chosen: Occurrence, occurrences: Occurrence[]): Occurr
 
 const EMPTY: ThreadSummary[] = [];
 const EMPTY_TAGS: string[] = [];
+const NO_ACCOUNT_ITEMS: AccountItem[] = [];
+
 const EMPTY_REPLY: ReplyState = { draft: EMPTY_MENTION_TEXT, sending: false, error: null };
 
 function SidebarFrame({

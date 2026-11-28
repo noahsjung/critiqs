@@ -118,7 +118,7 @@ export async function saveCommentOnScriptedPage(answers: Answers, transportChang
   await act(async () =>
     root!.render(
       <TransportContext.Provider value={transport}>
-        <App props={{ projectId: "project" }} deployment={deployment} session={session} host={host!} page={link} />
+        <App props={{ projectId: "project" }} deployment={deployment} session={session} host={host!} shadow={host!.shadowRoot!} page={link} />
       </TransportContext.Provider>,
     ),
   );

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Rect } from "@critiqs/core";
 import { useStoredState } from "../hooks.ts";
+import type { AccountItem } from "../App.tsx";
 import type { Reviewer } from "../session.ts";
 import { Avatar, Menu, MenuItem, useMenu } from "./common.tsx";
 import { useWindowWidth } from "./sidebar-width.tsx";
@@ -37,6 +38,8 @@ interface ToolbarProps {
   avoid: Rect | null;
   /** The left edge of an open sidebar; the toolbar centers in the page beside it, where it fits. */
   sidebarLeft?: number;
+  /** The panel's surface's own items, after Critiqs's and before Sign out. */
+  accountItems?: AccountItem[];
 }
 
 const MARGIN = 16;
@@ -269,6 +272,17 @@ export function Toolbar(props: ToolbarProps) {
                 Email notifications…
               </MenuItem>
             )}
+            {(props.accountItems ?? []).map((item) => (
+              <MenuItem
+                key={item.label}
+                onSelect={() => {
+                  account.close();
+                  item.onSelect();
+                }}
+              >
+                {item.label}
+              </MenuItem>
+            ))}
             <MenuItem
               onSelect={() => {
                 account.close();

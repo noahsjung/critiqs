@@ -37,7 +37,7 @@ export function mountCritiqs(initial: CritiqsProps = {}): CritiqsInstance {
   if (typeof document === "undefined") {
     throw new Error("Critiqs: mountCritiqs runs only in the browser. Call it once the page has loaded, such as in a component's mounted hook.");
   }
-  let mounted: { root: Root; host: HTMLElement } | null = null;
+  let mounted: { root: Root; host: HTMLElement; shadow: ShadowRoot } | null = null;
   let warned: string | null = null;
   let destroyed = false;
   let options = initial;
@@ -92,7 +92,7 @@ export function mountCritiqs(initial: CritiqsProps = {}): CritiqsInstance {
     mounted ??= mountShadowRoot();
     // A new function on each change, so the interface reads the context again.
     const getContext = combineContext(pushed, options.getContext);
-    mounted.root.render(<Connect props={{ ...options, getContext, ...(required ? { projectId } : {}) }} host={mounted.host} />);
+    mounted.root.render(<Connect props={{ ...options, getContext, ...(required ? { projectId } : {}) }} host={mounted.host} shadow={mounted.shadow} />);
   };
 
   render();

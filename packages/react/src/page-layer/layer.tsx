@@ -25,6 +25,7 @@ import { captureView } from "../capture.ts";
 import { hasMasks, markSuppliedCapture } from "../capture-supplied.ts";
 import type { CritiqsProps, HostContext } from "../host.ts";
 import { readContext } from "../host.ts";
+import { CritiqsRootContext } from "../root.ts";
 import { freezePage, pageRecordKey } from "../mockup/freeze.ts";
 import { isShown, locateShown } from "../model.ts";
 import { waitForViewMotion } from "../motion.ts";
@@ -66,18 +67,20 @@ const NO_DISPLAY: PageDisplay = {
  * highlights, and Comment mode's selection into `container` (a `.layer`
  * inside a Critiqs shadow root), and answers the panel over `transport`.
  * `host` is the Critiqs element on the page; its contents are never picked,
- * captured, or copied.
+ * captured, or copied. `shadow` is its shadow root, which holds `container`.
  */
 export function createPageLayer({
   transport,
   channel,
   host,
+  shadow,
   container,
   pageHost = {},
 }: {
   transport: PageTransport;
   channel: string;
   host: HTMLElement;
+  shadow: ShadowRoot;
   container: HTMLElement;
   pageHost?: PageHost;
 }): PageLayer {
@@ -149,6 +152,8 @@ export function createPageLayer({
   // Drawing
 
   const root: Root = createRoot(container);
+  // Its own React root: Critiqs's shadow root reaches it here, not through the panel's tree.
+  const inRoot = { shadow, trustedEventsOnly: false };
   const draw = () => {
     if (destroyed) return;
     const pins: PinTarget[] = display.pins.flatMap((pin) => {
@@ -156,6 +161,7 @@ export function createPageLayer({
       return result?.status === "found" ? [{ ...pin, elements: result.elements }] : [];
     });
     root.render(
+      <CritiqsRootContext.Provider value={inRoot}>
       <Overlay
         host={host}
         display={display}
@@ -166,7 +172,8 @@ export function createPageLayer({
         onPin={(threadId, element) => endpoint.emit("pin", { threadId, occurrence: occurrenceOf(element) })}
         onPick={(picked) => endpoint.emit("picked", { occurrence: occurrenceOf(picked.element), target: picked.target, context: context() })}
         onOutsideClick={() => endpoint.emit("outsideClick", {})}
-      />,
+      />
+      </CritiqsRootContext.Provider>,
     );
   };
 

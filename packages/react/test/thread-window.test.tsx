@@ -242,7 +242,7 @@ async function mount({ sidebarOpen, deployment = {} }: { sidebarOpen: boolean; d
           props={{ projectId: "project", getContext: () => ({ screen: "pilot" }) }}
           deployment={{ backendUrl: "https://backend.convex.cloud", siteUrl: "https://backend.convex.site", signInUrl: SIGN_IN, transport: "convex", signIn: null, ...deployment }}
           session={session}
-          host={host!}
+          host={host!} shadow={host!.shadowRoot!}
         />
       </TransportContext.Provider>,
     ),

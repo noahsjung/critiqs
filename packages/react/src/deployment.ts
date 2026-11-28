@@ -226,13 +226,25 @@ export function creditsArg(deployment: Deployment): { aiCredits?: true } {
 }
 
 /**
- * A new thread's `madeWith` argument: `extension` when this panel runs in the
- * browser extension's own page (a `chrome-extension:` document, the test
- * Connected's report uses too), only for backends that report
+ * Where a panel runs other than an install: `extension` when the browser
+ * extension draws it in the reviewed page itself, where the page's address
+ * can't say so.
+ */
+export type PanelSurface = "extension";
+
+/**
+ * A new thread's `madeWith` argument: `extension` when the panel's surface is
+ * the extension's, or it runs in the browser extension's own page (a
+ * `chrome-extension:` document), only for backends that report
  * `threadMadeWith`. Every other panel is an install's, which backends assume.
  */
-export function madeWithArg(deployment: Deployment, location: Pick<Location, "protocol"> | undefined = globalThis.location): { madeWith?: "extension" } {
-  return deployment.threadMadeWith === true && location?.protocol === "chrome-extension:" ? { madeWith: "extension" } : {};
+export function madeWithArg(
+  deployment: Deployment,
+  location: Pick<Location, "protocol"> | undefined = globalThis.location,
+  surface?: PanelSurface,
+): { madeWith?: "extension" } {
+  const extension = surface === "extension" || location?.protocol === "chrome-extension:";
+  return deployment.threadMadeWith === true && extension ? { madeWith: "extension" } : {};
 }
 
 /**

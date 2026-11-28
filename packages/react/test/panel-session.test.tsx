@@ -72,7 +72,7 @@ test("a panel's own sign-in is the one Convex asks for its token, and the review
   shadow.append(container);
   root = createRoot(container);
   await act(async () =>
-    root!.render(<Connect props={{ projectId: "project", backend: "http://127.0.0.1:8" }} host={host!} page={new PageLink(page.endpoint, { initial: shown })} session={session} />),
+    root!.render(<Connect props={{ projectId: "project", backend: "http://127.0.0.1:8" }} host={host!} shadow={host!.shadowRoot!} page={new PageLink(page.endpoint, { initial: shown })} session={session} />),
   );
   for (let tries = 0; tries < 50 && givenToConvex.length === 0; tries++) await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   // Convex gets its token from the panel's own session, not from Critiqs's sign-in popup.

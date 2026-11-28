@@ -3,7 +3,7 @@ import { loadExport, type Page, type ReactionRow, type ThreadDetail, type Thread
 import { ConvexProviderWithAuth, type ConvexReactClient, useConvexAuth, usePaginatedQuery } from "convex/react";
 import { ConvexError, type GenericId as Id } from "convex/values";
 import { type ReactNode, useCallback, useSyncExternalStore } from "react";
-import { creditsArg, type Deployment, madeWithArg, mentionThreadArg } from "../deployment.ts";
+import { creditsArg, type Deployment, madeWithArg, mentionThreadArg, type PanelSurface } from "../deployment.ts";
 import { uploadCapture, uploadFile } from "../capture-upload.ts";
 import { useUtcDay } from "../hooks.ts";
 import type { TokenSession } from "../session.ts";
@@ -16,7 +16,7 @@ import { useAllPages, useQueryState } from "./queries.ts";
  * subscriptions; changes are Convex mutations; captures are served through the
  * deployment's protected HTTP route.
  */
-export function convexTransport(client: ConvexReactClient, deployment: Deployment, session: TokenSession): CritiqsTransport {
+export function convexTransport(client: ConvexReactClient, deployment: Deployment, session: TokenSession, surface?: PanelSurface): CritiqsTransport {
   // Whether Convex's latest request for a token got one. Convex reports both a
   // refused token and a missing one as unauthenticated; only the first is a rejection.
   let lastTokenFetched = false;
@@ -55,7 +55,7 @@ export function convexTransport(client: ConvexReactClient, deployment: Deploymen
       tags: args.tags,
       mentions: args.mentions.map(({ userId, label }) => ({ userId: userId as Id<"users">, label })),
       capture: capture.status === "captured" ? { status: "captured", storageId: capture.fileId as Id<"_storage"> | Id<"captureFiles"> } : capture,
-      ...madeWithArg(deployment),
+      ...madeWithArg(deployment, undefined, surface),
       ...(args.mockup === undefined
         ? {}
         : {

@@ -8,6 +8,7 @@ import { EMPTY_MENTION_TEXT, MentionInput, type MentionText } from "./MentionInp
 import { InfoIcon } from "./icons.tsx";
 import { useHidden } from "./hidden.ts";
 import { openLayer } from "./common.tsx";
+import { eventPath, useCritiqsRoot } from "../root.ts";
 
 export interface PickedTarget {
   element: Element;
@@ -42,6 +43,7 @@ export function Picker({
   const onOutsideRef = useRef(onOutsideClick);
   onOutsideRef.current = onOutsideClick;
 
+  const { shadow } = useCritiqsRoot();
   useEffect(() => {
     if (paused) setHovered(null);
     const fromCritiqs = (event: Event) => event.composedPath().includes(host);
@@ -62,7 +64,7 @@ export function Picker({
       // focus left it, such as from a button disabled while saving. It is kept
       // from the prototype but still reaches that layer's own listener, so
       // Escape closes it.
-      if (event instanceof KeyboardEvent && openLayer(host.shadowRoot)) event.stopPropagation();
+      if (event instanceof KeyboardEvent && openLayer(shadow)) event.stopPropagation();
       else event.stopImmediatePropagation();
     };
     const onClick = (event: MouseEvent) => {
@@ -98,7 +100,7 @@ export function Picker({
       for (const type of blocked) window.removeEventListener(type, block, true);
       document.documentElement.style.cursor = previousCursor;
     };
-  }, [host, paused]);
+  }, [host, shadow, paused]);
 
   const rect = useElementRect(hovered?.element ?? null);
   const label = hovered?.target.purposeId ?? hovered?.target.clues.label ?? hovered?.target.clues.tagName;
@@ -231,14 +233,15 @@ export function Composer({
     };
   }, helpOpen && !hidden, sameHelpPosition);
 
+  const { shadow } = useCritiqsRoot();
   useEffect(() => {
     if (!helpOpen || hidden) return;
     const closeOutside = (event: PointerEvent) => {
-      if (helpAnchor.current !== null && !event.composedPath().includes(helpAnchor.current)) setHelp(null);
+      if (helpAnchor.current !== null && !eventPath(event, shadow).includes(helpAnchor.current)) setHelp(null);
     };
     window.addEventListener("pointerdown", closeOutside, true);
     return () => window.removeEventListener("pointerdown", closeOutside, true);
-  }, [helpOpen, hidden]);
+  }, [helpOpen, hidden, shadow]);
 
   const submit = () => {
     if (body.text.trim() !== "" && !saving) onSubmit();

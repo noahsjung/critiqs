@@ -110,7 +110,7 @@ async function reviewPanel(
           props={{ projectId: projectId ?? undefined }}
           deployment={{ ...deployment, connections: options.connections === true }}
           session={session}
-          host={host!}
+          host={host!} shadow={host!.shadowRoot!}
           page={link}
           review={options.withoutReview === true ? undefined : { ...review, mode }}
         />

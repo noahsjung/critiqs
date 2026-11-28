@@ -17,6 +17,7 @@ import { copyText } from "./common.tsx";
 import { OpenBillingContext } from "./BillingDialog.tsx";
 import { Meter, NavRow, NEAR_LIMIT, Select, type SelectOption, SettingRow } from "./ds.tsx";
 import { amount, ceilingOf, type UsageRow, usageName, usageText } from "./usage.ts";
+import { useCritiqsRoot } from "../root.ts";
 
 /**
  * Project setup in the sidebar (F1). A developer signs in, names the project,
@@ -231,8 +232,9 @@ function ProjectReady({
 }) {
   const project = useTransport().useProject(projectId);
   const command = `npx critiqs init ${projectId}`;
+  const { shadow } = useCritiqsRoot();
   const copy = async (text: string, what: string) => {
-    await copyText(text);
+    await copyText(text, shadow);
     notify(`${what} copied`);
   };
 

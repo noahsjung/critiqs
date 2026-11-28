@@ -3,6 +3,7 @@ import type { Reviewer } from "../session.ts";
 import { copyText } from "./common.tsx";
 import { PlanUsage } from "./Setup.tsx";
 import { WhoHasAccess } from "./WhoHasAccess.tsx";
+import { useCritiqsRoot } from "../root.ts";
 
 /**
  * The side panel in Browse mode: the project itself, rather than its comments,
@@ -33,8 +34,9 @@ export function ProjectPanel({
   organizationMembers: boolean;
   notify: (message: string) => void;
 }) {
+  const { shadow } = useCritiqsRoot();
   const copyId = async () => {
-    await copyText(project._id);
+    await copyText(project._id, shadow);
     notify("Project ID copied");
   };
 

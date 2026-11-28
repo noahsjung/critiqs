@@ -25,8 +25,8 @@ export interface MountedPageLayer {
  * selection. It answers the panel at the other end of `transport`.
  */
 export function mountPageLayer({ transport, channel, host: pageHost = {} }: { transport: PageTransport; channel: string; host?: PageHost }): MountedPageLayer {
-  const { host, container } = attachHost(document.body);
-  const layer = createPageLayer({ transport, channel, host, container, pageHost });
+  const { host, shadow, container } = attachHost(document.body);
+  const layer = createPageLayer({ transport, channel, host, shadow, container, pageHost });
   return {
     setHost: (next) => layer.setHost(next),
     destroy() {
@@ -80,7 +80,7 @@ export interface MountedPanel {
  * such as after the frame loads another page.
  */
 export function mountPanel(container: Element, { transport, channel, supplyCapture, session, openThread, mockups, pageLimits, review, ...props }: PanelOptions): MountedPanel {
-  const { host, container: inner } = attachHost(container);
+  const { host, shadow, container: inner } = attachHost(container);
   const root = createRoot(inner);
   // A review frame is never trusted: its limits are always the untrusted ones.
   const limits = review !== undefined ? UNTRUSTED_PAGE_LIMITS : pageLimits;
@@ -89,7 +89,7 @@ export function mountPanel(container: Element, { transport, channel, supplyCaptu
   let destroyed = false;
   let shown = false;
   let current = { props, review };
-  const render = () => root.render(<Connect props={current.props} host={host} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} mockups={mockups} review={current.review} />);
+  const render = () => root.render(<Connect props={current.props} host={host} shadow={shadow} page={link} supplyCapture={supplyCapture} session={session} openThread={openThread} mockups={mockups} review={current.review} />);
   const ready = new Promise<void>((resolve) => {
     const stop = link.subscribe(() => {
       stop();
